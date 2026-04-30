@@ -1,0 +1,20 @@
+{% extends "layout.html" %}
+{% block title %}{{ t.dashboard }} - {{ t.admin_title }}{% endblock %}
+{% block content %}
+<h1>{{ t.dashboard }}</h1>
+<p>{{ t.signed_in_as }} <strong>{{ username }}</strong>.</p>
+<section class="grid">
+  <article class="card"><h2>{{ t.users }}</h2><p class="metric">{{ users }}</p></article>
+  <article class="card"><h2>{{ t.vaults }}</h2><p class="metric">{{ vaults }}</p></article>
+  <article class="card"><h2>{{ t.cpu }}</h2><p class="metric">{{ cpu_percent }}%</p></article>
+  <article class="card"><h2>{{ t.memory }}</h2><p class="metric">{{ memory_used_mb }} / {{ memory_total_mb }} MB</p></article>
+  <article class="card"><h2>{{ t.disk }}</h2><p class="metric">{{ disk_used_gb }} / {{ disk_total_gb }} GB</p></article>
+  <article class="card"><h2>{{ t.uptime }}</h2><p class="metric">{{ uptime_seconds }}s</p></article>
+</section>
+<section class="card">
+  <h2>{{ t.maintenance }}</h2>
+  <form method="post" action="/admin/gc">
+    <button class="secondary">{{ t.run_blob_gc }}</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,26 @@
+[Unit]
+Description=PKV Sync server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pkv-sync
+Group=pkv-sync
+ExecStart=/usr/local/bin/pkvsyncd -c /etc/pkv-sync/config.toml serve
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/var/lib/pkv-sync
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pkv-sync
+ReadOnlyPaths=/etc/pkv-sync
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

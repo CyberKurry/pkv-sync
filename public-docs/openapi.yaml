@@ -1,0 +1,696 @@
+openapi: 3.0.3
+info:
+  title: PKV Sync API
+  version: 0.1.0
+  license:
+    name: AGPL-3.0-only
+servers:
+  - url: https://sync.example.com
+security:
+  - DeploymentKey: []
+components:
+  securitySchemes:
+    DeploymentKey:
+      type: apiKey
+      in: header
+      name: X-PKVSync-Deployment-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    VaultId:
+      in: path
+      name: vault_id
+      required: true
+      schema:
+        type: string
+    Commit:
+      in: path
+      name: commit
+      required: true
+      schema:
+        type: string
+    BlobHash:
+      in: path
+      name: hash
+      required: true
+      schema:
+        type: string
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+    Config:
+      type: object
+      required: [server_name, version, registration, max_file_size, supported_text_extensions]
+      properties:
+        server_name:
+          type: string
+        version:
+          type: string
+        registration:
+          type: string
+          enum: [disabled, invite_only, open]
+        max_file_size:
+          type: integer
+          format: int64
+        supported_text_extensions:
+          type: array
+          items:
+            type: string
+    AuthResponse:
+      type: object
+      required: [token, user_id, username, is_admin]
+      properties:
+        token:
+          type: string
+        user_id:
+          type: string
+        username:
+          type: string
+        is_admin:
+          type: boolean
+    LoginRequest:
+      type: object
+      required: [username, password, device_name]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+        device_name:
+          type: string
+          maxLength: 64
+    RegisterRequest:
+      allOf:
+        - $ref: '#/components/schemas/LoginRequest'
+        - type: object
+          properties:
+            invite_code:
+              type: string
+              nullable: true
+    TokenView:
+      type: object
+      required: [id, device_name, created_at, current]
+      properties:
+        id:
+          type: string
+        device_name:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        last_used_at:
+          type: integer
+          format: int64
+          nullable: true
+        current:
+          type: boolean
+    Vault:
+      type: object
+      required: [id, user_id, name, created_at, total_size, file_count]
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+          nullable: true
+        total_size:
+          type: integer
+          format: int64
+        file_count:
+          type: integer
+          format: int64
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+    CreateVaultRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+    UploadCheckRequest:
+      type: object
+      required: [blob_hashes]
+      properties:
+        blob_hashes:
+          type: array
+          items:
+            type: string
+    UploadCheckResponse:
+      type: object
+      required: [missing]
+      properties:
+        missing:
+          type: array
+          items:
+            type: string
+    PushChange:
+      oneOf:
+        - type: object
+          required: [kind, path, content]
+          properties:
+            kind:
+              type: string
+              enum: [text]
+            path:
+              type: string
+            content:
+              type: string
+        - type: object
+          required: [kind, path, blob_hash, size]
+          properties:
+            kind:
+              type: string
+              enum: [blob]
+            path:
+              type: string
+            blob_hash:
+              type: string
+            size:
+              type: integer
+              format: int64
+            mime:
+              type: string
+              nullable: true
+        - type: object
+          required: [kind, path]
+          properties:
+            kind:
+              type: string
+              enum: [delete]
+            path:
+              type: string
+    PushRequest:
+      type: object
+      required: [changes]
+      properties:
+        device_name:
+          type: string
+          nullable: true
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/PushChange'
+    PushResponse:
+      type: object
+      required: [new_commit, files_changed]
+      properties:
+        new_commit:
+          type: string
+        files_changed:
+          type: integer
+    StateResponse:
+      type: object
+      required: [current_head, changed_since]
+      properties:
+        current_head:
+          type: string
+          nullable: true
+        changed_since:
+          type: boolean
+    PullFile:
+      type: object
+      required: [path, file_type, size]
+      properties:
+        path:
+          type: string
+        file_type:
+          type: string
+          enum: [text, blob]
+        size:
+          type: integer
+          format: int64
+        content_inline:
+          type: string
+          nullable: true
+        blob_hash:
+          type: string
+          nullable: true
+    PullResponse:
+      type: object
+      required: [from, to, added, modified, deleted]
+      properties:
+        from:
+          type: string
+          nullable: true
+        to:
+          type: string
+          nullable: true
+        added:
+          type: array
+          items:
+            $ref: '#/components/schemas/PullFile'
+        modified:
+          type: array
+          items:
+            $ref: '#/components/schemas/PullFile'
+        deleted:
+          type: array
+          items:
+            type: string
+    CommitSummary:
+      type: object
+      additionalProperties: true
+    CommitDetail:
+      type: object
+      additionalProperties: true
+    UserView:
+      type: object
+      additionalProperties: true
+    Invite:
+      type: object
+      additionalProperties: true
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Server is healthy
+  /api/config:
+    get:
+      summary: Server capability discovery
+      responses:
+        '200':
+          description: Server configuration visible to clients
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+  /api/auth/login:
+    post:
+      summary: Login and issue a device token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+  /api/auth/register:
+    post:
+      summary: Register and issue a device token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Registration succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '403':
+          description: Registration disabled
+  /api/me:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Current user and vaults
+      responses:
+        '200':
+          description: Current user
+  /api/me/password:
+    post:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Change current user's password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Password changed
+  /api/me/logout:
+    post:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Revoke current device token
+      responses:
+        '204':
+          description: Logged out
+  /api/me/tokens:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: List current user's device tokens
+      responses:
+        '200':
+          description: Token list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TokenView'
+  /api/me/tokens/{token_id}:
+    delete:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Revoke a device token
+      parameters:
+        - in: path
+          name: token_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Token revoked
+  /api/vaults:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: List vaults for current user
+      responses:
+        '200':
+          description: Vault list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vault'
+    post:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Create a vault
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVaultRequest'
+      responses:
+        '201':
+          description: Vault created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vault'
+  /api/vaults/{vault_id}:
+    delete:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Delete a vault
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+      responses:
+        '204':
+          description: Vault deleted
+  /api/vaults/{vault_id}/upload/check:
+    post:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Check which blobs need upload
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadCheckRequest'
+      responses:
+        '200':
+          description: Missing blob hashes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadCheckResponse'
+  /api/vaults/{vault_id}/upload/blob:
+    post:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Upload a blob by content hash
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - in: header
+          name: Content-Hash
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Blob stored
+  /api/vaults/{vault_id}/blobs/{hash}:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Download a referenced blob
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - $ref: '#/components/parameters/BlobHash'
+      responses:
+        '200':
+          description: Blob bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /api/vaults/{vault_id}/push:
+    post:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Push local changes
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushRequest'
+      responses:
+        '200':
+          description: Commit created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushResponse'
+        '409':
+          description: Head mismatch
+  /api/vaults/{vault_id}/state:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Check current vault head
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - in: query
+          name: head_since
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StateResponse'
+  /api/vaults/{vault_id}/pull:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Pull changes since a commit
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - in: query
+          name: since
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pull response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PullResponse'
+  /api/vaults/{vault_id}/commits:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: List vault commits
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            maximum: 200
+      responses:
+        '200':
+          description: Commit summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CommitSummary'
+  /api/vaults/{vault_id}/commits/{commit}:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Read commit detail
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - $ref: '#/components/parameters/Commit'
+      responses:
+        '200':
+          description: Commit detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommitDetail'
+  /api/vaults/{vault_id}/files/{path}:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Read a file from current head or a specific commit
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - in: path
+          name: path
+          required: true
+          schema:
+            type: string
+          description: Vault-relative path. May contain slashes.
+        - in: query
+          name: at
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File bytes
+  /api/admin/users:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: List users as admin
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserView'
+    post:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Create user as admin
+      responses:
+        '201':
+          description: User created
+  /api/admin/invites:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: List active invites as admin
+      responses:
+        '200':
+          description: Invite list
+    post:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Create invite as admin
+      responses:
+        '201':
+          description: Invite created
+  /api/admin/system:
+    get:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Read system counters as admin
+      responses:
+        '200':
+          description: System counters
+  /api/admin/gc:
+    post:
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: Run blob garbage collection as admin
+      responses:
+        '200':
+          description: Garbage collection report

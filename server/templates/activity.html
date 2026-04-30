@@ -1,0 +1,20 @@
+{% extends "layout.html" %}
+{% block title %}{{ t.activity }} - {{ t.admin_title }}{% endblock %}
+{% block content %}
+<h1>{{ t.activity }}</h1>
+<table>
+  <thead><tr><th>{{ t.time }}</th><th>{{ t.user }}</th><th>{{ t.action }}</th><th>{{ t.vaults }}</th><th>{{ t.ip }}</th><th>{{ t.user_agent }}</th></tr></thead>
+  <tbody>
+  {% for a in activities %}
+    <tr>
+      <td>{{ a.timestamp }}</td>
+      <td>{{ a.username }}</td>
+      <td>{{ a.action }}</td>
+      <td>{% if let Some(vault_id) = a.vault_id %}{{ vault_id }}{% endif %}</td>
+      <td>{% if let Some(client_ip) = a.client_ip %}{{ client_ip }}{% endif %}</td>
+      <td>{% if let Some(user_agent) = a.user_agent %}{{ user_agent }}{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

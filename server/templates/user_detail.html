@@ -1,0 +1,54 @@
+{% extends "layout.html" %}
+{% block title %}{{ t.user }} {{ user.username }} - {{ t.admin_title }}{% endblock %}
+{% block content %}
+<h1>{{ t.user }}: {{ user.username }}</h1>
+{% if let Some(m) = message %}<p class="success">{{ m }}</p>{% endif %}
+{% if let Some(token) = created_token %}
+<section class="card warning">
+  <h2>{{ t.new_device_token }}</h2>
+  <p>{{ t.copy_token_now }}</p>
+  <p><code>{{ token }}</code></p>
+</section>
+{% endif %}
+<section class="card">
+  <p>{{ t.id }}: <code>{{ user.id }}</code></p>
+  <p>{{ t.admin }}: {{ user.is_admin }} | {{ t.active }}: {{ user.is_active }}</p>
+</section>
+<section class="grid">
+  <form method="post" action="/admin/users/{{ user.id }}/password" class="card">
+    <h2>{{ t.reset_password }}</h2>
+    <label>{{ t.new_password }} <input name="password" type="password" autocomplete="new-password"></label>
+    <button>{{ t.reset }}</button>
+  </form>
+  <form method="post" action="/admin/users/{{ user.id }}/active" class="card">
+    <h2>{{ t.active }}</h2>
+    <input type="hidden" name="active" value="{% if user.is_active %}false{% else %}true{% endif %}">
+    <button>{% if user.is_active %}{{ t.disable }}{% else %}{{ t.enable }}{% endif %}</button>
+  </form>
+  <form method="post" action="/admin/users/{{ user.id }}/admin" class="card">
+    <h2>{{ t.admin }}</h2>
+    <input type="hidden" name="admin" value="{% if user.is_admin %}false{% else %}true{% endif %}">
+    <button>{% if user.is_admin %}{{ t.demote }}{% else %}{{ t.promote }}{% endif %}</button>
+  </form>
+</section>
+<h2>{{ t.tokens }}</h2>
+<form method="post" action="/admin/users/{{ user.id }}/tokens" class="card">
+  <h3>{{ t.create_device_token }}</h3>
+  <label>{{ t.device_name }} <input name="device_name" autocomplete="off" required></label>
+  <button>{{ t.create_token }}</button>
+</form>
+<table>
+  <thead><tr><th>{{ t.device }}</th><th>{{ t.created }}</th><th>{{ t.last_used }}</th><th>{{ t.revoked }}</th><th></th></tr></thead>
+  <tbody>
+  {% for token in tokens %}
+    <tr>
+      <td>{{ token.device_name }}</td>
+      <td>{{ token.created_at }}</td>
+      <td>{% if let Some(ts) = token.last_used_at %}{{ ts }}{% endif %}</td>
+      <td>{% if let Some(ts) = token.revoked_at %}{{ ts }}{% endif %}</td>
+      <td><form method="post" action="/admin/users/{{ user.id }}/tokens/{{ token.id }}/revoke"><button class="danger">{{ t.revoke }}</button></form></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

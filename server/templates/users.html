@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block title %}{{ t.users }} - {{ t.admin_title }}{% endblock %}
+{% block content %}
+<h1>{{ t.users }}</h1>
+{% if let Some(m) = message %}<p class="success">{{ m }}</p>{% endif %}
+<form method="post" action="/admin/users" class="card">
+  <h2>{{ t.create_user }}</h2>
+  <label>{{ t.username }} <input name="username" autocomplete="off"></label>
+  <label>{{ t.password }} <input name="password" type="password" autocomplete="new-password"></label>
+  <label class="check-row"><input type="checkbox" name="is_admin" value="true"> {{ t.admin }}</label>
+  <button>{{ t.create_user }}</button>
+</form>
+<table>
+  <thead><tr><th>{{ t.username }}</th><th>{{ t.admin }}</th><th>{{ t.active }}</th><th>{{ t.created }}</th><th></th></tr></thead>
+  <tbody>
+  {% for u in users %}
+    <tr>
+      <td>{{ u.username }}</td>
+      <td>{{ u.is_admin }}</td>
+      <td>{{ u.is_active }}</td>
+      <td>{{ u.created_at }}</td>
+      <td><a href="/admin/users/{{ u.id }}">{{ t.details }}</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

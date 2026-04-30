@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+{% block title %}{{ t.invites }} - {{ t.admin_title }}{% endblock %}
+{% block content %}
+<h1>{{ t.invites }}</h1>
+<form method="post" action="/admin/invites" class="card">
+  <h2>{{ t.create_invite }}</h2>
+  <label>{{ t.expires_at }} <input name="expires_at" inputmode="numeric"></label>
+  <button>{{ t.create_invite }}</button>
+</form>
+<table>
+  <thead><tr><th>{{ t.code }}</th><th>{{ t.created }}</th><th>{{ t.expires }}</th><th>{{ t.used }}</th><th></th></tr></thead>
+  <tbody>
+  {% for i in invites %}
+    <tr>
+      <td><code>{{ i.code }}</code></td>
+      <td>{{ i.created_at }}</td>
+      <td>{% if let Some(ts) = i.expires_at %}{{ ts }}{% endif %}</td>
+      <td>{% if let Some(ts) = i.used_at %}{{ ts }}{% endif %}</td>
+      <td><form method="post" action="/admin/invites/{{ i.code }}/delete"><button class="danger">{{ t.delete }}</button></form></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="{{ t.html_lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ t.admin_title }}{% endblock %}</title>
+  <link rel="stylesheet" href="/admin/static/admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="/admin" class="brand">{{ t.admin_title }}</a>
+    <nav>
+      <a href="/admin/users">{{ t.users }}</a>
+      <a href="/admin/vaults">{{ t.vaults }}</a>
+      <a href="/admin/invites">{{ t.invites }}</a>
+      <a href="/admin/settings">{{ t.settings }}</a>
+      <a href="/admin/activity">{{ t.activity }}</a>
+      <a href="/admin/language/en?next=/admin">English</a>
+      <a href="/admin/language/zh-CN?next=/admin">简体中文</a>
+      <form method="post" action="/admin/logout" class="inline"><button>{{ t.logout }}</button></form>
+    </nav>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

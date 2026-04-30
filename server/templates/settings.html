@@ -1,0 +1,19 @@
+{% extends "layout.html" %}
+{% block title %}{{ t.settings }} - {{ t.admin_title }}{% endblock %}
+{% block content %}
+<h1>{{ t.runtime_settings }}</h1>
+<form method="post" action="/admin/settings" class="card">
+  <label>{{ t.server_name }} <input name="server_name" value="{{ cfg.server_name }}" required></label>
+  <label>{{ t.registration_mode }}
+    <select name="registration_mode">
+      <option value="disabled" {% if cfg.registration_mode.as_str() == "disabled" %}selected{% endif %}>disabled</option>
+      <option value="invite_only" {% if cfg.registration_mode.as_str() == "invite_only" %}selected{% endif %}>invite_only</option>
+      <option value="open" {% if cfg.registration_mode.as_str() == "open" %}selected{% endif %}>open</option>
+    </select>
+  </label>
+  <label>{{ t.login_failure_threshold }} <input name="login_failure_threshold" type="number" min="1" value="{{ cfg.login_failure_threshold }}" required></label>
+  <label>{{ t.login_window_seconds }} <input name="login_window_seconds" type="number" min="1" value="{{ cfg.login_window_seconds }}" required></label>
+  <label>{{ t.login_lock_seconds }} <input name="login_lock_seconds" type="number" min="1" value="{{ cfg.login_lock_seconds }}" required></label>
+  <button>{{ t.save }}</button>
+</form>
+{% endblock %}

@@ -1,0 +1,25 @@
+[server]
+# Bind only localhost when using a reverse proxy.
+# For Docker Compose, use "0.0.0.0:6710" so the Caddy container can reach pkvsyncd.
+bind_addr = "127.0.0.1:6710"
+
+# Generate with: pkvsyncd genkey
+# Share URL format: https://sync.example.com/k_xxx/
+deployment_key = "k_replace_me"
+
+# Optional public host used for printing share URLs.
+# public_host = "sync.example.com"
+
+[storage]
+# PKV Sync data directory. Contains metadata.db, vaults/, blobs/.
+data_dir = "/var/lib/pkv-sync"
+db_path = "/var/lib/pkv-sync/metadata.db"
+
+[network]
+# Only trust X-Forwarded-For from these proxies.
+# Same-machine Caddy/Nginx defaults:
+trusted_proxies = ["127.0.0.1/32", "::1/128"]
+
+[logging]
+level = "info"
+format = "json"

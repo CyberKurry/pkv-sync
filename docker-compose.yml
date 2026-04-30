@@ -1,0 +1,30 @@
+services:
+  pkv-sync:
+    build: .
+    image: ghcr.io/cyberkurry/pkv-sync:latest
+    restart: unless-stopped
+    volumes:
+      - ./data:/var/lib/pkv-sync
+      # In Docker Compose, config.toml should use bind_addr = "0.0.0.0:6710".
+      - ./config.toml:/etc/pkv-sync/config.toml:ro
+    ports:
+      - "127.0.0.1:6710:6710"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      PKV_SYNC_UPSTREAM: pkv-sync:6710
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - pkv-sync
+
+volumes:
+  caddy_data:
+  caddy_config:

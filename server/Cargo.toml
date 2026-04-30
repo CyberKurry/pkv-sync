@@ -1,0 +1,53 @@
+[package]
+name = "pkv-sync-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "pkvsyncd"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+sqlx.workspace = true
+clap.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+rand.workspace = true
+regex.workspace = true
+subtle.workspace = true
+ipnet.workspace = true
+once_cell.workspace = true
+argon2 = "0.5"
+sha2 = "0.10"
+hex = "0.4"
+dashmap = "6"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+rpassword = "7"
+git2 = { version = "0.18", features = ["vendored-libgit2", "vendored-openssl"] }
+mime_guess = "2"
+walkdir = "2"
+bytes = "1"
+percent-encoding = "2"
+askama = "0.12"
+tower-cookies = "0.10"
+sysinfo = "0.30"
+html-escape = "0.2"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+tempfile = "3"

@@ -1,0 +1,9 @@
+{
+  "id": "pkv-sync",
+  "name": "PKV Sync",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Self-hosted Obsidian vault synchronization with versioned backup.",
+  "author": "cyberkurry",
+  "isDesktopOnly": false
+}

@@ -1,0 +1,14 @@
+.git
+.github
+.worktrees
+target
+plugin/node_modules
+plugin/main.js
+plugin/release
+plugin/pkv-sync-plugin.zip
+docs
+public-docs
+*.db
+*.log
+data
+var

@@ -1,0 +1,26 @@
+services:
+  traefik:
+    image: traefik:v3.0
+    command:
+      - --providers.docker=true
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --certificatesresolvers.le.acme.email=admin@example.com
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+    ports:
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+
+  pkv-sync:
+    image: ghcr.io/cyberkurry/pkv-sync:latest
+    volumes:
+      - ./data:/var/lib/pkv-sync
+      - ./config.toml:/etc/pkv-sync/config.toml:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.pkv.rule=Host(`sync.example.com`)
+      - traefik.http.routers.pkv.entrypoints=websecure
+      - traefik.http.routers.pkv.tls.certresolver=le
+      - traefik.http.services.pkv.loadbalancer.server.port=6710

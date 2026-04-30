@@ -1,0 +1,15 @@
+.pkv-sync-section {
+  margin-bottom: 1rem;
+}
+
+.pkv-sync-muted {
+  color: var(--text-muted);
+}
+
+.pkv-sync-error {
+  color: var(--text-error);
+}
+
+.pkv-sync-success {
+  color: var(--text-success);
+}
