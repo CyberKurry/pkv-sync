@@ -1,0 +1,17 @@
+FROM debian:bookworm-slim
+
+ARG TARGETARCH
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY bin/${TARGETARCH}/pkvsyncd /usr/local/bin/pkvsyncd
+COPY plugin/main.js /plugin/main.js
+COPY plugin/manifest.json /plugin/manifest.json
+COPY plugin/styles.css /plugin/styles.css
+EXPOSE 6710
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/pkvsyncd"]
+CMD ["-c", "/etc/pkv-sync/config.toml", "serve"]

@@ -185,6 +185,9 @@ jobs:
   docker:
     name: Docker image
     runs-on: ubuntu-latest
+    needs:
+      - build-linux
+      - plugin
 
     steps:
       - name: Checkout
@@ -195,6 +198,32 @@ jobs:
         shell: bash
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pkvsyncd-*-unknown-linux-gnu
+          path: dist/linux
+          merge-multiple: true
+
+      - name: Download plugin package
+        uses: actions/download-artifact@v4
+        with:
+          name: pkv-sync-plugin
+          path: dist/plugin
+
+      - name: Prepare Docker release context
+        shell: bash
+        run: |
+          mkdir -p docker-release/bin/amd64 docker-release/bin/arm64 docker-release/plugin
+          cp dist/linux/pkvsyncd-x86_64-unknown-linux-gnu docker-release/bin/amd64/pkvsyncd
+          cp dist/linux/pkvsyncd-aarch64-unknown-linux-gnu docker-release/bin/arm64/pkvsyncd
+          chmod +x docker-release/bin/amd64/pkvsyncd docker-release/bin/arm64/pkvsyncd
+          unzip -q dist/plugin/pkv-sync-plugin.zip -d docker-release/plugin
+          cp Dockerfile.release docker-release/Dockerfile
+          test -f docker-release/plugin/main.js
+          test -f docker-release/plugin/manifest.json
+          test -f docker-release/plugin/styles.css
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -204,7 +233,8 @@ jobs:
       - name: Build amd64 smoke image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: docker-release
+          file: docker-release/Dockerfile
           load: true
           platforms: linux/amd64
           tags: pkv-sync:smoke-amd64
@@ -222,7 +252,8 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: docker-release
+          file: docker-release/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           provenance: false
