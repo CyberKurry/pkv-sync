@@ -12,6 +12,12 @@ use sha2::{Digest, Sha256};
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RequestMetadata<'a> {
+    pub client_ip: Option<&'a str>,
+    pub user_agent: Option<&'a str>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UploadCheckReq {
     pub blob_hashes: Vec<String>,
@@ -169,6 +175,27 @@ pub async fn push(
     vault_id: &str,
     if_match: Option<&str>,
     idempotency_key: Option<&str>,
+    req: PushReq,
+) -> Result<PushResp, ApiError> {
+    push_with_request_metadata(
+        state,
+        user,
+        vault_id,
+        if_match,
+        idempotency_key,
+        RequestMetadata::default(),
+        req,
+    )
+    .await
+}
+
+pub async fn push_with_request_metadata(
+    state: &AppState,
+    user: &crate::auth::AuthenticatedUser,
+    vault_id: &str,
+    if_match: Option<&str>,
+    idempotency_key: Option<&str>,
+    request_metadata: RequestMetadata<'_>,
     req: PushReq,
 ) -> Result<PushResp, ApiError> {
     let _vault = vault::ensure_user_vault(state, &user.user_id, vault_id).await?;
@@ -338,6 +365,8 @@ pub async fn push(
         files_changed: git_changes.len(),
         idempotency_key,
         request_hash: request_hash.as_deref(),
+        client_ip: request_metadata.client_ip,
+        user_agent: request_metadata.user_agent,
         resp: &resp,
     })
     .await
@@ -408,6 +437,8 @@ struct PushMetadataInput<'a> {
     files_changed: usize,
     idempotency_key: Option<&'a str>,
     request_hash: Option<&'a str>,
+    client_ip: Option<&'a str>,
+    user_agent: Option<&'a str>,
     resp: &'a PushResp,
 }
 
@@ -458,8 +489,8 @@ async fn record_push_metadata(input: PushMetadataInput<'_>) -> Result<(), ApiErr
     .bind(&input.user.token_id)
     .bind("push")
     .bind(input.new_commit)
-    .bind(Option::<&str>::None)
-    .bind(Option::<&str>::None)
+    .bind(input.client_ip)
+    .bind(input.user_agent)
     .bind(now)
     .bind(&details)
     .execute(&mut *tx)
@@ -1004,6 +1035,40 @@ mod tests {
                 bytes: b"hello".to_vec()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn push_records_request_ip_and_user_agent() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        push_with_request_metadata(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            RequestMetadata {
+                client_ip: Some("203.0.113.10"),
+                user_agent: Some("PKVSync-Plugin/0.1.0"),
+            },
+            PushReq {
+                device_name: Some("test".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "hello".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let row: (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT client_ip, user_agent FROM sync_activity WHERE vault_id = ?")
+                .bind(&vid)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0.as_deref(), Some("203.0.113.10"));
+        assert_eq!(row.1.as_deref(), Some("PKVSync-Plugin/0.1.0"));
     }
 
     #[tokio::test]

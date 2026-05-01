@@ -37,6 +37,7 @@ hex = "0.4"
 dashmap = "6"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 rpassword = "7"
 git2 = { version = "0.18", features = ["vendored-libgit2", "vendored-openssl"] }
 mime_guess = "2"

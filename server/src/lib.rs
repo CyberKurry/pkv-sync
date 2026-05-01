@@ -13,5 +13,6 @@ pub mod middleware;
 pub mod server;
 pub mod service;
 pub mod storage;
+pub mod time;
 
 pub use error::{Error, Result};

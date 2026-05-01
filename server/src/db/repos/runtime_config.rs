@@ -35,6 +35,7 @@ impl RegistrationMode {
 pub struct RuntimeConfig {
     pub registration_mode: RegistrationMode,
     pub server_name: String,
+    pub timezone: String,
     pub login_failure_threshold: u32,
     pub login_window_seconds: u64,
     pub login_lock_seconds: u64,
@@ -47,6 +48,7 @@ impl Default for RuntimeConfig {
         Self {
             registration_mode: RegistrationMode::Disabled,
             server_name: "PKV Sync".into(),
+            timezone: crate::time::DEFAULT_TIMEZONE.into(),
             login_failure_threshold: 10,
             login_window_seconds: 15 * 60,
             login_lock_seconds: 15 * 60,
@@ -72,6 +74,7 @@ pub trait RuntimeConfigRepo: Send + Sync {
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
     async fn set_server_name(&self, name: &str, by: Option<&str>) -> Result<(), sqlx::Error>;
+    async fn set_timezone(&self, timezone: &str, by: Option<&str>) -> Result<(), sqlx::Error>;
     async fn set_login_rate_limit(
         &self,
         threshold: u32,
@@ -147,6 +150,13 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
                 cfg.server_name = s;
             }
         }
+        if let Some(v) = read_kv(&self.pool, "timezone").await? {
+            if let Ok(s) = serde_json::from_str::<String>(&v) {
+                if let Some(timezone) = crate::time::normalize_timezone(&s) {
+                    cfg.timezone = timezone;
+                }
+            }
+        }
         if let Some(v) = read_kv(&self.pool, "login_failure_threshold").await? {
             if let Ok(n) = serde_json::from_str::<u32>(&v) {
                 cfg.login_failure_threshold = n.max(1);
@@ -187,6 +197,11 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
     async fn set_server_name(&self, name: &str, by: Option<&str>) -> Result<(), sqlx::Error> {
         let v = serde_json::to_string(name).expect("string serializes");
         write_kv(&self.pool, "server_name", &v, by).await
+    }
+
+    async fn set_timezone(&self, timezone: &str, by: Option<&str>) -> Result<(), sqlx::Error> {
+        let v = serde_json::to_string(timezone).expect("string serializes");
+        write_kv(&self.pool, "timezone", &v, by).await
     }
 
     async fn set_login_rate_limit(
@@ -321,6 +336,7 @@ mod tests {
             .replace(RuntimeConfig {
                 registration_mode: RegistrationMode::Open,
                 server_name: "X".into(),
+                timezone: crate::time::DEFAULT_TIMEZONE.into(),
                 login_failure_threshold: 10,
                 login_window_seconds: 900,
                 login_lock_seconds: 900,
@@ -338,6 +354,13 @@ mod tests {
         r.set_max_file_size(50 * 1024 * 1024, None).await.unwrap();
         let cfg = r.load().await.unwrap();
         assert_eq!(cfg.max_file_size, 50 * 1024 * 1024);
+    }
+
+    #[tokio::test]
+    async fn set_and_reload_timezone() {
+        let r = setup().await;
+        r.set_timezone("Asia/Shanghai", None).await.unwrap();
+        assert_eq!(r.load().await.unwrap().timezone, "Asia/Shanghai");
     }
 
     #[tokio::test]

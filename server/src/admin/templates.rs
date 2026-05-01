@@ -1,5 +1,5 @@
 use crate::admin::i18n::AdminText;
-use crate::db::repos::{Invite, RuntimeConfig, TokenRow, User};
+use crate::db::repos::{RuntimeConfig, User};
 use askama::Template;
 
 #[derive(Template)]
@@ -28,18 +28,36 @@ pub struct DashboardTemplate {
 #[template(path = "users.html")]
 pub struct UsersTemplate {
     pub t: AdminText,
-    pub users: Vec<User>,
+    pub users: Vec<UserAdminView>,
     pub message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UserAdminView {
+    pub id: String,
+    pub username: String,
+    pub is_admin: bool,
+    pub is_active: bool,
+    pub created_at: String,
 }
 
 #[derive(Template)]
 #[template(path = "user_detail.html")]
 pub struct UserDetailTemplate {
     pub t: AdminText,
-    pub user: User,
-    pub tokens: Vec<TokenRow>,
+    pub user: UserAdminView,
+    pub tokens: Vec<TokenAdminView>,
     pub message: Option<String>,
     pub created_token: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TokenAdminView {
+    pub id: String,
+    pub device_name: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+    pub revoked_at: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,8 +66,8 @@ pub struct VaultAdminView {
     pub user_id: String,
     pub owner_username: String,
     pub name: String,
-    pub created_at: i64,
-    pub last_sync_at: Option<i64>,
+    pub created_at: String,
+    pub last_sync_at: Option<String>,
     pub size_bytes: i64,
     pub file_count: i64,
 }
@@ -67,7 +85,15 @@ pub struct VaultsTemplate {
 #[template(path = "invites.html")]
 pub struct InvitesTemplate {
     pub t: AdminText,
-    pub invites: Vec<Invite>,
+    pub invites: Vec<InviteAdminView>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InviteAdminView {
+    pub code: String,
+    pub created_at: String,
+    pub expires_at: Option<String>,
+    pub used_at: Option<String>,
 }
 
 #[derive(Template)]
@@ -79,7 +105,7 @@ pub struct SettingsTemplate {
 
 #[derive(Debug, Clone)]
 pub struct ActivityView {
-    pub timestamp: i64,
+    pub timestamp: String,
     pub username: String,
     pub action: String,
     pub vault_id: Option<String>,
@@ -133,7 +159,17 @@ mod tests {
         assert!(!html.contains("unpkg.com"));
     }
 
-    fn user(id: &str, username: &str, is_admin: bool) -> User {
+    fn user(id: &str, username: &str, is_admin: bool) -> UserAdminView {
+        UserAdminView {
+            id: id.into(),
+            username: username.into(),
+            is_admin,
+            is_active: true,
+            created_at: "1970-01-01 00:00:01 +00:00 UTC".into(),
+        }
+    }
+
+    fn db_user(id: &str, username: &str, is_admin: bool) -> User {
         User {
             id: id.into(),
             username: username.into(),
@@ -163,12 +199,11 @@ mod tests {
         let html = UserDetailTemplate {
             t: AdminText::en(),
             user: user("u1", "admin", true),
-            tokens: vec![TokenRow {
+            tokens: vec![TokenAdminView {
                 id: "t1".into(),
-                user_id: "u1".into(),
                 device_name: "desktop".into(),
-                created_at: 1,
-                last_used_at: Some(2),
+                created_at: "1970-01-01 00:00:01 +00:00 UTC".into(),
+                last_used_at: Some("1970-01-01 00:00:02 +00:00 UTC".into()),
                 revoked_at: None,
             }],
             message: None,
@@ -203,12 +238,12 @@ mod tests {
                 user_id: "u1".into(),
                 owner_username: "admin".into(),
                 name: "main".into(),
-                created_at: 1,
+                created_at: "1970-01-01 00:00:01 +00:00 UTC".into(),
                 last_sync_at: None,
                 size_bytes: 0,
                 file_count: 0,
             }],
-            users: vec![user("u1", "admin", true)],
+            users: vec![db_user("u1", "admin", true)],
             message: None,
         }
         .render()
@@ -222,13 +257,11 @@ mod tests {
     fn invites_template_renders() {
         let html = InvitesTemplate {
             t: AdminText::en(),
-            invites: vec![Invite {
+            invites: vec![InviteAdminView {
                 code: "inv_abc".into(),
-                created_by: "u1".into(),
-                created_at: 1,
-                expires_at: Some(2),
+                created_at: "1970-01-01 00:00:01 +00:00 UTC".into(),
+                expires_at: Some("1970-01-01 00:00:02 +00:00 UTC".into()),
                 used_at: None,
-                used_by: None,
             }],
         }
         .render()
@@ -244,6 +277,7 @@ mod tests {
             cfg: RuntimeConfig {
                 registration_mode: RegistrationMode::InviteOnly,
                 server_name: "Vault Hub".into(),
+                timezone: "UTC".into(),
                 login_failure_threshold: 5,
                 login_window_seconds: 60,
                 login_lock_seconds: 120,
@@ -263,7 +297,7 @@ mod tests {
         let html = ActivityTemplate {
             t: AdminText::en(),
             activities: vec![ActivityView {
-                timestamp: 1,
+                timestamp: "1970-01-01 00:00:01 +00:00 UTC".into(),
                 username: "admin".into(),
                 action: "vault_pull".into(),
                 vault_id: Some("v1".into()),

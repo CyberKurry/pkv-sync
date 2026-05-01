@@ -1,11 +1,12 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
 use crate::db::repos::VaultRepo;
+use crate::middleware::real_ip::ClientIp;
 use crate::service::sync::{self, UploadCheckReq};
 use crate::service::{vault as vault_service, AppState};
 use axum::body::Body;
-use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{Extension, Path, Query, State};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -114,13 +115,31 @@ async fn push(
     State(state): State<AppState>,
     user: AuthenticatedUser,
     Path(id): Path<String>,
+    client_ip: Option<Extension<ClientIp>>,
     headers: HeaderMap,
     Json(req): Json<sync::PushReq>,
 ) -> Result<Json<sync::PushResp>, ApiError> {
     let if_match = headers.get("if-match").and_then(|h| h.to_str().ok());
     let idem = headers.get("idempotency-key").and_then(|h| h.to_str().ok());
+    let client_ip = client_ip.map(|Extension(ClientIp(ip))| ip.to_string());
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(str::to_string);
     Ok(Json(
-        sync::push(&state, &user, &id, if_match, idem, req).await?,
+        sync::push_with_request_metadata(
+            &state,
+            &user,
+            &id,
+            if_match,
+            idem,
+            sync::RequestMetadata {
+                client_ip: client_ip.as_deref(),
+                user_agent: user_agent.as_deref(),
+            },
+            req,
+        )
+        .await?,
     ))
 }
 
@@ -231,7 +250,7 @@ mod tests {
     use axum::Router;
     use tower::ServiceExt;
 
-    async fn setup() -> (Router, String) {
+    async fn setup_with_state() -> (Router, AppState, String) {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
@@ -258,7 +277,12 @@ mod tests {
             })
             .await
             .unwrap();
-        (router().with_state(state), raw)
+        (router().with_state(state.clone()), state, raw)
+    }
+
+    async fn setup() -> (Router, String) {
+        let (app, _state, raw) = setup_with_state().await;
+        (app, raw)
     }
 
     fn req_json(method: &str, uri: &str, raw: &str, body: serde_json::Value) -> Request<Body> {
@@ -507,5 +531,61 @@ mod tests {
         )
         .unwrap();
         assert_eq!(body["changed_files"][0], "note.md");
+    }
+
+    #[tokio::test]
+    async fn push_records_request_metadata_from_handler() {
+        let (app, state, raw) = setup_with_state().await;
+        let create = app
+            .clone()
+            .oneshot(req_json(
+                "POST",
+                "/api/vaults",
+                &raw,
+                serde_json::json!({"name":"main"}),
+            ))
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(create.into_body(), 4096)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let id = body["id"].as_str().unwrap();
+
+        let resp = app
+            .clone()
+            .layer(axum::extract::Extension(ClientIp(
+                "203.0.113.12".parse().unwrap(),
+            )))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/vaults/{id}/push"))
+                    .header("authorization", format!("Bearer {raw}"))
+                    .header("content-type", "application/json")
+                    .header("user-agent", "PKVSync-Plugin/0.1.0")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "device_name": "test",
+                            "changes": [{"kind":"text","path":"note.md","content":"hello"}]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let row: (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT client_ip, user_agent FROM sync_activity WHERE vault_id = ?")
+                .bind(id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0.as_deref(), Some("203.0.113.12"));
+        assert_eq!(row.1.as_deref(), Some("PKVSync-Plugin/0.1.0"));
     }
 }

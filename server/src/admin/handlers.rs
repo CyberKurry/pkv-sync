@@ -1,14 +1,15 @@
 use crate::admin::session::{self, AdminSession};
 use crate::admin::templates::{
-    ActivityTemplate, ActivityView, DashboardTemplate, InvitesTemplate, LoginTemplate,
-    SettingsTemplate, UserDetailTemplate, UsersTemplate, VaultAdminView, VaultsTemplate,
+    ActivityTemplate, ActivityView, DashboardTemplate, InviteAdminView, InvitesTemplate,
+    LoginTemplate, SettingsTemplate, TokenAdminView, UserAdminView, UserDetailTemplate,
+    UsersTemplate, VaultAdminView, VaultsTemplate,
 };
 use crate::api::error::ApiError;
 use crate::auth::LoginRateLimiter;
 use crate::auth::{password, token};
 use crate::db::repos::{
-    InviteRepo, NewToken, NewUser, RegistrationMode, RuntimeConfigRepo, TokenRepo, UserRepo,
-    VaultRepo,
+    InviteRepo, NewToken, NewUser, RegistrationMode, RuntimeConfigRepo, TokenRepo, TokenRow, User,
+    UserRepo, VaultRepo,
 };
 use crate::middleware::real_ip::ClientIp;
 use crate::service::AppState;
@@ -57,6 +58,34 @@ pub fn router() -> Router<AppState> {
 
 fn admin_text(headers: &HeaderMap, cookies: &Cookies) -> crate::admin::i18n::AdminText {
     crate::admin::i18n::detect(headers, cookies).text()
+}
+
+fn fmt_ts(timestamp: i64, timezone: &str) -> String {
+    crate::time::format_unix_seconds(timestamp, timezone)
+}
+
+fn fmt_opt_ts(timestamp: Option<i64>, timezone: &str) -> Option<String> {
+    timestamp.map(|ts| fmt_ts(ts, timezone))
+}
+
+fn user_view(user: User, timezone: &str) -> UserAdminView {
+    UserAdminView {
+        id: user.id,
+        username: user.username,
+        is_admin: user.is_admin,
+        is_active: user.is_active,
+        created_at: fmt_ts(user.created_at, timezone),
+    }
+}
+
+fn token_view(token: TokenRow, timezone: &str) -> TokenAdminView {
+    TokenAdminView {
+        id: token.id,
+        device_name: token.device_name,
+        created_at: fmt_ts(token.created_at, timezone),
+        last_used_at: fmt_opt_ts(token.last_used_at, timezone),
+        revoked_at: fmt_opt_ts(token.revoked_at, timezone),
+    }
 }
 
 async fn login_page(headers: HeaderMap, cookies: Cookies) -> Html<String> {
@@ -221,7 +250,14 @@ async fn users_page(
     cookies: Cookies,
     _session: AdminSession,
 ) -> Result<Html<String>, ApiError> {
-    let users = state.users.list().await?;
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let users = state
+        .users
+        .list()
+        .await?
+        .into_iter()
+        .map(|u| user_view(u, &timezone))
+        .collect();
     Ok(Html(
         UsersTemplate {
             t: admin_text(&headers, &cookies),
@@ -282,11 +318,18 @@ async fn user_detail(
         .find_by_id(&id)
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
-    let tokens = state.tokens.list_for_user(&id).await?;
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let tokens = state
+        .tokens
+        .list_for_user(&id)
+        .await?
+        .into_iter()
+        .map(|token| token_view(token, &timezone))
+        .collect();
     Ok(Html(
         UserDetailTemplate {
             t: admin_text(&headers, &cookies),
-            user,
+            user: user_view(user, &timezone),
             tokens,
             message: None,
             created_token: None,
@@ -331,11 +374,18 @@ async fn create_token_form(
         })
         .await?;
     tracing::info!(user_id = %id, device_name = %device_name, "admin created device token");
-    let tokens = state.tokens.list_for_user(&id).await?;
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let tokens = state
+        .tokens
+        .list_for_user(&id)
+        .await?
+        .into_iter()
+        .map(|token| token_view(token, &timezone))
+        .collect();
     Ok(Html(
         UserDetailTemplate {
             t: admin_text(&headers, &cookies),
-            user,
+            user: user_view(user, &timezone),
             tokens,
             message: Some("Device token created".into()),
             created_token: Some(raw),
@@ -510,6 +560,7 @@ async fn reconcile_vault_form(
 }
 
 async fn list_admin_vaults(state: &AppState) -> Result<Vec<VaultAdminView>, ApiError> {
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
     let rows: Vec<VaultAdminRow> = sqlx::query_as(
         "SELECT v.id, v.user_id, u.username, v.name, v.created_at, v.last_sync_at,
                 v.size_bytes, v.file_count
@@ -536,8 +587,8 @@ async fn list_admin_vaults(state: &AppState) -> Result<Vec<VaultAdminView>, ApiE
                 user_id,
                 owner_username,
                 name,
-                created_at,
-                last_sync_at,
+                created_at: fmt_ts(created_at, &timezone),
+                last_sync_at: fmt_opt_ts(last_sync_at, &timezone),
                 size_bytes,
                 file_count,
             },
@@ -551,10 +602,19 @@ async fn invites_page(
     cookies: Cookies,
     _session: AdminSession,
 ) -> Result<Html<String>, ApiError> {
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
     let invites = state
         .invites
         .list_active(chrono::Utc::now().timestamp())
-        .await?;
+        .await?
+        .into_iter()
+        .map(|invite| InviteAdminView {
+            code: invite.code,
+            created_at: fmt_ts(invite.created_at, &timezone),
+            expires_at: fmt_opt_ts(invite.expires_at, &timezone),
+            used_at: fmt_opt_ts(invite.used_at, &timezone),
+        })
+        .collect();
     Ok(Html(
         InvitesTemplate {
             t: admin_text(&headers, &cookies),
@@ -615,6 +675,7 @@ async fn settings_page(
 #[derive(Deserialize)]
 struct SettingsForm {
     server_name: String,
+    timezone: String,
     registration_mode: String,
     login_failure_threshold: u32,
     login_window_seconds: u64,
@@ -645,9 +706,15 @@ async fn settings_post(
     }
     let mode = RegistrationMode::parse(&form.registration_mode)
         .ok_or_else(|| ApiError::bad_request("bad_mode", "invalid registration mode"))?;
+    let timezone = crate::time::normalize_timezone(&form.timezone)
+        .ok_or_else(|| ApiError::bad_request("bad_timezone", "invalid timezone"))?;
     state
         .runtime_cfg_repo
         .set_server_name(server_name, Some(&session.user.id))
+        .await?;
+    state
+        .runtime_cfg_repo
+        .set_timezone(&timezone, Some(&session.user.id))
         .await?;
     state
         .runtime_cfg_repo
@@ -687,11 +754,12 @@ async fn activity_page(
     )
     .fetch_all(&state.pool)
     .await?;
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
     let activities = rows
         .into_iter()
         .map(
             |(timestamp, username, action, vault_id, client_ip, user_agent)| ActivityView {
-                timestamp,
+                timestamp: fmt_ts(timestamp, &timezone),
                 username,
                 action,
                 vault_id,
