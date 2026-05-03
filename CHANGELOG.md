@@ -7,6 +7,16 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-03
+
+### Changed
+
+- Admin pages now render stored Unix timestamps as timezone-aware human-readable times using the runtime-configured IANA timezone.
+
+### Fixed
+
+- Record client IP and User-Agent metadata for vault push activity so the admin activity table is no longer blank for new push rows.
+
 ## [0.1.0] - 2026-04-30
 
 ### Added
