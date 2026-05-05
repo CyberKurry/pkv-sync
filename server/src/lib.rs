@@ -7,6 +7,7 @@ pub mod cli;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod human;
 pub mod keygen;
 pub mod logging;
 pub mod middleware;

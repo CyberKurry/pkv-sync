@@ -8,8 +8,8 @@
   <article class="card"><h2>{{ t.vaults }}</h2><p class="metric">{{ vaults }}</p></article>
   <article class="card"><h2>{{ t.cpu }}</h2><p class="metric">{{ cpu_percent }}%</p></article>
   <article class="card"><h2>{{ t.memory }}</h2><p class="metric">{{ memory_used_mb }} / {{ memory_total_mb }} MB</p></article>
-  <article class="card"><h2>{{ t.disk }}</h2><p class="metric">{{ disk_used_gb }} / {{ disk_total_gb }} GB</p></article>
-  <article class="card"><h2>{{ t.uptime }}</h2><p class="metric">{{ uptime_seconds }}s</p></article>
+  <article class="card"><h2>{{ t.disk }}</h2><p class="metric">{{ disk_display }}</p></article>
+  <article class="card"><h2>{{ t.uptime }}</h2><p class="metric">{{ uptime_display }}</p></article>
 </section>
 <section class="card">
   <h2>{{ t.maintenance }}</h2>

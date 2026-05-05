@@ -24,3 +24,6 @@ th, td { border-bottom: 1px solid #374151; padding: .6rem; text-align: left; }
 .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 .danger { background: #dc2626; }
 .secondary { background: #4b5563; }
+.inline-details { margin-top: .25rem; color: #9ca3af; }
+.inline-details summary { cursor: pointer; width: fit-content; }
+.inline-details code { display: inline-block; margin-top: .25rem; word-break: break-all; color: #d1d5db; }

@@ -225,19 +225,24 @@ async fn dashboard(
     let (vaults,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM vaults")
         .fetch_one(&state.pool)
         .await?;
-    let metrics = crate::admin::system::collect();
+    let metrics = crate::admin::system::collect(&state.data_dir);
+    let t = admin_text(&headers, &cookies);
+    let uptime_seconds = crate::server::uptime_seconds();
     Ok(Html(
         DashboardTemplate {
-            t: admin_text(&headers, &cookies),
+            disk_display: format!(
+                "{} / {}",
+                crate::human::format_bytes(metrics.disk_used_bytes),
+                crate::human::format_bytes(metrics.disk_total_bytes)
+            ),
+            uptime_display: crate::human::format_duration_seconds(uptime_seconds, t.html_lang),
+            t,
             username: session.user.username,
             users,
             vaults,
             cpu_percent: metrics.cpu_percent,
             memory_used_mb: metrics.memory_used_mb,
             memory_total_mb: metrics.memory_total_mb,
-            disk_used_gb: metrics.disk_used_gb,
-            disk_total_gb: metrics.disk_total_gb,
-            uptime_seconds: crate::server::uptime_seconds(),
         }
         .render()
         .unwrap(),
@@ -591,6 +596,7 @@ async fn list_admin_vaults(state: &AppState) -> Result<Vec<VaultAdminView>, ApiE
                 name,
                 created_at: fmt_ts(created_at, &timezone),
                 last_sync_at: fmt_opt_ts(last_sync_at, &timezone),
+                size_display: crate::human::format_i64_bytes(size_bytes),
                 size_bytes,
                 file_count,
             },
@@ -691,6 +697,8 @@ type ActivityRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
+    Option<String>,
 );
 
 async fn settings_post(
@@ -748,9 +756,12 @@ async fn activity_page(
     _session: AdminSession,
 ) -> Result<Html<String>, ApiError> {
     let rows: Vec<ActivityRow> = sqlx::query_as(
-        "SELECT a.timestamp, u.username, a.action, a.vault_id, a.client_ip, a.user_agent
+        "SELECT a.timestamp, u.username, a.action, a.vault_id, v.name, tok.device_name,
+                a.client_ip, a.user_agent
          FROM sync_activity a
          JOIN users u ON u.id = a.user_id
+         LEFT JOIN vaults v ON v.id = a.vault_id
+         LEFT JOIN tokens tok ON tok.id = a.token_id
          ORDER BY a.timestamp DESC
          LIMIT 200",
     )
@@ -760,11 +771,22 @@ async fn activity_page(
     let activities = rows
         .into_iter()
         .map(
-            |(timestamp, username, action, vault_id, client_ip, user_agent)| ActivityView {
+            |(
+                timestamp,
+                username,
+                action,
+                vault_id,
+                vault_name,
+                device_name,
+                client_ip,
+                user_agent,
+            )| ActivityView {
                 timestamp: fmt_ts(timestamp, &timezone),
                 username,
                 action,
                 vault_id,
+                vault_name,
+                device_name,
                 client_ip,
                 user_agent,
             },

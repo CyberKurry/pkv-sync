@@ -23,7 +23,7 @@
       <td>{{ v.name }}</td>
       <td>{{ v.owner_username }}</td>
       <td>{{ v.file_count }}</td>
-      <td>{{ v.size_bytes }}</td>
+      <td>{{ v.size_display }}</td>
       <td>{{ v.created_at }}</td>
       <td>{% if let Some(ts) = v.last_sync_at %}{{ ts }}{% endif %}</td>
       <td class="actions">

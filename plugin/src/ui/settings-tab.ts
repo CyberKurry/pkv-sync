@@ -1,6 +1,7 @@
 import { type App, Notice, PluginSettingTab, Setting } from "obsidian";
 import { ApiError } from "../api/client";
 import type { ServerConfigResponse } from "../api/types";
+import { formatBytes } from "../format";
 import { format } from "../i18n";
 import type PKVSyncPlugin from "../main";
 import type { PluginLanguage } from "../settings";
@@ -259,7 +260,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
           .setDesc(
             format(current.vaultSelectableSummary, {
               fileCount: vault.file_count,
-              sizeBytes: vault.size_bytes,
+              size: formatBytes(vault.size_bytes),
               selected: selected ? current.selectedVaultSuffix : ""
             })
           )

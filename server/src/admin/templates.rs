@@ -19,9 +19,8 @@ pub struct DashboardTemplate {
     pub cpu_percent: f32,
     pub memory_used_mb: u64,
     pub memory_total_mb: u64,
-    pub disk_used_gb: u64,
-    pub disk_total_gb: u64,
-    pub uptime_seconds: u64,
+    pub disk_display: String,
+    pub uptime_display: String,
 }
 
 #[derive(Template)]
@@ -68,6 +67,7 @@ pub struct VaultAdminView {
     pub name: String,
     pub created_at: String,
     pub last_sync_at: Option<String>,
+    pub size_display: String,
     pub size_bytes: i64,
     pub file_count: i64,
 }
@@ -109,6 +109,8 @@ pub struct ActivityView {
     pub username: String,
     pub action: String,
     pub vault_id: Option<String>,
+    pub vault_name: Option<String>,
+    pub device_name: Option<String>,
     pub client_ip: Option<String>,
     pub user_agent: Option<String>,
 }
@@ -147,9 +149,8 @@ mod tests {
             cpu_percent: 3.0,
             memory_used_mb: 10,
             memory_total_mb: 20,
-            disk_used_gb: 1,
-            disk_total_gb: 2,
-            uptime_seconds: 5,
+            disk_display: "1 GB / 2 GB".into(),
+            uptime_display: "5s".into(),
         }
         .render()
         .unwrap();
@@ -240,6 +241,7 @@ mod tests {
                 name: "main".into(),
                 created_at: "1970-01-01 00:00:01 +00:00 UTC".into(),
                 last_sync_at: None,
+                size_display: "0 B".into(),
                 size_bytes: 0,
                 file_count: 0,
             }],
@@ -303,6 +305,8 @@ mod tests {
                 username: "admin".into(),
                 action: "vault_pull".into(),
                 vault_id: Some("v1".into()),
+                vault_name: Some("Main Vault".into()),
+                device_name: Some("Laptop".into()),
                 client_ip: Some("127.0.0.1".into()),
                 user_agent: Some("PKVSync-Plugin/0.1.0".into()),
             }],
@@ -310,6 +314,9 @@ mod tests {
         .render()
         .unwrap();
         assert!(html.contains("vault_pull"));
+        assert!(html.contains("Main Vault"));
+        assert!(html.contains("Laptop"));
+        assert!(html.contains("<summary>ID</summary>"));
         assert!(html.contains("PKVSync-Plugin"));
     }
 }
