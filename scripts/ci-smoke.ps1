@@ -90,7 +90,7 @@ try {
     }
 
     $loginFile = Join-Path $root "login.json"
-    '{"username":"bob","password":"newpass1234","device_name":"ci"}' |
+    '{"username":"bob","password":"newpass1234","device_id":"dev_ci_smoke","device_name":"ci"}' |
         Set-Content -LiteralPath $loginFile -NoNewline -Encoding ASCII
 
     $code = & $curl `
