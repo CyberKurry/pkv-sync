@@ -4,6 +4,7 @@ import type { ServerConfigResponse } from "../api/types";
 import { format } from "../i18n";
 import type PKVSyncPlugin from "../main";
 import type { PluginLanguage } from "../settings";
+import { formatUnixSeconds, TIMEZONE_OPTIONS } from "../time";
 import { parseServerUrl } from "../url";
 
 export class PKVSyncSettingTab extends PluginSettingTab {
@@ -78,6 +79,19 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       })
     );
 
+    new Setting(containerEl).setName(t.timezone).addDropdown((dropdown) => {
+      for (const option of TIMEZONE_OPTIONS) {
+        dropdown.addOption(option.value, option.label);
+      }
+      dropdown
+        .setValue(this.plugin.settings.timezone)
+        .onChange(async (value) => {
+          this.plugin.settings.timezone = value;
+          await this.plugin.saveSettings();
+          this.display();
+        });
+    });
+
     new Setting(containerEl).addButton((button) =>
       button
         .setButtonText(t.connect)
@@ -119,6 +133,15 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     if (this.plugin.settings.token) {
       containerEl.createEl("p", {
         text: format(t.loggedInAs, { username: this.plugin.settings.username })
+      });
+      containerEl.createEl("p", {
+        text: format(t.lastSyncSuccess, {
+          time:
+            formatUnixSeconds(
+              this.plugin.settings.lastSyncSuccessAt,
+              this.plugin.settings.timezone
+            ) || t.neverSynced
+        })
       });
       new Setting(containerEl).addButton((button) =>
         button.setButtonText(t.logout).onClick(async () => {
@@ -181,7 +204,12 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     try {
       const response = await this.plugin
         .api()
-        .login(username, password, this.plugin.settings.deviceName);
+        .login(
+          username,
+          password,
+          this.plugin.settings.deviceId,
+          this.plugin.settings.deviceName
+        );
       this.plugin.settings.token = response.token;
       this.plugin.settings.userId = response.user_id;
       this.plugin.settings.username = response.username;
@@ -204,6 +232,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         .register(
           username,
           password,
+          this.plugin.settings.deviceId,
           this.plugin.settings.deviceName,
           inviteCode || undefined
         );

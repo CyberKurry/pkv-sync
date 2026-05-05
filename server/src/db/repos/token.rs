@@ -7,6 +7,7 @@ use uuid::Uuid;
 pub struct TokenRow {
     pub id: String,
     pub user_id: String,
+    pub device_id: String,
     pub device_name: String,
     pub created_at: i64,
     pub last_used_at: Option<i64>,
@@ -17,6 +18,7 @@ pub struct TokenRow {
 pub struct NewToken<'a> {
     pub user_id: &'a str,
     pub token_hash: &'a str,
+    pub device_id: &'a str,
     pub device_name: &'a str,
 }
 
@@ -34,6 +36,13 @@ pub trait TokenRepo: Send + Sync {
         ts: i64,
         except: Option<&str>,
     ) -> Result<(), sqlx::Error>;
+    async fn revoke_other_active_for_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        ts: i64,
+        except: &str,
+    ) -> Result<(), sqlx::Error>;
     async fn delete_revoked_older_than(&self, before_ts: i64) -> Result<u64, sqlx::Error>;
 }
 
@@ -45,6 +54,44 @@ impl SqliteTokenRepo {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
+
+    pub async fn create_replacing_device(&self, n: NewToken<'_>) -> Result<TokenRow, sqlx::Error> {
+        let id = Uuid::new_v4().simple().to_string();
+        let now = chrono::Utc::now().timestamp();
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(n.user_id)
+        .bind(n.token_hash)
+        .bind(n.device_id)
+        .bind(n.device_name)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE tokens SET revoked_at = ?
+             WHERE user_id = ? AND device_id = ? AND id != ? AND revoked_at IS NULL",
+        )
+        .bind(now)
+        .bind(n.user_id)
+        .bind(n.device_id)
+        .bind(&id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(TokenRow {
+            id,
+            user_id: n.user_id.into(),
+            device_id: n.device_id.into(),
+            device_name: n.device_name.into(),
+            created_at: now,
+            last_used_at: None,
+            revoked_at: None,
+        })
+    }
 }
 
 #[async_trait]
@@ -53,12 +100,13 @@ impl TokenRepo for SqliteTokenRepo {
         let id = Uuid::new_v4().simple().to_string();
         let now = chrono::Utc::now().timestamp();
         sqlx::query(
-            "INSERT INTO tokens (id, user_id, token_hash, device_name, created_at)
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(n.user_id)
         .bind(n.token_hash)
+        .bind(n.device_id)
         .bind(n.device_name)
         .bind(now)
         .execute(&self.pool)
@@ -66,6 +114,7 @@ impl TokenRepo for SqliteTokenRepo {
         Ok(TokenRow {
             id,
             user_id: n.user_id.into(),
+            device_id: n.device_id.into(),
             device_name: n.device_name.into(),
             created_at: now,
             last_used_at: None,
@@ -79,11 +128,12 @@ impl TokenRepo for SqliteTokenRepo {
             String,
             String,
             String,
+            String,
             i64,
             Option<i64>,
             Option<i64>,
         )> = sqlx::query_as(
-            "SELECT id, user_id, token_hash, device_name, created_at, last_used_at, revoked_at
+            "SELECT id, user_id, token_hash, device_id, device_name, created_at, last_used_at, revoked_at
                  FROM tokens WHERE token_hash = ? AND revoked_at IS NULL",
         )
         .bind(hash)
@@ -94,10 +144,11 @@ impl TokenRepo for SqliteTokenRepo {
                 TokenRow {
                     id: t.0,
                     user_id: t.1.clone(),
-                    device_name: t.3,
-                    created_at: t.4,
-                    last_used_at: t.5,
-                    revoked_at: t.6,
+                    device_id: t.3,
+                    device_name: t.4,
+                    created_at: t.5,
+                    last_used_at: t.6,
+                    revoked_at: t.7,
                 },
                 t.1,
             )
@@ -105,8 +156,16 @@ impl TokenRepo for SqliteTokenRepo {
     }
 
     async fn list_for_user(&self, user_id: &str) -> Result<Vec<TokenRow>, sqlx::Error> {
-        let rows: Vec<(String, String, String, i64, Option<i64>, Option<i64>)> = sqlx::query_as(
-            "SELECT id, user_id, device_name, created_at, last_used_at, revoked_at
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            i64,
+            Option<i64>,
+            Option<i64>,
+        )> = sqlx::query_as(
+            "SELECT id, user_id, device_id, device_name, created_at, last_used_at, revoked_at
              FROM tokens WHERE user_id = ? ORDER BY created_at DESC, id DESC",
         )
         .bind(user_id)
@@ -117,10 +176,11 @@ impl TokenRepo for SqliteTokenRepo {
             .map(|t| TokenRow {
                 id: t.0,
                 user_id: t.1,
-                device_name: t.2,
-                created_at: t.3,
-                last_used_at: t.4,
-                revoked_at: t.5,
+                device_id: t.2,
+                device_name: t.3,
+                created_at: t.4,
+                last_used_at: t.5,
+                revoked_at: t.6,
             })
             .collect())
     }
@@ -175,6 +235,26 @@ impl TokenRepo for SqliteTokenRepo {
         Ok(())
     }
 
+    async fn revoke_other_active_for_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        ts: i64,
+        except: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE tokens SET revoked_at = ?
+             WHERE user_id = ? AND device_id = ? AND id != ? AND revoked_at IS NULL",
+        )
+        .bind(ts)
+        .bind(user_id)
+        .bind(device_id)
+        .bind(except)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     async fn delete_revoked_older_than(&self, before_ts: i64) -> Result<u64, sqlx::Error> {
         let r = sqlx::query("DELETE FROM tokens WHERE revoked_at IS NOT NULL AND revoked_at < ?")
             .bind(before_ts)
@@ -213,6 +293,7 @@ mod tests {
             .create(NewToken {
                 user_id: &uid,
                 token_hash: "abc",
+                device_id: "device-abc",
                 device_name: "iphone",
             })
             .await
@@ -230,6 +311,7 @@ mod tests {
             .create(NewToken {
                 user_id: &uid,
                 token_hash: "k",
+                device_id: "device-k",
                 device_name: "d",
             })
             .await
@@ -245,6 +327,7 @@ mod tests {
             .create(NewToken {
                 user_id: &uid,
                 token_hash: "a",
+                device_id: "device-a",
                 device_name: "1",
             })
             .await
@@ -253,6 +336,7 @@ mod tests {
             .create(NewToken {
                 user_id: &uid,
                 token_hash: "b",
+                device_id: "device-b",
                 device_name: "2",
             })
             .await
@@ -261,6 +345,7 @@ mod tests {
             .create(NewToken {
                 user_id: &uid,
                 token_hash: "c",
+                device_id: "device-c",
                 device_name: "3",
             })
             .await
@@ -281,12 +366,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn revoke_other_active_for_device_keeps_only_current_device_token() {
+        let (_users, tokens, uid) = setup().await;
+        let old = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "old",
+                device_id: "device-a",
+                device_name: "Laptop",
+            })
+            .await
+            .unwrap();
+        let current = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "current",
+                device_id: "device-a",
+                device_name: "Laptop",
+            })
+            .await
+            .unwrap();
+        let other = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "other",
+                device_id: "device-b",
+                device_name: "Phone",
+            })
+            .await
+            .unwrap();
+
+        tokens
+            .revoke_other_active_for_device(&uid, "device-a", 999, &current.id)
+            .await
+            .unwrap();
+
+        let rows = tokens.list_for_user(&uid).await.unwrap();
+        let old = rows.iter().find(|t| t.id == old.id).unwrap();
+        let current = rows.iter().find(|t| t.id == current.id).unwrap();
+        let other = rows.iter().find(|t| t.id == other.id).unwrap();
+        assert_eq!(old.revoked_at, Some(999));
+        assert!(current.revoked_at.is_none());
+        assert!(other.revoked_at.is_none());
+    }
+
+    #[tokio::test]
     async fn touch_used_updates_timestamp() {
         let (_users, tokens, uid) = setup().await;
         let row = tokens
             .create(NewToken {
                 user_id: &uid,
                 token_hash: "z",
+                device_id: "device-z",
                 device_name: "d",
             })
             .await
@@ -303,6 +434,7 @@ mod tests {
             .create(NewToken {
                 user_id: &uid,
                 token_hash: "old",
+                device_id: "device-old",
                 device_name: "d",
             })
             .await

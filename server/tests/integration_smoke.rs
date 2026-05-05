@@ -147,6 +147,7 @@ async fn auth_register_route_reachable_through_stack() {
         .json(&serde_json::json!({
             "username": "alice",
             "password": "passw0rd!!",
+            "device_id": "device-smoke",
             "device_name": "desktop"
         }))
         .send()

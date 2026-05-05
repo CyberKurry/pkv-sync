@@ -4,7 +4,20 @@
 <h1>{{ t.runtime_settings }}</h1>
 <form method="post" action="/admin/settings" class="card">
   <label>{{ t.server_name }} <input name="server_name" value="{{ cfg.server_name }}" required></label>
-  <label>{{ t.timezone }} <input name="timezone" value="{{ cfg.timezone }}" required></label>
+  <label>{{ t.timezone }}
+    <select name="timezone">
+      <option value="Asia/Shanghai" {% if cfg.timezone.as_str() == "Asia/Shanghai" %}selected{% endif %}>Asia/Shanghai</option>
+      <option value="UTC" {% if cfg.timezone.as_str() == "UTC" %}selected{% endif %}>UTC</option>
+      <option value="Asia/Tokyo" {% if cfg.timezone.as_str() == "Asia/Tokyo" %}selected{% endif %}>Asia/Tokyo</option>
+      <option value="Asia/Hong_Kong" {% if cfg.timezone.as_str() == "Asia/Hong_Kong" %}selected{% endif %}>Asia/Hong_Kong</option>
+      <option value="Asia/Singapore" {% if cfg.timezone.as_str() == "Asia/Singapore" %}selected{% endif %}>Asia/Singapore</option>
+      <option value="America/Los_Angeles" {% if cfg.timezone.as_str() == "America/Los_Angeles" %}selected{% endif %}>America/Los_Angeles</option>
+      <option value="America/New_York" {% if cfg.timezone.as_str() == "America/New_York" %}selected{% endif %}>America/New_York</option>
+      <option value="Europe/London" {% if cfg.timezone.as_str() == "Europe/London" %}selected{% endif %}>Europe/London</option>
+      <option value="Europe/Berlin" {% if cfg.timezone.as_str() == "Europe/Berlin" %}selected{% endif %}>Europe/Berlin</option>
+      <option value="Australia/Sydney" {% if cfg.timezone.as_str() == "Australia/Sydney" %}selected{% endif %}>Australia/Sydney</option>
+    </select>
+  </label>
   <label>{{ t.registration_mode }}
     <select name="registration_mode">
       <option value="disabled" {% if cfg.registration_mode.as_str() == "disabled" %}selected{% endif %}>disabled</option>

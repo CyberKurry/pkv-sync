@@ -38,11 +38,13 @@ export class ApiClient {
   async login(
     username: string,
     password: string,
+    deviceId: string,
     deviceName: string
   ): Promise<AuthResponse> {
     return this.request<AuthResponse>("POST", "/api/auth/login", {
       username,
       password,
+      device_id: deviceId,
       device_name: deviceName
     });
   }
@@ -50,12 +52,14 @@ export class ApiClient {
   async register(
     username: string,
     password: string,
+    deviceId: string,
     deviceName: string,
     inviteCode?: string
   ): Promise<AuthResponse> {
     return this.request<AuthResponse>("POST", "/api/auth/register", {
       username,
       password,
+      device_id: deviceId,
       device_name: deviceName,
       invite_code: inviteCode
     });

@@ -30,7 +30,7 @@ describe("ApiClient helpers", () => {
       pluginVersion: "0.1.0"
     });
 
-    const response = await client.login("alice", "secret", "Laptop");
+    const response = await client.login("alice", "secret", "dev_123", "Laptop");
 
     expect(response.token).toBe("tok");
     expect(requestUrlMock).toHaveBeenCalledWith({
@@ -44,6 +44,7 @@ describe("ApiClient helpers", () => {
       body: JSON.stringify({
         username: "alice",
         password: "secret",
+        device_id: "dev_123",
         device_name: "Laptop"
       }),
       throw: false

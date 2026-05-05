@@ -66,6 +66,7 @@ async fn start_server_with_seeded_user() -> TestServer {
         .create(NewToken {
             user_id: &user.id,
             token_hash: &token::hash(&plaintext_token),
+            device_id: "device-sync-e2e",
             device_name: "sync-e2e",
         })
         .await

@@ -34,6 +34,7 @@ export interface MeResponse {
 
 export interface TokenView {
   id: string;
+  device_id: string;
   device_name: string;
   created_at: number;
   last_used_at: number | null;

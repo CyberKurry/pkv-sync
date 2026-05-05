@@ -289,6 +289,8 @@ mod tests {
         .unwrap();
         assert!(html.contains("Vault Hub"));
         assert!(html.contains("invite_only"));
+        assert!(html.contains("select name=\"timezone\""));
+        assert!(html.contains("option value=\"UTC\" selected"));
         assert!(html.contains("Save"));
     }
 

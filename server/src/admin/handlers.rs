@@ -365,11 +365,13 @@ async fn create_token_form(
         ));
     }
     let raw = token::generate();
+    let device_id = format!("admin_{}", uuid::Uuid::new_v4().simple());
     state
         .tokens
         .create(NewToken {
             user_id: &id,
             token_hash: &token::hash(&raw),
+            device_id: &device_id,
             device_name,
         })
         .await?;

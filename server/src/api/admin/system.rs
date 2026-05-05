@@ -73,6 +73,7 @@ mod tests {
             .create(NewToken {
                 user_id: &admin.id,
                 token_hash: &token::hash(&raw),
+                device_id: "device-admin-system",
                 device_name: "x",
             })
             .await

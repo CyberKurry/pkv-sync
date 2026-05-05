@@ -1,4 +1,4 @@
-import { Notice, Plugin } from "obsidian";
+import { Notice, Platform, Plugin } from "obsidian";
 import { ApiClient } from "./api/client";
 import { SyncApi } from "./api/sync-client";
 import {
@@ -21,6 +21,7 @@ import { format, strings, type Strings } from "./i18n";
 import { PKVSyncSettingTab } from "./ui/settings-tab";
 import { SyncStatusModal } from "./ui/sync-modal";
 import { statusText } from "./ui/status";
+import { formatUnixSeconds } from "./time";
 
 export default class PKVSyncPlugin extends Plugin {
   settings: PKVSyncSettings = DEFAULT_SETTINGS;
@@ -35,9 +36,17 @@ export default class PKVSyncPlugin extends Plugin {
   async onload(): Promise<void> {
     const t = this.text();
     this.settings = readPluginSettings(await this.loadData());
+    let shouldSaveSettings = false;
+    if (!this.settings.deviceId) {
+      this.settings.deviceId = this.generateDeviceId();
+      shouldSaveSettings = true;
+    }
     if (!this.settings.deviceName) {
       this.settings.deviceName = this.defaultDeviceName();
-      await this.saveSettings();
+      shouldSaveSettings = true;
+    }
+    if (shouldSaveSettings) {
+      await this.saveSettings({ rebuild: false });
     }
     this.client = this.makeClient();
     this.statusEl = this.addStatusBarItem();
@@ -86,7 +95,12 @@ export default class PKVSyncPlugin extends Plugin {
           format(current.syncStatusDetails, {
             server: this.settings.serverUrl,
             vault: this.settings.selectedVaultName || current.noneValue,
-            user: this.settings.username || current.notLoggedInValue
+            user: this.settings.username || current.notLoggedInValue,
+            lastSync:
+              formatUnixSeconds(
+                this.settings.lastSyncSuccessAt,
+                this.settings.timezone
+              ) || current.neverSynced
           })
         ).open();
       }
@@ -129,11 +143,11 @@ export default class PKVSyncPlugin extends Plugin {
     return this.client;
   }
 
-  async saveSettings(): Promise<void> {
+  async saveSettings(options: { rebuild?: boolean } = {}): Promise<void> {
     await this.saveData(writePluginSettings(await this.loadData(), this.settings));
     this.client = this.makeClient();
     this.updateStatus();
-    this.rebuildSyncEngine();
+    if (options.rebuild !== false) this.rebuildSyncEngine();
   }
 
   async loadSyncIndex(scopeKey = syncScopeKey(this.settings)): Promise<LocalIndex> {
@@ -159,10 +173,45 @@ export default class PKVSyncPlugin extends Plugin {
 
   private defaultDeviceName(): string {
     const t = this.text();
+    const hostname = this.desktopHostname();
+    if (hostname) return hostname;
+    const vaultName = this.app.vault.getName?.().trim();
+    const prefix = vaultName || "Obsidian";
     const ua = navigator.userAgent.toLowerCase();
-    if (ua.includes("android")) return t.defaultAndroidDevice;
-    if (ua.includes("iphone") || ua.includes("ipad")) return t.defaultIosDevice;
-    return t.defaultDesktopDevice;
+    if (Platform.isAndroidApp || ua.includes("android")) {
+      return `${prefix} - ${t.defaultAndroidDevice}`;
+    }
+    if (Platform.isIosApp || ua.includes("iphone") || ua.includes("ipad")) {
+      return `${prefix} - ${t.defaultIosDevice}`;
+    }
+    return `${prefix} - ${t.defaultDesktopDevice}`;
+  }
+
+  private desktopHostname(): string | null {
+    if (!Platform.isDesktopApp) return null;
+    try {
+      const nodeRequire = (window as unknown as {
+        require?: (module: string) => { hostname?: () => string };
+      }).require;
+      const hostname = nodeRequire?.("os")?.hostname?.().trim();
+      return hostname || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private generateDeviceId(): string {
+    const random =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    return `dev_${random}`;
+  }
+
+  private async recordSyncSuccess(generation: number): Promise<void> {
+    if (generation !== this.syncGeneration) return;
+    this.settings.lastSyncSuccessAt = Math.floor(Date.now() / 1000);
+    await this.saveSettings({ rebuild: false });
   }
 
   private makeClient(): ApiClient {
@@ -207,7 +256,8 @@ export default class PKVSyncPlugin extends Plugin {
       setStatus: (status, detail) =>
         generation === this.syncGeneration
           ? this.statusEl?.setText(statusText(status, detail, this.text()))
-          : undefined
+          : undefined,
+      onSyncSuccess: () => this.recordSyncSuccess(generation)
     });
     this.pushDebouncer = new Debouncer(this.settings.debounceMs, () => {
       void this.engine?.syncNow();

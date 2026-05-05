@@ -7,6 +7,24 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-05-05
+
+### Added
+
+- Add timezone selectors to the admin WebUI and Obsidian plugin, defaulting to Asia/Shanghai.
+- Show the last successful sync time in the Obsidian plugin using the plugin-selected timezone.
+- Persist a stable plugin device ID and include it in login/register requests.
+
+### Changed
+
+- Render human-readable timestamps without appending the timezone suffix.
+- Use desktop hostnames as default device names when available, with clearer mobile fallback names.
+- Replace prior active tokens for the same user and device ID when a device logs in again.
+
+### Fixed
+
+- Prevent repeated logout/login cycles from leaving multiple active tokens for the same device.
+
 ## [0.1.1] - 2026-05-03
 
 ### Changed

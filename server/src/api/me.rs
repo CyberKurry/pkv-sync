@@ -68,6 +68,7 @@ async fn logout(
 #[derive(Serialize)]
 struct TokenView {
     id: String,
+    device_id: String,
     device_name: String,
     created_at: i64,
     last_used_at: Option<i64>,
@@ -85,6 +86,7 @@ async fn list_tokens(
         .map(|r| TokenView {
             current: r.id == user.token_id,
             id: r.id,
+            device_id: r.device_id,
             device_name: r.device_name,
             created_at: r.created_at,
             last_used_at: r.last_used_at,
@@ -143,6 +145,7 @@ mod tests {
             .create(NewToken {
                 user_id: &user.id,
                 token_hash: &token::hash(&raw),
+                device_id: "device-me",
                 device_name: "d",
             })
             .await

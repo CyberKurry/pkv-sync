@@ -825,6 +825,7 @@ mod tests {
             .create(NewToken {
                 user_id: &user.id,
                 token_hash: &token::hash(&raw),
+                device_id: "device-sync",
                 device_name: "d",
             })
             .await
@@ -1288,6 +1289,7 @@ mod integration_tests {
             .create(NewToken {
                 user_id: &u.id,
                 token_hash: &token::hash(&raw),
+                device_id: "device-sync-admin",
                 device_name: "d",
             })
             .await

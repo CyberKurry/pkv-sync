@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct RegisterReq {
     pub username: String,
     pub password: String,
+    pub device_id: String,
     pub device_name: String,
     pub invite_code: Option<String>,
 }
@@ -16,6 +17,7 @@ pub struct RegisterReq {
 pub struct LoginReq {
     pub username: String,
     pub password: String,
+    pub device_id: String,
     pub device_name: String,
 }
 
@@ -158,6 +160,7 @@ pub async fn register(state: &AppState, req: RegisterReq) -> Result<AuthResp, Ap
         &user.id,
         &user.username,
         user.is_admin,
+        &req.device_id,
         &req.device_name,
     )
     .await
@@ -174,6 +177,7 @@ pub async fn login(state: &AppState, req: LoginReq) -> Result<AuthResp, ApiError
         &user.id,
         &user.username,
         user.is_admin,
+        &req.device_id,
         &req.device_name,
     )
     .await
@@ -218,8 +222,17 @@ async fn issue_token(
     user_id: &str,
     username: &str,
     is_admin: bool,
+    device_id: &str,
     device_name: &str,
 ) -> Result<AuthResp, ApiError> {
+    let device_id = device_id.trim();
+    let device_name = device_name.trim();
+    if device_id.is_empty() || device_id.len() > 128 {
+        return Err(ApiError::bad_request(
+            "invalid_device",
+            "device_id length must be 1-128",
+        ));
+    }
     if device_name.is_empty() || device_name.len() > 64 {
         return Err(ApiError::bad_request(
             "invalid_device",
@@ -230,9 +243,10 @@ async fn issue_token(
     let h = token::hash(&raw);
     state
         .tokens
-        .create(NewToken {
+        .create_replacing_device(NewToken {
             user_id,
             token_hash: &h,
+            device_id,
             device_name,
         })
         .await?;
@@ -275,6 +289,7 @@ mod tests {
             RegisterReq {
                 username: "alice".into(),
                 password: "passw0rd!!".into(),
+                device_id: "device-disabled".into(),
                 device_name: "x".into(),
                 invite_code: None,
             },
@@ -292,6 +307,7 @@ mod tests {
             RegisterReq {
                 username: "alice".into(),
                 password: "passw0rd!!".into(),
+                device_id: "device-open".into(),
                 device_name: "x".into(),
                 invite_code: None,
             },
@@ -310,6 +326,7 @@ mod tests {
             RegisterReq {
                 username: "userx".into(),
                 password: "passw0rd!!".into(),
+                device_id: "device-dupe-1".into(),
                 device_name: "d".into(),
                 invite_code: None,
             },
@@ -321,6 +338,7 @@ mod tests {
             RegisterReq {
                 username: "userx".into(),
                 password: "passw0rd!!".into(),
+                device_id: "device-dupe-2".into(),
                 device_name: "d".into(),
                 invite_code: None,
             },
@@ -338,6 +356,7 @@ mod tests {
             RegisterReq {
                 username: "userx".into(),
                 password: "short".into(),
+                device_id: "device-weak".into(),
                 device_name: "d".into(),
                 invite_code: None,
             },
@@ -355,6 +374,7 @@ mod tests {
             RegisterReq {
                 username: "ab".into(),
                 password: "passw0rd!!".into(),
+                device_id: "device-bad-user".into(),
                 device_name: "d".into(),
                 invite_code: None,
             },
@@ -372,6 +392,7 @@ mod tests {
             RegisterReq {
                 username: "alice".into(),
                 password: "secret123!".into(),
+                device_id: "device-a".into(),
                 device_name: "d".into(),
                 invite_code: None,
             },
@@ -383,12 +404,49 @@ mod tests {
             LoginReq {
                 username: "alice".into(),
                 password: "secret123!".into(),
+                device_id: "device-b".into(),
                 device_name: "d2".into(),
             },
         )
         .await
         .unwrap();
         assert!(resp.token.starts_with("pks_"));
+    }
+
+    #[tokio::test]
+    async fn login_revokes_previous_token_for_same_device_id() {
+        let s = make_state(RegistrationMode::Open).await;
+        let first = register(
+            &s,
+            RegisterReq {
+                username: "alice".into(),
+                password: "secret123!".into(),
+                device_id: "stable-device".into(),
+                device_name: "Laptop".into(),
+                invite_code: None,
+            },
+        )
+        .await
+        .unwrap();
+        let _second = login(
+            &s,
+            LoginReq {
+                username: "alice".into(),
+                password: "secret123!".into(),
+                device_id: "stable-device".into(),
+                device_name: "Laptop renamed".into(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let rows = s.tokens.list_for_user(&first.user_id).await.unwrap();
+        let live: Vec<_> = rows.iter().filter(|t| t.revoked_at.is_none()).collect();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].device_id, "stable-device");
+        assert_eq!(live[0].device_name, "Laptop renamed");
+        let revoked: Vec<_> = rows.iter().filter(|t| t.revoked_at.is_some()).collect();
+        assert_eq!(revoked.len(), 1);
     }
 
     #[tokio::test]
@@ -399,6 +457,7 @@ mod tests {
             RegisterReq {
                 username: "userx".into(),
                 password: "passw0rd!!".into(),
+                device_id: "device-login-wrong-register".into(),
                 device_name: "d".into(),
                 invite_code: None,
             },
@@ -410,6 +469,7 @@ mod tests {
             LoginReq {
                 username: "userx".into(),
                 password: "wrong".into(),
+                device_id: "device-login-wrong".into(),
                 device_name: "d".into(),
             },
         )
@@ -426,6 +486,7 @@ mod tests {
             LoginReq {
                 username: "ghost".into(),
                 password: "any".into(),
+                device_id: "device-ghost".into(),
                 device_name: "d".into(),
             },
         )
@@ -442,6 +503,7 @@ mod tests {
             RegisterReq {
                 username: "userx".into(),
                 password: "passw0rd!!".into(),
+                device_id: "device-change-1".into(),
                 device_name: "d1".into(),
                 invite_code: None,
             },
@@ -453,6 +515,7 @@ mod tests {
             LoginReq {
                 username: "userx".into(),
                 password: "passw0rd!!".into(),
+                device_id: "device-change-2".into(),
                 device_name: "d2".into(),
             },
         )
@@ -496,6 +559,7 @@ mod tests {
             RegisterReq {
                 username: "alice".into(),
                 password: "secret123!".into(),
+                device_id: "device-verify".into(),
                 device_name: "d".into(),
                 invite_code: None,
             },
@@ -514,6 +578,7 @@ mod tests {
             RegisterReq {
                 username: "alice".into(),
                 password: "secret123!".into(),
+                device_id: "device-verify-wrong".into(),
                 device_name: "d".into(),
                 invite_code: None,
             },

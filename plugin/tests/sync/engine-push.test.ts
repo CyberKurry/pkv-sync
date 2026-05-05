@@ -71,6 +71,44 @@ describe("SyncEngine push", () => {
     expect(idx.saved?.files["a.md"].lastSyncedHash).toBe("h");
   });
 
+  it("notifies after a successful sync", async () => {
+    const idx = new FakeIndex({ lastSyncedCommit: null, files: {} });
+    const onSyncSuccess = vi.fn();
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: null,
+        changed_since: false
+      }),
+      pull: vi.fn(),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({ new_commit: "c1", files_changed: 1 }),
+      downloadBlob: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: new FakeVault([
+        {
+          path: "a.md",
+          hash: "h",
+          size: 2,
+          kind: "text",
+          content: "hi"
+        }
+      ]) as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn(),
+      onSyncSuccess
+    });
+
+    await engine.syncNow();
+
+    expect(onSyncSuccess).toHaveBeenCalledTimes(1);
+  });
+
   it("uploads missing blobs before pushing manifest changes", async () => {
     const bytes = new Uint8Array([1, 2, 3]).buffer;
     const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });

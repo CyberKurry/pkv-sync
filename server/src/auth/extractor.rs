@@ -117,6 +117,7 @@ mod tests {
             .create(NewToken {
                 user_id: &u.id,
                 token_hash: &token::hash(&raw),
+                device_id: "device-extractor",
                 device_name: "d",
             })
             .await

@@ -6,6 +6,9 @@ describe("settings", () => {
     const settings = normalizeSettings({ serverUrl: "https://x" });
     expect(settings.serverUrl).toBe("https://x");
     expect(settings.language).toBe("auto");
+    expect(settings.timezone).toBe("Asia/Shanghai");
+    expect(settings.deviceId).toMatch(/^dev_/);
+    expect(settings.lastSyncSuccessAt).toBeNull();
     expect(settings.pollIntervalSeconds).toBe(60);
     expect(settings.debounceMs).toBe(2000);
   });

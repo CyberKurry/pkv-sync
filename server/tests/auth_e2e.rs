@@ -93,6 +93,7 @@ async fn registration_disabled_by_default() {
         .json(&serde_json::json!({
             "username": "alice",
             "password": "passw0rd!!",
+            "device_id": "device-disabled",
             "device_name": "desktop"
         }))
         .send()
@@ -113,6 +114,7 @@ async fn open_registration_register_login_me_roundtrip() {
         .json(&serde_json::json!({
             "username": "alice",
             "password": "passw0rd!!",
+            "device_id": "device-register",
             "device_name": "desktop"
         }))
         .send()
@@ -127,6 +129,7 @@ async fn open_registration_register_login_me_roundtrip() {
         .json(&serde_json::json!({
             "username": "alice",
             "password": "passw0rd!!",
+            "device_id": "device-login",
             "device_name": "laptop"
         }))
         .send()

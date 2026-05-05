@@ -4,6 +4,7 @@ export const en = {
   autoLanguage: "Auto",
   englishLanguage: "English",
   zhCnLanguage: "Simplified Chinese",
+  timezone: "Timezone",
   connection: "Connection",
   serverUrl: "Server URL",
   serverUrlDescription:
@@ -19,6 +20,8 @@ export const en = {
   register: "Register",
   logout: "Logout",
   syncNowButton: "Sync now",
+  lastSyncSuccess: "Last successful sync: {time}",
+  neverSynced: "Never",
   deviceName: "Device name",
   vaults: "Vaults",
   createVault: "Create vault",
@@ -52,7 +55,7 @@ export const en = {
   currentDeviceSuffix: " (current)",
   syncStatusTitle: "PKV Sync Status",
   syncStatusDetails:
-    "Server: {server}\nVault: {vault}\nUser: {user}",
+    "Server: {server}\nVault: {vault}\nUser: {user}\nLast successful sync: {lastSync}",
   noneValue: "(none)",
   notLoggedInValue: "(not logged in)",
   noConflictFiles: "No conflict files",

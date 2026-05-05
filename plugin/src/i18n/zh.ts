@@ -4,6 +4,7 @@ export const zh = {
   autoLanguage: "自动",
   englishLanguage: "English",
   zhCnLanguage: "简体中文",
+  timezone: "时区",
   connection: "连接",
   serverUrl: "服务器 URL",
   serverUrlDescription:
@@ -19,6 +20,8 @@ export const zh = {
   register: "注册",
   logout: "退出登录",
   syncNowButton: "立即同步",
+  lastSyncSuccess: "上次同步成功：{time}",
+  neverSynced: "从未同步",
   deviceName: "设备名称",
   vaults: "笔记库",
   createVault: "创建笔记库",
@@ -51,7 +54,7 @@ export const zh = {
   currentDeviceSuffix: "（当前）",
   syncStatusTitle: "PKV Sync 状态",
   syncStatusDetails:
-    "服务器：{server}\n笔记库：{vault}\n用户：{user}",
+    "服务器：{server}\n笔记库：{vault}\n用户：{user}\n上次同步成功：{lastSync}",
   noneValue: "（无）",
   notLoggedInValue: "（未登录）",
   noConflictFiles: "没有冲突文件",

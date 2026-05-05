@@ -273,6 +273,7 @@ mod tests {
             .create(NewToken {
                 user_id: &user.id,
                 token_hash: &token::hash(&raw),
+                device_id: "device-vaults",
                 device_name: "d",
             })
             .await

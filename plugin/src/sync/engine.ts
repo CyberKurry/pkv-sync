@@ -29,6 +29,7 @@ export interface SyncEngineOptions {
     status: "connected" | "syncing" | "offline" | "error",
     detail?: string
   ): void;
+  onSyncSuccess?(): void | Promise<void>;
 }
 
 export class SyncEngine {
@@ -76,6 +77,7 @@ export class SyncEngine {
       await this.pullIfChanged();
       await this.pushPendingWithHeadMismatchRetry();
       this.opts.setStatus("connected");
+      await this.opts.onSyncSuccess?.();
     } catch (error) {
       if (error instanceof ApiError && error.status === 0) {
         this.opts.setStatus("offline", error.message);

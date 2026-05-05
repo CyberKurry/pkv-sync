@@ -1,7 +1,7 @@
 use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
 
-pub const DEFAULT_TIMEZONE: &str = "UTC";
+pub const DEFAULT_TIMEZONE: &str = "Asia/Shanghai";
 
 pub fn normalize_timezone(value: &str) -> Option<String> {
     let value = value.trim();
@@ -9,7 +9,7 @@ pub fn normalize_timezone(value: &str) -> Option<String> {
         return None;
     }
     if value.eq_ignore_ascii_case("utc") {
-        return Some(DEFAULT_TIMEZONE.into());
+        return Some("UTC".into());
     }
     value.parse::<Tz>().ok()?;
     Some(value.into())
@@ -20,7 +20,7 @@ pub fn format_unix_seconds(timestamp: i64, timezone: &str) -> String {
     match Utc.timestamp_opt(timestamp, 0).single() {
         Some(dt) => {
             let local = dt.with_timezone(&tz);
-            format!("{} {}", local.format("%Y-%m-%d %H:%M:%S %:z"), timezone)
+            local.format("%Y-%m-%d %H:%M:%S").to_string()
         }
         None => timestamp.to_string(),
     }
@@ -41,10 +41,15 @@ mod tests {
     }
 
     #[test]
+    fn default_timezone_is_shanghai() {
+        assert_eq!(DEFAULT_TIMEZONE, "Asia/Shanghai");
+    }
+
+    #[test]
     fn formats_unix_seconds_in_timezone() {
         assert_eq!(
             format_unix_seconds(0, "Asia/Shanghai"),
-            "1970-01-01 08:00:00 +08:00 Asia/Shanghai"
+            "1970-01-01 08:00:00"
         );
     }
 }
