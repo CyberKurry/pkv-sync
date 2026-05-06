@@ -102,6 +102,7 @@ async fn login_page(headers: HeaderMap, cookies: Cookies) -> Html<String> {
         LoginTemplate {
             t: admin_text(&headers, &cookies),
             error: None,
+            version: env!("CARGO_PKG_VERSION"),
         }
         .render()
         .unwrap(),
@@ -203,6 +204,7 @@ fn login_error(
             LoginTemplate {
                 t,
                 error: Some(message),
+                version: env!("CARGO_PKG_VERSION"),
             }
             .render()
             .unwrap(),

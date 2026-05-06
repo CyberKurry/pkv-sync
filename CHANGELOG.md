@@ -7,6 +7,20 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-05-06
+
+### Changed
+
+- Make the Admin WebUI shell fully fluid instead of constraining it to the design mockup canvas size.
+- Replace hand-drawn Admin WebUI icons with a bundled Lucide icon sprite.
+- Collapse the Admin WebUI sidebar into a hamburger drawer on mobile viewports.
+- Reorder Admin WebUI settings sections as General, Security, Sync & Storage, and Network.
+- Bump `sqlx` to 0.8.1.
+
+### Fixed
+
+- Report CPU cores from container cgroup CPU quota when available, avoiding misleading host-core counts in Docker deployments.
+
 ## [0.1.3] - 2026-05-06
 
 ### Changed

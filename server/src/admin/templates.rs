@@ -7,6 +7,7 @@ use askama::Template;
 pub struct LoginTemplate<'a> {
     pub t: AdminText,
     pub error: Option<&'a str>,
+    pub version: &'static str,
 }
 
 #[derive(Template)]
@@ -165,11 +166,13 @@ mod tests {
         let html = LoginTemplate {
             t: AdminText::en(),
             error: Some("bad"),
+            version: "0.1.4",
         }
         .render()
         .unwrap();
         assert!(html.contains("PKV Sync Admin"));
         assert!(html.contains("bad"));
+        assert!(html.contains("PKV Sync v0.1.4"));
     }
 
     #[test]
