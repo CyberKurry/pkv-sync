@@ -46,6 +46,7 @@ class FakeVault {
 }
 
 class FakeIndex implements IndexPersistence {
+  saves: LocalIndex[] = [];
   saved: LocalIndex | null = null;
 
   constructor(public idx: LocalIndex) {}
@@ -55,6 +56,7 @@ class FakeIndex implements IndexPersistence {
   }
 
   async saveIndex(index: LocalIndex): Promise<void> {
+    this.saves.push(index);
     this.saved = index;
     this.idx = index;
   }
@@ -337,5 +339,82 @@ describe("SyncEngine pull", () => {
     expect(api.push).toHaveBeenCalledWith("v", "c1", [
       { kind: "delete", path: "a.md" }
     ], "Laptop X");
+  });
+
+  it("records files applied before a pull failure without advancing the commit", async () => {
+    const oldHash = await sha256Text("old");
+    const remoteHash = await sha256Text("remote");
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: oldHash,
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: oldHash,
+        size: 3,
+        kind: "text",
+        content: "old"
+      }
+    ]);
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c1",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [
+          {
+            path: "a.md",
+            file_type: "text",
+            size: 6,
+            content_inline: "remote"
+          },
+          {
+            path: "b.md",
+            file_type: "text",
+            size: 6,
+            content_inline: "fail"
+          }
+        ],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const originalWriteText = vault.writeText.bind(vault);
+    vi.spyOn(vault, "writeText").mockImplementation(async (path, content) => {
+      if (path === "b.md") throw new Error("disk full");
+      await originalWriteText(path, content);
+    });
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await expect(engine.syncNow()).rejects.toThrow("disk full");
+
+    expect(idx.saves).toHaveLength(1);
+    expect(idx.saved?.lastSyncedCommit).toBe("c0");
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe(remoteHash);
+    expect(idx.saved?.files["b.md"]).toBeUndefined();
   });
 });

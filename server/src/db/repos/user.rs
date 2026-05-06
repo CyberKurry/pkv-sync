@@ -30,6 +30,11 @@ pub trait UserRepo: Send + Sync {
     async fn update_password(&self, id: &str, new_hash: &str) -> Result<(), sqlx::Error>;
     async fn set_active(&self, id: &str, active: bool) -> Result<(), sqlx::Error>;
     async fn set_admin(&self, id: &str, admin: bool) -> Result<(), sqlx::Error>;
+    async fn set_admin_preserving_last_admin(
+        &self,
+        id: &str,
+        admin: bool,
+    ) -> Result<bool, sqlx::Error>;
     async fn touch_last_login(&self, id: &str, ts: i64) -> Result<(), sqlx::Error>;
     async fn delete(&self, id: &str) -> Result<(), sqlx::Error>;
     async fn count_admins(&self) -> Result<i64, sqlx::Error>;
@@ -129,6 +134,29 @@ impl UserRepo for SqliteUserRepo {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    async fn set_admin_preserving_last_admin(
+        &self,
+        id: &str,
+        admin: bool,
+    ) -> Result<bool, sqlx::Error> {
+        let r = sqlx::query(
+            "UPDATE users
+             SET is_admin = ?
+             WHERE id = ?
+               AND (
+                 ? = 1
+                 OR is_admin = 0
+                 OR (SELECT COUNT(*) FROM users WHERE is_admin = 1) > 1
+               )",
+        )
+        .bind(admin)
+        .bind(id)
+        .bind(admin)
+        .execute(&self.pool)
+        .await?;
+        Ok(r.rows_affected() == 1)
     }
 
     async fn touch_last_login(&self, id: &str, ts: i64) -> Result<(), sqlx::Error> {
@@ -261,6 +289,51 @@ mod tests {
         })
         .await
         .unwrap();
+        assert_eq!(repo.count_admins().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn set_admin_preserving_last_admin_refuses_to_remove_final_admin() {
+        let repo = fresh_repo().await;
+        let admin = repo
+            .create(NewUser {
+                username: "admin".into(),
+                password_hash: "h".into(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+
+        assert!(!repo
+            .set_admin_preserving_last_admin(&admin.id, false)
+            .await
+            .unwrap());
+        assert_eq!(repo.count_admins().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn set_admin_preserving_last_admin_allows_demoting_when_another_admin_remains() {
+        let repo = fresh_repo().await;
+        let first = repo
+            .create(NewUser {
+                username: "admin1".into(),
+                password_hash: "h".into(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        repo.create(NewUser {
+            username: "admin2".into(),
+            password_hash: "h".into(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
+
+        assert!(repo
+            .set_admin_preserving_last_admin(&first.id, false)
+            .await
+            .unwrap());
         assert_eq!(repo.count_admins().await.unwrap(), 1);
     }
 

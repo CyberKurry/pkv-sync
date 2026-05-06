@@ -80,6 +80,15 @@ impl AppState {
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
     }
+
+    pub async fn remove_vault_push_lock(&self, vault_id: &str) {
+        self.push_locks.lock().await.remove(vault_id);
+    }
+
+    #[cfg(test)]
+    pub async fn vault_push_lock_count_for_tests(&self) -> usize {
+        self.push_locks.lock().await.len()
+    }
 }
 
 #[cfg(test)]

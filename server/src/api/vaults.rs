@@ -54,7 +54,7 @@ async fn remove(
     user: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let ok = state.vaults.delete_for_user(&user.user_id, &id).await?;
+    let ok = vault_service::delete_vault_for_user(&state, &user.user_id, &id).await?;
     if !ok {
         return Err(ApiError::not_found("vault not found"));
     }

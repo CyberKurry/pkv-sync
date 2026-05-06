@@ -1,3 +1,4 @@
+use crate::auth::token;
 use async_trait::async_trait;
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -10,6 +11,7 @@ pub struct TokenRow {
     pub device_id: String,
     pub device_name: String,
     pub created_at: i64,
+    pub expires_at: i64,
     pub last_used_at: Option<i64>,
     pub revoked_at: Option<i64>,
 }
@@ -58,10 +60,11 @@ impl SqliteTokenRepo {
     pub async fn create_replacing_device(&self, n: NewToken<'_>) -> Result<TokenRow, sqlx::Error> {
         let id = Uuid::new_v4().simple().to_string();
         let now = chrono::Utc::now().timestamp();
+        let expires_at = now + token::TOKEN_TTL_SECONDS;
         let mut tx = self.pool.begin().await?;
         sqlx::query(
-            "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(n.user_id)
@@ -69,6 +72,7 @@ impl SqliteTokenRepo {
         .bind(n.device_id)
         .bind(n.device_name)
         .bind(now)
+        .bind(expires_at)
         .execute(&mut *tx)
         .await?;
         sqlx::query(
@@ -88,6 +92,7 @@ impl SqliteTokenRepo {
             device_id: n.device_id.into(),
             device_name: n.device_name.into(),
             created_at: now,
+            expires_at,
             last_used_at: None,
             revoked_at: None,
         })
@@ -99,9 +104,10 @@ impl TokenRepo for SqliteTokenRepo {
     async fn create(&self, n: NewToken<'_>) -> Result<TokenRow, sqlx::Error> {
         let id = Uuid::new_v4().simple().to_string();
         let now = chrono::Utc::now().timestamp();
+        let expires_at = now + token::TOKEN_TTL_SECONDS;
         sqlx::query(
-            "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(n.user_id)
@@ -109,6 +115,7 @@ impl TokenRepo for SqliteTokenRepo {
         .bind(n.device_id)
         .bind(n.device_name)
         .bind(now)
+        .bind(expires_at)
         .execute(&self.pool)
         .await?;
         Ok(TokenRow {
@@ -117,6 +124,7 @@ impl TokenRepo for SqliteTokenRepo {
             device_id: n.device_id.into(),
             device_name: n.device_name.into(),
             created_at: now,
+            expires_at,
             last_used_at: None,
             revoked_at: None,
         })
@@ -130,13 +138,15 @@ impl TokenRepo for SqliteTokenRepo {
             String,
             String,
             i64,
+            i64,
             Option<i64>,
             Option<i64>,
         )> = sqlx::query_as(
-            "SELECT id, user_id, token_hash, device_id, device_name, created_at, last_used_at, revoked_at
-                 FROM tokens WHERE token_hash = ? AND revoked_at IS NULL",
+            "SELECT id, user_id, token_hash, device_id, device_name, created_at, expires_at, last_used_at, revoked_at
+                 FROM tokens WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?",
         )
         .bind(hash)
+        .bind(chrono::Utc::now().timestamp())
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(|t| {
@@ -147,8 +157,9 @@ impl TokenRepo for SqliteTokenRepo {
                     device_id: t.3,
                     device_name: t.4,
                     created_at: t.5,
-                    last_used_at: t.6,
-                    revoked_at: t.7,
+                    expires_at: t.6,
+                    last_used_at: t.7,
+                    revoked_at: t.8,
                 },
                 t.1,
             )
@@ -162,10 +173,11 @@ impl TokenRepo for SqliteTokenRepo {
             String,
             String,
             i64,
+            i64,
             Option<i64>,
             Option<i64>,
         )> = sqlx::query_as(
-            "SELECT id, user_id, device_id, device_name, created_at, last_used_at, revoked_at
+            "SELECT id, user_id, device_id, device_name, created_at, expires_at, last_used_at, revoked_at
              FROM tokens WHERE user_id = ? ORDER BY created_at DESC, id DESC",
         )
         .bind(user_id)
@@ -179,8 +191,9 @@ impl TokenRepo for SqliteTokenRepo {
                 device_id: t.2,
                 device_name: t.3,
                 created_at: t.4,
-                last_used_at: t.5,
-                revoked_at: t.6,
+                expires_at: t.5,
+                last_used_at: t.6,
+                revoked_at: t.7,
             })
             .collect())
     }
@@ -318,6 +331,27 @@ mod tests {
             .unwrap();
         tokens.revoke(&row.id, 1).await.unwrap();
         assert!(tokens.find_by_hash("k").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn expired_token_not_returned() {
+        let (_users, tokens, uid) = setup().await;
+        let row = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "expired",
+                device_id: "device-expired",
+                device_name: "d",
+            })
+            .await
+            .unwrap();
+        sqlx::query("UPDATE tokens SET expires_at = ? WHERE id = ?")
+            .bind(chrono::Utc::now().timestamp() - 1)
+            .bind(&row.id)
+            .execute(&tokens.pool)
+            .await
+            .unwrap();
+        assert!(tokens.find_by_hash("expired").await.unwrap().is_none());
     }
 
     #[tokio::test]

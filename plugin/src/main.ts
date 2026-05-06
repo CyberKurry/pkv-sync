@@ -22,6 +22,7 @@ import { PKVSyncSettingTab } from "./ui/settings-tab";
 import { SyncStatusModal } from "./ui/sync-modal";
 import { statusText } from "./ui/status";
 import { formatUnixSeconds } from "./time";
+import { SerializedPluginDataStore } from "./plugin-store";
 
 export default class PKVSyncPlugin extends Plugin {
   settings: PKVSyncSettings = DEFAULT_SETTINGS;
@@ -32,6 +33,10 @@ export default class PKVSyncPlugin extends Plugin {
   private pollTimer: number | null = null;
   private fallbackTimer: number | null = null;
   private syncGeneration = 0;
+  private dataStore = new SerializedPluginDataStore(
+    () => this.loadData(),
+    (data) => this.saveData(data)
+  );
 
   async onload(): Promise<void> {
     const t = this.text();
@@ -129,7 +134,8 @@ export default class PKVSyncPlugin extends Plugin {
     this.pushDebouncer?.cancel();
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.fallbackTimer !== null) window.clearInterval(this.fallbackTimer);
-    void this.engine?.flushOnUnload(1500);
+    this.syncGeneration++;
+    this.engine = null;
     this.statusEl = null;
   }
 
@@ -144,7 +150,9 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   async saveSettings(options: { rebuild?: boolean } = {}): Promise<void> {
-    await this.saveData(writePluginSettings(await this.loadData(), this.settings));
+    await this.dataStore.update((data) =>
+      writePluginSettings(data, this.settings)
+    );
     this.client = this.makeClient();
     this.updateStatus();
     if (options.rebuild !== false) this.rebuildSyncEngine();
@@ -158,8 +166,9 @@ export default class PKVSyncPlugin extends Plugin {
     index: LocalIndex,
     scopeKey = syncScopeKey(this.settings)
   ): Promise<void> {
-    const data = writeSyncIndex(await this.loadData(), scopeKey, index);
-    await this.saveData(writePluginSettings(data, this.settings));
+    await this.dataStore.update((data) =>
+      writePluginSettings(writeSyncIndex(data, scopeKey, index), this.settings)
+    );
   }
 
   updateStatus(): void {

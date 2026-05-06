@@ -119,7 +119,16 @@ async fn update(
         state.users.set_active(&id, active).await?;
     }
     if let Some(is_admin) = req.is_admin {
-        state.users.set_admin(&id, is_admin).await?;
+        if !state
+            .users
+            .set_admin_preserving_last_admin(&id, is_admin)
+            .await?
+        {
+            return Err(ApiError::bad_request(
+                "last_admin",
+                "cannot demote the last admin",
+            ));
+        }
     }
     if let Some(password) = req.password {
         let password_hash = password::hash(&password).map_err(|e| match e {

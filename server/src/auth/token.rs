@@ -3,6 +3,7 @@ use sha2::{Digest, Sha256};
 
 /// Plaintext token format: `pks_` + 64 hex (256 bits of entropy).
 pub const PREFIX: &str = "pks_";
+pub const TOKEN_TTL_SECONDS: i64 = 90 * 24 * 60 * 60;
 const RAW_BYTES: usize = 32;
 
 /// Generate a fresh plaintext token. Caller stores the result on the client side

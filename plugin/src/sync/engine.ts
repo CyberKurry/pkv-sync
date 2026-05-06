@@ -181,65 +181,83 @@ export class SyncEngine {
     const current = await this.opts.vault.scan(this.opts.textExtensions);
     const currentByPath = new Map(current.map((file) => [file.path, file]));
     const touched: LocalFileSnapshot[] = [];
+    const deleted: string[] = [];
 
-    for (const file of [...pull.added, ...pull.modified]) {
-      if (!shouldSyncPath(file.path)) continue;
-      const local = currentByPath.get(file.path);
-      const indexed = index.files[file.path];
-      if (isLocalDeleted(local, indexed?.lastSyncedHash)) {
-        await this.writeRemoteConflict(file, pull.to);
-        continue;
-      }
-      if (isLocalDirty(local, indexed?.lastSyncedHash)) {
-        await this.writeConflict(file.path, local);
-      }
+    try {
+      for (const file of [...pull.added, ...pull.modified]) {
+        if (!shouldSyncPath(file.path)) continue;
+        const local = currentByPath.get(file.path);
+        const indexed = index.files[file.path];
+        if (isLocalDeleted(local, indexed?.lastSyncedHash)) {
+          await this.writeRemoteConflict(file, pull.to);
+          continue;
+        }
+        if (isLocalDirty(local, indexed?.lastSyncedHash)) {
+          await this.writeConflict(file.path, local);
+        }
 
-      if (file.file_type === "text") {
-        const content =
-          file.content_inline ??
-          (await this.opts.api.downloadTextFile(
+        if (file.file_type === "text") {
+          const content =
+            file.content_inline ??
+            (await this.opts.api.downloadTextFile(
+              this.opts.vaultId,
+              file.path,
+              pull.to
+            ));
+          await this.opts.vault.writeText(file.path, content);
+          touched.push({
+            path: file.path,
+            hash: await sha256Text(content),
+            size: new TextEncoder().encode(content).byteLength,
+            kind: "text",
+            content
+          });
+        } else {
+          if (!file.blob_hash) throw new Error(`Missing blob hash for ${file.path}`);
+          const bytes = await this.opts.api.downloadBlob(
             this.opts.vaultId,
-            file.path,
-            pull.to
-          ));
-        await this.opts.vault.writeText(file.path, content);
-        touched.push({
-          path: file.path,
-          hash: await sha256Text(content),
-          size: new TextEncoder().encode(content).byteLength,
-          kind: "text",
-          content
-        });
-      } else {
-        if (!file.blob_hash) throw new Error(`Missing blob hash for ${file.path}`);
-        const bytes = await this.opts.api.downloadBlob(
-          this.opts.vaultId,
-          file.blob_hash
-        );
-        await this.opts.vault.writeBinary(file.path, bytes);
-        touched.push({
-          path: file.path,
-          hash: file.blob_hash,
-          size: file.size,
-          kind: "blob",
-          bytes
-        });
+            file.blob_hash
+          );
+          await this.opts.vault.writeBinary(file.path, bytes);
+          touched.push({
+            path: file.path,
+            hash: file.blob_hash,
+            size: file.size,
+            kind: "blob",
+            bytes
+          });
+        }
       }
-    }
 
-    for (const path of pull.deleted) {
-      if (!shouldSyncPath(path)) continue;
-      const local = currentByPath.get(path);
-      const indexed = index.files[path];
-      if (isLocalDirty(local, indexed?.lastSyncedHash)) {
-        await this.writeConflict(path, local);
+      for (const path of pull.deleted) {
+        if (!shouldSyncPath(path)) continue;
+        const local = currentByPath.get(path);
+        const indexed = index.files[path];
+        if (isLocalDirty(local, indexed?.lastSyncedHash)) {
+          await this.writeConflict(path, local);
+        }
+        await this.opts.vault.delete(path);
+        deleted.push(path);
       }
-      await this.opts.vault.delete(path);
+    } catch (error) {
+      await this.savePartialPullProgress(index, touched, deleted);
+      throw error;
     }
 
     index = markSynced(index, pull.to, touched);
-    index = markDeleted(index, pull.to, pull.deleted);
+    index = markDeleted(index, pull.to, pull.deleted.filter(shouldSyncPath));
     await this.opts.index.saveIndex(index);
+  }
+
+  private async savePartialPullProgress(
+    index: LocalIndex,
+    touched: LocalFileSnapshot[],
+    deleted: string[]
+  ): Promise<void> {
+    if (touched.length === 0 && deleted.length === 0) return;
+    let partial = markSynced(index, index.lastSyncedCommit, touched);
+    partial = markDeleted(partial, index.lastSyncedCommit, deleted);
+    await this.opts.index.saveIndex(partial);
   }
 
   private async writeConflict(

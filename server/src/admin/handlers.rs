@@ -483,7 +483,16 @@ async fn set_admin_form(
             "cannot demote the last admin",
         ));
     }
-    state.users.set_admin(&id, form.admin).await?;
+    if !state
+        .users
+        .set_admin_preserving_last_admin(&id, form.admin)
+        .await?
+    {
+        return Err(ApiError::bad_request(
+            "last_admin",
+            "cannot demote the last admin",
+        ));
+    }
     Ok(Redirect::to(&format!("/admin/users/{id}")))
 }
 
@@ -688,7 +697,7 @@ async fn delete_vault_form(
         .find_by_id(&id)
         .await?
         .ok_or_else(|| ApiError::not_found("vault not found"))?;
-    state.vaults.delete_for_user(&vault.user_id, &id).await?;
+    crate::service::vault::delete_vault_for_user(&state, &vault.user_id, &id).await?;
     tracing::warn!(
         vault_id = %id,
         user_id = %vault.user_id,

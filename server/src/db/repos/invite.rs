@@ -156,7 +156,7 @@ mod tests {
     use crate::db::pool;
     use crate::db::repos::{NewUser, SqliteUserRepo, UserRepo};
 
-    async fn setup() -> (SqliteInviteRepo, String) {
+    async fn setup() -> (SqliteInviteRepo, SqliteUserRepo, String) {
         let p = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&p).await.unwrap();
         let users = SqliteUserRepo::new(p.clone());
@@ -168,12 +168,12 @@ mod tests {
             })
             .await
             .unwrap();
-        (SqliteInviteRepo::new(p), admin.id)
+        (SqliteInviteRepo::new(p), users, admin.id)
     }
 
     #[tokio::test]
     async fn create_then_find() {
-        let (repo, admin) = setup().await;
+        let (repo, _users, admin) = setup().await;
         let inv = repo.create(&admin, Some(9999999999)).await.unwrap();
         assert!(inv.code.starts_with("inv_"));
         let found = repo.find(&inv.code).await.unwrap().unwrap();
@@ -182,7 +182,7 @@ mod tests {
 
     #[tokio::test]
     async fn mark_used_first_succeeds_second_fails() {
-        let (repo, admin) = setup().await;
+        let (repo, _users, admin) = setup().await;
         let inv = repo.create(&admin, None).await.unwrap();
         assert!(repo.mark_used(&inv.code, &admin, 100).await.unwrap());
         assert!(!repo.mark_used(&inv.code, &admin, 200).await.unwrap());
@@ -190,7 +190,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_active_excludes_used() {
-        let (repo, admin) = setup().await;
+        let (repo, _users, admin) = setup().await;
         let i1 = repo.create(&admin, None).await.unwrap();
         let _i2 = repo.create(&admin, None).await.unwrap();
         repo.mark_used(&i1.code, &admin, 1).await.unwrap();
@@ -200,7 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_active_excludes_expired() {
-        let (repo, admin) = setup().await;
+        let (repo, _users, admin) = setup().await;
         let _i = repo.create(&admin, Some(50)).await.unwrap();
         let active = repo.list_active(100).await.unwrap();
         assert_eq!(active.len(), 0);
@@ -208,8 +208,39 @@ mod tests {
 
     #[tokio::test]
     async fn cannot_use_expired() {
-        let (repo, admin) = setup().await;
+        let (repo, _users, admin) = setup().await;
         let inv = repo.create(&admin, Some(50)).await.unwrap();
         assert!(!repo.mark_used(&inv.code, &admin, 100).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn deleting_invite_creator_cascades_to_invite() {
+        let (repo, users, admin) = setup().await;
+        let inv = repo.create(&admin, None).await.unwrap();
+
+        users.delete(&admin).await.unwrap();
+
+        assert!(repo.find(&inv.code).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn deleting_invite_user_nulls_used_by() {
+        let (repo, users, admin) = setup().await;
+        let user = users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let inv = repo.create(&admin, None).await.unwrap();
+        assert!(repo.mark_used(&inv.code, &user.id, 100).await.unwrap());
+
+        users.delete(&user.id).await.unwrap();
+
+        let found = repo.find(&inv.code).await.unwrap().unwrap();
+        assert_eq!(found.used_at, Some(100));
+        assert!(found.used_by.is_none());
     }
 }
