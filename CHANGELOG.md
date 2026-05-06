@@ -7,6 +7,14 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-06
+
+### Changed
+
+- Redesign the Admin WebUI around the new dark dashboard shell, sidebar navigation, metric cards, tables, forms, and login screen.
+- Add a global Admin WebUI device-token page so admins can review, create, and revoke device tokens across users.
+- Improve Admin WebUI dashboard, vault, invite, activity, user, device, and settings pages for deployment-time inspection.
+
 ## [0.1.2] - 2026-05-05
 
 ### Added
