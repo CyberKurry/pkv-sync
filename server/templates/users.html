@@ -3,14 +3,14 @@
 {% block nav_users %}is-active{% endblock %}
 {% block page_title %}User Management{% endblock %}
 {% block header_actions %}
-<a class="primary action-button" href="#create-user"><span>+</span> {{ t.create_user }}</a>
+<a class="primary action-button" href="#create-user"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#user-plus"></use></svg> {{ t.create_user }}</a>
 {% endblock %}
 {% block content %}
 {% if let Some(m) = message %}<p class="success">{{ m }}</p>{% endif %}
 
 <div class="toolbar">
   <label class="search-box field-search">
-    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#search"></use></svg>
     <input type="search" placeholder="Search users..." aria-label="Search users">
   </label>
   <select aria-label="Filter users">

@@ -125,6 +125,27 @@ async fn login_page_renders_without_api_headers() {
 }
 
 #[tokio::test]
+async fn lucide_icon_sprite_is_served_without_session() {
+    let resp = app()
+        .await
+        .oneshot(request(
+            Method::GET,
+            "/admin/static/lucide-icons.svg",
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_TYPE).unwrap(),
+        "image/svg+xml; charset=utf-8"
+    );
+    let body = read_body(resp).await;
+    assert!(body.contains("Icons from Lucide Icons"));
+    assert!(body.contains("id=\"gauge\""));
+}
+
+#[tokio::test]
 async fn login_page_follows_accept_language() {
     let mut req = request(Method::GET, "/admin/login", Body::empty());
     req.headers_mut()

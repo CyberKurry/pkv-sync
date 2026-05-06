@@ -31,6 +31,10 @@ pub struct AdminCookiePolicy {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/admin/static/admin.css", get(crate::admin::admin_css))
+        .route(
+            "/admin/static/lucide-icons.svg",
+            get(crate::admin::admin_icons),
+        )
         .route("/admin/language/:lang", get(set_language))
         .route("/admin/login", get(login_page).post(login_post))
         .route("/admin/logout", post(logout))
@@ -245,6 +249,7 @@ async fn dashboard(
             vaults,
             cpu_percent: metrics.cpu_percent,
             cpu_display: format!("{:.0}", metrics.cpu_percent),
+            cpu_cores_display: crate::admin::system::format_cpu_cores(metrics.cpu_cores),
             memory_display: crate::human::format_bytes(
                 metrics.memory_used_mb.saturating_mul(1024 * 1024),
             ),

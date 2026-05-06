@@ -5,6 +5,7 @@ use sysinfo::{Disks, System};
 #[derive(Debug, Clone, Serialize)]
 pub struct SystemMetrics {
     pub cpu_percent: f32,
+    pub cpu_cores: f32,
     pub memory_used_mb: u64,
     pub memory_total_mb: u64,
     pub disk_used_bytes: u64,
@@ -22,6 +23,7 @@ pub fn collect(data_dir: &Path) -> SystemMetrics {
     let mut system = System::new_all();
     system.refresh_all();
     let cpu_percent = system.global_cpu_info().cpu_usage();
+    let cpu_cores = effective_cpu_cores(system.cpus().len().max(1), detect_cgroup_cpu_quota());
     let memory_total_mb = system.total_memory() / 1024 / 1024;
     let memory_used_mb = system.used_memory() / 1024 / 1024;
 
@@ -43,10 +45,67 @@ pub fn collect(data_dir: &Path) -> SystemMetrics {
 
     SystemMetrics {
         cpu_percent,
+        cpu_cores,
         memory_used_mb,
         memory_total_mb,
         disk_used_bytes,
         disk_total_bytes,
+    }
+}
+
+fn detect_cgroup_cpu_quota() -> Option<f32> {
+    std::fs::read_to_string("/sys/fs/cgroup/cpu.max")
+        .ok()
+        .and_then(|raw| parse_cgroup_v2_cpu_max(&raw))
+        .or_else(|| {
+            let quota = std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").ok()?;
+            let period = std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.cfs_period_us").ok()?;
+            parse_cgroup_v1_cpu_quota(&quota, &period)
+        })
+}
+
+fn parse_cgroup_v2_cpu_max(raw: &str) -> Option<f32> {
+    let mut parts = raw.split_whitespace();
+    let quota = parts.next()?;
+    if quota == "max" {
+        return None;
+    }
+    let period = parts.next()?;
+    parse_cpu_quota_values(quota, period)
+}
+
+fn parse_cgroup_v1_cpu_quota(quota: &str, period: &str) -> Option<f32> {
+    parse_cpu_quota_values(quota.trim(), period.trim())
+}
+
+fn parse_cpu_quota_values(quota: &str, period: &str) -> Option<f32> {
+    let quota = quota.parse::<f32>().ok()?;
+    let period = period.parse::<f32>().ok()?;
+    if quota <= 0.0 || period <= 0.0 {
+        return None;
+    }
+    Some(quota / period)
+}
+
+fn effective_cpu_cores(logical_cores: usize, quota_cores: Option<f32>) -> f32 {
+    let logical = logical_cores.max(1) as f32;
+    quota_cores
+        .filter(|cores| cores.is_finite() && *cores > 0.0)
+        .map(|cores| cores.min(logical))
+        .unwrap_or(logical)
+}
+
+pub(crate) fn format_cpu_cores(cores: f32) -> String {
+    let rounded = cores.round();
+    if (cores - rounded).abs() < 0.05 {
+        let cores = rounded.max(1.0) as u32;
+        if cores == 1 {
+            "1 core".to_string()
+        } else {
+            format!("{cores} cores")
+        }
+    } else {
+        format!("{cores:.1} cores")
     }
 }
 
@@ -126,5 +185,19 @@ mod tests {
             disk_usage_for_path(Path::new("/data/pkv-sync"), &disks),
             Some((13, 25))
         );
+    }
+
+    #[test]
+    fn cgroup_v2_cpu_quota_limits_reported_cores() {
+        let quota = parse_cgroup_v2_cpu_max("100000 100000\n");
+        assert_eq!(effective_cpu_cores(4, quota), 1.0);
+        assert_eq!(format_cpu_cores(1.0), "1 core");
+    }
+
+    #[test]
+    fn cgroup_v1_cpu_quota_limits_reported_cores() {
+        let quota = parse_cgroup_v1_cpu_quota("150000", "100000");
+        assert_eq!(effective_cpu_cores(4, quota), 1.5);
+        assert_eq!(format_cpu_cores(1.5), "1.5 cores");
     }
 }

@@ -3,7 +3,7 @@
 {% block nav_invites %}is-active{% endblock %}
 {% block page_title %}Invite Codes{% endblock %}
 {% block header_actions %}
-<a class="primary action-button" href="#create-invite"><span>+</span> {{ t.create_invite }}</a>
+<a class="primary action-button" href="#create-invite"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#plus"></use></svg> {{ t.create_invite }}</a>
 {% endblock %}
 {% block content %}
 <section class="metric-grid three">
@@ -25,7 +25,7 @@
       <span class="badge badge-green">{{ t.used }}</span>
       {% else %}
       <span class="badge badge-orange">Pending</span>
-      <form method="post" action="/admin/invites/{{ i.code }}/delete" class="inline"><button class="danger small">{{ t.delete }}</button></form>
+      <form method="post" action="/admin/invites/{{ i.code }}/delete" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#trash-2"></use></svg>{{ t.delete }}</button></form>
       {% endif %}
     </div>
   </article>

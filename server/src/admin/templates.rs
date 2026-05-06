@@ -18,6 +18,7 @@ pub struct DashboardTemplate {
     pub vaults: i64,
     pub cpu_percent: f32,
     pub cpu_display: String,
+    pub cpu_cores_display: String,
     pub memory_display: String,
     pub memory_total_display: String,
     pub disk_used_display: String,
@@ -180,6 +181,7 @@ mod tests {
             vaults: 2,
             cpu_percent: 3.0,
             cpu_display: "3".into(),
+            cpu_cores_display: "1 core".into(),
             memory_display: "10 MB".into(),
             memory_total_display: "20 MB".into(),
             disk_used_display: "1 GB".into(),
@@ -214,6 +216,47 @@ mod tests {
         assert!(css.contains("#161928"));
         assert!(css.contains(".app-shell"));
         assert!(css.contains(".sidebar-nav"));
+    }
+
+    #[test]
+    fn admin_shell_is_fluid_and_has_mobile_drawer_tokens() {
+        let css = include_str!("../../static/admin.css");
+        assert!(!css.contains("min(1440px"));
+        assert!(!css.contains("min(900px"));
+        assert!(!css.contains("1057px"));
+        assert!(css.contains("width: 100vw"));
+        assert!(css.contains("height: 100vh"));
+        assert!(css.contains(".sidebar-toggle"));
+        assert!(css.contains(".mobile-menu-button"));
+        assert!(!css.contains("width: min(100%, 1057px"));
+        assert!(!css.contains("width: min(100%, 900px"));
+    }
+
+    #[test]
+    fn dashboard_template_uses_lucide_sprite_and_mobile_toggle() {
+        let html = DashboardTemplate {
+            t: AdminText::en(),
+            username: "admin".into(),
+            users: 1,
+            vaults: 2,
+            cpu_percent: 3.0,
+            cpu_display: "3".into(),
+            cpu_cores_display: "1 core".into(),
+            memory_display: "10 MB".into(),
+            memory_total_display: "20 MB".into(),
+            disk_used_display: "1 GB".into(),
+            disk_total_display: "2 GB".into(),
+            uptime_display: "5s".into(),
+            recent_activities: Vec::new(),
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("id=\"admin-sidebar-toggle\""));
+        assert!(html.contains("class=\"mobile-menu-button\""));
+        assert!(html.contains("/admin/static/lucide-icons.svg#gauge"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#users-round"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#menu"));
+        assert!(!html.contains("<path d=\"M4 13.5a8 8"));
     }
 
     fn user(id: &str, username: &str, is_admin: bool) -> UserAdminView {
@@ -382,6 +425,34 @@ mod tests {
         assert!(html.contains("select name=\"timezone\""));
         assert!(html.contains("option value=\"UTC\" selected"));
         assert!(html.contains("Save"));
+    }
+
+    #[test]
+    fn settings_template_orders_sections_like_sidebar() {
+        let html = SettingsTemplate {
+            t: AdminText::en(),
+            cfg: RuntimeConfig {
+                registration_mode: RegistrationMode::InviteOnly,
+                server_name: "Vault Hub".into(),
+                timezone: "UTC".into(),
+                login_failure_threshold: 5,
+                login_window_seconds: 60,
+                login_lock_seconds: 120,
+                max_file_size: 100 * 1024 * 1024,
+                text_extensions: RuntimeConfig::default().text_extensions.clone(),
+            },
+            max_file_size_display: "100 MB".into(),
+            text_extensions_display: "md, txt".into(),
+        }
+        .render()
+        .unwrap();
+        let general = html.find("id=\"general\"").unwrap();
+        let security = html.find("id=\"security\"").unwrap();
+        let sync = html.find("id=\"sync-storage\"").unwrap();
+        let network = html.find("id=\"network\"").unwrap();
+        assert!(general < security);
+        assert!(security < sync);
+        assert!(sync < network);
     }
 
     #[test]

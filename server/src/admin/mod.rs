@@ -15,3 +15,11 @@ pub async fn admin_css() -> impl IntoResponse {
         include_str!("../../static/admin.css"),
     )
 }
+
+pub async fn admin_icons() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
+        include_str!("../../static/lucide-icons.svg"),
+    )
+}

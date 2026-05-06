@@ -3,14 +3,14 @@
 {% block nav_settings %}is-active{% endblock %}
 {% block page_title %}{{ t.settings }}{% endblock %}
 {% block header_actions %}
-<button class="primary success-gradient" form="settings-form">Save Changes</button>
+<button class="primary success-gradient" form="settings-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>Save Changes</button>
 {% endblock %}
 {% block content %}
 <div class="settings-layout">
   <aside class="settings-tabs" aria-label="Settings sections">
     <a class="is-active" href="#general">General</a>
     <a href="#security">Security</a>
-    <a href="#sync-storage">Sync &amp; Storage</a>
+    <a href="#sync-storage">Sync</a>
     <a href="#network">Network</a>
   </aside>
 
@@ -40,6 +40,16 @@
       </div>
     </section>
 
+    <section id="security" class="panel settings-section">
+      <h2>Security</h2>
+      <p class="section-note">Configure admin login protection.</p>
+      <div class="form-grid">
+        <label>{{ t.login_failure_threshold }} <input name="login_failure_threshold" type="number" min="1" value="{{ cfg.login_failure_threshold }}" required></label>
+        <label>{{ t.login_window_seconds }} <input name="login_window_seconds" type="number" min="1" value="{{ cfg.login_window_seconds }}" required></label>
+        <label>{{ t.login_lock_seconds }} <input name="login_lock_seconds" type="number" min="1" value="{{ cfg.login_lock_seconds }}" required></label>
+      </div>
+    </section>
+
     <section id="sync-storage" class="panel settings-section">
       <h2>Sync &amp; Storage</h2>
       <p class="section-note">Configure max file size and synchronized text file extensions.</p>
@@ -51,13 +61,12 @@
       </div>
     </section>
 
-    <section id="security" class="panel settings-section secondary-settings">
-      <h2>Security</h2>
-      <p class="section-note">Configure admin login protection.</p>
+    <section id="network" class="panel settings-section">
+      <h2>Network</h2>
+      <p class="section-note">Network bind address, public host, and trusted proxy ranges are read from config.toml at startup.</p>
       <div class="form-grid">
-        <label>{{ t.login_failure_threshold }} <input name="login_failure_threshold" type="number" min="1" value="{{ cfg.login_failure_threshold }}" required></label>
-        <label>{{ t.login_window_seconds }} <input name="login_window_seconds" type="number" min="1" value="{{ cfg.login_window_seconds }}" required></label>
-        <label>{{ t.login_lock_seconds }} <input name="login_lock_seconds" type="number" min="1" value="{{ cfg.login_lock_seconds }}" required></label>
+        <label>Public Host <input value="Configured in config.toml" disabled></label>
+        <label>Trusted Proxies <input value="Configured in config.toml" disabled></label>
       </div>
     </section>
   </form>
