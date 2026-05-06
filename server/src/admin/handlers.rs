@@ -1,8 +1,8 @@
 use crate::admin::session::{self, AdminSession};
 use crate::admin::templates::{
-    ActivityTemplate, ActivityView, DashboardTemplate, InviteAdminView, InvitesTemplate,
-    LoginTemplate, SettingsTemplate, TokenAdminView, UserAdminView, UserDetailTemplate,
-    UsersTemplate, VaultAdminView, VaultsTemplate,
+    ActivityTemplate, ActivityView, DashboardTemplate, DeviceTokenAdminView, DevicesTemplate,
+    InviteAdminView, InvitesTemplate, LoginTemplate, SettingsTemplate, TokenAdminView,
+    UserAdminView, UserDetailTemplate, UsersTemplate, VaultAdminView, VaultsTemplate,
 };
 use crate::api::error::ApiError;
 use crate::auth::LoginRateLimiter;
@@ -45,6 +45,11 @@ pub fn router() -> Router<AppState> {
             "/admin/users/:id/tokens/:tid/revoke",
             post(revoke_token_form),
         )
+        .route(
+            "/admin/devices",
+            get(devices_page).post(create_device_token_form),
+        )
+        .route("/admin/devices/:tid/revoke", post(revoke_device_token_form))
         .route("/admin/vaults", get(vaults_page).post(create_vault_form))
         .route("/admin/vaults/:id/delete", post(delete_vault_form))
         .route("/admin/vaults/:id/reconcile", post(reconcile_vault_form))
@@ -228,21 +233,25 @@ async fn dashboard(
     let metrics = crate::admin::system::collect(&state.data_dir);
     let t = admin_text(&headers, &cookies);
     let uptime_seconds = crate::server::uptime_seconds();
+    let recent_activities = list_admin_activities(&state, 5).await?;
     Ok(Html(
         DashboardTemplate {
-            disk_display: format!(
-                "{} / {}",
-                crate::human::format_bytes(metrics.disk_used_bytes),
-                crate::human::format_bytes(metrics.disk_total_bytes)
-            ),
+            disk_used_display: crate::human::format_bytes(metrics.disk_used_bytes),
+            disk_total_display: crate::human::format_bytes(metrics.disk_total_bytes),
             uptime_display: crate::human::format_duration_seconds(uptime_seconds, t.html_lang),
             t,
             username: session.user.username,
             users,
             vaults,
             cpu_percent: metrics.cpu_percent,
-            memory_used_mb: metrics.memory_used_mb,
-            memory_total_mb: metrics.memory_total_mb,
+            cpu_display: format!("{:.0}", metrics.cpu_percent),
+            memory_display: crate::human::format_bytes(
+                metrics.memory_used_mb.saturating_mul(1024 * 1024),
+            ),
+            memory_total_display: crate::human::format_bytes(
+                metrics.memory_total_mb.saturating_mul(1024 * 1024),
+            ),
+            recent_activities,
         }
         .render()
         .unwrap(),
@@ -349,6 +358,17 @@ struct TokenForm {
     device_name: String,
 }
 
+fn validated_device_name(device_name: &str) -> Result<&str, ApiError> {
+    let device_name = device_name.trim();
+    if device_name.is_empty() || device_name.len() > 128 {
+        return Err(ApiError::bad_request(
+            "invalid_device_name",
+            "device name length must be 1-128",
+        ));
+    }
+    Ok(device_name)
+}
+
 async fn create_token_form(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -362,13 +382,7 @@ async fn create_token_form(
         .find_by_id(&id)
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
-    let device_name = form.device_name.trim();
-    if device_name.is_empty() || device_name.len() > 128 {
-        return Err(ApiError::bad_request(
-            "invalid_device_name",
-            "device name length must be 1-128",
-        ));
-    }
+    let device_name = validated_device_name(&form.device_name)?;
     let raw = token::generate();
     let device_id = format!("admin_{}", uuid::Uuid::new_v4().simple());
     state
@@ -479,6 +493,132 @@ async fn revoke_token_form(
     Ok(Redirect::to(&format!("/admin/users/{id}")))
 }
 
+type DeviceTokenAdminRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    Option<i64>,
+    Option<i64>,
+);
+
+async fn devices_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
+    _session: AdminSession,
+) -> Result<Html<String>, ApiError> {
+    Ok(Html(
+        DevicesTemplate {
+            t: admin_text(&headers, &cookies),
+            users: state.users.list().await?,
+            tokens: list_admin_device_tokens(&state).await?,
+            created_token: None,
+        }
+        .render()
+        .unwrap(),
+    ))
+}
+
+#[derive(Deserialize)]
+struct CreateDeviceTokenForm {
+    user_id: String,
+    device_name: String,
+}
+
+async fn create_device_token_form(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
+    _session: AdminSession,
+    Form(form): Form<CreateDeviceTokenForm>,
+) -> Result<Html<String>, ApiError> {
+    state
+        .users
+        .find_by_id(&form.user_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("user not found"))?;
+    let device_name = validated_device_name(&form.device_name)?;
+    let raw = token::generate();
+    let device_id = format!("admin_{}", uuid::Uuid::new_v4().simple());
+    state
+        .tokens
+        .create(NewToken {
+            user_id: &form.user_id,
+            token_hash: &token::hash(&raw),
+            device_id: &device_id,
+            device_name,
+        })
+        .await?;
+    tracing::info!(
+        user_id = %form.user_id,
+        device_name = %device_name,
+        "admin created device token from devices page"
+    );
+    Ok(Html(
+        DevicesTemplate {
+            t: admin_text(&headers, &cookies),
+            users: state.users.list().await?,
+            tokens: list_admin_device_tokens(&state).await?,
+            created_token: Some(raw),
+        }
+        .render()
+        .unwrap(),
+    ))
+}
+
+async fn revoke_device_token_form(
+    State(state): State<AppState>,
+    _session: AdminSession,
+    Path(token_id): Path<String>,
+) -> Result<Redirect, ApiError> {
+    state
+        .tokens
+        .revoke(&token_id, chrono::Utc::now().timestamp())
+        .await?;
+    tracing::info!(token_id = %token_id, "admin revoked device token from devices page");
+    Ok(Redirect::to("/admin/devices"))
+}
+
+async fn list_admin_device_tokens(state: &AppState) -> Result<Vec<DeviceTokenAdminView>, ApiError> {
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let rows: Vec<DeviceTokenAdminRow> = sqlx::query_as(
+        "SELECT tok.id, tok.user_id, u.username, tok.device_id, tok.device_name,
+                tok.created_at, tok.last_used_at, tok.revoked_at
+         FROM tokens tok
+         JOIN users u ON u.id = tok.user_id
+         ORDER BY tok.revoked_at IS NOT NULL, tok.created_at DESC, tok.id DESC",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(
+                id,
+                user_id,
+                username,
+                device_id,
+                device_name,
+                created_at,
+                last_used_at,
+                revoked_at,
+            )| DeviceTokenAdminView {
+                id,
+                user_id,
+                username,
+                device_id,
+                device_name,
+                created_at: fmt_ts(created_at, &timezone),
+                last_used_at: fmt_opt_ts(last_used_at, &timezone),
+                revoked_at: fmt_opt_ts(revoked_at, &timezone),
+            },
+        )
+        .collect())
+}
+
 type VaultAdminRow = (String, String, String, String, i64, Option<i64>, i64, i64);
 
 async fn vaults_page(
@@ -487,10 +627,16 @@ async fn vaults_page(
     cookies: Cookies,
     _session: AdminSession,
 ) -> Result<Html<String>, ApiError> {
+    let vaults = list_admin_vaults(&state).await?;
+    let total_size: u64 = vaults.iter().map(|v| v.size_bytes.max(0) as u64).sum();
+    let synced_today = count_vaults_synced_today(&state).await?;
     Ok(Html(
         VaultsTemplate {
             t: admin_text(&headers, &cookies),
-            vaults: list_admin_vaults(&state).await?,
+            total_vaults: vaults.len(),
+            total_size_display: crate::human::format_bytes(total_size),
+            synced_today,
+            vaults,
             users: state.users.list().await?,
             message: None,
         }
@@ -604,6 +750,23 @@ async fn list_admin_vaults(state: &AppState) -> Result<Vec<VaultAdminView>, ApiE
         .collect())
 }
 
+async fn count_vaults_synced_today(state: &AppState) -> Result<usize, ApiError> {
+    let now = chrono::Utc::now();
+    let today_start = now
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .unwrap_or_default()
+        .and_utc()
+        .timestamp();
+    let (count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM vaults WHERE last_sync_at IS NOT NULL AND last_sync_at >= ?",
+    )
+    .bind(today_start)
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(count.max(0) as usize)
+}
+
 async fn invites_page(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -611,7 +774,7 @@ async fn invites_page(
     _session: AdminSession,
 ) -> Result<Html<String>, ApiError> {
     let timezone = state.runtime_cfg.snapshot().await.timezone;
-    let invites = state
+    let invites: Vec<InviteAdminView> = state
         .invites
         .list_active(chrono::Utc::now().timestamp())
         .await?
@@ -623,10 +786,18 @@ async fn invites_page(
             used_at: fmt_opt_ts(invite.used_at, &timezone),
         })
         .collect();
+    let used_invites = invites
+        .iter()
+        .filter(|invite| invite.used_at.is_some())
+        .count();
+    let pending_invites = invites.len().saturating_sub(used_invites);
     Ok(Html(
         InvitesTemplate {
             t: admin_text(&headers, &cookies),
             invites,
+            pending_invites,
+            used_invites,
+            revoked_invites: 0,
         }
         .render()
         .unwrap(),
@@ -670,10 +841,13 @@ async fn settings_page(
     cookies: Cookies,
     _session: AdminSession,
 ) -> Result<Html<String>, ApiError> {
+    let cfg = state.runtime_cfg.snapshot().await;
     Ok(Html(
         SettingsTemplate {
             t: admin_text(&headers, &cookies),
-            cfg: state.runtime_cfg.snapshot().await,
+            max_file_size_display: crate::human::format_bytes(cfg.max_file_size),
+            text_extensions_display: cfg.text_extensions.join(", "),
+            cfg,
         }
         .render()
         .unwrap(),
@@ -700,6 +874,50 @@ type ActivityRow = (
     Option<String>,
     Option<String>,
 );
+
+async fn list_admin_activities(
+    state: &AppState,
+    limit: i64,
+) -> Result<Vec<ActivityView>, ApiError> {
+    let rows: Vec<ActivityRow> = sqlx::query_as(
+        "SELECT a.timestamp, u.username, a.action, a.vault_id, v.name, tok.device_name,
+                a.client_ip, a.user_agent
+         FROM sync_activity a
+         JOIN users u ON u.id = a.user_id
+         LEFT JOIN vaults v ON v.id = a.vault_id
+         LEFT JOIN tokens tok ON tok.id = a.token_id
+         ORDER BY a.timestamp DESC
+         LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(&state.pool)
+    .await?;
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(
+                timestamp,
+                username,
+                action,
+                vault_id,
+                vault_name,
+                device_name,
+                client_ip,
+                user_agent,
+            )| ActivityView {
+                timestamp: fmt_ts(timestamp, &timezone),
+                username,
+                action,
+                vault_id,
+                vault_name,
+                device_name,
+                client_ip,
+                user_agent,
+            },
+        )
+        .collect())
+}
 
 async fn settings_post(
     State(state): State<AppState>,
@@ -755,47 +973,10 @@ async fn activity_page(
     cookies: Cookies,
     _session: AdminSession,
 ) -> Result<Html<String>, ApiError> {
-    let rows: Vec<ActivityRow> = sqlx::query_as(
-        "SELECT a.timestamp, u.username, a.action, a.vault_id, v.name, tok.device_name,
-                a.client_ip, a.user_agent
-         FROM sync_activity a
-         JOIN users u ON u.id = a.user_id
-         LEFT JOIN vaults v ON v.id = a.vault_id
-         LEFT JOIN tokens tok ON tok.id = a.token_id
-         ORDER BY a.timestamp DESC
-         LIMIT 200",
-    )
-    .fetch_all(&state.pool)
-    .await?;
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
-    let activities = rows
-        .into_iter()
-        .map(
-            |(
-                timestamp,
-                username,
-                action,
-                vault_id,
-                vault_name,
-                device_name,
-                client_ip,
-                user_agent,
-            )| ActivityView {
-                timestamp: fmt_ts(timestamp, &timezone),
-                username,
-                action,
-                vault_id,
-                vault_name,
-                device_name,
-                client_ip,
-                user_agent,
-            },
-        )
-        .collect();
     Ok(Html(
         ActivityTemplate {
             t: admin_text(&headers, &cookies),
-            activities,
+            activities: list_admin_activities(&state, 200).await?,
         }
         .render()
         .unwrap(),

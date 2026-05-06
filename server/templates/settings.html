@@ -1,33 +1,66 @@
 {% extends "layout.html" %}
 {% block title %}{{ t.settings }} - {{ t.admin_title }}{% endblock %}
+{% block nav_settings %}is-active{% endblock %}
+{% block page_title %}{{ t.settings }}{% endblock %}
+{% block header_actions %}
+<button class="primary success-gradient" form="settings-form">Save Changes</button>
+{% endblock %}
 {% block content %}
-<h1>{{ t.runtime_settings }}</h1>
-<form method="post" action="/admin/settings" class="card">
-  <label>{{ t.server_name }} <input name="server_name" value="{{ cfg.server_name }}" required></label>
-  <label>{{ t.timezone }}
-    <select name="timezone">
-      <option value="Asia/Shanghai" {% if cfg.timezone.as_str() == "Asia/Shanghai" %}selected{% endif %}>Asia/Shanghai</option>
-      <option value="UTC" {% if cfg.timezone.as_str() == "UTC" %}selected{% endif %}>UTC</option>
-      <option value="Asia/Tokyo" {% if cfg.timezone.as_str() == "Asia/Tokyo" %}selected{% endif %}>Asia/Tokyo</option>
-      <option value="Asia/Hong_Kong" {% if cfg.timezone.as_str() == "Asia/Hong_Kong" %}selected{% endif %}>Asia/Hong_Kong</option>
-      <option value="Asia/Singapore" {% if cfg.timezone.as_str() == "Asia/Singapore" %}selected{% endif %}>Asia/Singapore</option>
-      <option value="America/Los_Angeles" {% if cfg.timezone.as_str() == "America/Los_Angeles" %}selected{% endif %}>America/Los_Angeles</option>
-      <option value="America/New_York" {% if cfg.timezone.as_str() == "America/New_York" %}selected{% endif %}>America/New_York</option>
-      <option value="Europe/London" {% if cfg.timezone.as_str() == "Europe/London" %}selected{% endif %}>Europe/London</option>
-      <option value="Europe/Berlin" {% if cfg.timezone.as_str() == "Europe/Berlin" %}selected{% endif %}>Europe/Berlin</option>
-      <option value="Australia/Sydney" {% if cfg.timezone.as_str() == "Australia/Sydney" %}selected{% endif %}>Australia/Sydney</option>
-    </select>
-  </label>
-  <label>{{ t.registration_mode }}
-    <select name="registration_mode">
-      <option value="disabled" {% if cfg.registration_mode.as_str() == "disabled" %}selected{% endif %}>disabled</option>
-      <option value="invite_only" {% if cfg.registration_mode.as_str() == "invite_only" %}selected{% endif %}>invite_only</option>
-      <option value="open" {% if cfg.registration_mode.as_str() == "open" %}selected{% endif %}>open</option>
-    </select>
-  </label>
-  <label>{{ t.login_failure_threshold }} <input name="login_failure_threshold" type="number" min="1" value="{{ cfg.login_failure_threshold }}" required></label>
-  <label>{{ t.login_window_seconds }} <input name="login_window_seconds" type="number" min="1" value="{{ cfg.login_window_seconds }}" required></label>
-  <label>{{ t.login_lock_seconds }} <input name="login_lock_seconds" type="number" min="1" value="{{ cfg.login_lock_seconds }}" required></label>
-  <button>{{ t.save }}</button>
-</form>
+<div class="settings-layout">
+  <aside class="settings-tabs" aria-label="Settings sections">
+    <a class="is-active" href="#general">General</a>
+    <a href="#security">Security</a>
+    <a href="#sync-storage">Sync &amp; Storage</a>
+    <a href="#network">Network</a>
+  </aside>
+
+  <form id="settings-form" method="post" action="/admin/settings" class="settings-form">
+    <section id="general" class="panel settings-section">
+      <h2>General Settings</h2>
+      <p class="section-note">Configure your server name, timezone, and registration settings.</p>
+      <label>{{ t.server_name }} <input name="server_name" value="{{ cfg.server_name }}" required></label>
+      <label>{{ t.timezone }}
+        <select name="timezone">
+          <option value="Asia/Shanghai" {% if cfg.timezone.as_str() == "Asia/Shanghai" %}selected{% endif %}>Asia/Shanghai</option>
+          <option value="UTC" {% if cfg.timezone.as_str() == "UTC" %}selected{% endif %}>UTC</option>
+          <option value="Asia/Tokyo" {% if cfg.timezone.as_str() == "Asia/Tokyo" %}selected{% endif %}>Asia/Tokyo</option>
+          <option value="Asia/Hong_Kong" {% if cfg.timezone.as_str() == "Asia/Hong_Kong" %}selected{% endif %}>Asia/Hong_Kong</option>
+          <option value="Asia/Singapore" {% if cfg.timezone.as_str() == "Asia/Singapore" %}selected{% endif %}>Asia/Singapore</option>
+          <option value="America/Los_Angeles" {% if cfg.timezone.as_str() == "America/Los_Angeles" %}selected{% endif %}>America/Los_Angeles</option>
+          <option value="America/New_York" {% if cfg.timezone.as_str() == "America/New_York" %}selected{% endif %}>America/New_York</option>
+          <option value="Europe/London" {% if cfg.timezone.as_str() == "Europe/London" %}selected{% endif %}>Europe/London</option>
+          <option value="Europe/Berlin" {% if cfg.timezone.as_str() == "Europe/Berlin" %}selected{% endif %}>Europe/Berlin</option>
+          <option value="Australia/Sydney" {% if cfg.timezone.as_str() == "Australia/Sydney" %}selected{% endif %}>Australia/Sydney</option>
+        </select>
+      </label>
+      <div class="segmented" role="group" aria-label="{{ t.registration_mode }}">
+        <label><input type="radio" name="registration_mode" value="disabled" {% if cfg.registration_mode.as_str() == "disabled" %}checked{% endif %}><span>Disabled</span></label>
+        <label><input type="radio" name="registration_mode" value="invite_only" {% if cfg.registration_mode.as_str() == "invite_only" %}checked{% endif %}><span>Invite Only</span></label>
+        <label><input type="radio" name="registration_mode" value="open" {% if cfg.registration_mode.as_str() == "open" %}checked{% endif %}><span>Open</span></label>
+      </div>
+    </section>
+
+    <section id="sync-storage" class="panel settings-section">
+      <h2>Sync &amp; Storage</h2>
+      <p class="section-note">Configure max file size and synchronized text file extensions.</p>
+      <label>Max File Size <span class="input-with-unit"><input value="{{ max_file_size_display }}" disabled><small>runtime</small></span></label>
+      <label>Text File Extensions <input value="{{ text_extensions_display }}" disabled></label>
+      <div class="danger-row">
+        <span><strong>Blob Garbage Collection</strong><small>Reclaim orphaned SHA-256 blobs</small></span>
+        <button class="danger small" form="gc-form">{{ t.run_blob_gc }}</button>
+      </div>
+    </section>
+
+    <section id="security" class="panel settings-section secondary-settings">
+      <h2>Security</h2>
+      <p class="section-note">Configure admin login protection.</p>
+      <div class="form-grid">
+        <label>{{ t.login_failure_threshold }} <input name="login_failure_threshold" type="number" min="1" value="{{ cfg.login_failure_threshold }}" required></label>
+        <label>{{ t.login_window_seconds }} <input name="login_window_seconds" type="number" min="1" value="{{ cfg.login_window_seconds }}" required></label>
+        <label>{{ t.login_lock_seconds }} <input name="login_lock_seconds" type="number" min="1" value="{{ cfg.login_lock_seconds }}" required></label>
+      </div>
+    </section>
+  </form>
+  <form id="gc-form" method="post" action="/admin/gc"></form>
+</div>
 {% endblock %}

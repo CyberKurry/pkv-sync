@@ -1,37 +1,48 @@
 {% extends "layout.html" %}
 {% block title %}{{ t.vaults }} - {{ t.admin_title }}{% endblock %}
+{% block nav_vaults %}is-active{% endblock %}
+{% block page_title %}{{ t.vaults }}{% endblock %}
+{% block header_actions %}
+<a class="primary action-button" href="#create-vault"><span>+</span> {{ t.create_vault }}</a>
+{% endblock %}
 {% block content %}
-<h1>{{ t.vaults }}</h1>
 {% if let Some(m) = message %}<p class="success">{{ m }}</p>{% endif %}
-<form method="post" action="/admin/vaults" class="card">
-  <h2>{{ t.create_vault }}</h2>
-  <label>{{ t.user }}
-    <select name="user_id" required>
-      {% for u in users %}
-      <option value="{{ u.id }}">{{ u.username }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <label>{{ t.name }} <input name="name" autocomplete="off" required></label>
-  <button>{{ t.create_vault }}</button>
-</form>
-<table>
-  <thead><tr><th>{{ t.name }}</th><th>{{ t.owner }}</th><th>{{ t.files }}</th><th>{{ t.size }}</th><th>{{ t.created }}</th><th>{{ t.last_sync }}</th><th></th></tr></thead>
-  <tbody>
+
+<section class="metric-grid three">
+  <article class="metric-card compact-card"><span class="metric-label">Total {{ t.vaults }}</span><p class="metric-value">{{ total_vaults }}</p></article>
+  <article class="metric-card compact-card"><span class="metric-label">Total Storage</span><p class="metric-value">{{ total_size_display }}</p></article>
+  <article class="metric-card compact-card"><span class="metric-label">Synced Today</span><p class="metric-value">{{ synced_today }}</p></article>
+</section>
+
+<section class="vault-card-grid">
   {% for v in vaults %}
-    <tr>
-      <td>{{ v.name }}</td>
-      <td>{{ v.owner_username }}</td>
-      <td>{{ v.file_count }}</td>
-      <td>{{ v.size_display }}</td>
-      <td>{{ v.created_at }}</td>
-      <td>{% if let Some(ts) = v.last_sync_at %}{{ ts }}{% endif %}</td>
-      <td class="actions">
-        <form method="post" action="/admin/vaults/{{ v.id }}/reconcile"><button class="secondary">{{ t.reconcile }}</button></form>
-        <form method="post" action="/admin/vaults/{{ v.id }}/delete"><button class="danger">{{ t.delete }}</button></form>
-      </td>
-    </tr>
+  <article class="vault-card">
+    <div class="vault-card-head">
+      <h2>{{ v.name }}</h2>
+      {% if let Some(_ts) = v.last_sync_at %}<span class="badge badge-green">{{ t.active }}</span>{% else %}<span class="badge badge-muted">Idle</span>{% endif %}
+    </div>
+    <p class="vault-meta"><span>{{ v.owner_username }}</span><span>{{ v.size_display }}</span><span>{% if let Some(ts) = v.last_sync_at %}{{ ts }}{% else %}—{% endif %}</span></p>
+    <p class="vault-id">ID {{ v.id }}</p>
+    <div class="card-actions">
+      <form method="post" action="/admin/vaults/{{ v.id }}/reconcile" class="inline"><button class="secondary small">{{ t.reconcile }}</button></form>
+      <form method="post" action="/admin/vaults/{{ v.id }}/delete" class="inline"><button class="danger small">{{ t.delete }}</button></form>
+    </div>
+  </article>
   {% endfor %}
-  </tbody>
-</table>
+</section>
+
+<form id="create-vault" method="post" action="/admin/vaults" class="panel form-panel collapsible-create">
+  <div class="panel-header"><h2>{{ t.create_vault }}</h2></div>
+  <div class="form-grid">
+    <label>{{ t.user }}
+      <select name="user_id" required>
+        {% for u in users %}
+        <option value="{{ u.id }}">{{ u.username }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>{{ t.name }} <input name="name" autocomplete="off" required></label>
+  </div>
+  <button class="primary">{{ t.create_vault }}</button>
+</form>
 {% endblock %}

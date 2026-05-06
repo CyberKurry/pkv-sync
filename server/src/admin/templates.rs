@@ -17,10 +17,13 @@ pub struct DashboardTemplate {
     pub users: i64,
     pub vaults: i64,
     pub cpu_percent: f32,
-    pub memory_used_mb: u64,
-    pub memory_total_mb: u64,
-    pub disk_display: String,
+    pub cpu_display: String,
+    pub memory_display: String,
+    pub memory_total_display: String,
+    pub disk_used_display: String,
+    pub disk_total_display: String,
     pub uptime_display: String,
+    pub recent_activities: Vec<ActivityView>,
 }
 
 #[derive(Template)]
@@ -59,6 +62,27 @@ pub struct TokenAdminView {
     pub revoked_at: Option<String>,
 }
 
+#[derive(Template)]
+#[template(path = "devices.html")]
+pub struct DevicesTemplate {
+    pub t: AdminText,
+    pub users: Vec<User>,
+    pub tokens: Vec<DeviceTokenAdminView>,
+    pub created_token: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeviceTokenAdminView {
+    pub id: String,
+    pub user_id: String,
+    pub username: String,
+    pub device_id: String,
+    pub device_name: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+    pub revoked_at: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct VaultAdminView {
     pub id: String,
@@ -79,6 +103,9 @@ pub struct VaultsTemplate {
     pub vaults: Vec<VaultAdminView>,
     pub users: Vec<User>,
     pub message: Option<String>,
+    pub total_vaults: usize,
+    pub total_size_display: String,
+    pub synced_today: usize,
 }
 
 #[derive(Template)]
@@ -86,6 +113,9 @@ pub struct VaultsTemplate {
 pub struct InvitesTemplate {
     pub t: AdminText,
     pub invites: Vec<InviteAdminView>,
+    pub pending_invites: usize,
+    pub used_invites: usize,
+    pub revoked_invites: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +131,8 @@ pub struct InviteAdminView {
 pub struct SettingsTemplate {
     pub t: AdminText,
     pub cfg: RuntimeConfig,
+    pub max_file_size_display: String,
+    pub text_extensions_display: String,
 }
 
 #[derive(Debug, Clone)]
@@ -147,17 +179,41 @@ mod tests {
             users: 1,
             vaults: 2,
             cpu_percent: 3.0,
-            memory_used_mb: 10,
-            memory_total_mb: 20,
-            disk_display: "1 GB / 2 GB".into(),
+            cpu_display: "3".into(),
+            memory_display: "10 MB".into(),
+            memory_total_display: "20 MB".into(),
+            disk_used_display: "1 GB".into(),
+            disk_total_display: "2 GB".into(),
             uptime_display: "5s".into(),
+            recent_activities: vec![ActivityView {
+                timestamp: "1970-01-01 00:00:01 +00:00 UTC".into(),
+                username: "admin".into(),
+                action: "push".into(),
+                vault_id: Some("v1".into()),
+                vault_name: Some("main".into()),
+                device_name: Some("Laptop".into()),
+                client_ip: None,
+                user_agent: None,
+            }],
         }
         .render()
         .unwrap();
         assert!(html.contains("admin"));
         assert!(html.contains("Users"));
-        assert!(html.contains("Run Blob GC"));
+        assert!(html.contains("Sync Status"));
+        assert!(html.contains("class=\"app-shell\""));
+        assert!(html.contains("href=\"/admin/devices\""));
         assert!(!html.contains("unpkg.com"));
+    }
+
+    #[test]
+    fn admin_css_uses_designer_shell_tokens() {
+        let css = include_str!("../../static/admin.css");
+        assert!(css.contains("#0f111c"));
+        assert!(css.contains("#141623"));
+        assert!(css.contains("#161928"));
+        assert!(css.contains(".app-shell"));
+        assert!(css.contains(".sidebar-nav"));
     }
 
     fn user(id: &str, username: &str, is_admin: bool) -> UserAdminView {
@@ -231,6 +287,30 @@ mod tests {
     }
 
     #[test]
+    fn devices_template_renders_rows() {
+        let html = DevicesTemplate {
+            t: AdminText::en(),
+            users: vec![db_user("u1", "admin", true)],
+            tokens: vec![DeviceTokenAdminView {
+                id: "t1".into(),
+                user_id: "u1".into(),
+                username: "admin".into(),
+                device_id: "device-a".into(),
+                device_name: "MacBook Pro".into(),
+                created_at: "1970-01-01 00:00:01 +00:00 UTC".into(),
+                last_used_at: Some("1970-01-01 00:00:02 +00:00 UTC".into()),
+                revoked_at: None,
+            }],
+            created_token: Some("pks_device_token".into()),
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("MacBook Pro"));
+        assert!(html.contains("pks_device_token"));
+        assert!(html.contains("Create token"));
+    }
+
+    #[test]
     fn vaults_template_renders_rows() {
         let html = VaultsTemplate {
             t: AdminText::en(),
@@ -247,6 +327,9 @@ mod tests {
             }],
             users: vec![db_user("u1", "admin", true)],
             message: None,
+            total_vaults: 1,
+            total_size_display: "0 B".into(),
+            synced_today: 0,
         }
         .render()
         .unwrap();
@@ -265,6 +348,9 @@ mod tests {
                 expires_at: Some("1970-01-01 00:00:02 +00:00 UTC".into()),
                 used_at: None,
             }],
+            pending_invites: 1,
+            used_invites: 0,
+            revoked_invites: 0,
         }
         .render()
         .unwrap();
@@ -286,6 +372,8 @@ mod tests {
                 max_file_size: 100 * 1024 * 1024,
                 text_extensions: RuntimeConfig::default().text_extensions.clone(),
             },
+            max_file_size_display: "100 MB".into(),
+            text_extensions_display: "md, txt".into(),
         }
         .render()
         .unwrap();

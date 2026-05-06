@@ -1,26 +1,33 @@
 {% extends "layout.html" %}
 {% block title %}{{ t.activity }} - {{ t.admin_title }}{% endblock %}
+{% block nav_activity %}is-active{% endblock %}
+{% block page_title %}Activity Log{% endblock %}
+{% block header_actions %}
+<select aria-label="Filter users"><option>All Users</option></select>
+<select aria-label="Filter actions"><option>All Actions</option></select>
+{% endblock %}
 {% block content %}
-<h1>{{ t.activity }}</h1>
-<table>
-  <thead><tr><th>{{ t.time }}</th><th>{{ t.user }}</th><th>{{ t.action }}</th><th>{{ t.device }}</th><th>{{ t.vaults }}</th><th>{{ t.ip }}</th><th>{{ t.user_agent }}</th></tr></thead>
-  <tbody>
-  {% for a in activities %}
-    <tr>
-      <td>{{ a.timestamp }}</td>
-      <td>{{ a.username }}</td>
-      <td>{{ a.action }}</td>
-      <td>{% if let Some(device_name) = a.device_name %}{{ device_name }}{% endif %}</td>
-      <td>
-        {% if let Some(vault_name) = a.vault_name %}{{ vault_name }}{% endif %}
-        {% if let Some(vault_id) = a.vault_id %}
-        <details class="inline-details"><summary>{{ t.id }}</summary><code>{{ vault_id }}</code></details>
-        {% endif %}
-      </td>
-      <td>{% if let Some(client_ip) = a.client_ip %}{{ client_ip }}{% endif %}</td>
-      <td>{% if let Some(user_agent) = a.user_agent %}{{ user_agent }}{% endif %}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+<section class="panel table-panel activity-table">
+  <table class="data-table">
+    <thead><tr><th>{{ t.time }}</th><th>{{ t.user }}</th><th>{{ t.action }}</th><th>Detail</th><th>{{ t.device }}</th><th>{{ t.ip }}</th><th>{{ t.user_agent }}</th></tr></thead>
+    <tbody>
+    {% for a in activities %}
+      <tr>
+        <td>{{ a.timestamp }}</td>
+        <td><strong>{{ a.username }}</strong></td>
+        <td><span class="pill pill-blue">{{ a.action }}</span></td>
+        <td>
+          {% if let Some(vault_name) = a.vault_name %}{{ vault_name }}{% else %}<span class="muted-text">—</span>{% endif %}
+          {% if let Some(vault_id) = a.vault_id %}
+          <details class="inline-details"><summary>{{ t.id }}</summary><code>{{ vault_id }}</code></details>
+          {% endif %}
+        </td>
+        <td>{% if let Some(device_name) = a.device_name %}{{ device_name }}{% else %}<span class="muted-text">—</span>{% endif %}</td>
+        <td>{% if let Some(client_ip) = a.client_ip %}{{ client_ip }}{% else %}<span class="muted-text">—</span>{% endif %}</td>
+        <td>{% if let Some(user_agent) = a.user_agent %}{{ user_agent }}{% else %}<span class="muted-text">—</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
 {% endblock %}

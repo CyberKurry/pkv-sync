@@ -1,0 +1,60 @@
+{% extends "layout.html" %}
+{% block title %}{{ t.devices }} - {{ t.admin_title }}{% endblock %}
+{% block nav_devices %}is-active{% endblock %}
+{% block page_title %}Device Tokens{% endblock %}
+{% block header_actions %}
+<a class="primary action-button" href="#create-token">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7.5" cy="15.5" r="3.5"/><path d="M10 13l8-8"/><path d="M16 5l3 3"/></svg>
+  {{ t.create_token }}
+</a>
+{% endblock %}
+{% block content %}
+{% if let Some(token) = created_token %}
+<section class="panel warning">
+  <div class="panel-header"><h2>{{ t.new_device_token }}</h2></div>
+  <p class="muted-text">{{ t.copy_token_now }}</p>
+  <p><code class="token-code">{{ token }}</code></p>
+</section>
+{% endif %}
+
+<section class="panel table-panel devices-table">
+  <table class="data-table">
+    <thead><tr><th>Token</th><th>{{ t.user }}</th><th>{{ t.device }}</th><th>Device ID</th><th>{{ t.created }}</th><th>{{ t.last_used }}</th><th>Status</th><th class="align-right">Actions</th></tr></thead>
+    <tbody>
+    {% for token in tokens %}
+      <tr>
+        <td><code>{{ token.id }}</code></td>
+        <td>{{ token.username }}</td>
+        <td>{{ token.device_name }}</td>
+        <td><code>{{ token.device_id }}</code></td>
+        <td>{{ token.created_at }}</td>
+        <td>{% if let Some(ts) = token.last_used_at %}{{ ts }}{% else %}<span class="muted-text">—</span>{% endif %}</td>
+        <td>{% if let Some(_ts) = token.revoked_at %}<span class="status muted">{{ t.revoked }}</span>{% else %}<span class="status active">{{ t.active }}</span>{% endif %}</td>
+        <td class="align-right">
+          {% if let Some(_ts) = token.revoked_at %}
+          <span class="muted-text">—</span>
+          {% else %}
+          <form method="post" action="/admin/devices/{{ token.id }}/revoke" class="inline"><button class="danger small">{{ t.revoke }}</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<form id="create-token" method="post" action="/admin/devices" class="panel form-panel collapsible-create">
+  <div class="panel-header"><h2>{{ t.create_device_token }}</h2></div>
+  <div class="form-grid">
+    <label>{{ t.user }}
+      <select name="user_id" required>
+        {% for u in users %}
+        <option value="{{ u.id }}">{{ u.username }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>{{ t.device_name }} <input name="device_name" autocomplete="off" required></label>
+  </div>
+  <button class="primary">{{ t.create_token }}</button>
+</form>
+{% endblock %}

@@ -202,6 +202,52 @@ async fn admin_can_create_device_token_and_plaintext_is_one_time() {
 }
 
 #[tokio::test]
+async fn admin_can_manage_device_tokens_from_devices_page() {
+    let app = app().await;
+    let session_cookie = login_cookie(&app).await;
+    let user_id = first_admin_user_id(&app, &session_cookie).await;
+
+    let mut create_req = request(
+        Method::POST,
+        "/admin/devices",
+        Body::from(format!("user_id={user_id}&device_name=MacBook+Pro")),
+    );
+    create_req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    create_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut create_req);
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    assert_eq!(create_resp.status(), StatusCode::OK);
+    let create_body = read_body(create_resp).await;
+    assert!(create_body.contains("MacBook Pro"));
+    assert!(create_body.contains("pks_"));
+
+    let marker = "/admin/devices/";
+    let start = create_body.find(marker).expect("device revoke action") + marker.len();
+    let end = create_body[start..]
+        .find("/revoke")
+        .map(|idx| start + idx)
+        .expect("end of token id");
+    let token_id = &create_body[start..end];
+
+    let mut revoke_req = request(
+        Method::POST,
+        &format!("/admin/devices/{token_id}/revoke"),
+        Body::empty(),
+    );
+    revoke_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut revoke_req);
+    let revoke_resp = app.oneshot(revoke_req).await.unwrap();
+    assert_eq!(revoke_resp.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
 async fn admin_can_manage_vaults() {
     let app = app().await;
     let session_cookie = login_cookie(&app).await;
@@ -328,7 +374,7 @@ async fn login_success_sets_cookie_and_allows_dashboard() {
     assert_eq!(dashboard_resp.status(), StatusCode::OK);
     let body = read_body(dashboard_resp).await;
     assert!(body.contains("Dashboard"));
-    assert!(body.contains("Run Blob GC"));
+    assert!(body.contains("Sync Status"));
 }
 
 #[tokio::test]

@@ -1,24 +1,40 @@
 {% extends "layout.html" %}
 {% block title %}{{ t.invites }} - {{ t.admin_title }}{% endblock %}
+{% block nav_invites %}is-active{% endblock %}
+{% block page_title %}Invite Codes{% endblock %}
+{% block header_actions %}
+<a class="primary action-button" href="#create-invite"><span>+</span> {{ t.create_invite }}</a>
+{% endblock %}
 {% block content %}
-<h1>{{ t.invites }}</h1>
-<form method="post" action="/admin/invites" class="card">
-  <h2>{{ t.create_invite }}</h2>
-  <label>{{ t.expires_at }} <input name="expires_at" inputmode="numeric"></label>
-  <button>{{ t.create_invite }}</button>
-</form>
-<table>
-  <thead><tr><th>{{ t.code }}</th><th>{{ t.created }}</th><th>{{ t.expires }}</th><th>{{ t.used }}</th><th></th></tr></thead>
-  <tbody>
+<section class="metric-grid three">
+  <article class="metric-card compact-card"><span class="metric-label">Pending Invites</span><p class="metric-value">{{ pending_invites }}</p></article>
+  <article class="metric-card compact-card"><span class="metric-label">{{ t.used }}</span><p class="metric-value">{{ used_invites }}</p></article>
+  <article class="metric-card compact-card"><span class="metric-label">{{ t.revoked }}</span><p class="metric-value">{{ revoked_invites }}</p></article>
+</section>
+
+<section class="invite-list">
   {% for i in invites %}
-    <tr>
-      <td><code>{{ i.code }}</code></td>
-      <td>{{ i.created_at }}</td>
-      <td>{% if let Some(ts) = i.expires_at %}{{ ts }}{% endif %}</td>
-      <td>{% if let Some(ts) = i.used_at %}{{ ts }}{% endif %}</td>
-      <td><form method="post" action="/admin/invites/{{ i.code }}/delete"><button class="danger">{{ t.delete }}</button></form></td>
-    </tr>
+  <article class="invite-row">
+    <div>
+      <h2>{{ i.code }}</h2>
+      <p>{% if let Some(ts) = i.expires_at %}{{ t.expires }}: {{ ts }}{% else %}Never expires{% endif %}</p>
+      <p>{{ t.created }}: {{ i.created_at }}</p>
+    </div>
+    <div class="invite-actions">
+      {% if let Some(_used) = i.used_at %}
+      <span class="badge badge-green">{{ t.used }}</span>
+      {% else %}
+      <span class="badge badge-orange">Pending</span>
+      <form method="post" action="/admin/invites/{{ i.code }}/delete" class="inline"><button class="danger small">{{ t.delete }}</button></form>
+      {% endif %}
+    </div>
+  </article>
   {% endfor %}
-  </tbody>
-</table>
+</section>
+
+<form id="create-invite" method="post" action="/admin/invites" class="panel form-panel collapsible-create">
+  <div class="panel-header"><h2>{{ t.create_invite }}</h2></div>
+  <label>{{ t.expires_at }} <input name="expires_at" inputmode="numeric"></label>
+  <button class="primary">{{ t.create_invite }}</button>
+</form>
 {% endblock %}
