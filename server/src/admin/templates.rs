@@ -268,7 +268,7 @@ mod tests {
             username: username.into(),
             is_admin,
             is_active: true,
-            created_at: "1970-01-01 00:00:01 +00:00 UTC".into(),
+            created_at: "1970-01-01 00:00:01".into(),
         }
     }
 
@@ -305,8 +305,8 @@ mod tests {
             tokens: vec![TokenAdminView {
                 id: "t1".into(),
                 device_name: "desktop".into(),
-                created_at: "1970-01-01 00:00:01 +00:00 UTC".into(),
-                last_used_at: Some("1970-01-01 00:00:02 +00:00 UTC".into()),
+                created_at: "1970-01-01 00:00:01".into(),
+                last_used_at: Some("1970-01-01 00:00:02".into()),
                 revoked_at: None,
             }],
             message: None,
@@ -316,6 +316,43 @@ mod tests {
         .unwrap();
         assert!(html.contains("desktop"));
         assert!(html.contains("Reset password"));
+        assert!(html.contains("<h1>User Details</h1>"));
+        assert!(!html.contains("User: admin"));
+        assert!(!html.contains("+00:00 UTC"));
+        assert!(!html.contains("+08:00 CST"));
+        assert!(!html.contains("Asia/Shanghai"));
+    }
+
+    #[test]
+    fn user_detail_template_uses_admin_shell_detail_layout() {
+        let html = UserDetailTemplate {
+            t: AdminText::en(),
+            user: user("u1", "admin", true),
+            tokens: vec![TokenAdminView {
+                id: "t1".into(),
+                device_name: "desktop".into(),
+                created_at: "1970-01-01 00:00:01".into(),
+                last_used_at: None,
+                revoked_at: None,
+            }],
+            message: None,
+            created_token: None,
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("class=\"user-detail-layout\""));
+        assert!(html.contains("class=\"panel user-profile-panel\""));
+        assert!(html.contains("class=\"user-action-grid\""));
+        assert!(html.contains("class=\"panel table-panel tokens-table\""));
+        assert!(!html.contains("class=\"metric-grid three\""));
+
+        let css = include_str!("../../static/admin.css");
+        assert!(css.contains(".user-detail-layout"));
+        assert!(css.contains(".user-profile-panel"));
+        assert!(css.contains(".user-action-grid"));
+        assert!(css.contains(".tokens-table"));
+        assert!(css.contains(".page-bar {\n    display: grid;"));
+        assert!(css.contains(".user-profile-head {\n    display: grid;"));
     }
 
     #[test]

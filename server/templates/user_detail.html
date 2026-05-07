@@ -1,9 +1,12 @@
 {% extends "layout.html" %}
 {% block title %}{{ t.user }} {{ user.username }} - {{ t.admin_title }}{% endblock %}
 {% block nav_users %}is-active{% endblock %}
-{% block page_title %}{{ t.user }}: {{ user.username }}{% endblock %}
+{% block page_title %}{{ t.user }} {{ t.details }}{% endblock %}
 {% block header_actions %}
-<a class="secondary action-button" href="/admin/users">{{ t.users }}</a>
+<a class="secondary action-button" href="/admin/users">
+  <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#users-round"></use></svg>
+  {{ t.users }}
+</a>
 {% endblock %}
 {% block content %}
 {% if let Some(m) = message %}<p class="success">{{ m }}</p>{% endif %}
@@ -15,53 +18,87 @@
 </section>
 {% endif %}
 
-<section class="metric-grid three">
-  <article class="metric-card"><span class="metric-label">{{ t.username }}</span><p class="metric-value text-value">{{ user.username }}</p></article>
-  <article class="metric-card"><span class="metric-label">{{ t.admin }}</span><p class="metric-value text-value">{% if user.is_admin %}{{ t.admin }}{% else %}—{% endif %}</p></article>
-  <article class="metric-card"><span class="metric-label">{{ t.active }}</span><p class="metric-value text-value">{% if user.is_active %}{{ t.active }}{% else %}Inactive{% endif %}</p></article>
-</section>
+<div class="user-detail-layout">
+  <section class="panel user-profile-panel">
+    <div class="user-profile-head">
+      <span class="user-profile-avatar">{{ user.username }}</span>
+      <div class="user-profile-title">
+        <span class="metric-label">{{ t.user }}</span>
+        <h2>{{ user.username }}</h2>
+      </div>
+    </div>
+    <div class="user-status-stack">
+      {% if user.is_active %}<span class="status active">{{ t.active }}</span>{% else %}<span class="status muted">Inactive</span>{% endif %}
+      {% if user.is_admin %}<span class="pill pill-blue">{{ t.admin }}</span>{% else %}<span class="badge badge-muted">Standard</span>{% endif %}
+    </div>
+    <dl class="detail-list">
+      <div class="detail-row"><dt>{{ t.username }}</dt><dd>{{ user.username }}</dd></div>
+      <div class="detail-row"><dt>{{ t.created }}</dt><dd>{{ user.created_at }}</dd></div>
+      <div class="detail-row"><dt>{{ t.id }}</dt><dd><code class="muted-code">{{ user.id }}</code></dd></div>
+    </dl>
+  </section>
 
-<section class="panel">
-  <div class="panel-header"><h2>{{ t.id }}</h2></div>
-  <code class="muted-code">{{ user.id }}</code>
-</section>
+  <section class="user-management-stack">
+    <div class="user-action-grid">
+      <form method="post" action="/admin/users/{{ user.id }}/password" class="panel form-panel action-panel">
+        <div class="action-panel-head">
+          <span class="action-icon"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#key-round"></use></svg></span>
+          <h2>{{ t.reset_password }}</h2>
+        </div>
+        <label>{{ t.new_password }} <input name="password" type="password" autocomplete="new-password" required></label>
+        <button class="secondary">{{ t.reset }}</button>
+      </form>
 
-<section class="split-grid">
-  <form method="post" action="/admin/users/{{ user.id }}/password" class="panel form-panel compact">
-    <h2>{{ t.reset_password }}</h2>
-    <label>{{ t.new_password }} <input name="password" type="password" autocomplete="new-password" required></label>
-    <button class="secondary">{{ t.reset }}</button>
-  </form>
-  <form method="post" action="/admin/users/{{ user.id }}/active" class="panel form-panel compact">
-    <h2>{{ t.active }}</h2>
-    <input type="hidden" name="active" value="{% if user.is_active %}false{% else %}true{% endif %}">
-    <button class="{% if user.is_active %}danger{% else %}primary{% endif %}">{% if user.is_active %}{{ t.disable }}{% else %}{{ t.enable }}{% endif %}</button>
-  </form>
-  <form method="post" action="/admin/users/{{ user.id }}/admin" class="panel form-panel compact">
-    <h2>{{ t.admin }}</h2>
-    <input type="hidden" name="admin" value="{% if user.is_admin %}false{% else %}true{% endif %}">
-    <button class="secondary">{% if user.is_admin %}{{ t.demote }}{% else %}{{ t.promote }}{% endif %}</button>
-  </form>
-</section>
+      <form method="post" action="/admin/users/{{ user.id }}/active" class="panel form-panel action-panel">
+        <div class="action-panel-head">
+          <span class="action-icon"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg></span>
+          <h2>{{ t.active }}</h2>
+        </div>
+        <p class="section-note">{% if user.is_active %}Active account{% else %}Inactive account{% endif %}</p>
+        <input type="hidden" name="active" value="{% if user.is_active %}false{% else %}true{% endif %}">
+        <button class="{% if user.is_active %}danger{% else %}primary{% endif %}">{% if user.is_active %}{{ t.disable }}{% else %}{{ t.enable }}{% endif %}</button>
+      </form>
 
-<form method="post" action="/admin/users/{{ user.id }}/tokens" class="panel form-panel">
-  <div class="panel-header"><h2>{{ t.create_device_token }}</h2></div>
-  <label>{{ t.device_name }} <input name="device_name" autocomplete="off" required></label>
-  <button class="primary">{{ t.create_token }}</button>
-</form>
+      <form method="post" action="/admin/users/{{ user.id }}/admin" class="panel form-panel action-panel">
+        <div class="action-panel-head">
+          <span class="action-icon"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#user-plus"></use></svg></span>
+          <h2>{{ t.admin }}</h2>
+        </div>
+        <p class="section-note">{% if user.is_admin %}Admin privileges{% else %}Standard user{% endif %}</p>
+        <input type="hidden" name="admin" value="{% if user.is_admin %}false{% else %}true{% endif %}">
+        <button class="secondary">{% if user.is_admin %}{{ t.demote }}{% else %}{{ t.promote }}{% endif %}</button>
+      </form>
+    </div>
 
-<section class="panel table-panel">
+    <form method="post" action="/admin/users/{{ user.id }}/tokens" class="panel form-panel create-token-panel">
+      <div class="panel-header"><h2>{{ t.create_device_token }}</h2></div>
+      <div class="form-grid single-action-form">
+        <label>{{ t.device_name }} <input name="device_name" autocomplete="off" required></label>
+        <button class="primary">{{ t.create_token }}</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<section class="panel table-panel tokens-table">
   <div class="panel-header"><h2>{{ t.tokens }}</h2></div>
   <table class="data-table">
-    <thead><tr><th>{{ t.device }}</th><th>{{ t.created }}</th><th>{{ t.last_used }}</th><th>Status</th><th class="align-right">Actions</th></tr></thead>
+    <thead><tr><th>Token</th><th>{{ t.device }}</th><th>{{ t.created }}</th><th>{{ t.last_used }}</th><th>Status</th><th class="align-right">Actions</th></tr></thead>
     <tbody>
     {% for token in tokens %}
       <tr>
+        <td><code>{{ token.id }}</code></td>
         <td>{{ token.device_name }}</td>
         <td>{{ token.created_at }}</td>
-        <td>{% if let Some(ts) = token.last_used_at %}{{ ts }}{% else %}<span class="muted-text">—</span>{% endif %}</td>
+        <td>{% if let Some(ts) = token.last_used_at %}{{ ts }}{% else %}<span class="muted-text">-</span>{% endif %}</td>
         <td>{% if let Some(ts) = token.revoked_at %}<span class="status muted">{{ t.revoked }}</span><small class="muted-text">{{ ts }}</small>{% else %}<span class="status active">{{ t.active }}</span>{% endif %}</td>
-        <td class="align-right"><form method="post" action="/admin/users/{{ user.id }}/tokens/{{ token.id }}/revoke" class="inline"><button class="danger small">{{ t.revoke }}</button></form></td>
+        <td class="align-right">
+          {% if let Some(_ts) = token.revoked_at %}
+          <span class="muted-text">-</span>
+          {% else %}
+          <form method="post" action="/admin/users/{{ user.id }}/tokens/{{ token.id }}/revoke" class="inline"><button class="danger small">{{ t.revoke }}</button></form>
+          {% endif %}
+        </td>
       </tr>
     {% endfor %}
     </tbody>
