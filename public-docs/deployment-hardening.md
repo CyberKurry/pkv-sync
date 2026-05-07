@@ -218,3 +218,10 @@ Encrypt backups before they leave the machine.
 
 PKV Sync logs operational and security events, including client information
 needed for debugging and abuse response. Inform users who share the server.
+
+## Token Hygiene
+
+Device bearer tokens expire after 90 days and can be revoked by users or admins.
+Treat active tokens as credentials until they expire or are revoked, and prefer
+disabling a lost device token over resetting the whole account when only one
+device is affected.

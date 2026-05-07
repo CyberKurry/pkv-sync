@@ -163,16 +163,17 @@ mod tests {
 
     #[test]
     fn login_template_renders() {
+        let version = env!("CARGO_PKG_VERSION");
         let html = LoginTemplate {
             t: AdminText::en(),
             error: Some("bad"),
-            version: "0.1.4",
+            version,
         }
         .render()
         .unwrap();
         assert!(html.contains("PKV Sync Admin"));
         assert!(html.contains("bad"));
-        assert!(html.contains("PKV Sync v0.1.4"));
+        assert!(html.contains(&format!("PKV Sync v{version}")));
     }
 
     #[test]

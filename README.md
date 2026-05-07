@@ -37,10 +37,11 @@ backups for real deployments.
 | Attachments | Binary files are stored by SHA-256 content hash |
 | Conflicts | Conflicting edits are preserved as `.conflict-*` files |
 | Exclusions | `.obsidian/`, `.trash/`, and conflict files are not synced |
-| Auth | Deployment-key pre-auth plus user passwords and bearer device tokens |
+| Auth | Deployment-key pre-auth plus user passwords and 90-day bearer device tokens |
 | Devices | Stable plugin device IDs; repeated login replaces the old active token for that device |
 | Admin | Dashboard, users, responsive user detail pages, device tokens, vaults, invites, settings, activity, and blob GC |
 | Time display | Admin and plugin time display use selectable IANA timezones, defaulting to `Asia/Shanghai` |
+| Reliability | Serialized plugin state writes and partial pull progress recovery reduce duplicate conflicts after interrupted syncs |
 | Observability | Structured logs with `json` or `pretty` output and configurable log level |
 | Release | Linux amd64, Linux arm64, Windows x64, plugin zip, checksums, and GHCR Docker image |
 
@@ -185,7 +186,11 @@ Manual install from a release:
 
 The plugin stores a stable device ID locally. Logging out and logging back in on
 the same device replaces the old active token for that device instead of leaving
-multiple active tokens.
+multiple active tokens. Device tokens expire after 90 days unless the user logs
+in again and receives a fresh token.
+
+Interrupted pulls keep progress for files that were already applied, so retrying
+the sync does not repeatedly create conflict files for the same completed writes.
 
 ## Admin WebUI
 
@@ -193,8 +198,8 @@ Open `/admin/login` on your server. The admin panel currently includes:
 
 - Dashboard with CPU, memory, data-directory disk usage, and human-readable uptime
 - User management, responsive user detail pages, and password reset
-- Device token creation, listing, and revocation
-- Vault creation, deletion, metadata reconciliation, and size display
+- Device token creation, listing, revocation, and 90-day expiration
+- Vault creation, deletion of backing storage, metadata reconciliation, and size display
 - Invite management
 - Runtime settings for server name, timezone, registration mode, and login rate limits
 - Activity table with time, user, action, device name, vault name/ID, IP, and User-Agent

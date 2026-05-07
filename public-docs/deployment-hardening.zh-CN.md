@@ -204,3 +204,7 @@ restic -r sftp:user@backup.example.com:/repo backup /var/lib/pkv-sync /etc/pkv-s
 ## 日志隐私
 
 PKV Sync 会记录运行和安全事件，包括调试及处理滥用所需的客户端信息。与其他用户共用服务器时，请提前告知。
+
+## Token 管理
+
+设备 bearer token 会在 90 天后过期，也可以由用户或管理员撤销。在过期或撤销之前，请把活跃 token 当作凭据处理；如果只丢失了一台设备，优先撤销该设备 token，而不是重置整个账号。

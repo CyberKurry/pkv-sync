@@ -63,7 +63,9 @@ Open both files in Obsidian, merge manually, then delete the conflict file.
 
 ## Device Tokens
 
-Each login creates a device token.
+Logging in issues a device token that is valid for 90 days. The plugin keeps a
+stable device ID, so logging in again from the same device replaces that
+device's previous active token instead of accumulating duplicates.
 
 - Use plugin settings to log out from the current device.
 - Ask your admin to revoke lost devices.

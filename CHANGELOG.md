@@ -7,6 +7,26 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-05-07
+
+### Security
+
+- Add a 90-day expiration time to API bearer device tokens, including a migration for existing active tokens.
+- Keep the "last admin" protection atomic for Admin WebUI and admin API role changes.
+
+### Changed
+
+- Redesign the Admin WebUI user detail page so it uses the same responsive shell, panels, action cards, icons, and token table style as the rest of the admin interface.
+- Make the plugin unload path cancel timers and invalidate the current sync engine instead of starting a new unload-time sync.
+
+### Fixed
+
+- Serialize Obsidian plugin data writes so settings and sync index updates cannot silently overwrite each other.
+- Preserve partial pull progress after interrupted file writes, avoiding duplicate conflict files on the next retry.
+- Delete the backing vault Git repository and clear its push lock when a vault is removed.
+- Add invite foreign-key delete actions so users connected to invites can be deleted without breaking referential integrity.
+- Keep the Admin WebUI user detail layout from overflowing on mobile and remove misleading timezone suffixes from its regression fixtures.
+
 ## [0.1.4] - 2026-05-06
 
 ### Changed

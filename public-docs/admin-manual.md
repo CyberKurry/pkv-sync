@@ -35,15 +35,27 @@ https://sync.example.com/admin/login
 
 Use the first-run admin credentials, then change the password.
 
-The web panel includes dashboard, users, invites, runtime settings, activity,
-and blob garbage collection pages.
+The web panel includes dashboard, users, responsive user detail pages, device
+tokens, vaults, invites, runtime settings, activity, and blob garbage collection
+pages.
 
 ## User Management
 
 - Create users from the **Users** page.
+- Open a user detail page to reset passwords, enable or disable the account,
+  promote or demote admin access, and manage that user's device tokens.
 - Disable users instead of deleting when you may need audit history.
 - Resetting a password revokes existing device tokens.
 - Do not demote or disable your last active admin account.
+
+## Device Tokens and Vaults
+
+- Device tokens are valid for 90 days and can be revoked from the global
+  **Devices** page or from an individual user detail page.
+- Logging in again from the same stable plugin device ID replaces the previous
+  active token for that device.
+- Deleting a vault removes its metadata and backing Git repository from the
+  server data directory.
 
 CLI fallback:
 
