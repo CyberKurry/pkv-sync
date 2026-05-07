@@ -282,7 +282,10 @@ jobs:
         shell: bash
         run: |
           cd dist
-          find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          find . -type f ! -name SHA256SUMS -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | sed -E 's#  \./(.*/)?#  #' > SHA256SUMS
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
