@@ -346,7 +346,7 @@ mod tests {
         assert!(html.contains("class=\"panel table-panel tokens-table\""));
         assert!(!html.contains("class=\"metric-grid three\""));
 
-        let css = include_str!("../../static/admin.css");
+        let css = include_str!("../../static/admin.css").replace("\r\n", "\n");
         assert!(css.contains(".user-detail-layout"));
         assert!(css.contains(".user-profile-panel"));
         assert!(css.contains(".user-action-grid"));

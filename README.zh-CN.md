@@ -34,7 +34,7 @@ PKV Sync 仍处于 1.0 之前阶段。API、存储布局、发布包和运维默
 | 排除规则 | 不同步 `.obsidian/`、`.trash/` 和冲突文件 |
 | 认证 | 部署密钥预认证，加用户密码和 bearer 设备 token |
 | 设备 | 插件持久化稳定设备 ID；同一设备重新登录会替换旧的活跃 token |
-| 管理 | 仪表盘、用户、设备 token、笔记库、邀请码、设置、活动和 blob GC |
+| 管理 | 仪表盘、用户、响应式用户详情页、设备 token、笔记库、邀请码、设置、活动和 blob GC |
 | 时间显示 | 管理后台和插件都支持 IANA 时区选择，默认 `Asia/Shanghai` |
 | 可观测性 | 结构化日志，支持 `json` / `pretty` 输出和可配置日志级别 |
 | 发布 | Linux amd64、Linux arm64、Windows x64、插件 zip、校验和、GHCR Docker 镜像 |
@@ -182,7 +182,7 @@ pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 在服务器上打开 `/admin/login`。当前管理后台包括：
 
 - 仪表盘：CPU、内存、数据目录所在磁盘用量，以及人类可读运行时间
-- 用户管理和密码重置
+- 用户管理、响应式用户详情页和密码重置
 - 设备 token 创建、列表和撤销
 - 笔记库创建、删除、元数据修复和大小显示
 - 邀请码管理

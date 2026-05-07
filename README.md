@@ -39,7 +39,7 @@ backups for real deployments.
 | Exclusions | `.obsidian/`, `.trash/`, and conflict files are not synced |
 | Auth | Deployment-key pre-auth plus user passwords and bearer device tokens |
 | Devices | Stable plugin device IDs; repeated login replaces the old active token for that device |
-| Admin | Dashboard, users, device tokens, vaults, invites, settings, activity, and blob GC |
+| Admin | Dashboard, users, responsive user detail pages, device tokens, vaults, invites, settings, activity, and blob GC |
 | Time display | Admin and plugin time display use selectable IANA timezones, defaulting to `Asia/Shanghai` |
 | Observability | Structured logs with `json` or `pretty` output and configurable log level |
 | Release | Linux amd64, Linux arm64, Windows x64, plugin zip, checksums, and GHCR Docker image |
@@ -192,7 +192,7 @@ multiple active tokens.
 Open `/admin/login` on your server. The admin panel currently includes:
 
 - Dashboard with CPU, memory, data-directory disk usage, and human-readable uptime
-- User management and password reset
+- User management, responsive user detail pages, and password reset
 - Device token creation, listing, and revocation
 - Vault creation, deletion, metadata reconciliation, and size display
 - Invite management
