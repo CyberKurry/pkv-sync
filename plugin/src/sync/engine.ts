@@ -2,7 +2,7 @@ import { Notice } from "obsidian";
 import { ApiError } from "../api/client";
 import type { SyncApi } from "../api/sync-client";
 import { conflictPath } from "./conflict";
-import { sha256Text } from "./hash";
+import { sha256Bytes, sha256Text } from "./hash";
 import {
   deletedFiles,
   markDeleted,
@@ -218,10 +218,14 @@ export class SyncEngine {
             this.opts.vaultId,
             file.blob_hash
           );
+          const actualHash = await sha256Bytes(bytes);
+          if (actualHash !== file.blob_hash) {
+            throw new Error(`Blob hash mismatch for ${file.path}`);
+          }
           await this.opts.vault.writeBinary(file.path, bytes);
           touched.push({
             path: file.path,
-            hash: file.blob_hash,
+            hash: actualHash,
             size: file.size,
             kind: "blob",
             bytes

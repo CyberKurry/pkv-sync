@@ -43,3 +43,22 @@ async fn migrate_up_is_idempotent() {
     pool::migrate_up(&p).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
 }
+
+#[tokio::test]
+async fn sync_activity_token_fk_sets_null_on_token_delete() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("t.db");
+    let p = pool::connect(&db_path).await.unwrap();
+    pool::migrate_up(&p).await.unwrap();
+
+    let rows = sqlx::query("PRAGMA foreign_key_list(sync_activity)")
+        .fetch_all(&p)
+        .await
+        .unwrap();
+    let token_fk = rows
+        .into_iter()
+        .find(|row| row.get::<String, _>("table") == "tokens")
+        .expect("sync_activity token FK");
+
+    assert_eq!(token_fk.get::<String, _>("on_delete"), "SET NULL");
+}

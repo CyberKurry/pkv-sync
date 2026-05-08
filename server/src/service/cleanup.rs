@@ -17,6 +17,7 @@ pub struct CleanupReport {
 pub async fn run_scheduled_cleanup(state: &AppState) -> CleanupReport {
     let now = chrono::Utc::now().timestamp();
     let thirty_days_ago = now - 30 * 24 * 60 * 60;
+    let one_day_ago = now - 24 * 60 * 60;
 
     let sessions_deleted = session::cleanup_expired_sessions(state)
         .await
@@ -36,7 +37,7 @@ pub async fn run_scheduled_cleanup(state: &AppState) -> CleanupReport {
         .unwrap_or(0);
     let idempotency_deleted = state
         .idempotency
-        .delete_older_than(now)
+        .delete_older_than(one_day_ago)
         .await
         .inspect_err(|e| tracing::warn!(error = %e, "idempotency cleanup failed"))
         .unwrap_or(0);
@@ -145,8 +146,8 @@ mod tests {
     async fn cleanup_prunes_old_idempotency_entries() {
         let (state, _tmp) = state_for_cleanup().await;
 
-        // Insert directly with a past timestamp so it's definitely older than now
-        let past = chrono::Utc::now().timestamp() - 10;
+        // Insert directly with a past timestamp so it's definitely older than the retention window.
+        let past = chrono::Utc::now().timestamp() - 2 * 24 * 60 * 60;
         sqlx::query(
             "INSERT INTO idempotency_cache (key, user_id, response_json, created_at)
              VALUES (?, ?, ?, ?)",
@@ -161,6 +162,28 @@ mod tests {
 
         let report = run_scheduled_cleanup(&state).await;
         assert_eq!(report.idempotency_deleted, 1);
+    }
+
+    #[tokio::test]
+    async fn cleanup_keeps_recent_idempotency_entries() {
+        let (state, _tmp) = state_for_cleanup().await;
+
+        let recent = chrono::Utc::now().timestamp() - 10;
+        sqlx::query(
+            "INSERT INTO idempotency_cache (key, user_id, response_json, created_at)
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind("recent-key")
+        .bind("user1")
+        .bind("{}")
+        .bind(recent)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        let report = run_scheduled_cleanup(&state).await;
+
+        assert_eq!(report.idempotency_deleted, 0);
     }
 
     #[tokio::test]

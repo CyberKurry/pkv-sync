@@ -49,6 +49,16 @@ fn assert_success(output: Output) -> String {
     stdout
 }
 
+fn assert_failure(output: Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    assert!(
+        !output.status.success(),
+        "unexpected success\nstdout={stdout}\nstderr={stderr}"
+    );
+    stderr
+}
+
 #[test]
 fn user_commands_accept_password_from_stdin() {
     let tmp = tempfile::tempdir().unwrap();
@@ -102,4 +112,40 @@ trusted_proxies = ["127.0.0.1/32"]
         &["-c", cfg, "user", "passwd", "bob"],
         Some("newpass1234\n"),
     ));
+}
+
+#[test]
+fn user_add_rejects_invalid_username() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let cfg = tmp.path().join("config.toml");
+    std::fs::write(
+        &cfg,
+        format!(
+            r#"
+[server]
+bind_addr = "127.0.0.1:0"
+deployment_key = "k_cliusersmoke"
+
+[storage]
+data_dir = "{}"
+db_path = "{}"
+
+[network]
+trusted_proxies = ["127.0.0.1/32"]
+"#,
+            data.display().to_string().replace('\\', "/"),
+            data.join("metadata.db")
+                .display()
+                .to_string()
+                .replace('\\', "/")
+        ),
+    )
+    .unwrap();
+    let cfg = cfg.to_str().unwrap();
+
+    assert_success(run(&["-c", cfg, "migrate", "up"], None));
+    let stderr = assert_failure(run(&["-c", cfg, "user", "add", "ab"], Some("passw0rd!!\n")));
+    assert!(stderr.contains("invalid_username"), "{stderr}");
 }

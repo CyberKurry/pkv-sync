@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SyncEngine, type IndexPersistence } from "../../src/sync/engine";
-import { sha256Text } from "../../src/sync/hash";
+import { sha256Bytes, sha256Text } from "../../src/sync/hash";
 import type { LocalFileSnapshot, LocalIndex } from "../../src/sync/types";
 import { shouldSyncPath } from "../../src/sync/vault-adapter";
 import { notices } from "../mocks/obsidian";
@@ -391,7 +391,7 @@ describe("SyncEngine pull", () => {
       }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
-      push: vi.fn(),
+      push: vi.fn().mockResolvedValue({ new_commit: "c2", files_changed: 1 }),
       downloadBlob: vi.fn(),
       downloadTextFile: vi.fn()
     };
@@ -416,5 +416,54 @@ describe("SyncEngine pull", () => {
     expect(idx.saved?.lastSyncedCommit).toBe("c0");
     expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe(remoteHash);
     expect(idx.saved?.files["b.md"]).toBeUndefined();
+  });
+
+  it("rejects downloaded blobs whose bytes do not match the advertised hash", async () => {
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const advertisedHash = await sha256Bytes(
+      new TextEncoder().encode("expected").buffer
+    );
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c1",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [
+          {
+            path: "image.png",
+            file_type: "blob",
+            size: 7,
+            blob_hash: advertisedHash
+          }
+        ],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({ new_commit: "c2", files_changed: 1 }),
+      downloadBlob: vi
+        .fn()
+        .mockResolvedValue(new TextEncoder().encode("corrupt").buffer),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await expect(engine.syncNow()).rejects.toThrow("Blob hash mismatch");
+
+    expect(vault.files).toHaveLength(0);
+    expect(idx.saves).toHaveLength(0);
   });
 });

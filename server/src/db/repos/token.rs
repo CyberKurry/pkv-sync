@@ -477,4 +477,40 @@ mod tests {
         let n = tokens.delete_revoked_older_than(200).await.unwrap();
         assert_eq!(n, 1);
     }
+
+    #[tokio::test]
+    async fn delete_revoked_older_keeps_activity_and_nulls_token_reference() {
+        let (_users, tokens, uid) = setup().await;
+        let row = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "activity-token",
+                device_id: "device-activity",
+                device_name: "d",
+            })
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO sync_activity (user_id, token_id, action, timestamp)
+             VALUES (?, ?, 'push', ?)",
+        )
+        .bind(&uid)
+        .bind(&row.id)
+        .bind(chrono::Utc::now().timestamp())
+        .execute(&tokens.pool)
+        .await
+        .unwrap();
+        tokens.revoke(&row.id, 100).await.unwrap();
+
+        let n = tokens.delete_revoked_older_than(200).await.unwrap();
+
+        assert_eq!(n, 1);
+        let token_id: Option<String> =
+            sqlx::query_scalar("SELECT token_id FROM sync_activity WHERE user_id = ?")
+                .bind(&uid)
+                .fetch_one(&tokens.pool)
+                .await
+                .unwrap();
+        assert!(token_id.is_none());
+    }
 }

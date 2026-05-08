@@ -504,6 +504,10 @@ async fn revoke_token_form(
     _session: AdminSession,
     Path((id, token_id)): Path<(String, String)>,
 ) -> Result<Redirect, ApiError> {
+    let tokens = state.tokens.list_for_user(&id).await?;
+    if !tokens.iter().any(|token| token.id == token_id) {
+        return Err(ApiError::not_found("token not found"));
+    }
     state
         .tokens
         .revoke(&token_id, chrono::Utc::now().timestamp())

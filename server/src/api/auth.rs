@@ -41,10 +41,23 @@ async fn login_handler(
 
 async fn register_handler(
     State(state): State<AppState>,
+    Extension(ClientIp(ip)): Extension<ClientIp>,
+    Extension(limiter): Extension<LoginRateLimiter>,
     Json(req): Json<RegisterReq>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let resp = register(&state, req).await?;
-    Ok((axum::http::StatusCode::CREATED, Json(resp)))
+    if let Err(remaining) = limiter.check(ip) {
+        return Err(ApiError::too_many(format!(
+            "locked for {}s",
+            remaining.as_secs()
+        )));
+    }
+    match register(&state, req).await {
+        Ok(resp) => Ok((axum::http::StatusCode::CREATED, Json(resp))),
+        Err(e) => {
+            limiter.record_failure(ip);
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -129,6 +142,36 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn register_failures_are_rate_limited() {
+        let app = make_app(RegistrationMode::Open).await;
+        for _ in 0..10 {
+            let resp = app
+                .clone()
+                .oneshot(json(
+                    "/api/auth/register",
+                    serde_json::json!({
+                        "username":"ab","password":"passw0rd!!","device_id":"device-bad-register","device_name":"d"
+                    }),
+                ))
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        }
+
+        let resp = app
+            .oneshot(json(
+                "/api/auth/register",
+                serde_json::json!({
+                    "username":"alice","password":"passw0rd!!","device_id":"device-register","device_name":"d"
+                }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]

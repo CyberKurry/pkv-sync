@@ -3,6 +3,7 @@ use pkv_sync_server::auth::password;
 use pkv_sync_server::cli::{Cli, Command, MigrateOp, UserOp};
 use pkv_sync_server::config::Config;
 use pkv_sync_server::db::repos::{NewUser, UserRepo};
+use pkv_sync_server::service::auth::validate_username;
 use std::sync::Arc;
 
 fn read_password_stdin() -> anyhow::Result<String> {
@@ -66,6 +67,8 @@ fn main() -> anyhow::Result<()> {
                 let users = pkv_sync_server::db::repos::SqliteUserRepo::new(pool);
                 match op {
                     UserOp::Add { username, admin } => {
+                        validate_username(&username)
+                            .map_err(|e| anyhow::anyhow!("{}: {}", e.code, e.message))?;
                         if users.find_by_username(&username).await?.is_some() {
                             anyhow::bail!("user already exists");
                         }

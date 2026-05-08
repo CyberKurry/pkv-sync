@@ -3,10 +3,13 @@ use axum::extract::ConnectInfo;
 use axum::http::{header, Method, Request, Response, StatusCode};
 use axum::Router;
 use ipnet::IpNet;
+use pkv_sync_server::auth::token;
 use pkv_sync_server::auth::{password, LoginRateLimiter};
 use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
 use pkv_sync_server::db::pool;
-use pkv_sync_server::db::repos::{NewActivity, NewUser, SyncActivityRepo, UserRepo};
+use pkv_sync_server::db::repos::{
+    NewActivity, NewToken, NewUser, SyncActivityRepo, TokenRepo, UserRepo,
+};
 use pkv_sync_server::server;
 use pkv_sync_server::service::AppState;
 use std::net::SocketAddr;
@@ -573,4 +576,46 @@ async fn activity_page_filters_by_user_and_action() {
         bob.id
     )));
     assert!(body.contains("<option value=\"pull\" selected>Pull</option>"));
+}
+
+#[tokio::test]
+async fn user_detail_token_revoke_requires_token_to_belong_to_path_user() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin_id = first_admin_user_id(&app, &session_cookie).await;
+    let bob = state
+        .users
+        .create(NewUser {
+            username: "bob".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: false,
+        })
+        .await
+        .unwrap();
+    let admin_token = state
+        .tokens
+        .create(NewToken {
+            user_id: &admin_id,
+            token_hash: &token::hash(&token::generate()),
+            device_id: "admin-device",
+            device_name: "Admin Device",
+        })
+        .await
+        .unwrap();
+
+    let mut revoke_req = request(
+        Method::POST,
+        &format!("/admin/users/{}/tokens/{}/revoke", bob.id, admin_token.id),
+        Body::empty(),
+    );
+    revoke_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut revoke_req);
+    let resp = app.oneshot(revoke_req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let tokens = state.tokens.list_for_user(&admin_id).await.unwrap();
+    let still_live = tokens.iter().find(|t| t.id == admin_token.id).unwrap();
+    assert!(still_live.revoked_at.is_none());
 }

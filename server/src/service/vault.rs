@@ -55,8 +55,9 @@ pub async fn delete_vault_for_user(
         state.remove_vault_push_lock(vault_id).await;
         return Ok(false);
     }
-    remove_vault_storage(state, vault_id).await?;
+    let storage_result = remove_vault_storage(state, vault_id).await;
     state.remove_vault_push_lock(vault_id).await;
+    storage_result?;
     Ok(true)
 }
 
@@ -139,6 +140,25 @@ mod tests {
 
         assert!(s.vaults.find_by_id(&v.id).await.unwrap().is_none());
         assert!(!tokio::fs::try_exists(&repo_dir).await.unwrap());
+        assert_eq!(s.vault_push_lock_count_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn delete_vault_for_user_removes_push_lock_when_storage_delete_fails() {
+        let (s, uid, _tmp) = state_and_user().await;
+        let v = create_vault(&s, &uid, "main").await.unwrap();
+        let repo_path = s.default_vault_root().join(&v.id);
+        tokio::fs::create_dir_all(s.default_vault_root())
+            .await
+            .unwrap();
+        tokio::fs::write(&repo_path, b"not a directory")
+            .await
+            .unwrap();
+        let _ = s.vault_push_lock(&v.id).await;
+
+        let err = delete_vault_for_user(&s, &uid, &v.id).await.unwrap_err();
+
+        assert_eq!(err.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(s.vault_push_lock_count_for_tests().await, 0);
     }
 }
