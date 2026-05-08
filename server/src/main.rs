@@ -6,7 +6,7 @@ use pkv_sync_server::db::repos::{NewUser, UserRepo};
 use std::sync::Arc;
 
 fn read_password_stdin() -> anyhow::Result<String> {
-    use std::io::{BufReader, IsTerminal, Write};
+    use std::io::{IsTerminal, Write};
 
     let stdin = std::io::stdin();
     let password = if stdin.is_terminal() {
@@ -14,8 +14,11 @@ fn read_password_stdin() -> anyhow::Result<String> {
         std::io::stderr().flush().ok();
         rpassword::read_password()?
     } else {
-        let mut reader = BufReader::new(stdin.lock());
-        rpassword::read_password_from_bufread(&mut reader)?
+        let config = rpassword::ConfigBuilder::new()
+            .input_reader(stdin)
+            .output_discard()
+            .build();
+        rpassword::read_password_with_config(config)?
     };
     if password.is_empty() {
         anyhow::bail!("password cannot be empty");
