@@ -6,14 +6,14 @@ use ipnet::IpNet;
 use pkv_sync_server::auth::{password, LoginRateLimiter};
 use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
 use pkv_sync_server::db::pool;
-use pkv_sync_server::db::repos::{NewUser, UserRepo};
+use pkv_sync_server::db::repos::{NewActivity, NewUser, SyncActivityRepo, UserRepo};
 use pkv_sync_server::server;
 use pkv_sync_server::service::AppState;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tower::ServiceExt;
 
-async fn app() -> Router {
+async fn app_with_state() -> (Router, AppState) {
     let data_dir = tempfile::tempdir().unwrap().keep();
     let db_path = data_dir.join("metadata.db");
     let pool = pool::connect(&db_path).await.unwrap();
@@ -43,7 +43,11 @@ async fn app() -> Router {
         logging: LoggingConfig::default(),
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
-    server::build_app(state, &cfg, limiter)
+    (server::build_app(state.clone(), &cfg, limiter), state)
+}
+
+async fn app() -> Router {
+    app_with_state().await.0
 }
 
 fn request(method: Method, uri: &str, body: Body) -> Request<Body> {
@@ -505,4 +509,68 @@ async fn protected_admin_post_requires_same_origin() {
     set_form_origin(&mut same_origin);
     let same_origin_resp = app.oneshot(same_origin).await.unwrap();
     assert_eq!(same_origin_resp.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
+async fn activity_page_filters_by_user_and_action() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin_id = first_admin_user_id(&app, &session_cookie).await;
+    let bob = state
+        .users
+        .create(NewUser {
+            username: "bob".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: false,
+        })
+        .await
+        .unwrap();
+    state
+        .activities
+        .insert(NewActivity {
+            user_id: &admin_id,
+            vault_id: None,
+            token_id: None,
+            action: "push",
+            commit_hash: None,
+            client_ip: Some("127.0.0.1"),
+            user_agent: Some("PKVSync-Plugin/0.1.0"),
+            details: None,
+        })
+        .await
+        .unwrap();
+    state
+        .activities
+        .insert(NewActivity {
+            user_id: &bob.id,
+            vault_id: None,
+            token_id: None,
+            action: "pull",
+            commit_hash: None,
+            client_ip: Some("127.0.0.2"),
+            user_agent: Some("PKVSync-Plugin/0.1.0"),
+            details: None,
+        })
+        .await
+        .unwrap();
+
+    let mut req = request(
+        Method::GET,
+        &format!("/admin/activity?user_id={}&action=pull", bob.id),
+        Body::empty(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = read_body(resp).await;
+    assert!(body.contains("<td><strong>bob</strong></td>"));
+    assert!(body.contains("<span class=\"pill pill-blue\">pull</span>"));
+    assert!(!body.contains("<td><strong>admin</strong></td>"));
+    assert!(!body.contains("<span class=\"pill pill-blue\">push</span>"));
+    assert!(body.contains(&format!(
+        "<option value=\"{}\" selected>bob</option>",
+        bob.id
+    )));
+    assert!(body.contains("<option value=\"pull\" selected>Pull</option>"));
 }

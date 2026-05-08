@@ -107,5 +107,6 @@ describe("shouldSyncPath", () => {
     expect(shouldSyncPath("note.md")).toBe(true);
     expect(shouldSyncPath("folder/image.png")).toBe(true);
     expect(shouldSyncPath("folder.conflict-backup/note.md")).toBe(true);
+    expect(shouldSyncPath("my.conflict-resolution-notes.md")).toBe(true);
   });
 });

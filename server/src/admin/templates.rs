@@ -149,11 +149,20 @@ pub struct ActivityView {
     pub user_agent: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ActivityFilterUser {
+    pub id: String,
+    pub username: String,
+}
+
 #[derive(Template)]
 #[template(path = "activity.html")]
 pub struct ActivityTemplate {
     pub t: AdminText,
     pub activities: Vec<ActivityView>,
+    pub users: Vec<ActivityFilterUser>,
+    pub selected_user_id: String,
+    pub selected_action: String,
 }
 
 #[cfg(test)]
@@ -510,6 +519,12 @@ mod tests {
                 client_ip: Some("127.0.0.1".into()),
                 user_agent: Some("PKVSync-Plugin/0.1.0".into()),
             }],
+            users: vec![ActivityFilterUser {
+                id: "u1".into(),
+                username: "admin".into(),
+            }],
+            selected_user_id: String::new(),
+            selected_action: String::new(),
         }
         .render()
         .unwrap();

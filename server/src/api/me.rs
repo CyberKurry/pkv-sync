@@ -35,8 +35,9 @@ async fn me(
         .list_for_user(&user.user_id)
         .await?
         .into_iter()
-        .map(|v| serde_json::to_value(v).unwrap())
-        .collect();
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(MeResp {
         user_id: user.user_id,
         username: user.username,

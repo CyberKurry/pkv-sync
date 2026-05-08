@@ -37,7 +37,9 @@ async fn list(
     user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let v = state.vaults.list_for_user(&user.user_id).await?;
-    Ok(Json(serde_json::to_value(v).unwrap()))
+    Ok(Json(
+        serde_json::to_value(v).map_err(|e| ApiError::internal(e.to_string()))?,
+    ))
 }
 
 async fn create(
@@ -46,7 +48,10 @@ async fn create(
     Json(req): Json<CreateVaultReq>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let v = vault_service::create_vault(&state, &user.user_id, &req.name).await?;
-    Ok((StatusCode::CREATED, Json(serde_json::to_value(v).unwrap())))
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::to_value(v).map_err(|e| ApiError::internal(e.to_string()))?),
+    ))
 }
 
 async fn remove(
@@ -84,7 +89,7 @@ async fn upload_blob(
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| ApiError::bad_request("missing_hash", "Content-Hash header required"))?;
     let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
-    let body = axum::body::to_bytes(body, max_file_size as usize)
+    let body = axum::body::to_bytes(body, max_body_bytes(max_file_size))
         .await
         .map_err(|_| {
             ApiError::bad_request(
@@ -94,6 +99,10 @@ async fn upload_blob(
         })?;
     sync::upload_blob(&state, &user.user_id, &id, hash, body).await?;
     Ok(StatusCode::CREATED)
+}
+
+fn max_body_bytes(max_file_size: u64) -> usize {
+    max_file_size.try_into().unwrap_or(usize::MAX)
 }
 
 async fn download_blob(
@@ -164,14 +173,25 @@ async fn pull(
     State(state): State<AppState>,
     user: AuthenticatedUser,
     Path(id): Path<String>,
+    client_ip: Option<Extension<ClientIp>>,
+    headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<sync::PullResp>, ApiError> {
+    let client_ip = client_ip.map(|Extension(ClientIp(ip))| ip.to_string());
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(str::to_string);
     Ok(Json(
-        sync::pull(
+        sync::pull_with_request_metadata(
             &state,
-            &user.user_id,
+            &user,
             &id,
             q.get("since").map(String::as_str),
+            sync::RequestMetadata {
+                client_ip: client_ip.as_deref(),
+                user_agent: user_agent.as_deref(),
+            },
         )
         .await?,
     ))

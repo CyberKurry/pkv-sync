@@ -1,5 +1,5 @@
 use crate::api::error::ApiError;
-use crate::db::repos::{BlobRefRepo, IdempotencyRepo};
+use crate::db::repos::{BlobRefRepo, IdempotencyRepo, NewActivity, SyncActivityRepo};
 use crate::service::vault;
 use crate::service::AppState;
 use crate::storage::blob::{BlobStore, LocalFsBlobStore};
@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
+const MAX_PUSH_CHANGES: usize = 1000;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RequestMetadata<'a> {
@@ -199,6 +200,12 @@ pub async fn push_with_request_metadata(
     req: PushReq,
 ) -> Result<PushResp, ApiError> {
     let _vault = vault::ensure_user_vault(state, &user.user_id, vault_id).await?;
+    if req.changes.len() > MAX_PUSH_CHANGES {
+        return Err(ApiError::bad_request(
+            "too_many_changes",
+            format!("push changes exceed limit of {MAX_PUSH_CHANGES}"),
+        ));
+    }
     let push_lock = state.vault_push_lock(vault_id).await;
     let _push_guard = push_lock.lock().await;
     let request_hash = match idempotency_key {
@@ -647,6 +654,43 @@ pub async fn pull(
     vault_id: &str,
     since: Option<&str>,
 ) -> Result<PullResp, ApiError> {
+    pull_for_user(
+        state,
+        user_id,
+        None,
+        vault_id,
+        since,
+        RequestMetadata::default(),
+    )
+    .await
+}
+
+pub async fn pull_with_request_metadata(
+    state: &AppState,
+    user: &crate::auth::AuthenticatedUser,
+    vault_id: &str,
+    since: Option<&str>,
+    request_metadata: RequestMetadata<'_>,
+) -> Result<PullResp, ApiError> {
+    pull_for_user(
+        state,
+        &user.user_id,
+        Some(&user.token_id),
+        vault_id,
+        since,
+        request_metadata,
+    )
+    .await
+}
+
+async fn pull_for_user(
+    state: &AppState,
+    user_id: &str,
+    token_id: Option<&str>,
+    vault_id: &str,
+    since: Option<&str>,
+    request_metadata: RequestMetadata<'_>,
+) -> Result<PullResp, ApiError> {
     let _vault = vault::ensure_user_vault(state, user_id, vault_id).await?;
     let git = Git2VaultStore::new(state.default_vault_root());
     let head = git
@@ -711,6 +755,25 @@ pub async fn pull(
         deleted = deleted.len(),
         "pull completed"
     );
+    let details = serde_json::json!({
+        "added": added.len(),
+        "modified": modified.len(),
+        "deleted": deleted.len(),
+    })
+    .to_string();
+    state
+        .activities
+        .insert(NewActivity {
+            user_id,
+            vault_id: Some(vault_id),
+            token_id,
+            action: "pull",
+            commit_hash: Some(&h),
+            client_ip: request_metadata.client_ip,
+            user_agent: request_metadata.user_agent,
+            details: Some(&details),
+        })
+        .await?;
     Ok(PullResp {
         from: since.map(str::to_string),
         to: head,
@@ -914,6 +977,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn push_rejects_too_many_changes() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let changes = (0..1001)
+            .map(|i| PushChange::Text {
+                path: format!("note-{i}.md"),
+                content: "x".into(),
+            })
+            .collect();
+
+        let err = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: None,
+                changes,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "too_many_changes");
+    }
+
+    #[tokio::test]
     async fn push_rejects_runtime_oversize_blob_metadata() {
         let (state, user, vid, _tmp) = state_user_vault().await;
         state
@@ -1070,6 +1160,56 @@ mod tests {
                 .unwrap();
         assert_eq!(row.0.as_deref(), Some("203.0.113.10"));
         assert_eq!(row.1.as_deref(), Some("PKVSync-Plugin/0.1.0"));
+    }
+
+    #[tokio::test]
+    async fn pull_records_activity_with_request_metadata() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let pushed = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("test".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "hello".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let pulled = pull_with_request_metadata(
+            &state,
+            &user,
+            &vid,
+            None,
+            RequestMetadata {
+                client_ip: Some("203.0.113.11"),
+                user_agent: Some("PKVSync-Plugin/0.1.0"),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(pulled.to.as_deref(), Some(pushed.new_commit.as_str()));
+
+        let row: (String, String, Option<String>, Option<String>, String) = sqlx::query_as(
+            "SELECT action, token_id, client_ip, user_agent, details
+             FROM sync_activity WHERE vault_id = ? AND action = 'pull'",
+        )
+        .bind(&vid)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(row.0, "pull");
+        assert_eq!(row.1, user.token_id);
+        assert_eq!(row.2.as_deref(), Some("203.0.113.11"));
+        assert_eq!(row.3.as_deref(), Some("PKVSync-Plugin/0.1.0"));
+        let details: serde_json::Value = serde_json::from_str(&row.4).unwrap();
+        assert_eq!(details["added"], 1);
     }
 
     #[tokio::test]

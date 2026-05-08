@@ -3,8 +3,20 @@
 {% block nav_activity %}is-active{% endblock %}
 {% block page_title %}Activity Log{% endblock %}
 {% block header_actions %}
-<select aria-label="Filter users"><option>All Users</option></select>
-<select aria-label="Filter actions"><option>All Actions</option></select>
+<form method="get" action="/admin/activity" class="header-filter-form">
+  <select name="user_id" aria-label="Filter users" onchange="this.form.submit()">
+    <option value="" {% if selected_user_id.is_empty() %}selected{% endif %}>All Users</option>
+    {% for user in users %}
+    <option value="{{ user.id }}" {% if user.id == selected_user_id %}selected{% endif %}>{{ user.username }}</option>
+    {% endfor %}
+  </select>
+  <select name="action" aria-label="Filter actions" onchange="this.form.submit()">
+    <option value="" {% if selected_action.is_empty() %}selected{% endif %}>All Actions</option>
+    <option value="push" {% if selected_action == "push" %}selected{% endif %}>Push</option>
+    <option value="pull" {% if selected_action == "pull" %}selected{% endif %}>Pull</option>
+  </select>
+  <noscript><button class="secondary small">Apply</button></noscript>
+</form>
 {% endblock %}
 {% block content %}
 <section class="panel table-panel activity-table">

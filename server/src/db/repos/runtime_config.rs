@@ -211,27 +211,37 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         lock_seconds: u64,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        write_kv(
-            &self.pool,
-            "login_failure_threshold",
-            &serde_json::to_string(&threshold.max(1)).unwrap(),
-            by,
-        )
-        .await?;
-        write_kv(
-            &self.pool,
-            "login_window_seconds",
-            &serde_json::to_string(&window_seconds.max(1)).unwrap(),
-            by,
-        )
-        .await?;
-        write_kv(
-            &self.pool,
-            "login_lock_seconds",
-            &serde_json::to_string(&lock_seconds.max(1)).unwrap(),
-            by,
-        )
-        .await?;
+        let values = [
+            (
+                "login_failure_threshold",
+                serde_json::to_string(&threshold.max(1)).unwrap(),
+            ),
+            (
+                "login_window_seconds",
+                serde_json::to_string(&window_seconds.max(1)).unwrap(),
+            ),
+            (
+                "login_lock_seconds",
+                serde_json::to_string(&lock_seconds.max(1)).unwrap(),
+            ),
+        ];
+        let now = chrono::Utc::now().timestamp();
+        let mut tx = self.pool.begin().await?;
+        for (key, value) in values {
+            sqlx::query(
+                "INSERT INTO runtime_config (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                               updated_at = excluded.updated_at,
+                                               updated_by = excluded.updated_by",
+            )
+            .bind(key)
+            .bind(value)
+            .bind(now)
+            .bind(by)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 

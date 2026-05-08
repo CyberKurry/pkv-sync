@@ -40,12 +40,23 @@ pub async fn delete_vault_for_user(
     user_id: &str,
     vault_id: &str,
 ) -> Result<bool, ApiError> {
-    let deleted = state.vaults.delete_for_user(user_id, vault_id).await?;
-    if !deleted {
+    if state
+        .vaults
+        .find_for_user(user_id, vault_id)
+        .await?
+        .is_none()
+    {
         return Ok(false);
     }
-    state.remove_vault_push_lock(vault_id).await;
+    let push_lock = state.vault_push_lock(vault_id).await;
+    let _push_guard = push_lock.lock().await;
+    let deleted = state.vaults.delete_for_user(user_id, vault_id).await?;
+    if !deleted {
+        state.remove_vault_push_lock(vault_id).await;
+        return Ok(false);
+    }
     remove_vault_storage(state, vault_id).await?;
+    state.remove_vault_push_lock(vault_id).await;
     Ok(true)
 }
 

@@ -1,6 +1,7 @@
 use crate::api::error::ApiError;
 use crate::auth::{password, AdminUser};
 use crate::db::repos::{NewUser, TokenRepo, TokenRow, User, UserRepo};
+use crate::service::auth::validate_username;
 use crate::service::AppState;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -69,6 +70,7 @@ async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateReq>,
 ) -> Result<(StatusCode, Json<UserView>), ApiError> {
+    validate_username(&req.username)?;
     if state.users.find_by_username(&req.username).await?.is_some() {
         return Err(ApiError::conflict("username_taken", "username exists"));
     }
@@ -173,8 +175,12 @@ async fn list_user_tokens(
 async fn revoke_user_token(
     _admin: AdminUser,
     State(state): State<AppState>,
-    Path((_user_id, token_id)): Path<(String, String)>,
+    Path((user_id, token_id)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
+    let tokens = state.tokens.list_for_user(&user_id).await?;
+    if !tokens.iter().any(|token| token.id == token_id) {
+        return Err(ApiError::not_found("token not found"));
+    }
     state
         .tokens
         .revoke(&token_id, chrono::Utc::now().timestamp())
@@ -224,6 +230,62 @@ mod tests {
         (super::router().with_state(state), raw)
     }
 
+    async fn setup_with_second_user() -> (Router, String, String, String, String) {
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into())
+            .await
+            .unwrap();
+        let h = password::hash("passw0rd!!").unwrap();
+        let admin = state
+            .users
+            .create(NewUser {
+                username: "admin".into(),
+                password_hash: h.clone(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        let other = state
+            .users
+            .create(NewUser {
+                username: "other".into(),
+                password_hash: h,
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let raw = token::generate();
+        let admin_token = state
+            .tokens
+            .create(NewToken {
+                user_id: &admin.id,
+                token_hash: &token::hash(&raw),
+                device_id: "device-admin-users",
+                device_name: "x",
+            })
+            .await
+            .unwrap();
+        let other_token = state
+            .tokens
+            .create(NewToken {
+                user_id: &other.id,
+                token_hash: &token::hash(&token::generate()),
+                device_id: "device-other",
+                device_name: "other",
+            })
+            .await
+            .unwrap();
+        (
+            super::router().with_state(state),
+            raw,
+            other.id,
+            admin_token.id,
+            other_token.id,
+        )
+    }
+
     fn auth_request(method: &str, uri: impl Into<String>, raw: &str) -> Request<Body> {
         Request::builder()
             .method(method)
@@ -267,6 +329,56 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn admin_create_user_rejects_invalid_username() {
+        let (app, raw) = setup().await;
+        let resp = app
+            .oneshot(req_json(
+                "POST",
+                "/api/admin/users",
+                &raw,
+                serde_json::json!({"username":"","password":"passw0rd!!"}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn admin_token_revoke_requires_token_to_belong_to_path_user() {
+        let (app, raw, other_id, admin_token_id, _other_token_id) = setup_with_second_user().await;
+        let resp = app
+            .clone()
+            .oneshot(auth_request(
+                "DELETE",
+                format!("/api/admin/users/{other_id}/tokens/{admin_token_id}"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        let still_authenticated = app
+            .oneshot(auth_request("GET", "/api/admin/users", &raw))
+            .await
+            .unwrap();
+        assert_eq!(still_authenticated.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn admin_can_revoke_another_users_token() {
+        let (app, raw, other_id, _admin_token_id, other_token_id) = setup_with_second_user().await;
+        let resp = app
+            .oneshot(auth_request(
+                "DELETE",
+                format!("/api/admin/users/{other_id}/tokens/{other_token_id}"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]

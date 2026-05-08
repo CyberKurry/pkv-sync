@@ -1,8 +1,9 @@
 use crate::admin::session::{self, AdminSession};
 use crate::admin::templates::{
-    ActivityTemplate, ActivityView, DashboardTemplate, DeviceTokenAdminView, DevicesTemplate,
-    InviteAdminView, InvitesTemplate, LoginTemplate, SettingsTemplate, TokenAdminView,
-    UserAdminView, UserDetailTemplate, UsersTemplate, VaultAdminView, VaultsTemplate,
+    ActivityFilterUser, ActivityTemplate, ActivityView, DashboardTemplate, DeviceTokenAdminView,
+    DevicesTemplate, InviteAdminView, InvitesTemplate, LoginTemplate, SettingsTemplate,
+    TokenAdminView, UserAdminView, UserDetailTemplate, UsersTemplate, VaultAdminView,
+    VaultsTemplate,
 };
 use crate::api::error::ApiError;
 use crate::auth::LoginRateLimiter;
@@ -12,6 +13,7 @@ use crate::db::repos::{
     UserRepo, VaultRepo,
 };
 use crate::middleware::real_ip::ClientIp;
+use crate::service::auth::validate_username;
 use crate::service::AppState;
 use askama::Template;
 use axum::extract::{Extension, Form, Path, Query, State};
@@ -239,7 +241,7 @@ async fn dashboard(
     let metrics = crate::admin::system::collect(&state.data_dir);
     let t = admin_text(&headers, &cookies);
     let uptime_seconds = crate::server::uptime_seconds();
-    let recent_activities = list_admin_activities(&state, 5).await?;
+    let recent_activities = list_admin_activities(&state, 5, &ActivityFilters::default()).await?;
     Ok(Html(
         DashboardTemplate {
             disk_used_display: crate::human::format_bytes(metrics.disk_used_bytes),
@@ -302,6 +304,7 @@ async fn create_user_form(
     _session: AdminSession,
     Form(form): Form<CreateUserForm>,
 ) -> Result<Redirect, ApiError> {
+    validate_username(&form.username)?;
     if state
         .users
         .find_by_username(&form.username)
@@ -891,23 +894,44 @@ type ActivityRow = (
     Option<String>,
 );
 
+#[derive(Default, Deserialize)]
+struct ActivityFilters {
+    user_id: Option<String>,
+    action: Option<String>,
+}
+
 async fn list_admin_activities(
     state: &AppState,
     limit: i64,
+    filters: &ActivityFilters,
 ) -> Result<Vec<ActivityView>, ApiError> {
-    let rows: Vec<ActivityRow> = sqlx::query_as(
+    let user_id = filters.user_id.as_deref().filter(|s| !s.is_empty());
+    let action = filters.action.as_deref().filter(|s| !s.is_empty());
+    let mut sql = String::from(
         "SELECT a.timestamp, u.username, a.action, a.vault_id, v.name, tok.device_name,
                 a.client_ip, a.user_agent
          FROM sync_activity a
          JOIN users u ON u.id = a.user_id
          LEFT JOIN vaults v ON v.id = a.vault_id
          LEFT JOIN tokens tok ON tok.id = a.token_id
-         ORDER BY a.timestamp DESC
-         LIMIT ?",
-    )
-    .bind(limit)
-    .fetch_all(&state.pool)
-    .await?;
+         WHERE 1 = 1",
+    );
+    if user_id.is_some() {
+        sql.push_str(" AND a.user_id = ?");
+    }
+    if action.is_some() {
+        sql.push_str(" AND a.action = ?");
+    }
+    sql.push_str(" ORDER BY a.timestamp DESC LIMIT ?");
+
+    let mut query = sqlx::query_as::<_, ActivityRow>(&sql);
+    if let Some(user_id) = user_id {
+        query = query.bind(user_id);
+    }
+    if let Some(action) = action {
+        query = query.bind(action);
+    }
+    let rows: Vec<ActivityRow> = query.bind(limit).fetch_all(&state.pool).await?;
     let timezone = state.runtime_cfg.snapshot().await.timezone;
     Ok(rows
         .into_iter()
@@ -932,6 +956,19 @@ async fn list_admin_activities(
                 user_agent,
             },
         )
+        .collect())
+}
+
+async fn list_activity_filter_users(state: &AppState) -> Result<Vec<ActivityFilterUser>, ApiError> {
+    Ok(state
+        .users
+        .list()
+        .await?
+        .into_iter()
+        .map(|user| ActivityFilterUser {
+            id: user.id,
+            username: user.username,
+        })
         .collect())
 }
 
@@ -988,11 +1025,17 @@ async fn activity_page(
     headers: HeaderMap,
     cookies: Cookies,
     _session: AdminSession,
+    Query(filters): Query<ActivityFilters>,
 ) -> Result<Html<String>, ApiError> {
+    let selected_user_id = filters.user_id.clone().unwrap_or_default();
+    let selected_action = filters.action.clone().unwrap_or_default();
     Ok(Html(
         ActivityTemplate {
             t: admin_text(&headers, &cookies),
-            activities: list_admin_activities(&state, 200).await?,
+            activities: list_admin_activities(&state, 200, &filters).await?,
+            users: list_activity_filter_users(&state).await?,
+            selected_user_id,
+            selected_action,
         }
         .render()
         .unwrap(),

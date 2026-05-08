@@ -7,6 +7,27 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-05-08
+
+### Security
+
+- Validate admin token-revocation routes against the URL user while preserving administrator access to revoke tokens for any user.
+- Reject oversized push change sets before server-side processing to reduce memory and CPU abuse risk.
+
+### Changed
+
+- Record pull operations in the sync activity log and make the Admin WebUI activity filters actually filter by user and action.
+- Let the Obsidian plugin use the server-provided text extension list after connecting.
+
+### Fixed
+
+- Serialize plugin sync-index reads behind pending data writes so sync decisions do not use stale plugin state.
+- Keep normal filenames such as `my.conflict-resolution-notes.md` eligible for sync while still excluding generated conflict files.
+- Normalize corrupted numeric plugin settings back to safe defaults.
+- Write login rate-limit runtime configuration keys in one transaction.
+- Cleanly coordinate vault deletion with per-vault push locks.
+- Avoid panic-prone JSON serialization unwraps in user and vault API responses.
+
 ## [0.1.5] - 2026-05-07
 
 ### Security

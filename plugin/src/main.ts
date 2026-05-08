@@ -132,6 +132,7 @@ export default class PKVSyncPlugin extends Plugin {
 
   onunload(): void {
     this.pushDebouncer?.cancel();
+    // Starting a new sync during Obsidian teardown can leave vault writes half-done.
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.fallbackTimer !== null) window.clearInterval(this.fallbackTimer);
     this.syncGeneration++;
@@ -159,7 +160,7 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   async loadSyncIndex(scopeKey = syncScopeKey(this.settings)): Promise<LocalIndex> {
-    return readSyncIndex(await this.loadData(), scopeKey);
+    return this.dataStore.read((data) => readSyncIndex(data, scopeKey));
   }
 
   async saveSyncIndex(
@@ -248,7 +249,7 @@ export default class PKVSyncPlugin extends Plugin {
     if (!isLoggedIn(this.settings) || !this.settings.selectedVaultId) return;
 
     const scopeKey = syncScopeKey(this.settings);
-    const textExtensions = new Set(["md", "canvas", "base", "json", "txt", "css"]);
+    const textExtensions = new Set(this.settings.textExtensions);
     this.engine = new SyncEngine({
       vaultId: this.settings.selectedVaultId,
       deviceName: this.settings.deviceName,
@@ -274,6 +275,7 @@ export default class PKVSyncPlugin extends Plugin {
     this.pollTimer = window.setInterval(() => {
       void this.engine?.syncNow();
     }, this.settings.pollIntervalSeconds * 1000);
+    this.registerInterval(this.pollTimer);
     const fallbackMs = Math.max(
       30_000,
       Math.floor((this.settings.pollIntervalSeconds * 1000) / 2)

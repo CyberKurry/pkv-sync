@@ -115,6 +115,8 @@ export function shouldSyncPath(path: string): boolean {
   if (path.startsWith(".obsidian/")) return false;
   if (path.startsWith(".trash/")) return false;
   const name = path.split("/").pop() ?? path;
-  if (name.includes(".conflict-")) return false;
+  if (/\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-[^/]+(?:\.[^/.]+)?$/.test(name)) {
+    return false;
+  }
   return true;
 }

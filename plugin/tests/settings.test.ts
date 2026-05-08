@@ -13,6 +13,20 @@ describe("settings", () => {
     expect(settings.debounceMs).toBe(2000);
   });
 
+  it("falls back when persisted numeric settings are invalid", () => {
+    const settings = normalizeSettings({
+      pollIntervalSeconds: "abc",
+      debounceMs: Number.NaN,
+      lastSyncSuccessAt: Number.NaN,
+      textExtensions: [123]
+    } as any);
+
+    expect(settings.pollIntervalSeconds).toBe(60);
+    expect(settings.debounceMs).toBe(2000);
+    expect(settings.lastSyncSuccessAt).toBeNull();
+    expect(settings.textExtensions).toEqual(DEFAULT_SETTINGS.textExtensions);
+  });
+
   it("isLoggedIn requires url key and token", () => {
     expect(isLoggedIn(DEFAULT_SETTINGS)).toBe(false);
     expect(

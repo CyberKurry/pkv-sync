@@ -46,4 +46,48 @@ describe("SerializedPluginDataStore", () => {
       syncIndexes: { "scope-a": index }
     });
   });
+
+  it("waits for queued writes before reading data", async () => {
+    let stored: unknown = { syncIndexes: {} };
+    const gate = deferred();
+    const index: LocalIndex = {
+      lastSyncedCommit: "c1",
+      files: {}
+    };
+    const store = new SerializedPluginDataStore(
+      async () => stored,
+      async (data) => {
+        stored = data;
+      }
+    );
+
+    const write = store.update(async (raw) => {
+      await gate.promise;
+      return writeSyncIndex(raw, "scope-a", index);
+    });
+    const read = store.read((raw) => raw);
+
+    await Promise.resolve();
+    gate.resolve();
+
+    await expect(read).resolves.toEqual({
+      syncIndexes: { "scope-a": index }
+    });
+    await write;
+  });
+
+  it("rejects accidental undefined update results", async () => {
+    let stored: unknown = { settings: DEFAULT_SETTINGS };
+    const store = new SerializedPluginDataStore(
+      async () => stored,
+      async (data) => {
+        stored = data;
+      }
+    );
+
+    await expect(store.update(() => undefined)).rejects.toThrow(
+      "Plugin data update returned undefined"
+    );
+    expect(stored).toEqual({ settings: DEFAULT_SETTINGS });
+  });
 });

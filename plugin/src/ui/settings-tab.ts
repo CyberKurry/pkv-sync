@@ -107,6 +107,9 @@ export class PKVSyncSettingTab extends PluginSettingTab {
             this.plugin.settings.deploymentKey = parsed.deploymentKey;
             await this.plugin.saveSettings();
             this.cfg = await this.plugin.api().config();
+            this.plugin.settings.textExtensions =
+              this.cfg.supported_text_extensions;
+            await this.plugin.saveSettings();
             new Notice(
               format(t.connectedToServer, { serverName: this.cfg.server_name })
             );

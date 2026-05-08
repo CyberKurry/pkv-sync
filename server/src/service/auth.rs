@@ -38,7 +38,7 @@ pub struct AuthResp {
 const USERNAME_MIN: usize = 3;
 const USERNAME_MAX: usize = 32;
 
-fn validate_username(u: &str) -> Result<(), ApiError> {
+pub fn validate_username(u: &str) -> Result<(), ApiError> {
     if u.len() < USERNAME_MIN || u.len() > USERNAME_MAX {
         return Err(ApiError::bad_request(
             "invalid_username",
