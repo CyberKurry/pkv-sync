@@ -225,6 +225,64 @@ describe("SyncEngine pull", () => {
     expect(notices[0]).toContain("PKV Sync conflict");
   });
 
+  it("adopts matching local text without creating conflicts on first pull", async () => {
+    const content = "same notes";
+    const hash = await sha256Text(content);
+    const idx = new FakeIndex({ lastSyncedCommit: null, files: {} });
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash,
+        size: new TextEncoder().encode(content).byteLength,
+        kind: "text",
+        content
+      }
+    ]);
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c1",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: "c1",
+        added: [
+          {
+            path: "a.md",
+            file_type: "text",
+            size: new TextEncoder().encode(content).byteLength,
+            content_inline: content
+          }
+        ],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "Laptop X",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect([...vault.writes.keys()].filter((path) => path.includes(".conflict-"))).toEqual([]);
+    expect(vault.writes.get("a.md")).toBeUndefined();
+    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe(hash);
+    expect(api.push).not.toHaveBeenCalled();
+    expect(notices).toEqual([]);
+  });
+
   it("skips forbidden remote paths while advancing the pull checkpoint", async () => {
     const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
     const vault = new FakeVault([

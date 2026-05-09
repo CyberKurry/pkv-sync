@@ -406,6 +406,102 @@ async fn login_success_sets_cookie_and_allows_dashboard() {
 }
 
 #[tokio::test]
+async fn dashboard_header_does_not_render_inert_search() {
+    let app = app().await;
+    let session_cookie = login_cookie(&app).await;
+
+    let mut dashboard_req = request(Method::GET, "/admin", Body::empty());
+    dashboard_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let dashboard_resp = app.oneshot(dashboard_req).await.unwrap();
+    assert_eq!(dashboard_resp.status(), StatusCode::OK);
+    let body = read_body(dashboard_resp).await;
+
+    assert!(!body.contains("Search..."));
+    assert!(!body.contains("aria-hidden=\"true\">\n  <svg class=\"admin-icon\" aria-hidden=\"true\"><use href=\"/admin/static/lucide-icons.svg#search\""));
+}
+
+#[tokio::test]
+async fn invites_page_accepts_human_expiry_and_shows_created_invite() {
+    let app = app().await;
+    let session_cookie = login_cookie(&app).await;
+    let expires = (chrono::Utc::now() + chrono::Duration::days(3))
+        .format("%Y-%m-%dT%H:%M")
+        .to_string();
+
+    let mut create_req = request(
+        Method::POST,
+        "/admin/invites",
+        Body::from(format!("expires_at={}", expires.replace(':', "%3A"))),
+    );
+    create_req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    create_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut create_req);
+    let create_resp = app.clone().oneshot(create_req).await.unwrap();
+    assert_eq!(create_resp.status(), StatusCode::SEE_OTHER);
+
+    let mut invites_req = request(Method::GET, "/admin/invites", Body::empty());
+    invites_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let invites_resp = app.oneshot(invites_req).await.unwrap();
+    assert_eq!(invites_resp.status(), StatusCode::OK);
+    let body = read_body(invites_resp).await;
+
+    assert!(body.contains("inv_"));
+    assert!(body.contains("Pending"));
+    assert!(body.contains("type=\"datetime-local\""));
+}
+
+#[tokio::test]
+async fn users_page_search_and_status_filter_are_applied() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let bob = state
+        .users
+        .create(NewUser {
+            username: "bob".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: false,
+        })
+        .await
+        .unwrap();
+    let alice = state
+        .users
+        .create(NewUser {
+            username: "alice".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: false,
+        })
+        .await
+        .unwrap();
+    state.users.set_active(&alice.id, false).await.unwrap();
+
+    let mut req = request(
+        Method::GET,
+        "/admin/users?q=bo&status=active",
+        Body::empty(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = read_body(resp).await;
+
+    assert!(body.contains(&format!("/admin/users/{}", bob.id)));
+    assert!(!body.contains(&format!("/admin/users/{}", alice.id)));
+    assert!(body.contains("name=\"q\""));
+    assert!(body.contains("value=\"bo\""));
+    assert!(body.contains("<option value=\"active\" selected>Active</option>"));
+}
+
+#[tokio::test]
 async fn settings_update_applies_live_login_limiter() {
     let app = app().await;
     let mut login_req = request(

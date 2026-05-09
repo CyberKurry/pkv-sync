@@ -192,6 +192,11 @@ export class SyncEngine {
           await this.writeRemoteConflict(file, pull.to);
           continue;
         }
+        const matchingLocal = await this.matchingLocalSnapshot(file, local, pull.to);
+        if (matchingLocal) {
+          touched.push(matchingLocal);
+          continue;
+        }
         if (isLocalDirty(local, indexed?.lastSyncedHash)) {
           await this.writeConflict(file.path, local);
         }
@@ -298,6 +303,30 @@ export class SyncEngine {
       await this.opts.vault.writeBinary(cpath, bytes);
     }
     new Notice(`PKV Sync conflict: ${cpath}`);
+  }
+
+  private async matchingLocalSnapshot(
+    file: PullFile,
+    local: LocalFileSnapshot | undefined,
+    atCommit: string
+  ): Promise<LocalFileSnapshot | null> {
+    if (!local) return null;
+    if (file.file_type === "blob") {
+      return file.blob_hash && local.kind === "blob" && local.hash === file.blob_hash
+        ? local
+        : null;
+    }
+
+    let content = file.content_inline ?? null;
+    if (content === null) {
+      content = await this.opts.api.downloadTextFile(
+        this.opts.vaultId,
+        file.path,
+        atCommit
+      );
+    }
+    const remoteHash = await sha256Text(content);
+    return local.kind === "text" && local.hash === remoteHash ? local : null;
   }
 }
 

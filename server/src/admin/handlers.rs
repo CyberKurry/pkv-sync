@@ -21,6 +21,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
+use chrono::{NaiveDateTime, TimeZone};
+use chrono_tz::Tz;
 use serde::Deserialize;
 use std::collections::HashMap;
 use tower_cookies::Cookies;
@@ -272,24 +274,46 @@ async fn users_page(
     headers: HeaderMap,
     cookies: Cookies,
     _session: AdminSession,
+    Query(filters): Query<UserFilters>,
 ) -> Result<Html<String>, ApiError> {
     let timezone = state.runtime_cfg.snapshot().await.timezone;
-    let users = state
+    let query = filters.q.unwrap_or_default().trim().to_string();
+    let status = match filters.status.as_deref() {
+        Some("active" | "inactive" | "admin") => filters.status.unwrap_or_default(),
+        _ => String::new(),
+    };
+    let query_lc = query.to_lowercase();
+    let users: Vec<UserAdminView> = state
         .users
         .list()
         .await?
         .into_iter()
+        .filter(|u| query_lc.is_empty() || u.username.to_lowercase().contains(&query_lc))
+        .filter(|u| match status.as_str() {
+            "active" => u.is_active,
+            "inactive" => !u.is_active,
+            "admin" => u.is_admin,
+            _ => true,
+        })
         .map(|u| user_view(u, &timezone))
         .collect();
     Ok(Html(
         UsersTemplate {
             t: admin_text(&headers, &cookies),
             users,
+            query,
+            status,
             message: None,
         }
         .render()
         .unwrap(),
     ))
+}
+
+#[derive(Default, Deserialize)]
+struct UserFilters {
+    q: Option<String>,
+    status: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -837,16 +861,41 @@ async fn create_invite_form(
     session: AdminSession,
     Form(form): Form<InviteForm>,
 ) -> Result<Redirect, ApiError> {
-    let expires_at = match form.expires_at.as_deref().map(str::trim) {
-        Some("") | None => None,
-        Some(value) => Some(
-            value
-                .parse::<i64>()
-                .map_err(|_| ApiError::bad_request("bad_expires_at", "invalid unix seconds"))?,
-        ),
-    };
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let expires_at = parse_invite_expires_at(form.expires_at.as_deref(), &timezone)?;
     state.invites.create(&session.user.id, expires_at).await?;
     Ok(Redirect::to("/admin/invites"))
+}
+
+fn parse_invite_expires_at(value: Option<&str>, timezone: &str) -> Result<Option<i64>, ApiError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let parsed = if value.chars().all(|c| c.is_ascii_digit()) {
+        value
+            .parse::<i64>()
+            .map_err(|_| ApiError::bad_request("bad_expires_at", "invalid expiry"))?
+    } else {
+        let dt = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M")
+            .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S"))
+            .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S"))
+            .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M"))
+            .map_err(|_| {
+                ApiError::bad_request("bad_expires_at", "use a future date/time or unix seconds")
+            })?;
+        let tz = timezone.parse::<Tz>().unwrap_or(Tz::UTC);
+        tz.from_local_datetime(&dt)
+            .single()
+            .ok_or_else(|| ApiError::bad_request("bad_expires_at", "invalid local time"))?
+            .timestamp()
+    };
+    if parsed <= chrono::Utc::now().timestamp() {
+        return Err(ApiError::bad_request(
+            "bad_expires_at",
+            "expiry must be in the future",
+        ));
+    }
+    Ok(Some(parsed))
 }
 
 async fn delete_invite_form(

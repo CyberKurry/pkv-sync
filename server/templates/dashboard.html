@@ -2,16 +2,6 @@
 {% block title %}{{ t.dashboard }} - {{ t.admin_title }}{% endblock %}
 {% block nav_dashboard %}is-active{% endblock %}
 {% block page_title %}{{ t.dashboard }}{% endblock %}
-{% block header_actions %}
-<div class="search-box" aria-hidden="true">
-  <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#search"></use></svg>
-  <span>Search...</span>
-</div>
-<button class="icon-button ghost" aria-label="Notifications" title="Notifications">
-  <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#bell"></use></svg>
-</button>
-<span class="avatar">A</span>
-{% endblock %}
 {% block content %}
 <section class="metric-grid dashboard-metrics">
   <article class="metric-card">

@@ -33,6 +33,8 @@ pub struct DashboardTemplate {
 pub struct UsersTemplate {
     pub t: AdminText,
     pub users: Vec<UserAdminView>,
+    pub query: String,
+    pub status: String,
     pub message: Option<String>,
 }
 
@@ -299,6 +301,8 @@ mod tests {
         let html = UsersTemplate {
             t: AdminText::en(),
             users: vec![user("u1", "admin", true)],
+            query: String::new(),
+            status: String::new(),
             message: Some("created".into()),
         }
         .render()
@@ -449,6 +453,7 @@ mod tests {
         .unwrap();
         assert!(html.contains("inv_abc"));
         assert!(html.contains("Create invite"));
+        assert!(html.contains("type=\"datetime-local\""));
     }
 
     #[test]

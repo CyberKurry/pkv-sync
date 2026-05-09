@@ -30,11 +30,14 @@
     </div>
   </article>
   {% endfor %}
+  {% if invites.len() == 0 %}
+  <p class="empty-state">No pending invite codes</p>
+  {% endif %}
 </section>
 
 <form id="create-invite" method="post" action="/admin/invites" class="panel form-panel collapsible-create">
   <div class="panel-header"><h2>{{ t.create_invite }}</h2></div>
-  <label>{{ t.expires_at }} <input name="expires_at" inputmode="numeric"></label>
+  <label>{{ t.expires_at }} <input name="expires_at" type="datetime-local"></label>
   <button class="primary">{{ t.create_invite }}</button>
 </form>
 {% endblock %}

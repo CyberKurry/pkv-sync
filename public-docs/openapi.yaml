@@ -1,22 +1,45 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 0.1.1
+  version: 0.1.7
   license:
     name: AGPL-3.0-only
+  contact:
+    name: cyberkurry
+  description: |
+    HTTP API for PKV Sync clients and admin integrations.
+
+    All `/api/*` routes are protected by the deployment key middleware and the
+    plugin User-Agent guard in the production server stack. Authenticated user
+    and admin routes additionally require a bearer device token.
 servers:
   - url: https://sync.example.com
 security:
   - DeploymentKey: []
+    PluginUserAgent: []
+tags:
+  - name: Health
+  - name: Config
+  - name: Auth
+  - name: Me
+  - name: Vaults
+  - name: Admin
 components:
   securitySchemes:
     DeploymentKey:
       type: apiKey
       in: header
       name: X-PKVSync-Deployment-Key
+      description: Deployment key distributed through the server share URL.
+    PluginUserAgent:
+      type: apiKey
+      in: header
+      name: User-Agent
+      description: Must use the PKV Sync plugin User-Agent format accepted by the server.
     BearerAuth:
       type: http
       scheme: bearer
+      bearerFormat: pks_token
   parameters:
     VaultId:
       in: path
@@ -24,18 +47,71 @@ components:
       required: true
       schema:
         type: string
+      description: Vault UUID-like id without dashes.
     Commit:
       in: path
       name: commit
       required: true
       schema:
         type: string
+      description: Git commit hash.
     BlobHash:
       in: path
       name: hash
       required: true
       schema:
         type: string
+        pattern: '^[0-9a-f]{64}$'
+      description: SHA-256 content hash.
+    TokenId:
+      in: path
+      name: token_id
+      required: true
+      schema:
+        type: string
+    UserId:
+      in: path
+      name: user_id
+      required: true
+      schema:
+        type: string
+    InviteCode:
+      in: path
+      name: code
+      required: true
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Missing, invalid, revoked, or expired bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: Authenticated user does not have permission
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Resource not found, or deployment key/User-Agent rejected by the production stack
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: Request conflicts with current server state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
   schemas:
     ErrorEnvelope:
       type: object
@@ -49,9 +125,25 @@ components:
               type: string
             message:
               type: string
+    HealthResponse:
+      type: object
+      required: [status, uptime_seconds]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        uptime_seconds:
+          type: integer
+          format: int64
+          minimum: 0
     Config:
       type: object
-      required: [server_name, version, registration, max_file_size, supported_text_extensions]
+      required:
+        - server_name
+        - version
+        - registration
+        - max_file_size
+        - supported_text_extensions
       properties:
         server_name:
           type: string
@@ -63,33 +155,26 @@ components:
         max_file_size:
           type: integer
           format: int64
+          minimum: 0
         supported_text_extensions:
           type: array
           items:
             type: string
-    AuthResponse:
-      type: object
-      required: [token, user_id, username, is_admin]
-      properties:
-        token:
-          type: string
-        user_id:
-          type: string
-        username:
-          type: string
-        is_admin:
-          type: boolean
     LoginRequest:
       type: object
-      required: [username, password, device_name]
+      required: [username, password, device_id, device_name]
       properties:
         username:
-          type: string
+          $ref: '#/components/schemas/Username'
         password:
           type: string
           format: password
+        device_id:
+          type: string
+          minLength: 1
         device_name:
           type: string
+          minLength: 1
           maxLength: 64
     RegisterRequest:
       allOf:
@@ -99,11 +184,65 @@ components:
             invite_code:
               type: string
               nullable: true
-    TokenView:
+    AuthResponse:
       type: object
-      required: [id, device_name, created_at, current]
+      required: [token, user_id, username, is_admin]
+      properties:
+        token:
+          type: string
+          description: Plaintext bearer token. It is shown only once.
+          example: pks_...
+        user_id:
+          type: string
+        username:
+          type: string
+        is_admin:
+          type: boolean
+    Username:
+      type: string
+      minLength: 3
+      maxLength: 32
+      pattern: '^[A-Za-z0-9_.-]+$'
+    UserView:
+      type: object
+      required: [id, username, is_admin, is_active, created_at, last_login_at]
       properties:
         id:
+          type: string
+        username:
+          type: string
+        is_admin:
+          type: boolean
+        is_active:
+          type: boolean
+        created_at:
+          type: integer
+          format: int64
+        last_login_at:
+          type: integer
+          format: int64
+          nullable: true
+    MeResponse:
+      type: object
+      required: [user_id, username, is_admin, vaults]
+      properties:
+        user_id:
+          type: string
+        username:
+          type: string
+        is_admin:
+          type: boolean
+        vaults:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vault'
+    TokenView:
+      type: object
+      required: [id, device_id, device_name, created_at, last_used_at, current]
+      properties:
+        id:
+          type: string
+        device_id:
           type: string
         device_name:
           type: string
@@ -116,9 +255,50 @@ components:
           nullable: true
         current:
           type: boolean
+    AdminTokenView:
+      type: object
+      required:
+        - id
+        - user_id
+        - device_id
+        - device_name
+        - created_at
+        - expires_at
+        - last_used_at
+        - revoked_at
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        device_id:
+          type: string
+        device_name:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        expires_at:
+          type: integer
+          format: int64
+        last_used_at:
+          type: integer
+          format: int64
+          nullable: true
+        revoked_at:
+          type: integer
+          format: int64
+          nullable: true
     Vault:
       type: object
-      required: [id, user_id, name, created_at, total_size, file_count]
+      required:
+        - id
+        - user_id
+        - name
+        - created_at
+        - last_sync_at
+        - size_bytes
+        - file_count
       properties:
         id:
           type: string
@@ -129,11 +309,11 @@ components:
         created_at:
           type: integer
           format: int64
-        updated_at:
+        last_sync_at:
           type: integer
           format: int64
           nullable: true
-        total_size:
+        size_bytes:
           type: integer
           format: int64
         file_count:
@@ -155,6 +335,8 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
+          maxLength: 128
     UploadCheckRequest:
       type: object
       required: [blob_hashes]
@@ -163,6 +345,7 @@ components:
           type: array
           items:
             type: string
+            pattern: '^[0-9a-f]{64}$'
     UploadCheckResponse:
       type: object
       required: [missing]
@@ -171,53 +354,65 @@ components:
           type: array
           items:
             type: string
+            pattern: '^[0-9a-f]{64}$'
     PushChange:
       oneOf:
-        - type: object
-          required: [kind, path, content]
-          properties:
-            kind:
-              type: string
-              enum: [text]
-            path:
-              type: string
-            content:
-              type: string
-        - type: object
-          required: [kind, path, blob_hash, size]
-          properties:
-            kind:
-              type: string
-              enum: [blob]
-            path:
-              type: string
-            blob_hash:
-              type: string
-            size:
-              type: integer
-              format: int64
-            mime:
-              type: string
-              nullable: true
-        - type: object
-          required: [kind, path]
-          properties:
-            kind:
-              type: string
-              enum: [delete]
-            path:
-              type: string
+        - $ref: '#/components/schemas/TextPushChange'
+        - $ref: '#/components/schemas/BlobPushChange'
+        - $ref: '#/components/schemas/DeletePushChange'
+      discriminator:
+        propertyName: kind
+    TextPushChange:
+      type: object
+      required: [kind, path, content]
+      properties:
+        kind:
+          type: string
+          enum: [text]
+        path:
+          type: string
+        content:
+          type: string
+    BlobPushChange:
+      type: object
+      required: [kind, path, blob_hash, size]
+      properties:
+        kind:
+          type: string
+          enum: [blob]
+        path:
+          type: string
+        blob_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        mime:
+          type: string
+          nullable: true
+    DeletePushChange:
+      type: object
+      required: [kind, path]
+      properties:
+        kind:
+          type: string
+          enum: [delete]
+        path:
+          type: string
     PushRequest:
       type: object
       required: [changes]
       properties:
+        changes:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/PushChange'
         device_name:
           type: string
           nullable: true
-        changes:
-          type: array
-          items:
-            $ref: '#/components/schemas/PushChange'
     PushResponse:
       type: object
       required: [new_commit, files_changed]
@@ -226,6 +421,7 @@ components:
           type: string
         files_changed:
           type: integer
+          minimum: 0
     StateResponse:
       type: object
       required: [current_head, changed_since]
@@ -237,7 +433,7 @@ components:
           type: boolean
     PullFile:
       type: object
-      required: [path, file_type, size]
+      required: [path, file_type, size, content_inline, blob_hash]
       properties:
         path:
           type: string
@@ -247,12 +443,15 @@ components:
         size:
           type: integer
           format: int64
+          minimum: 0
         content_inline:
           type: string
           nullable: true
+          description: Present for text files up to 64 KiB; null when the client must call the file endpoint.
         blob_hash:
           type: string
           nullable: true
+          pattern: '^[0-9a-f]{64}$'
     PullResponse:
       type: object
       required: [from, to, added, modified, deleted]
@@ -277,25 +476,131 @@ components:
             type: string
     CommitSummary:
       type: object
-      additionalProperties: true
+      required: [commit, message, timestamp]
+      properties:
+        commit:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
     CommitDetail:
       type: object
-      additionalProperties: true
-    UserView:
+      required: [commit, message, timestamp, changed_files]
+      properties:
+        commit:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+        changed_files:
+          type: array
+          description: Current implementation returns paths in the commit tree.
+          items:
+            type: string
+    CreateAdminUserRequest:
       type: object
-      additionalProperties: true
+      required: [username, password]
+      properties:
+        username:
+          $ref: '#/components/schemas/Username'
+        password:
+          type: string
+          format: password
+        is_admin:
+          type: boolean
+          nullable: true
+    PatchAdminUserRequest:
+      type: object
+      properties:
+        is_active:
+          type: boolean
+          nullable: true
+        is_admin:
+          type: boolean
+          nullable: true
+        password:
+          type: string
+          format: password
+          nullable: true
     Invite:
       type: object
-      additionalProperties: true
+      required:
+        - code
+        - created_by
+        - created_at
+        - expires_at
+        - used_at
+        - used_by
+      properties:
+        code:
+          type: string
+        created_by:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        expires_at:
+          type: integer
+          format: int64
+          nullable: true
+        used_at:
+          type: integer
+          format: int64
+          nullable: true
+        used_by:
+          type: string
+          nullable: true
+    CreateInviteRequest:
+      type: object
+      properties:
+        expires_at:
+          type: integer
+          format: int64
+          nullable: true
+    SystemResponse:
+      type: object
+      required: [users, vaults]
+      properties:
+        users:
+          type: integer
+          format: int64
+        vaults:
+          type: integer
+          format: int64
+    GcReport:
+      type: object
+      required: [deleted, kept_referenced, candidates]
+      properties:
+        deleted:
+          type: integer
+          minimum: 0
+        kept_referenced:
+          type: integer
+          minimum: 0
+        candidates:
+          type: integer
+          minimum: 0
 paths:
   /api/health:
     get:
+      tags: [Health]
       summary: Health check
       responses:
         '200':
           description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/config:
     get:
+      tags: [Config]
       summary: Server capability discovery
       responses:
         '200':
@@ -304,8 +609,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Config'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/auth/login:
     post:
+      tags: [Auth]
       summary: Login and issue a device token
       requestBody:
         required: true
@@ -320,10 +628,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
-          description: Invalid credentials
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          description: Login rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
   /api/auth/register:
     post:
+      tags: [Auth]
       summary: Register and issue a device token
       requestBody:
         required: true
@@ -338,21 +657,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '403':
-          description: Registration disabled
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          description: Registration rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
   /api/me:
     get:
+      tags: [Me]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Current user and vaults
       responses:
         '200':
           description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/me/password:
     post:
+      tags: [Me]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Change current user's password
       requestBody:
@@ -364,21 +705,31 @@ paths:
       responses:
         '204':
           description: Password changed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/me/logout:
     post:
+      tags: [Me]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Revoke current device token
       responses:
         '204':
           description: Logged out
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/me/tokens:
     get:
+      tags: [Me]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
-      summary: List current user's device tokens
+      summary: List current user's active device tokens
       responses:
         '200':
           description: Token list
@@ -388,25 +739,31 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TokenView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/me/tokens/{token_id}:
     delete:
+      tags: [Me]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
-      summary: Revoke a device token
+      summary: Revoke one of the current user's device tokens
       parameters:
-        - in: path
-          name: token_id
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/TokenId'
       responses:
         '204':
           description: Token revoked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/vaults:
     get:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: List vaults for current user
       responses:
@@ -418,9 +775,13 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Vault'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     post:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Create a vault
       requestBody:
@@ -436,21 +797,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Vault'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/vaults/{vault_id}:
     delete:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
-      summary: Delete a vault
+      summary: Delete a vault and its server-side git storage
       parameters:
         - $ref: '#/components/parameters/VaultId'
       responses:
         '204':
           description: Vault deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/vaults/{vault_id}/upload/check:
     post:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Check which blobs need upload
       parameters:
@@ -468,10 +843,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UploadCheckResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/vaults/{vault_id}/upload/blob:
     post:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Upload a blob by content hash
       parameters:
@@ -481,6 +860,7 @@ paths:
           required: true
           schema:
             type: string
+            pattern: '^[0-9a-f]{64}$'
       requestBody:
         required: true
         content:
@@ -491,10 +871,16 @@ paths:
       responses:
         '201':
           description: Blob stored
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/vaults/{vault_id}/blobs/{hash}:
     get:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Download a referenced blob
       parameters:
@@ -508,10 +894,16 @@ paths:
               schema:
                 type: string
                 format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/vaults/{vault_id}/push:
     post:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Push local changes
       parameters:
@@ -532,17 +924,23 @@ paths:
               $ref: '#/components/schemas/PushRequest'
       responses:
         '200':
-          description: Commit created
+          description: Commit created or idempotent response replayed
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PushResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '409':
-          description: Head mismatch
+          $ref: '#/components/responses/Conflict'
   /api/vaults/{vault_id}/state:
     get:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Check current vault head
       parameters:
@@ -558,10 +956,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StateResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/vaults/{vault_id}/pull:
     get:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Pull changes since a commit
       parameters:
@@ -577,10 +979,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PullResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/vaults/{vault_id}/commits:
     get:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: List vault commits
       parameters:
@@ -589,6 +995,7 @@ paths:
           name: limit
           schema:
             type: integer
+            default: 50
             maximum: 200
       responses:
         '200':
@@ -599,10 +1006,14 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/CommitSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/vaults/{vault_id}/commits/{commit}:
     get:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Read commit detail
       parameters:
@@ -615,10 +1026,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CommitDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/vaults/{vault_id}/files/{path}:
     get:
+      tags: [Vaults]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Read a file from current head or a specific commit
       parameters:
@@ -628,7 +1047,8 @@ paths:
           required: true
           schema:
             type: string
-          description: Vault-relative path. May contain slashes.
+          allowReserved: true
+          description: Vault-relative path. The axum route accepts slash-containing paths.
         - in: query
           name: at
           schema:
@@ -636,10 +1056,24 @@ paths:
       responses:
         '200':
           description: File bytes
+          content:
+            text/plain:
+              schema:
+                type: string
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/admin/users:
     get:
+      tags: [Admin]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: List users as admin
       responses:
@@ -651,46 +1085,229 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/UserView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
+      tags: [Admin]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Create user as admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAdminUserRequest'
       responses:
         '201':
           description: User created
-  /api/admin/invites:
-    get:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/admin/users/{user_id}:
+    patch:
+      tags: [Admin]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Update user active/admin/password fields as admin
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchAdminUserRequest'
+      responses:
+        '204':
+          description: User updated
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Delete user as admin
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204':
+          description: User deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/users/{user_id}/tokens:
+    get:
+      tags: [Admin]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: List a user's tokens as admin
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Token rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminTokenView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/admin/users/{user_id}/tokens/{token_id}:
+    delete:
+      tags: [Admin]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Revoke a user's token as admin
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/TokenId'
+      responses:
+        '204':
+          description: Token revoked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/invites:
+    get:
+      tags: [Admin]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: List active invites as admin
       responses:
         '200':
-          description: Invite list
+          description: Active invite list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Invite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
+      tags: [Admin]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Create invite as admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInviteRequest'
       responses:
         '201':
           description: Invite created
-  /api/admin/system:
-    get:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/admin/invites/{code}:
+    delete:
+      tags: [Admin]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Delete an unused invite as admin
+      parameters:
+        - $ref: '#/components/parameters/InviteCode'
+      responses:
+        '204':
+          description: Invite deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/system:
+    get:
+      tags: [Admin]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Read system counters as admin
       responses:
         '200':
           description: System counters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/admin/gc:
     post:
+      tags: [Admin]
       security:
         - DeploymentKey: []
+          PluginUserAgent: []
           BearerAuth: []
       summary: Run blob garbage collection as admin
       responses:
         '200':
           description: Garbage collection report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GcReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'

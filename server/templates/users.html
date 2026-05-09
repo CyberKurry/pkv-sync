@@ -8,17 +8,22 @@
 {% block content %}
 {% if let Some(m) = message %}<p class="success">{{ m }}</p>{% endif %}
 
-<div class="toolbar">
+<form method="get" action="/admin/users" class="toolbar">
   <label class="search-box field-search">
     <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#search"></use></svg>
-    <input type="search" placeholder="Search users..." aria-label="Search users">
+    <input name="q" type="search" value="{{ query }}" placeholder="Search users..." aria-label="Search users">
   </label>
-  <select aria-label="Filter users">
-    <option>All Status</option>
-    <option>{{ t.active }}</option>
-    <option>Inactive</option>
+  <select name="status" aria-label="Filter users" onchange="this.form.submit()">
+    <option value="" {% if status.is_empty() %}selected{% endif %}>All Status</option>
+    <option value="active" {% if status == "active" %}selected{% endif %}>{{ t.active }}</option>
+    <option value="inactive" {% if status == "inactive" %}selected{% endif %}>Inactive</option>
+    <option value="admin" {% if status == "admin" %}selected{% endif %}>{{ t.admin }}</option>
   </select>
-</div>
+  <button class="secondary small" type="submit">Apply</button>
+  {% if !query.is_empty() || !status.is_empty() %}
+  <a class="secondary small" href="/admin/users">Clear</a>
+  {% endif %}
+</form>
 
 <section class="panel table-panel users-table">
   <table class="data-table">
@@ -37,6 +42,9 @@
         <td class="align-right"><a class="table-action" href="/admin/users/{{ u.id }}">{{ t.details }}</a></td>
       </tr>
     {% endfor %}
+    {% if users.len() == 0 %}
+      <tr><td colspan="7"><p class="empty-state">No users match the current filters</p></td></tr>
+    {% endif %}
     </tbody>
   </table>
 </section>
