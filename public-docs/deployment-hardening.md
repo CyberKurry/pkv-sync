@@ -2,30 +2,54 @@
 
 English | [简体中文](./deployment-hardening.zh-CN.md)
 
-This guide assumes a small self-hosted deployment for yourself, family, or
-friends.
+This guide assumes a small self-hosted deployment for yourself, family, a team,
+or a trusted group of friends. PKV Sync is operationally simple, but it stores
+readable vault contents on the server, so host and backup hygiene matter.
 
 ## Threat Model
 
-PKV Sync v1 does not use end-to-end encryption. Protecting vault contents
-depends on:
+PKV Sync does not provide end-to-end encryption. Protecting vault contents
+depends on layered controls:
 
 1. HTTPS transport encryption
-2. Deployment key pre-auth
-3. User password and device token authentication
-4. Authorization checks per user and vault
-5. OS-level disk encryption
-6. Minimal exposed services
-7. Encrypted backups
+2. Deployment key pre-authentication
+3. Username/password login and 90-day bearer device tokens
+4. Per-user vault authorization checks
+5. Admin session and CSRF protections
+6. OS or provider disk encryption
+7. Minimal exposed services
+8. Encrypted, tested backups
+
+Treat the server administrator and the server filesystem as trusted with the
+plaintext vault contents.
 
 ## Recommended Topology
 
 ```text
-Internet -> 443 reverse proxy -> 127.0.0.1:6710 pkvsyncd
+Internet -> HTTPS reverse proxy -> 127.0.0.1:6710 pkvsyncd
 ```
 
-Do not expose `pkvsyncd` directly unless you have an explicit reason and a
-separate network control layer.
+Do not expose `pkvsyncd` directly to the internet unless you have an explicit
+network control layer in front of it.
+
+## Installation Inputs
+
+Prepare:
+
+- a domain such as `sync.example.com`
+- a deployment key from `pkvsyncd genkey`
+- `/etc/pkv-sync/config.toml`
+- a persistent data directory, commonly `/var/lib/pkv-sync`
+- a reverse proxy with valid TLS certificates
+
+The server share URL has this form:
+
+```text
+https://sync.example.com/k_xxx/
+```
+
+Keep it private. The deployment key is a pre-authentication gate for API
+traffic, not a replacement for user passwords.
 
 ## System User
 
@@ -33,6 +57,7 @@ separate network control layer.
 sudo useradd --system --home /var/lib/pkv-sync --shell /usr/sbin/nologin pkv-sync
 sudo mkdir -p /var/lib/pkv-sync /etc/pkv-sync
 sudo chown -R pkv-sync:pkv-sync /var/lib/pkv-sync
+sudo chmod 750 /var/lib/pkv-sync
 ```
 
 Store `config.toml` in `/etc/pkv-sync/config.toml` and keep it readable only by
@@ -40,7 +65,7 @@ the service user and administrators.
 
 ## Firewall
 
-Expose only SSH and HTTPS:
+Expose only SSH and HTTPS on a typical host:
 
 ```bash
 sudo ufw allow OpenSSH
@@ -48,27 +73,36 @@ sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
-Bind `pkvsyncd` to localhost:
+If Caddy or another ACME HTTP-01 client manages certificates, also expose port
+`80` for validation and redirect traffic:
+
+```bash
+sudo ufw allow 80/tcp
+```
+
+Bind `pkvsyncd` to localhost when it runs on the host:
 
 ```toml
 [server]
 bind_addr = "127.0.0.1:6710"
 ```
 
-## Disk Encryption
+For Docker Compose, bind the app to all container interfaces and publish the
+host port only to localhost when you need host debugging:
 
-Use LUKS, BitLocker, FileVault, or your host provider's disk encryption where
-available. If your VPS provider cannot encrypt the root disk, treat encrypted
-offsite backups as mandatory.
+```toml
+[server]
+bind_addr = "0.0.0.0:6710"
+```
 
-## Reverse Proxy Examples
+```yaml
+ports:
+  - "127.0.0.1:6710:6710"
+```
 
 ## Docker Compose With Caddy
 
-Use this path when you want Caddy to request and renew HTTPS certificates for
-you. Caddy needs both public ports `80` and `443`: port `80` is used for ACME
-HTTP-01 certificate validation and HTTP-to-HTTPS redirects, and port `443`
-serves HTTPS traffic.
+Use this path when you want Caddy to request and renew HTTPS certificates.
 
 1. Point DNS at the server:
 
@@ -77,14 +111,7 @@ serves HTTPS traffic.
    sync.example.com AAAA <server IPv6, optional>
    ```
 
-2. Open the firewall:
-
-   ```bash
-   sudo ufw allow 80/tcp
-   sudo ufw allow 443/tcp
-   ```
-
-3. Create `config.toml` next to `docker-compose.yml`:
+2. Create `config.toml` next to `docker-compose.yml`:
 
    ```toml
    [server]
@@ -104,33 +131,31 @@ serves HTTPS traffic.
    format = "json"
    ```
 
-4. Edit `deploy/caddy/Caddyfile` and replace `sync.example.com` with your
-   real domain.
-
-5. Start the stack:
+3. Replace `sync.example.com` in `deploy/caddy/Caddyfile`.
+4. Start the stack:
 
    ```bash
    docker compose up -d
    docker compose logs -f pkv-sync
    ```
 
-6. Save the first-run admin password from the logs, then open:
+5. Save the first-run admin password from the logs, then open:
 
    ```text
    https://sync.example.com/admin/login
    ```
 
-The Compose file intentionally keeps `pkv-sync` published only on
-`127.0.0.1:6710` for host debugging while Caddy reaches it through the internal
-Compose network as `pkv-sync:6710`.
+Back up `./data`, `config.toml`, and Caddy's named volumes.
 
-Back up `./data`, `config.toml`, and Caddy's named volumes. Upgrade by pulling a
-new image and recreating the containers:
+Upgrade with:
 
 ```bash
 docker compose pull
 docker compose up -d
+docker compose logs -f pkv-sync
 ```
+
+## Reverse Proxy Notes
 
 ### Caddy
 
@@ -142,7 +167,19 @@ sync.example.com {
 
 ### Nginx
 
+The repository includes `deploy/nginx/pkv-sync.conf`. It redirects HTTP to
+HTTPS, sets `client_max_body_size 110m`, and forwards the headers PKV Sync uses
+for host and client IP handling.
+
+Minimum shape:
+
 ```nginx
+server {
+  listen 80;
+  server_name sync.example.com;
+  return 301 https://$host$request_uri;
+}
+
 server {
   listen 443 ssl http2;
   server_name sync.example.com;
@@ -150,8 +187,11 @@ server {
   ssl_certificate /etc/letsencrypt/live/sync.example.com/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/sync.example.com/privkey.pem;
 
+  client_max_body_size 110m;
+
   location / {
     proxy_pass http://127.0.0.1:6710;
+    proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -162,8 +202,9 @@ server {
 
 ### Traefik
 
-Use Docker labels and set `trusted_proxies` to the Docker network CIDR used by
-Traefik.
+The repository includes a Traefik example at
+`deploy/traefik/docker-compose.traefik.yml`. Set `trusted_proxies` to the Docker
+network CIDR used by Traefik, and replace the example domain and ACME email.
 
 ## trusted_proxies
 
@@ -182,29 +223,34 @@ If using Docker bridge networking:
 trusted_proxies = ["172.16.0.0/12"]
 ```
 
-For Docker Compose, set the application bind address to all container
-interfaces while keeping the host publish bound to localhost:
+Do not add broad public ranges. A client that can spoof `X-Forwarded-For`
+weakens rate-limit and audit data.
 
-```toml
-[server]
-bind_addr = "0.0.0.0:6710"
-```
+## Runtime Security Settings
 
-```yaml
-ports:
-  - "127.0.0.1:6710:6710"
-```
+Review these from the Admin WebUI:
+
+- Registration mode: keep `disabled` or `invite_only` for private deployments.
+- Login rate-limit threshold, window, and lock duration.
+- Maximum file size, default `100 MiB`.
+- Supported text extensions.
+- Timezone, default `Asia/Shanghai`.
+
+Registration and login failures are rate limited. Admin-created users and CLI
+users still need strong passwords.
 
 ## Backups
 
-Back up:
+Back up these together:
 
-- `/var/lib/pkv-sync/metadata.db` using SQLite online backup or stopped-service copy
+- `/var/lib/pkv-sync/metadata.db`
 - `/var/lib/pkv-sync/vaults/`
 - `/var/lib/pkv-sync/blobs/`
 - `/etc/pkv-sync/config.toml`
 
-Protect `config.toml` because it contains the deployment key.
+Use SQLite online backup or stop the service before copying the database. Keep
+the database, Git vault repositories, and blobs from the same point in time when
+possible.
 
 Example with restic:
 
@@ -212,16 +258,53 @@ Example with restic:
 restic -r sftp:user@backup.example.com:/repo backup /var/lib/pkv-sync /etc/pkv-sync
 ```
 
-Encrypt backups before they leave the machine.
+Encrypt backups before they leave the machine and test restores periodically.
 
-## Log Privacy
+## Disk Encryption
 
-PKV Sync logs operational and security events, including client information
-needed for debugging and abuse response. Inform users who share the server.
+Use LUKS, BitLocker, FileVault, or provider-managed disk encryption where
+available. If your VPS provider cannot encrypt the root disk, encrypted offsite
+backups become mandatory rather than optional.
 
 ## Token Hygiene
 
-Device bearer tokens expire after 90 days and can be revoked by users or admins.
-Treat active tokens as credentials until they expire or are revoked, and prefer
-disabling a lost device token over resetting the whole account when only one
-device is affected.
+Device bearer tokens expire after 90 days and can be revoked by users or
+administrators. Treat active tokens as credentials until they expire or are
+revoked.
+
+Recommended practice:
+
+- Revoke lost devices from the Admin WebUI device pages.
+- Prefer revoking a single lost device token over resetting the whole account.
+- Rotate user passwords when credential compromise is suspected.
+- Review old and revoked tokens during routine maintenance.
+
+## Activity and Logs
+
+PKV Sync records push and pull activity with user, vault, device name, file
+count, size, IP, User-Agent, details, and timestamp. Use the Admin WebUI
+activity filters to inspect users or action types.
+
+Watch application and reverse-proxy logs for repeated:
+
+- `401`: invalid or expired credentials
+- `403`: disabled account or forbidden operation
+- `404`: rejected deployment key/User-Agent in production middleware
+- `409`: sync head mismatch or duplicate resource
+- `429`: login or registration rate limit
+
+## Release Hygiene
+
+Before upgrading production:
+
+1. Read `CHANGELOG.md`.
+2. Verify the release tag matches server, plugin, OpenAPI, Docker, and docs
+   versions.
+3. Check the GitHub release contains Linux amd64, Linux arm64, Windows x64,
+   plugin zip, and `SHA256SUMS`.
+4. Verify the GHCR image exists for the tag and `latest`.
+5. Back up current data.
+6. Run migrations with the new binary.
+
+Migrations are append-only once released. Do not squash published migrations for
+an existing deployment.

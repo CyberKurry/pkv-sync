@@ -2,10 +2,14 @@
 
 English | [简体中文](./user-manual.zh-CN.md)
 
-## Install Plugin Manually
+This manual is for Obsidian users who connect to an existing PKV Sync server.
+Ask your server administrator for the server share URL and an account or invite
+code before you start.
 
-1. Download `pkv-sync-plugin.zip` from a release.
-2. Extract it into your vault:
+## Manual Plugin Install
+
+1. Download `pkv-sync-plugin.zip` from the matching GitHub release.
+2. Extract the archive into your vault:
 
    ```text
    <vault>/.obsidian/plugins/pkv-sync/
@@ -14,64 +18,110 @@ English | [简体中文](./user-manual.zh-CN.md)
 3. In Obsidian, enable community plugins.
 4. Enable **PKV Sync**.
 
+The extracted directory should contain `main.js`, `manifest.json`, and
+`styles.css`.
+
 ## Connect to a Server
 
-Ask your admin for the PKV Sync server URL, usually:
+The server share URL usually looks like this:
 
 ```text
 https://sync.example.com/k_xxx/
 ```
 
-Paste it in **Settings -> PKV Sync -> Server URL** and click **Connect**.
+Open **Settings -> PKV Sync**, paste the share URL, then click **Connect**. If
+the deployment key is embedded in the URL, the plugin fills it automatically.
 
-If the deployment key is embedded in the URL, the plugin fills it in
-automatically.
+If you entered the wrong server or need to move to another self-hosted server,
+use **Change server** on the login screen to return to the server settings
+without reinstalling the plugin.
 
 ## Login or Register
 
-Depending on server settings:
+Registration behavior depends on the server runtime setting:
 
-- If registration is disabled, ask the admin to create an account.
-- If invite-only registration is enabled, enter your invite code.
-- If open registration is enabled, create an account directly.
+- **Disabled**: an administrator must create your account.
+- **Invite only**: enter the invite code provided by an administrator.
+- **Open**: create an account directly.
 
-After login, choose the remote vault to sync.
+After login, select an existing remote vault or create a new one. When you
+connect a local vault that is already identical to the selected remote vault,
+PKV Sync adopts the matching files into its local sync index instead of
+creating a full-vault set of conflict files.
 
 ## Sync Behavior
 
-PKV Sync:
+PKV Sync runs inside Obsidian and syncs the current vault:
 
-- Pushes local changes after about 2 seconds of inactivity
-- Pulls remote changes about every 60 seconds
-- Syncs when you switch files, lose focus, or manually run **PKV Sync: Manual sync now**
-- Recovers unsynced local changes on the next Obsidian start
+- Local file changes are pushed after a short debounce interval.
+- Remote changes are polled periodically.
+- Manual sync is available from the settings page and command palette.
+- Relevant file create/modify/delete events schedule a sync.
+- Window blur can trigger a sync.
+- On startup, unsynced local changes are detected from the vault contents and
+  the local sync index.
 
-Keep Obsidian open long enough for large attachments to upload.
+Keep Obsidian open while large attachments upload. The plugin reads the server
+configuration after connecting and uses the server-provided text extension list
+and maximum file size rules.
 
-## Conflicts
+## Last Sync Time
 
-If two devices edit the same file offline, PKV Sync keeps both versions.
+The settings page shows the last successful sync as relative time. Use the small
+expander next to it to show the exact timestamp in this format:
 
-Example:
+```text
+YYYY/MM/DD HH:MM:SS
+```
+
+The plugin uses the selected IANA timezone, defaulting to `Asia/Shanghai`.
+
+## Conflict Files
+
+If two devices edit the same file offline, PKV Sync keeps both versions. The
+remote or local alternate version is saved as a generated conflict file:
 
 ```text
 note.md
-note.conflict-2026-04-25-143022-Android-device.md
+note.conflict-2026-04-25-143022-Desktop.md
 ```
 
-Open both files in Obsidian, merge manually, then delete the conflict file.
+Generated conflict files are excluded from future sync. Review both files in
+Obsidian, merge the content you want to keep, then delete the conflict file.
+
+You can manage generated conflict files from:
+
+- **Settings -> PKV Sync -> Conflict files**
+- **PKV Sync: List conflict files**
+- **PKV Sync: Delete conflict files**
+
+The delete action only targets PKV Sync generated conflict filenames. Normal
+files such as `my.conflict-resolution-notes.md` remain eligible for sync.
 
 ## Device Tokens
 
-Logging in issues a device token that is valid for 90 days. The plugin keeps a
-stable device ID, so logging in again from the same device replaces that
+Logging in issues a bearer device token that is valid for 90 days. The plugin
+keeps a stable device ID, so logging in again from the same device replaces that
 device's previous active token instead of accumulating duplicates.
 
 - Use plugin settings to log out from the current device.
-- Ask your admin to revoke lost devices.
-- Changing your password keeps the current device signed in and revokes other devices.
+- Ask an administrator to revoke tokens for lost devices.
+- Changing your password keeps the current device signed in and revokes your
+  other device tokens.
+
+## Commands
+
+PKV Sync adds these command palette actions:
+
+- Show sync status
+- Refresh account info
+- Manual sync now
+- View sync status details
+- List conflict files
+- Delete conflict files
 
 ## Privacy Reminder
 
 PKV Sync is not end-to-end encrypted. The server administrator and anyone with
-server filesystem access can read synced vault contents.
+server filesystem access can read synced vault contents and attachments. Use it
+only with a server and administrator you trust.

@@ -172,6 +172,7 @@ components:
         device_id:
           type: string
           minLength: 1
+          maxLength: 128
         device_name:
           type: string
           minLength: 1
@@ -336,7 +337,8 @@ components:
         name:
           type: string
           minLength: 1
-          maxLength: 128
+          maxLength: 64
+          description: Must not be empty after trimming and must not contain path separators.
     UploadCheckRequest:
       type: object
       required: [blob_hashes]
@@ -498,7 +500,7 @@ components:
           format: int64
         changed_files:
           type: array
-          description: Current implementation returns paths in the commit tree.
+          description: Current implementation returns paths present in the requested commit tree.
           items:
             type: string
     CreateAdminUserRequest:
