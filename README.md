@@ -1,7 +1,8 @@
 # PKV Sync
 
-Self-hosted Obsidian vault sync with a Rust server, SQLite metadata, Git-backed
-vault history, and an Obsidian plugin.
+Self-hosted Obsidian vault synchronization with a Rust server, SQLite metadata,
+Git-backed text history, content-addressed attachment storage, and a mobile /
+desktop Obsidian plugin.
 
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
@@ -13,37 +14,59 @@ English | [简体中文](./README.zh-CN.md)
 PKV Sync is pre-1.0 software. APIs, storage layout, release packaging, and
 operational defaults may still change.
 
-The current design does not provide end-to-end encryption. The server can read
-vault contents. Use HTTPS, strict access control, encrypted disks, and encrypted
-backups for real deployments.
+PKV Sync does not provide end-to-end encryption. The server can read synced
+vault contents and attachments. Use HTTPS, strict account controls, encrypted
+disks, encrypted backups, and host-level hardening for real deployments.
 
-## What It Includes
+## Components
 
-- `pkvsyncd`: the server daemon and CLI
-- `pkv-sync`: the Obsidian desktop/mobile plugin
-- SQLite metadata under the configured data directory
-- Per-vault Git repositories for versioned text history
-- Content-addressed blob storage for binary attachments
-- Admin WebUI for users, device tokens, vaults, invites, runtime settings, and
-  sync activity
-- Docker, Docker Compose, Caddy, CI, release, and public documentation examples
+- `pkvsyncd`: server daemon and CLI
+- `pkv-sync`: Obsidian plugin for desktop and mobile
+- SQLite metadata database
+- Per-vault bare Git repositories under the data directory
+- SHA-256 content-addressed blob storage for binary attachments
+- Admin WebUI for users, device tokens, vaults, invites, settings, activity,
+  and cleanup
+- Docker, Docker Compose, Caddy, Nginx, Traefik, systemd, CI, and release
+  workflow examples
 
 ## Current Features
 
 | Area | Current behavior |
 | --- | --- |
-| Sync | Multi-user, multi-vault Obsidian sync through the plugin |
+| Sync model | Multi-user, multi-vault Obsidian sync through authenticated devices |
 | Text history | Text files are committed into per-vault Git history |
-| Attachments | Binary files are stored by SHA-256 content hash |
-| Conflicts | Conflicting edits are preserved as `.conflict-*` files |
-| Exclusions | `.obsidian/`, `.trash/`, and conflict files are not synced |
-| Auth | Deployment-key pre-auth plus user passwords and 90-day bearer device tokens |
+| Attachments | Binary files are stored as SHA-256 blobs and referenced from Git pointer files |
+| Conflict handling | Local/remote conflicts are preserved as generated `.conflict-*` files |
+| Conflict cleanup | Plugin settings and command palette can list or delete generated conflict files |
+| Exclusions | `.obsidian/`, `.trash/`, and generated conflict files are not synced |
+| Auth | Deployment-key pre-auth plus username/password login and 90-day bearer device tokens |
 | Devices | Stable plugin device IDs; repeated login replaces the old active token for that device |
-| Admin | Dashboard, users, responsive user detail pages, device tokens, vaults, invites, settings, activity, and blob GC |
-| Time display | Admin and plugin time display use selectable IANA timezones, defaulting to `Asia/Shanghai` |
-| Reliability | Serialized plugin state writes and partial pull progress recovery reduce duplicate conflicts after interrupted syncs |
-| Observability | Structured logs with `json` or `pretty` output and configurable log level |
+| Registration | Runtime modes: disabled, invite-only, or open |
+| Admin | Responsive dashboard, users, user details, device tokens, vaults, invites, settings, activity, and blob GC |
+| Activity | Push and pull activity rows with user/action filters, device name, vault, IP, User-Agent, and details |
+| Time display | Admin and plugin timestamps use selectable IANA timezones, defaulting to `Asia/Shanghai` |
+| Human-readable values | Admin UI renders time, uptime, durations, sizes, and vault totals in readable units |
+| Reliability | Serialized plugin state reads/writes, partial pull progress, idempotent pushes, and per-vault push locks |
 | Release | Linux amd64, Linux arm64, Windows x64, plugin zip, checksums, and GHCR Docker image |
+
+## Storage Layout
+
+The configured `[storage].data_dir` contains server-managed state:
+
+```text
+data_dir/
+  metadata.db        SQLite metadata
+  vaults/<vault-id>/ Bare Git repository for each remote vault
+  blobs/<sha256>     Content-addressed binary blobs
+```
+
+`metadata.db` tracks users, vaults, device tokens, invites, runtime settings,
+sync activity, blob references, and idempotency records. Per-vault Git history
+is the source of versioned file state; blob files are retained while referenced
+and are cleaned by garbage collection after the grace period.
+
+Back up `metadata.db`, `vaults/`, `blobs/`, and `config.toml` together.
 
 ## Release Assets
 
@@ -55,13 +78,14 @@ GitHub releases publish:
 - `pkv-sync-plugin.zip`
 - `SHA256SUMS`
 
-Docker images are published to:
+Docker images are published to GHCR:
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.1.7
 ```
 
-Tagged releases also publish `ghcr.io/cyberkurry/pkv-sync:<version>`.
+Release Docker images are multi-arch for `linux/amd64` and `linux/arm64`.
 
 ## Quick Start: Docker Compose
 
@@ -102,7 +126,8 @@ validation and redirects.
    format = "json"
    ```
 
-4. Edit `deploy/caddy/Caddyfile` and replace `sync.example.com` with your domain.
+4. Edit `deploy/caddy/Caddyfile` and replace `sync.example.com` with your
+   domain.
 
 5. Start the stack:
 
@@ -137,7 +162,8 @@ Generate a deployment key:
 ./target/debug/pkvsyncd genkey
 ```
 
-Create `config.toml` from [`config.example.toml`](./config.example.toml), then run:
+Create `config.toml` from [`config.example.toml`](./config.example.toml), then
+run:
 
 ```bash
 ./target/debug/pkvsyncd -c config.toml migrate up
@@ -152,7 +178,7 @@ bind_addr = "127.0.0.1:6710"
 ```
 
 On first start, `pkvsyncd` creates an `admin` account and prints a one-time
-password.
+password. Store it immediately, then change it from the Admin WebUI or CLI.
 
 ## Server CLI
 
@@ -161,6 +187,7 @@ pkvsyncd genkey
 pkvsyncd -c /etc/pkv-sync/config.toml migrate up
 pkvsyncd -c /etc/pkv-sync/config.toml serve
 pkvsyncd -c /etc/pkv-sync/config.toml user add alice
+pkvsyncd -c /etc/pkv-sync/config.toml user add alice --admin
 pkvsyncd -c /etc/pkv-sync/config.toml user passwd alice
 pkvsyncd -c /etc/pkv-sync/config.toml user list
 pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
@@ -182,38 +209,142 @@ Manual install from a release:
    https://sync.example.com/k_xxx/
    ```
 
-6. Log in, create or select a remote vault, then use automatic sync or **Sync now**.
+6. Click **Connect**, then log in or register.
+7. Create or select a remote vault.
+8. Use automatic sync or **Sync now**.
 
-The plugin stores a stable device ID locally. Logging out and logging back in on
-the same device replaces the old active token for that device instead of leaving
-multiple active tokens. Device tokens expire after 90 days unless the user logs
-in again and receives a fresh token.
+Plugin settings include:
 
-Interrupted pulls keep progress for files that were already applied, so retrying
-the sync does not repeatedly create conflict files for the same completed writes.
+- Full-width dark settings UI inside Obsidian settings
+- Language selector: auto, English, Simplified Chinese
+- Timezone selector, defaulting to `Asia/Shanghai`
+- Server URL and deployment key parsing from share URLs
+- **Change server** from the login/register state without clearing saved input
+- Device name editing and stable local device ID storage
+- Login, registration, logout, remote vault creation, and vault selection
+- Manual sync button
+- Last successful sync shown as relative time, with an expandable exact
+  `YYYY/MM/DD HH:MM:SS` timestamp
+- Conflict file count and one-click deletion of generated conflict files
+- Device list with current device marker
+
+Command palette actions:
+
+- Show sync status
+- Refresh account info
+- Manual sync now
+- View sync status details
+- List conflict files
+- Delete conflict files
+
+Sync behavior:
+
+- Pushes local changes after the debounce interval
+- Polls remote changes periodically
+- Syncs after relevant vault file events and on window blur
+- Uses the server-provided text extension list after connecting
+- Verifies downloaded binary blob hashes before writing them locally
+- Stores plugin settings and sync indexes through a serialized data store
+- Records partial pull progress if a write fails midway, reducing duplicate
+  conflict files on retry
+
+Device tokens expire after 90 days. Logging in again on the same device replaces
+the previous active token for that device instead of leaving multiple active
+tokens.
 
 ## Admin WebUI
 
-Open `/admin/login` on your server. The admin panel currently includes:
+Open `/admin/login` on your server. The Admin WebUI includes:
 
-- Dashboard with CPU, memory, data-directory disk usage, and human-readable uptime
-- User management, responsive user detail pages, and password reset
-- Device token creation, listing, revocation, and 90-day expiration
-- Vault creation, deletion of backing storage, metadata reconciliation, and size display
-- Invite management
-- Runtime settings for server name, timezone, registration mode, and login rate limits
-- Activity table with time, user, action, device name, vault name/ID, IP, and User-Agent
+- Dashboard with CPU, memory, data-directory disk usage, uptime, users, vaults,
+  and recent activity
+- Responsive sidebar with mobile drawer navigation and bundled Lucide icons
+- User list, user creation, user detail pages, password reset, active/admin
+  controls, and per-user token management
+- Global device token page for listing, creating, and revoking tokens
+- Vault cards with owner, file count, size, last sync, reconcile, and delete
+  actions
+- Invite creation, expiration display, and deletion for unused invites
+- Runtime settings grouped as General, Security, Sync & Storage, and Network
+- Login rate-limit settings
+- Max file size and supported text extension settings
 - Blob garbage collection trigger
+- Activity log with real filters for user and action
+- English and Simplified Chinese admin language selection
+
+Safeguards include last-admin protection, self-disable/self-delete protection,
+username validation, password hashing with Argon2id, 90-day device-token
+expiration, token revocation, CSRF checks for admin forms, and deployment-key
+pre-auth for API routes.
 
 ## Configuration Notes
 
-- Default service port: `6710`
-- Default timezone: `Asia/Shanghai`
-- Default registration mode: `disabled`
-- Default max file size: `100 MiB`
-- Default text extensions: `md`, `canvas`, `base`, `json`, `txt`, `css`
-- `trusted_proxies` controls which reverse proxies may set `X-Forwarded-For`
-- `public_host` enables production-style admin cookies and share URL generation
+Static `config.toml` fields:
+
+- `server.bind_addr`: default service listener, commonly `127.0.0.1:6710` behind
+  a reverse proxy or `0.0.0.0:6710` in Docker Compose
+- `server.deployment_key`: generated by `pkvsyncd genkey`
+- `server.public_host`: optional host used for HTTPS share URL generation and
+  production-style admin cookies
+- `storage.data_dir`: data root containing `metadata.db`, `vaults/`, and `blobs/`
+- `storage.db_path`: SQLite database path
+- `network.trusted_proxies`: CIDRs allowed to set `X-Forwarded-For`
+- `logging.level`: tracing filter such as `info` or `debug`
+- `logging.format`: `json` or `pretty`
+
+Runtime settings stored in SQLite and editable from Admin WebUI:
+
+- Server name
+- Timezone, default `Asia/Shanghai`
+- Registration mode: `disabled`, `invite_only`, or `open`
+- Login failure threshold, window, and lock duration
+- Maximum file size, default `100 MiB`
+- Supported text extensions, default `md`, `canvas`, `base`, `json`, `txt`, `css`
+
+## HTTP API
+
+All `/api/*` routes require the deployment key header. Authenticated routes also
+require a bearer device token.
+
+Main route groups:
+
+- `GET /api/health`
+- `GET /api/config`
+- `POST /api/auth/login`
+- `POST /api/auth/register`
+- `GET /api/me`
+- `POST /api/me/password`
+- `POST /api/me/logout`
+- `GET /api/me/tokens`
+- `DELETE /api/me/tokens/:id`
+- `GET /api/vaults`
+- `POST /api/vaults`
+- `DELETE /api/vaults/:id`
+- `POST /api/vaults/:id/upload/check`
+- `POST /api/vaults/:id/upload/blob`
+- `GET /api/vaults/:id/state`
+- `POST /api/vaults/:id/push`
+- `GET /api/vaults/:id/pull`
+- `GET /api/vaults/:id/commits`
+- `GET /api/vaults/:id/commits/:commit`
+- `GET /api/vaults/:id/files/*path`
+- Admin API routes under `/api/admin/*`
+
+See the [OpenAPI spec](./public-docs/openapi.yaml) for schemas.
+
+## Operations
+
+- Keep `config.toml`, `metadata.db`, `vaults/`, and `blobs/` in the same backup
+  set.
+- Run behind HTTPS. Example reverse-proxy configs are provided for Caddy, Nginx,
+  and Traefik.
+- If using a reverse proxy, set `trusted_proxies` to only the proxy network.
+- Watch logs for repeated `401`, `403`, `409`, and `429` responses.
+- Run blob garbage collection after large attachment deletions.
+- Use vault metadata reconciliation if file counts, sizes, or blob references
+  drift after interrupted operations.
+- Keep release assets, Docker images, plugin package, changelog, and version
+  numbers aligned when releasing.
 
 ## Documentation
 
@@ -232,12 +363,17 @@ cargo test -p pkv-sync-server
 npm --prefix plugin test
 npm --prefix plugin run typecheck
 npm --prefix plugin run build
+npm --prefix plugin run package
 cargo build --release -p pkv-sync-server
 pwsh -File scripts/ci-smoke.ps1
 ```
 
-CI runs Rust checks on Linux and Windows, plugin tests/typecheck/build, Docker
-build, and release-binary smoke tests.
+CI runs Rust formatting, Clippy, and tests on Linux and Windows; plugin
+tests/typecheck/build/package/audit; Docker build; and release-binary smoke
+tests.
+
+Release CI additionally builds Linux amd64, Linux arm64, Windows x64, the
+plugin package, the multi-arch Docker image, checksums, and the GitHub release.
 
 ## License
 
