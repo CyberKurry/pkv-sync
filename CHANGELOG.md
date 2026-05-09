@@ -7,6 +7,13 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-05-09
+
+### Changed
+
+- Redesign the Obsidian plugin settings UI to match the dark card-based design for connection, login/register, vault selection, manual sync, and device states.
+- Show the Obsidian plugin's last successful sync as compact relative time with an expandable exact timestamp.
+
 ## [0.1.6] - 2026-05-08
 
 ### Security
