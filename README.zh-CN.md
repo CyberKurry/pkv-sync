@@ -72,7 +72,7 @@ Docker 镜像发布到 GHCR：
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.1.7
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.1.8
 ```
 
 Release Docker 镜像支持 `linux/amd64` 和 `linux/arm64`。

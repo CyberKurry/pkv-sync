@@ -7,6 +7,19 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-05-09
+
+### Changed
+
+- Let the Obsidian plugin settings page fill the Obsidian settings pane, add a back path from login to server configuration, and add one-click conflict-file cleanup.
+- Make Admin WebUI user filtering and invite creation interactive instead of decorative, and remove the inert dashboard search box.
+- Refresh the public OpenAPI document to match the current API surface.
+
+### Fixed
+
+- Avoid creating full-vault conflict files when a user reconnects an existing local vault copy to an identical remote vault.
+- Show newly created Admin WebUI invites after creation and validate human-readable invite expiry input.
+
 ## [0.1.7] - 2026-05-09
 
 ### Changed
