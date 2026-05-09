@@ -45,3 +45,26 @@ export function formatUnixSeconds(
     parts.find((part) => part.type === type)?.value ?? "00";
   return `${value("year")}-${value("month")}-${value("day")} ${value("hour")}:${value("minute")}:${value("second")}`;
 }
+
+export function formatRelativeUnixSeconds(
+  timestamp: number | null | undefined,
+  nowSeconds = Math.floor(Date.now() / 1000)
+): string {
+  if (timestamp === null || timestamp === undefined) return "";
+  if (!Number.isFinite(timestamp) || !Number.isFinite(nowSeconds)) return "";
+  const diff = Math.max(0, Math.floor(nowSeconds - timestamp));
+  if (diff < 60) return diff <= 1 ? "just now" : `${diff} sec ago`;
+  const minutes = Math.floor(diff / 60);
+  if (minutes < 60) return minutes === 1 ? "1 min ago" : `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? "1 hr ago" : `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}
+
+export function formatDetailedUnixSeconds(
+  timestamp: number | null | undefined,
+  timezone: string
+): string {
+  return formatUnixSeconds(timestamp, timezone).replace(/-/g, "/");
+}
