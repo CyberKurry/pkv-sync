@@ -13,20 +13,22 @@
   --pkv-disabled: #59595E;
   min-height: 100%;
   box-sizing: border-box;
-  padding: 32px !important;
-  background: var(--pkv-bg-page);
+  padding: 0 !important;
+  background: var(--pkv-bg-panel);
 }
 
 .pkv-sync-app {
-  display: flex;
-  justify-content: center;
+  display: block;
   width: 100%;
+  min-height: 100%;
 }
 
 .pkv-sync-panel {
-  width: min(100%, 480px);
+  width: 100%;
+  max-width: none;
+  min-height: 100%;
   box-sizing: border-box;
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--pkv-bg-panel);
   color: var(--pkv-text);
   padding: 40px 32px 48px;
@@ -268,6 +270,16 @@
   margin-top: 4px;
 }
 
+.pkv-sync-panel > .pkv-sync-change-server {
+  width: auto;
+  margin: -8px 0 22px 44px;
+}
+
+.pkv-sync-panel > .pkv-sync-button + .pkv-sync-section-label,
+.pkv-sync-button-row + .pkv-sync-section-label {
+  margin-top: 28px;
+}
+
 .pkv-sync-button.is-primary {
   border-color: var(--pkv-primary);
   background: var(--pkv-primary);
@@ -423,7 +435,7 @@
 
 .pkv-sync-create-row {
   display: grid;
-  grid-template-columns: 1fr 68px;
+  grid-template-columns: minmax(0, 1fr) max-content;
   gap: 8px;
   margin: 0 0 20px;
 }
@@ -436,6 +448,8 @@
 .pkv-sync-create-row .pkv-sync-button {
   height: 36px;
   font-size: 12px;
+  min-width: 112px;
+  padding: 0 16px;
 }
 
 .pkv-sync-sync-now,
@@ -443,6 +457,42 @@
   width: 100%;
   height: 44px;
   margin: 0;
+}
+
+.pkv-sync-conflict-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  box-sizing: border-box;
+  margin-bottom: 22px;
+  border-radius: 8px;
+  background: var(--pkv-bg-control);
+  padding: 14px 16px;
+}
+
+.pkv-sync-conflict-meta {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.pkv-sync-conflict-title {
+  color: var(--pkv-text-strong);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.pkv-sync-conflict-summary {
+  margin-top: 4px;
+  color: var(--pkv-muted);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.pkv-sync-conflict-row .pkv-sync-button {
+  flex: 0 0 auto;
+  min-width: 120px;
 }
 
 .pkv-sync-device-list {
@@ -502,7 +552,7 @@
 
 @media (max-width: 520px) {
   .pkv-sync-settings-host {
-    padding: 16px !important;
+    padding: 0 !important;
   }
 
   .pkv-sync-panel {
@@ -519,5 +569,14 @@
 
   .pkv-sync-create-row {
     grid-template-columns: 1fr;
+  }
+
+  .pkv-sync-conflict-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pkv-sync-conflict-row .pkv-sync-button {
+    width: 100%;
   }
 }

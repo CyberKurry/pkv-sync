@@ -10,6 +10,7 @@ import { formatBytes } from "../format";
 import { format } from "../i18n";
 import type PKVSyncPlugin from "../main";
 import type { PluginLanguage } from "../settings";
+import { listConflictFiles } from "../sync/conflict-files";
 import {
   formatDetailedUnixSeconds,
   formatRelativeUnixSeconds,
@@ -112,6 +113,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         new Notice(error instanceof Error ? error.message : String(error));
       }
     });
+    this.renderConflictCleanup(panel);
   }
 
   private renderLanguage(panel: HTMLElement): void {
@@ -144,6 +146,9 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       tone: "success",
       divider: true
     });
+    this.renderButton(panel, t.changeServer, "ghost", () =>
+      this.showConnectionSettings()
+    ).addClass("pkv-sync-change-server");
     this.renderSectionLabel(panel, t.account);
 
     const username = this.renderTextField(panel, t.username, {
@@ -168,6 +173,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         inviteCode.value.trim()
       )
     );
+    this.renderConflictCleanup(panel);
   }
 
   private renderSynced(panel: HTMLElement, renderId: number): void {
@@ -246,6 +252,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       body.empty();
       this.renderUserCard(body, me);
       this.renderVaults(body, me.vaults);
+      this.renderConflictCleanup(body);
       this.renderDevices(body, tokens);
     } catch (error) {
       if (renderId !== this.renderId) return;
@@ -342,6 +349,34 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         );
       }
     });
+  }
+
+  private renderConflictCleanup(body: HTMLElement): void {
+    const t = this.plugin.text();
+    const count = listConflictFiles(this.app.vault).length;
+    this.renderSectionLabel(body, t.conflictFiles);
+    const row = body.createDiv({ cls: "pkv-sync-conflict-row" });
+    const meta = row.createDiv({ cls: "pkv-sync-conflict-meta" });
+    meta.createDiv({ cls: "pkv-sync-conflict-title", text: t.conflictFiles });
+    meta.createDiv({
+      cls: "pkv-sync-conflict-summary",
+      text: format(t.conflictFilesSummary, { count })
+    });
+    const button = this.renderButton(
+      row,
+      t.deleteConflictsButton,
+      "secondary",
+      async () => {
+        await this.plugin.deleteConflictFiles();
+        this.display();
+      }
+    );
+    button.disabled = count === 0;
+  }
+
+  showConnectionSettings(): void {
+    this.cfg = null;
+    this.display();
   }
 
   private renderDevices(body: HTMLElement, tokens: TokenView[]): void {

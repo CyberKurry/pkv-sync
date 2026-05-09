@@ -1,4 +1,5 @@
 import { TFile, type Vault } from "obsidian";
+import { isConflictPath } from "./conflict-files";
 import { sha256Bytes, sha256Text } from "./hash";
 import type { LocalFileSnapshot } from "./types";
 
@@ -114,9 +115,6 @@ export class ObsidianVaultAdapter implements VaultAdapter {
 export function shouldSyncPath(path: string): boolean {
   if (path.startsWith(".obsidian/")) return false;
   if (path.startsWith(".trash/")) return false;
-  const name = path.split("/").pop() ?? path;
-  if (/\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-[^/]+(?:\.[^/.]+)?$/.test(name)) {
-    return false;
-  }
+  if (isConflictPath(path)) return false;
   return true;
 }

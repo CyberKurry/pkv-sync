@@ -17,3 +17,17 @@ export class TFolder {
   path = "";
   children: unknown[] = [];
 }
+
+export class PluginSettingTab {
+  containerEl = {
+    empty: vi.fn(),
+    addClass: vi.fn(),
+    createDiv: vi.fn()
+  };
+
+  constructor(public app: unknown, public plugin: unknown) {}
+
+  display(): void {}
+}
+
+export function setIcon(): void {}

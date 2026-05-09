@@ -15,6 +15,10 @@ import {
 } from "./settings";
 import { Debouncer } from "./sync/debounce";
 import { SyncEngine } from "./sync/engine";
+import {
+  deleteConflictFiles,
+  listConflictFiles
+} from "./sync/conflict-files";
 import type { LocalIndex } from "./sync/types";
 import { ObsidianVaultAdapter, shouldSyncPath } from "./sync/vault-adapter";
 import { format, strings, type Strings } from "./i18n";
@@ -115,9 +119,7 @@ export default class PKVSyncPlugin extends Plugin {
       name: t.listConflictsCommand,
       callback: () => {
         const current = this.text();
-        const conflicts = this.app.vault
-          .getFiles()
-          .filter((file) => file.path.includes(".conflict-"));
+        const conflicts = listConflictFiles(this.app.vault);
         new SyncStatusModal(
           this.app,
           current.syncStatusTitle,
@@ -126,6 +128,11 @@ export default class PKVSyncPlugin extends Plugin {
             : current.noConflictFiles
         ).open();
       }
+    });
+    this.addCommand({
+      id: "pkv-sync-delete-conflicts",
+      name: t.deleteConflictsCommand,
+      callback: () => void this.deleteConflictFiles()
     });
     this.rebuildSyncEngine();
   }
@@ -324,6 +331,22 @@ export default class PKVSyncPlugin extends Plugin {
       new Notice(t.noticeSyncComplete);
     } catch (error) {
       new Notice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async deleteConflictFiles(): Promise<number> {
+    const t = this.text();
+    try {
+      const count = await deleteConflictFiles(this.app.vault);
+      new Notice(
+        count
+          ? format(t.deletedConflictFiles, { count })
+          : t.noConflictFiles
+      );
+      return count;
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : String(error));
+      return 0;
     }
   }
 }
