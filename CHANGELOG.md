@@ -7,6 +7,8 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-05-11
+
 ### Added
 
 - Per-file commit history endpoint `GET /api/vaults/:id/history?path=`.
