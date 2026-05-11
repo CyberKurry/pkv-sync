@@ -407,6 +407,7 @@ export default class PKVSyncPlugin extends Plugin {
       new Notice(t.historyDisabled);
       return;
     }
+    const diffAvailable = this.diffEnabled();
     new HistoryModal(this.app, {
       api: this.historyApi(),
       vaultId: this.settings.selectedVaultId,
@@ -417,16 +418,24 @@ export default class PKVSyncPlugin extends Plugin {
         historyEmpty: t.historyEmpty,
         historyRetry: t.historyRetry,
         historyViewDiffPrevious: t.historyViewDiffPrevious,
+        historyViewDiffHead: t.historyViewDiffHead,
+        historyViewContent: t.historyViewContent,
         historyRestoreVersion: t.historyRestoreVersion,
         historyUnknownDevice: t.historyUnknownDevice
       },
-      onDiffPrevious: (entry) =>
-        this.openDiffFor(
-          file.path,
-          entry.parent ?? undefined,
-          entry.commit,
-          entry.change_type !== "deleted"
-        ),
+      onDiffPrevious: diffAvailable
+        ? (entry) =>
+            this.openDiffFor(
+              file.path,
+              entry.parent ?? undefined,
+              entry.commit,
+              entry.change_type !== "deleted"
+            )
+        : undefined,
+      onDiffHead: diffAvailable
+        ? (entry) => this.openDiffWithHead(file.path, entry)
+        : undefined,
+      onViewContent: (entry) => this.openHistoricalContent(file.path, entry),
       onRestore: (entry) =>
         this.confirmRestore(
           file.path,
@@ -484,6 +493,52 @@ export default class PKVSyncPlugin extends Plugin {
     }
   }
 
+  private async openDiffWithHead(
+    path: string,
+    entry: CommitSummary
+  ): Promise<void> {
+    const t = this.text();
+    if (!this.diffEnabled()) {
+      new Notice(t.historyDisabled);
+      return;
+    }
+    try {
+      const [head] = await this.historyApi().commits(
+        this.settings.selectedVaultId,
+        1
+      );
+      const to = head?.commit ?? entry.commit;
+      await this.openDiffFor(path, entry.commit, to);
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async openHistoricalContent(
+    path: string,
+    entry: CommitSummary
+  ): Promise<void> {
+    const t = this.text();
+    try {
+      const file = await this.historyApi().readFileAt(
+        this.settings.selectedVaultId,
+        path,
+        entry.commit
+      );
+      if (file.kind === "binary") {
+        new Notice(t.diffBinary);
+        return;
+      }
+      new SyncStatusModal(
+        this.app,
+        `${path} @ ${shortCommit(entry.commit)}`,
+        file.text
+      ).open();
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   private async openDiffFor(
     path: string,
     from: string | undefined,
@@ -506,6 +561,9 @@ export default class PKVSyncPlugin extends Plugin {
         diffTitle: t.diffTitle,
         diffBinary: t.diffBinary,
         diffTruncated: t.diffTruncated,
+        diffFrom: t.diffFrom,
+        diffTo: t.diffTo,
+        diffPrevious: t.diffPrevious,
         diffRestoreLeft: t.diffRestoreLeft,
         diffRestoreRight: t.diffRestoreRight,
         historyRetry: t.historyRetry
@@ -565,11 +623,13 @@ export default class PKVSyncPlugin extends Plugin {
     try {
       const index = await this.loadSyncIndex();
       const adapter = new ObsidianVaultAdapter(this.app.vault);
-      const snapshot = await adapter.snapshot(
-        path,
-        new Set(this.settings.textExtensions)
-      );
       const lastSyncedHash = index.files[path]?.lastSyncedHash;
+      let snapshot;
+      try {
+        snapshot = await adapter.snapshot(path, new Set(this.settings.textExtensions));
+      } catch {
+        return Boolean(lastSyncedHash);
+      }
       return !lastSyncedHash || snapshot.hash !== lastSyncedHash;
     } catch {
       return false;

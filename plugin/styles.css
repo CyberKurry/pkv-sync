@@ -611,6 +611,24 @@
   justify-content: flex-end;
 }
 
+.pkvsync-diff-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.pkvsync-diff-range-field {
+  display: grid;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pkvsync-diff-range-field select {
+  width: 100%;
+}
+
 .pkvsync-history-empty,
 .pkvsync-history-error,
 .pkvsync-diff-error,
@@ -718,5 +736,9 @@
   .pkvsync-diff-actions .pkvsync-button,
   .pkvsync-restore-actions .pkvsync-button {
     flex: 1 1 100%;
+  }
+
+  .pkvsync-diff-range {
+    grid-template-columns: 1fr;
   }
 }

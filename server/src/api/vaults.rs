@@ -239,6 +239,9 @@ async fn commits(
     Path(id): Path<String>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<crate::service::history::CommitSummary>>, ApiError> {
+    if q.contains_key("path") && !state.runtime_cfg.snapshot().await.enable_history_ui {
+        return Err(ApiError::not_found("history disabled"));
+    }
     let limit = q
         .get("limit")
         .and_then(|s| s.parse::<usize>().ok())
@@ -969,6 +972,28 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(history.status(), StatusCode::NOT_FOUND);
+
+        let commits_path = app
+            .clone()
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/commits?path=note.md"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(commits_path.status(), StatusCode::NOT_FOUND);
+
+        let commits = app
+            .clone()
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/commits"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(commits.status(), StatusCode::OK);
 
         let diff = app
             .oneshot(auth_request(

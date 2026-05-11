@@ -18,6 +18,8 @@ export interface HistoryModalLabels {
   historyEmpty: string;
   historyRetry: string;
   historyViewDiffPrevious: string;
+  historyViewDiffHead: string;
+  historyViewContent: string;
   historyRestoreVersion: string;
   historyUnknownDevice: string;
 }
@@ -29,6 +31,8 @@ export interface HistoryModalOptions {
   timezone: string;
   labels: HistoryModalLabels;
   onDiffPrevious?: (entry: CommitSummary) => void | Promise<void>;
+  onDiffHead?: (entry: CommitSummary) => void | Promise<void>;
+  onViewContent?: (entry: CommitSummary) => void | Promise<void>;
   onRestore?: (entry: CommitSummary) => void | Promise<void>;
 }
 
@@ -132,6 +136,16 @@ export class HistoryModal extends Modal {
       if (row.parent && this.options.onDiffPrevious) {
         this.button(actions, this.options.labels.historyViewDiffPrevious, () =>
           this.options.onDiffPrevious?.(row)
+        );
+      }
+      if (this.options.onDiffHead) {
+        this.button(actions, this.options.labels.historyViewDiffHead, () =>
+          this.options.onDiffHead?.(row)
+        );
+      }
+      if (view.canRestore && this.options.onViewContent) {
+        this.button(actions, this.options.labels.historyViewContent, () =>
+          this.options.onViewContent?.(row)
         );
       }
       if (view.canRestore && this.options.onRestore) {
