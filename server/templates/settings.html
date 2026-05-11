@@ -55,6 +55,8 @@
       <p class="section-note">Configure max file size and synchronized text file extensions.</p>
       <label>Max File Size <span class="input-with-unit"><input value="{{ max_file_size_display }}" disabled><small>runtime</small></span></label>
       <label>Text File Extensions <input value="{{ text_extensions_display }}" disabled></label>
+      <label class="check-row"><input name="enable_history_ui" type="checkbox" {% if cfg.enable_history_ui %}checked{% endif %}> Enable file history UI and API</label>
+      <label class="check-row"><input name="enable_diff_endpoint" type="checkbox" {% if cfg.enable_diff_endpoint %}checked{% endif %}> Enable unified diff endpoint</label>
       <div class="danger-row">
         <span><strong>Blob Garbage Collection</strong><small>Reclaim orphaned SHA-256 blobs</small></span>
         <button class="danger small" form="gc-form">{{ t.run_blob_gc }}</button>

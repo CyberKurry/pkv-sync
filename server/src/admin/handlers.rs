@@ -1,31 +1,47 @@
 use crate::admin::session::{self, AdminSession};
 use crate::admin::templates::{
     ActivityFilterUser, ActivityTemplate, ActivityView, DashboardTemplate, DeviceTokenAdminView,
-    DevicesTemplate, InviteAdminView, InvitesTemplate, LoginTemplate, SettingsTemplate,
-    TokenAdminView, UserAdminView, UserDetailTemplate, UsersTemplate, VaultAdminView,
-    VaultsTemplate,
+    DevicesTemplate, DiffLineView, InviteAdminView, InvitesTemplate, LoginTemplate,
+    SettingsTemplate, TokenAdminView, UserAdminView, UserDetailTemplate, UsersTemplate,
+    VaultAdminView, VaultBrowserView, VaultDiffTemplate, VaultFileEntryView, VaultFileViewTemplate,
+    VaultFilesTemplate, VaultHistoryEntryView, VaultHistoryTemplate, VaultsTemplate,
 };
 use crate::api::error::ApiError;
 use crate::auth::LoginRateLimiter;
 use crate::auth::{password, token};
 use crate::db::repos::{
-    InviteRepo, NewToken, NewUser, RegistrationMode, RuntimeConfigRepo, TokenRepo, TokenRow, User,
-    UserRepo, VaultRepo,
+    InviteRepo, NewActivity, NewToken, NewUser, RegistrationMode, RuntimeConfigRepo,
+    SyncActivityRepo, TokenRepo, TokenRow, User, UserRepo, Vault, VaultRepo,
 };
 use crate::middleware::real_ip::ClientIp;
 use crate::service::auth::validate_username;
 use crate::service::AppState;
+use crate::storage::git::{Git2VaultStore, GitVaultStore, StoredFile, TreeEntry};
 use askama::Template;
 use axum::extract::{Extension, Form, Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use chrono::{NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use serde::Deserialize;
 use std::collections::HashMap;
 use tower_cookies::Cookies;
+
+const URL_PATH: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'<')
+    .add(b'>')
+    .add(b'?')
+    .add(b'`')
+    .add(b'{')
+    .add(b'}');
+const URL_QUERY: &AsciiSet = &URL_PATH.add(b'&').add(b'=').add(b'+');
 
 #[derive(Clone, Copy)]
 pub struct AdminCookiePolicy {
@@ -59,6 +75,13 @@ pub fn router() -> Router<AppState> {
         )
         .route("/admin/devices/:tid/revoke", post(revoke_device_token_form))
         .route("/admin/vaults", get(vaults_page).post(create_vault_form))
+        .route("/admin/vaults/:id/files", get(vault_files_page))
+        .route("/admin/vaults/:id/files/*path", get(vault_file_view_page))
+        .route(
+            "/admin/vaults/:id/history/*path",
+            get(vault_file_history_page),
+        )
+        .route("/admin/vaults/:id/diff", get(vault_diff_page))
         .route("/admin/vaults/:id/delete", post(delete_vault_form))
         .route("/admin/vaults/:id/reconcile", post(reconcile_vault_form))
         .route("/admin/invites", get(invites_page).post(create_invite_form))
@@ -674,6 +697,7 @@ async fn vaults_page(
     cookies: Cookies,
     _session: AdminSession,
 ) -> Result<Html<String>, ApiError> {
+    let cfg = state.runtime_cfg.snapshot().await;
     let vaults = list_admin_vaults(&state).await?;
     let total_size: u64 = vaults.iter().map(|v| v.size_bytes.max(0) as u64).sum();
     let synced_today = count_vaults_synced_today(&state).await?;
@@ -686,10 +710,219 @@ async fn vaults_page(
             vaults,
             users: state.users.list().await?,
             message: None,
+            enable_history_ui: cfg.enable_history_ui,
         }
         .render()
         .unwrap(),
     ))
+}
+
+#[derive(Deserialize)]
+struct FileViewQuery {
+    at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DiffQuery {
+    path: String,
+    to: String,
+    from: Option<String>,
+}
+
+async fn vault_files_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
+    _session: AdminSession,
+    Path(id): Path<String>,
+) -> Result<Html<String>, ApiError> {
+    ensure_admin_history_enabled(&state).await?;
+    let (_vault, vault_view) = admin_vault(&state, &id).await?;
+    let store = Git2VaultStore::new(state.default_vault_root());
+    let entries = store
+        .list_tree(&id, None)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let files = entries
+        .into_iter()
+        .map(|entry| file_entry_view(&id, entry))
+        .collect();
+    Ok(Html(
+        VaultFilesTemplate {
+            t: admin_text(&headers, &cookies),
+            vault: vault_view,
+            files,
+        }
+        .render()
+        .unwrap(),
+    ))
+}
+
+async fn vault_file_view_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
+    session: AdminSession,
+    Path((id, path)): Path<(String, String)>,
+    Query(query): Query<FileViewQuery>,
+) -> Result<Html<String>, ApiError> {
+    ensure_admin_history_enabled(&state).await?;
+    vault_file_view_html(state, headers, cookies, session, id, path, query).await
+}
+
+async fn vault_file_history_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
+    session: AdminSession,
+    Path((id, path)): Path<(String, String)>,
+) -> Result<Html<String>, ApiError> {
+    ensure_admin_history_enabled(&state).await?;
+    vault_file_history_html(state, headers, cookies, session, id, &path).await
+}
+
+async fn vault_file_view_html(
+    state: AppState,
+    headers: HeaderMap,
+    cookies: Cookies,
+    session: AdminSession,
+    id: String,
+    path: String,
+    query: FileViewQuery,
+) -> Result<Html<String>, ApiError> {
+    let cfg = state.runtime_cfg.snapshot().await;
+    let (_vault, vault_view) = admin_vault(&state, &id).await?;
+    let path = crate::storage::path::normalize(&path)
+        .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
+    let store = Git2VaultStore::new(state.default_vault_root());
+    let file = store
+        .read_file(&id, &path, query.at.as_deref())
+        .await
+        .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("file not found"))?;
+    let (binary, content, size_bytes) = file_preview(file);
+    let to_commit = query.at.clone().or(store
+        .head(&id)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?);
+    let history_url = format!(
+        "/admin/vaults/{}/history/{}",
+        url_path(&id),
+        url_path(&path)
+    );
+    let diff_url = to_commit.as_ref().map(|to| {
+        format!(
+            "/admin/vaults/{}/diff?path={}&to={}",
+            url_path(&id),
+            url_query(&path),
+            url_query(to)
+        )
+    });
+    record_admin_view(&state, &session, &id, "view_commit", Some(&path), &headers).await?;
+    Ok(Html(
+        VaultFileViewTemplate {
+            t: admin_text(&headers, &cookies),
+            vault: vault_view,
+            path,
+            at: query.at,
+            size_display: crate::human::format_bytes(size_bytes),
+            binary,
+            content,
+            history_url,
+            diff_url,
+            enable_diff_endpoint: cfg.enable_diff_endpoint,
+        }
+        .render()
+        .unwrap(),
+    ))
+}
+
+async fn vault_file_history_html(
+    state: AppState,
+    headers: HeaderMap,
+    cookies: Cookies,
+    session: AdminSession,
+    id: String,
+    path: &str,
+) -> Result<Html<String>, ApiError> {
+    ensure_admin_history_enabled(&state).await?;
+    let (vault, vault_view) = admin_vault(&state, &id).await?;
+    let path = crate::storage::path::normalize(path)
+        .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let commits =
+        crate::service::history::file_history(&state, &vault.user_id, &id, &path, 100).await?;
+    let entries = commits
+        .into_iter()
+        .map(|commit| history_entry_view(&id, &path, commit, &timezone))
+        .collect();
+    record_admin_view(&state, &session, &id, "view_history", Some(&path), &headers).await?;
+    Ok(Html(
+        VaultHistoryTemplate {
+            t: admin_text(&headers, &cookies),
+            vault: vault_view,
+            path,
+            entries,
+        }
+        .render()
+        .unwrap(),
+    ))
+}
+
+async fn vault_diff_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
+    session: AdminSession,
+    Path(id): Path<String>,
+    Query(query): Query<DiffQuery>,
+) -> Result<Html<String>, ApiError> {
+    let cfg = state.runtime_cfg.snapshot().await;
+    if !cfg.enable_history_ui || !cfg.enable_diff_endpoint {
+        return Err(ApiError::not_found("history disabled"));
+    }
+    let (vault, vault_view) = admin_vault(&state, &id).await?;
+    let diff = crate::service::diff::unified_diff(
+        &state,
+        &vault.user_id,
+        &id,
+        query.from.as_deref(),
+        &query.to,
+        &query.path,
+    )
+    .await?;
+    let lines = diff_lines(&diff.patch);
+    record_admin_view(
+        &state,
+        &session,
+        &id,
+        "view_diff",
+        Some(&diff.path),
+        &headers,
+    )
+    .await?;
+    Ok(Html(
+        VaultDiffTemplate {
+            t: admin_text(&headers, &cookies),
+            vault: vault_view,
+            path: diff.path,
+            from: diff.from,
+            to: diff.to.unwrap_or(query.to),
+            binary: diff.binary,
+            truncated: diff.truncated,
+            lines,
+        }
+        .render()
+        .unwrap(),
+    ))
+}
+
+async fn ensure_admin_history_enabled(state: &AppState) -> Result<(), ApiError> {
+    if state.runtime_cfg.snapshot().await.enable_history_ui {
+        Ok(())
+    } else {
+        Err(ApiError::not_found("history disabled"))
+    }
 }
 
 #[derive(Deserialize)]
@@ -814,6 +1047,179 @@ async fn count_vaults_synced_today(state: &AppState) -> Result<usize, ApiError> 
     Ok(count.max(0) as usize)
 }
 
+async fn admin_vault(state: &AppState, id: &str) -> Result<(Vault, VaultBrowserView), ApiError> {
+    let vault = state
+        .vaults
+        .find_by_id(id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("vault not found"))?;
+    let owner = state
+        .users
+        .find_by_id(&vault.user_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("owner not found"))?;
+    let view = VaultBrowserView {
+        id: vault.id.clone(),
+        name: vault.name.clone(),
+        owner_username: owner.username,
+    };
+    Ok((vault, view))
+}
+
+fn file_entry_view(vault_id: &str, entry: TreeEntry) -> VaultFileEntryView {
+    VaultFileEntryView {
+        name: file_name(&entry.path).to_string(),
+        view_url: format!(
+            "/admin/vaults/{}/files/{}",
+            url_path(vault_id),
+            url_path(&entry.path)
+        ),
+        size_display: crate::human::format_bytes(entry.size),
+        kind: if entry.is_blob_pointer {
+            "Binary".into()
+        } else {
+            "Text".into()
+        },
+        path: entry.path,
+    }
+}
+
+fn file_preview(file: StoredFile) -> (bool, String, u64) {
+    match file {
+        StoredFile::Text { bytes } => {
+            let size = bytes.len() as u64;
+            (false, String::from_utf8_lossy(&bytes).into_owned(), size)
+        }
+        StoredFile::BlobPointer { hash, size, mime } => {
+            let mime = mime.unwrap_or_else(|| "application/octet-stream".into());
+            (true, format!("{mime}\n{hash}"), size)
+        }
+    }
+}
+
+fn history_entry_view(
+    vault_id: &str,
+    path: &str,
+    commit: crate::service::history::CommitSummary,
+    timezone: &str,
+) -> VaultHistoryEntryView {
+    let short_commit = short_commit(&commit.commit);
+    let view_url = format!(
+        "/admin/vaults/{}/files/{}?at={}",
+        url_path(vault_id),
+        url_path(path),
+        url_query(&commit.commit)
+    );
+    let mut diff_url = format!(
+        "/admin/vaults/{}/diff?path={}&to={}",
+        url_path(vault_id),
+        url_query(path),
+        url_query(&commit.commit)
+    );
+    if let Some(parent) = &commit.parent {
+        diff_url.push_str("&from=");
+        diff_url.push_str(&url_query(parent));
+    }
+    VaultHistoryEntryView {
+        commit: commit.commit,
+        short_commit,
+        parent: commit.parent,
+        message: commit
+            .message
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("")
+            .to_string(),
+        timestamp: fmt_ts(commit.timestamp, timezone),
+        author_device: commit
+            .author_device
+            .unwrap_or_else(|| "Unknown device".into()),
+        change_type: commit
+            .change_type
+            .map(|kind| change_type_label(&kind))
+            .unwrap_or_else(|| "modified".into()),
+        view_url,
+        diff_url,
+    }
+}
+
+fn diff_lines(patch: &str) -> Vec<DiffLineView> {
+    patch
+        .lines()
+        .map(|line| DiffLineView {
+            class: diff_line_class(line).into(),
+            text: line.to_string(),
+        })
+        .collect()
+}
+
+fn diff_line_class(line: &str) -> &'static str {
+    if line.starts_with("@@") {
+        "diff-hunk"
+    } else if line.starts_with("+++") || line.starts_with("---") {
+        "diff-meta"
+    } else if line.starts_with('+') {
+        "diff-add"
+    } else if line.starts_with('-') {
+        "diff-del"
+    } else {
+        "diff-context"
+    }
+}
+
+fn change_type_label(kind: &crate::service::diff::ChangeType) -> String {
+    match kind {
+        crate::service::diff::ChangeType::Added => "added",
+        crate::service::diff::ChangeType::Modified => "modified",
+        crate::service::diff::ChangeType::Deleted => "deleted",
+    }
+    .into()
+}
+
+async fn record_admin_view(
+    state: &AppState,
+    session: &AdminSession,
+    vault_id: &str,
+    action: &str,
+    path: Option<&str>,
+    headers: &HeaderMap,
+) -> Result<(), ApiError> {
+    let details = path.map(|path| serde_json::json!({ "path": path }).to_string());
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok());
+    state
+        .activities
+        .insert(NewActivity {
+            user_id: &session.user.id,
+            vault_id: Some(vault_id),
+            token_id: None,
+            action,
+            commit_hash: None,
+            client_ip: None,
+            user_agent,
+            details: details.as_deref(),
+        })
+        .await?;
+    Ok(())
+}
+
+fn file_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+fn short_commit(commit: &str) -> String {
+    commit.chars().take(7).collect()
+}
+
+fn url_path(value: &str) -> String {
+    utf8_percent_encode(value, URL_PATH).to_string()
+}
+
+fn url_query(value: &str) -> String {
+    utf8_percent_encode(value, URL_QUERY).to_string()
+}
+
 async fn invites_page(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -934,6 +1340,8 @@ struct SettingsForm {
     login_failure_threshold: u32,
     login_window_seconds: u64,
     login_lock_seconds: u64,
+    enable_history_ui: Option<String>,
+    enable_diff_endpoint: Option<String>,
 }
 
 type ActivityRow = (
@@ -1060,6 +1468,14 @@ async fn settings_post(
             form.login_failure_threshold,
             form.login_window_seconds,
             form.login_lock_seconds,
+            Some(&session.user.id),
+        )
+        .await?;
+    state
+        .runtime_cfg_repo
+        .set_history_flags(
+            form.enable_history_ui.is_some(),
+            form.enable_diff_endpoint.is_some(),
             Some(&session.user.id),
         )
         .await?;

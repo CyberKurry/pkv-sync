@@ -76,6 +76,28 @@ YYYY/MM/DD HH:MM:SS
 
 The plugin uses the selected IANA timezone, defaulting to `Asia/Shanghai`.
 
+## History, Diff, and Restore
+
+When the server reports history support and **Enable history and diff UI** is on
+in plugin settings, you can inspect file history from:
+
+- **PKV Sync: Show file history**
+- the file right-click menu: **PKV Sync: File history**
+- the file right-click menu: **PKV Sync: Diff with previous**
+
+The history modal lists commits for the current file with time, device, commit
+id, and change type. Text files can show unified diffs. Binary files can be
+listed and restored, but PKV Sync does not render binary diffs.
+
+Restoring a version reads the selected historical content from the server,
+writes it back to the local Obsidian vault, and lets the normal sync engine push
+that write as a new commit. If the current local file differs from the last
+synced hash, the confirmation dialog warns that unsynced local changes will be
+overwritten.
+
+PKV Sync does not keep a full offline history cache in the plugin. History and
+diff views require the server to be reachable.
+
 ## Conflict Files
 
 If two devices edit the same file offline, PKV Sync keeps both versions. The

@@ -877,8 +877,93 @@ label {
 
 .card-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 20px;
+}
+
+.browser-panel,
+.file-view-panel,
+.history-panel,
+.diff-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.file-table .file-link {
+  color: var(--text);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.file-preview,
+.diff-view {
+  max-height: 64vh;
+  min-height: 280px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .035);
+  color: var(--text-soft);
+  padding: 16px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.history-row-main {
+  min-width: 0;
+}
+
+.history-row h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.history-row p {
+  margin: 4px 0 0;
+}
+
+.diff-view span {
+  display: block;
+  min-height: 1.35em;
+}
+
+.diff-add {
+  color: #bbf7d0;
+  background: rgba(84, 209, 140, .14);
+}
+
+.diff-del {
+  color: #fecaca;
+  background: rgba(229, 89, 89, .14);
+}
+
+.diff-hunk {
+  color: #bfdbfe;
+  background: rgba(84, 127, 255, .18);
+}
+
+.diff-meta {
+  color: #c4b5fd;
+}
+
+.diff-context {
+  color: var(--text-soft);
 }
 
 .invite-list {
@@ -1304,5 +1389,9 @@ label {
   .table-panel {
     padding: 0;
     overflow-x: auto;
+  }
+
+  .history-row {
+    grid-template-columns: 1fr;
   }
 }

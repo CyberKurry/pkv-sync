@@ -8,10 +8,11 @@ use pkv_sync_server::auth::{password, LoginRateLimiter};
 use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{
-    NewActivity, NewToken, NewUser, SyncActivityRepo, TokenRepo, UserRepo,
+    NewActivity, NewToken, NewUser, RuntimeConfigRepo, SyncActivityRepo, TokenRepo, UserRepo,
 };
 use pkv_sync_server::server;
 use pkv_sync_server::service::AppState;
+use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
 use std::net::SocketAddr;
 use std::time::Duration;
 use tower::ServiceExt;
@@ -346,6 +347,238 @@ async fn admin_can_manage_vaults() {
     let after_resp = app.oneshot(after_req).await.unwrap();
     let after_body = read_body(after_resp).await;
     assert!(!after_body.contains(">main<"));
+}
+
+#[tokio::test]
+async fn admin_can_browse_vault_files_history_and_diff_read_only() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin_id = first_admin_user_id(&app, &session_cookie).await;
+    let vault = pkv_sync_server::service::vault::create_vault(&state, &admin_id, "main")
+        .await
+        .unwrap();
+    let store = Git2VaultStore::new(state.default_vault_root());
+    let c1 = store
+        .commit_changes(
+            &vault.id,
+            None,
+            &[FileChange::Upsert {
+                path: "note.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"hello\n".to_vec(),
+                },
+            }],
+            "sync: laptop",
+        )
+        .await
+        .unwrap();
+    let c2 = store
+        .commit_changes(
+            &vault.id,
+            Some(&c1),
+            &[FileChange::Upsert {
+                path: "note.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"hello\nworld\n".to_vec(),
+                },
+            }],
+            "sync: laptop",
+        )
+        .await
+        .unwrap();
+    let _c3 = store
+        .commit_changes(
+            &vault.id,
+            Some(&c2),
+            &[FileChange::Upsert {
+                path: "logs/history".into(),
+                file: StoredFile::Text {
+                    bytes: b"edge history content\n".to_vec(),
+                },
+            }],
+            "sync: laptop",
+        )
+        .await
+        .unwrap();
+
+    let mut files_req = request(
+        Method::GET,
+        &format!("/admin/vaults/{}/files", vault.id),
+        Body::empty(),
+    );
+    files_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let files_resp = app.clone().oneshot(files_req).await.unwrap();
+    assert_eq!(files_resp.status(), StatusCode::OK);
+    let files_body = read_body(files_resp).await;
+    assert!(files_body.contains("note.md"));
+    assert!(files_body.contains(&format!("/admin/vaults/{}/files/note", vault.id)));
+
+    let mut view_req = request(
+        Method::GET,
+        &format!("/admin/vaults/{}/files/note.md", vault.id),
+        Body::empty(),
+    );
+    view_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let view_resp = app.clone().oneshot(view_req).await.unwrap();
+    assert_eq!(view_resp.status(), StatusCode::OK);
+    let view_body = read_body(view_resp).await;
+    assert!(view_body.contains("hello"));
+    assert!(view_body.contains("world"));
+    assert!(view_body.contains("History"));
+    assert!(view_body.contains("Diff with previous"));
+
+    let mut history_named_file_req = request(
+        Method::GET,
+        &format!("/admin/vaults/{}/files/logs/history", vault.id),
+        Body::empty(),
+    );
+    history_named_file_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let history_named_file_resp = app.clone().oneshot(history_named_file_req).await.unwrap();
+    assert_eq!(history_named_file_resp.status(), StatusCode::OK);
+    let history_named_file_body = read_body(history_named_file_resp).await;
+    assert!(history_named_file_body.contains("edge history content"));
+
+    let mut history_req = request(
+        Method::GET,
+        &format!("/admin/vaults/{}/history/note.md", vault.id),
+        Body::empty(),
+    );
+    history_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let history_resp = app.clone().oneshot(history_req).await.unwrap();
+    assert_eq!(history_resp.status(), StatusCode::OK);
+    let history_body = read_body(history_resp).await;
+    assert!(history_body.contains(&c2[..7]));
+    assert!(history_body.contains("View at this commit"));
+    assert!(history_body.contains("Diff with previous"));
+    assert!(!history_body.contains("Restore"));
+    assert!(!history_body.contains("Rollback"));
+
+    let mut diff_req = request(
+        Method::GET,
+        &format!("/admin/vaults/{}/diff?path=note.md&to={}", vault.id, c2),
+        Body::empty(),
+    );
+    diff_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let diff_resp = app.oneshot(diff_req).await.unwrap();
+    assert_eq!(diff_resp.status(), StatusCode::OK);
+    let diff_body = read_body(diff_resp).await;
+    assert!(diff_body.contains("+world"));
+    assert!(diff_body.contains("diff-add"));
+    assert!(!diff_body.contains("Restore"));
+    assert!(!diff_body.contains("Rollback"));
+
+    let actions: Vec<(String,)> =
+        sqlx::query_as("SELECT action FROM sync_activity WHERE vault_id = ? ORDER BY id")
+            .bind(&vault.id)
+            .fetch_all(&state.pool)
+            .await
+            .unwrap();
+    let actions: Vec<String> = actions.into_iter().map(|(action,)| action).collect();
+    assert!(actions.contains(&"view_commit".to_string()));
+    assert!(actions.contains(&"view_history".to_string()));
+    assert!(actions.contains(&"view_diff".to_string()));
+}
+
+#[tokio::test]
+async fn admin_history_and_diff_routes_follow_runtime_flags() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin_id = first_admin_user_id(&app, &session_cookie).await;
+    let vault = pkv_sync_server::service::vault::create_vault(&state, &admin_id, "main")
+        .await
+        .unwrap();
+    let store = Git2VaultStore::new(state.default_vault_root());
+    let c1 = store
+        .commit_changes(
+            &vault.id,
+            None,
+            &[FileChange::Upsert {
+                path: "note.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"hello\n".to_vec(),
+                },
+            }],
+            "sync: laptop",
+        )
+        .await
+        .unwrap();
+
+    state
+        .runtime_cfg_repo
+        .set_history_flags(false, false, None)
+        .await
+        .unwrap();
+    state
+        .runtime_cfg
+        .replace(state.runtime_cfg_repo.load().await.unwrap())
+        .await;
+
+    let mut vaults_req = request(Method::GET, "/admin/vaults", Body::empty());
+    vaults_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let vaults_resp = app.clone().oneshot(vaults_req).await.unwrap();
+    assert_eq!(vaults_resp.status(), StatusCode::OK);
+    let vaults_body = read_body(vaults_resp).await;
+    assert!(!vaults_body.contains("Browse files"));
+
+    for uri in [
+        format!("/admin/vaults/{}/files", vault.id),
+        format!("/admin/vaults/{}/files/note.md", vault.id),
+        format!("/admin/vaults/{}/history/note.md", vault.id),
+        format!("/admin/vaults/{}/diff?path=note.md&to={}", vault.id, c1),
+    ] {
+        let mut req = request(Method::GET, &uri, Body::empty());
+        req.headers_mut()
+            .insert(header::COOKIE, session_cookie.parse().unwrap());
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND, "{uri}");
+    }
+
+    state
+        .runtime_cfg_repo
+        .set_history_flags(true, false, None)
+        .await
+        .unwrap();
+    state
+        .runtime_cfg
+        .replace(state.runtime_cfg_repo.load().await.unwrap())
+        .await;
+
+    let mut file_req = request(
+        Method::GET,
+        &format!("/admin/vaults/{}/files/note.md", vault.id),
+        Body::empty(),
+    );
+    file_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let file_resp = app.clone().oneshot(file_req).await.unwrap();
+    assert_eq!(file_resp.status(), StatusCode::OK);
+    let file_body = read_body(file_resp).await;
+    assert!(file_body.contains("History"));
+    assert!(!file_body.contains("Diff with previous"));
+
+    let mut diff_req = request(
+        Method::GET,
+        &format!("/admin/vaults/{}/diff?path=note.md&to={}", vault.id, c1),
+        Body::empty(),
+    );
+    diff_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let diff_resp = app.clone().oneshot(diff_req).await.unwrap();
+    assert_eq!(diff_resp.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

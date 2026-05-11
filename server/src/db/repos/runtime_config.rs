@@ -41,6 +41,8 @@ pub struct RuntimeConfig {
     pub login_lock_seconds: u64,
     pub max_file_size: u64,
     pub text_extensions: Vec<String>,
+    pub enable_history_ui: bool,
+    pub enable_diff_endpoint: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -61,6 +63,8 @@ impl Default for RuntimeConfig {
                 "txt".into(),
                 "css".into(),
             ],
+            enable_history_ui: true,
+            enable_diff_endpoint: true,
         }
     }
 }
@@ -90,6 +94,12 @@ pub trait RuntimeConfigRepo: Send + Sync {
     async fn set_text_extensions(
         &self,
         extensions: Vec<String>,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
+    async fn set_history_flags(
+        &self,
+        enable_history_ui: bool,
+        enable_diff_endpoint: bool,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 }
@@ -182,6 +192,16 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
                 cfg.text_extensions = exts;
             }
         }
+        if let Some(v) = read_kv(&self.pool, "enable_history_ui").await? {
+            if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
+                cfg.enable_history_ui = enabled;
+            }
+        }
+        if let Some(v) = read_kv(&self.pool, "enable_diff_endpoint").await? {
+            if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
+                cfg.enable_diff_endpoint = enabled;
+            }
+        }
         Ok(cfg)
     }
 
@@ -272,6 +292,41 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         )
         .await
     }
+
+    async fn set_history_flags(
+        &self,
+        enable_history_ui: bool,
+        enable_diff_endpoint: bool,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
+        let mut tx = self.pool.begin().await?;
+        for (key, value) in [
+            (
+                "enable_history_ui",
+                serde_json::to_string(&enable_history_ui).unwrap(),
+            ),
+            (
+                "enable_diff_endpoint",
+                serde_json::to_string(&enable_diff_endpoint).unwrap(),
+            ),
+        ] {
+            sqlx::query(
+                "INSERT INTO runtime_config (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                               updated_at = excluded.updated_at,
+                                               updated_by = excluded.updated_by",
+            )
+            .bind(key)
+            .bind(value)
+            .bind(now)
+            .bind(by)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
 }
 
 /// Hot-reloadable cache shared by handlers.
@@ -352,6 +407,8 @@ mod tests {
                 login_lock_seconds: 900,
                 max_file_size: 100 * 1024 * 1024,
                 text_extensions: RuntimeConfig::default().text_extensions.clone(),
+                enable_history_ui: true,
+                enable_diff_endpoint: true,
             })
             .await;
         let snap2 = cache.snapshot().await;
@@ -384,9 +441,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_and_reload_history_flags() {
+        let r = setup().await;
+        r.set_history_flags(false, false, None).await.unwrap();
+        let cfg = r.load().await.unwrap();
+        assert!(!cfg.enable_history_ui);
+        assert!(!cfg.enable_diff_endpoint);
+    }
+
+    #[tokio::test]
     async fn defaults_include_max_file_size_and_extensions() {
         let cfg = RuntimeConfig::default();
         assert_eq!(cfg.max_file_size, 100 * 1024 * 1024);
         assert!(cfg.text_extensions.contains(&"md".to_string()));
+        assert!(cfg.enable_history_ui);
+        assert!(cfg.enable_diff_endpoint);
     }
 }

@@ -1,0 +1,32 @@
+{% extends "layout.html" %}
+{% block title %}{{ vault.name }} Files - {{ t.admin_title }}{% endblock %}
+{% block nav_vaults %}is-active{% endblock %}
+{% block page_title %}{{ vault.name }} Files{% endblock %}
+{% block header_actions %}
+<a class="secondary action-button" href="/admin/vaults"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-left"></use></svg> {{ t.vaults }}</a>
+{% endblock %}
+{% block content %}
+<section class="panel browser-panel">
+  <div class="panel-header">
+    <h2>{{ vault.name }}</h2>
+    <span class="muted-text">{{ vault.owner_username }}</span>
+  </div>
+  {% if files.is_empty() %}
+  <p class="empty-state">No files in this vault yet.</p>
+  {% else %}
+  <table class="data-table file-table">
+    <thead><tr><th>Path</th><th>{{ t.size }}</th><th>Kind</th><th></th></tr></thead>
+    <tbody>
+    {% for file in files %}
+      <tr>
+        <td><a class="file-link" href="{{ file.view_url }}">{{ file.path }}</a></td>
+        <td>{{ file.size_display }}</td>
+        <td><span class="pill pill-blue">{{ file.kind }}</span></td>
+        <td class="align-right"><a class="table-action" href="{{ file.view_url }}">View</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}

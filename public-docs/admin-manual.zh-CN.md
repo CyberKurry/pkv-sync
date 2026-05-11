@@ -45,6 +45,7 @@ https://sync.example.com/admin/login
 - 用户详情页：重置密码、启用/禁用、管理员权限控制和 token 查看
 - 全局设备 token 页面，可列出、创建和撤销 token
 - 笔记库卡片：所有者、文件数、大小、上次同步、元数据修复和删除操作
+- 只读笔记库文件浏览器，支持文件预览、单文件历史时间线和 unified diff 渲染
 - 邀请码创建，可选过期时间，活跃邀请码列表，以及删除未使用邀请码
 - 运行时设置，分为 General、Security、Sync & Storage、Network
 - 活动日志，支持按用户和动作真实筛选 push/pull 记录
@@ -98,6 +99,14 @@ Blob 文件是内容寻址的，可能会保留到垃圾回收确认其超过宽
 
 如果中断操作后文件数、大小或 blob 引用看起来不正确，可以使用笔记库元数据修复。
 
+### 只读文件历史
+
+在 **Vaults** 页面点击某个笔记库卡片上的 **Browse files**。文件浏览器会列出当前 HEAD 中的文件、大小以及文本/二进制类型。打开文件后，文本文件会显示只读预览，并提供 **History** 和 **Diff with previous** 链接。
+
+历史页会列出该文件相关的提交，并提供“查看该提交时的文件”和对应 diff 的链接。diff 页会按行渲染 unified diff，并用颜色区分新增、删除和 hunk。二进制文件只显示元数据，不渲染二进制 diff 内容。
+
+Admin WebUI 有意不提供恢复、revert、rollback 或写回控制。浏览文件、历史和 diff 会记录 `view_commit`、`view_history` 和 `view_diff` 活动。
+
 ## 邀请码和注册
 
 可从 **Settings** 配置注册模式：
@@ -112,7 +121,7 @@ Blob 文件是内容寻址的，可能会保留到垃圾回收确认其超过宽
 
 ## 活动日志
 
-活动日志记录 push、pull 等同步操作，包括：
+活动日志记录 push、pull、view_commit、view_history、view_diff 等同步与只读浏览操作，包括：
 
 - 用户
 - 笔记库

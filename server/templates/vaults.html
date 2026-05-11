@@ -24,6 +24,9 @@
     <p class="vault-meta"><span>{{ v.owner_username }}</span><span>{{ v.size_display }}</span><span>{% if let Some(ts) = v.last_sync_at %}{{ ts }}{% else %}—{% endif %}</span></p>
     <p class="vault-id">ID {{ v.id }}</p>
     <div class="card-actions">
+      {% if enable_history_ui %}
+      <a class="secondary small" href="/admin/vaults/{{ v.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg>Browse files</a>
+      {% endif %}
       <form method="post" action="/admin/vaults/{{ v.id }}/reconcile" class="inline"><button class="secondary small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#rotate-cw"></use></svg>{{ t.reconcile }}</button></form>
       <form method="post" action="/admin/vaults/{{ v.id }}/delete" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#trash-2"></use></svg>{{ t.delete }}</button></form>
     </div>

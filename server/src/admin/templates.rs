@@ -110,6 +110,87 @@ pub struct VaultsTemplate {
     pub total_vaults: usize,
     pub total_size_display: String,
     pub synced_today: usize,
+    pub enable_history_ui: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct VaultBrowserView {
+    pub id: String,
+    pub name: String,
+    pub owner_username: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct VaultFileEntryView {
+    pub path: String,
+    pub name: String,
+    pub size_display: String,
+    pub kind: String,
+    pub view_url: String,
+}
+
+#[derive(Template)]
+#[template(path = "vault_files.html")]
+pub struct VaultFilesTemplate {
+    pub t: AdminText,
+    pub vault: VaultBrowserView,
+    pub files: Vec<VaultFileEntryView>,
+}
+
+#[derive(Template)]
+#[template(path = "vault_file_view.html")]
+pub struct VaultFileViewTemplate {
+    pub t: AdminText,
+    pub vault: VaultBrowserView,
+    pub path: String,
+    pub at: Option<String>,
+    pub size_display: String,
+    pub binary: bool,
+    pub content: String,
+    pub history_url: String,
+    pub diff_url: Option<String>,
+    pub enable_diff_endpoint: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct VaultHistoryEntryView {
+    pub commit: String,
+    pub short_commit: String,
+    pub parent: Option<String>,
+    pub message: String,
+    pub timestamp: String,
+    pub author_device: String,
+    pub change_type: String,
+    pub view_url: String,
+    pub diff_url: String,
+}
+
+#[derive(Template)]
+#[template(path = "vault_history.html")]
+pub struct VaultHistoryTemplate {
+    pub t: AdminText,
+    pub vault: VaultBrowserView,
+    pub path: String,
+    pub entries: Vec<VaultHistoryEntryView>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiffLineView {
+    pub class: String,
+    pub text: String,
+}
+
+#[derive(Template)]
+#[template(path = "vault_diff.html")]
+pub struct VaultDiffTemplate {
+    pub t: AdminText,
+    pub vault: VaultBrowserView,
+    pub path: String,
+    pub from: Option<String>,
+    pub to: String,
+    pub binary: bool,
+    pub truncated: bool,
+    pub lines: Vec<DiffLineView>,
 }
 
 #[derive(Template)]
@@ -427,6 +508,7 @@ mod tests {
             total_vaults: 1,
             total_size_display: "0 B".into(),
             synced_today: 0,
+            enable_history_ui: true,
         }
         .render()
         .unwrap();
@@ -469,6 +551,8 @@ mod tests {
                 login_lock_seconds: 120,
                 max_file_size: 100 * 1024 * 1024,
                 text_extensions: RuntimeConfig::default().text_extensions.clone(),
+                enable_history_ui: true,
+                enable_diff_endpoint: true,
             },
             max_file_size_display: "100 MB".into(),
             text_extensions_display: "md, txt".into(),
@@ -495,6 +579,8 @@ mod tests {
                 login_lock_seconds: 120,
                 max_file_size: 100 * 1024 * 1024,
                 text_extensions: RuntimeConfig::default().text_extensions.clone(),
+                enable_history_ui: true,
+                enable_diff_endpoint: true,
             },
             max_file_size_display: "100 MB".into(),
             text_extensions_display: "md, txt".into(),

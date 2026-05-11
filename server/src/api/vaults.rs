@@ -24,6 +24,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/vaults/:id/pull", get(pull))
         .route("/api/vaults/:id/commits", get(commits))
         .route("/api/vaults/:id/commits/:commit", get(commit_detail))
+        .route("/api/vaults/:id/history", get(file_history))
+        .route("/api/vaults/:id/diff", get(diff))
         .route("/api/vaults/:id/files/*path", get(read_file))
 }
 
@@ -243,7 +245,14 @@ async fn commits(
         .unwrap_or(50)
         .min(200);
     Ok(Json(
-        crate::service::history::commits(&state, &user.user_id, &id, limit).await?,
+        crate::service::history::commits(
+            &state,
+            &user.user_id,
+            &id,
+            limit,
+            q.get("path").map(String::as_str),
+        )
+        .await?,
     ))
 }
 
@@ -251,10 +260,118 @@ async fn commit_detail(
     State(state): State<AppState>,
     user: AuthenticatedUser,
     Path((id, commit)): Path<(String, String)>,
+    client_ip: Option<Extension<ClientIp>>,
+    headers: HeaderMap,
 ) -> Result<Json<crate::service::history::CommitDetail>, ApiError> {
-    Ok(Json(
-        crate::service::history::commit_detail(&state, &user.user_id, &id, &commit).await?,
-    ))
+    if !state.runtime_cfg.snapshot().await.enable_history_ui {
+        return Err(ApiError::not_found("history disabled"));
+    }
+    let out = crate::service::history::commit_detail(&state, &user.user_id, &id, &commit).await?;
+    let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
+    sync::record_view(
+        &state,
+        &user,
+        &id,
+        "view_commit",
+        None,
+        sync::RequestMetadata {
+            client_ip: client_ip.as_deref(),
+            user_agent: user_agent.as_deref(),
+        },
+    )
+    .await?;
+    Ok(Json(out))
+}
+
+async fn file_history(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Path(id): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+    client_ip: Option<Extension<ClientIp>>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<crate::service::history::CommitSummary>>, ApiError> {
+    if !state.runtime_cfg.snapshot().await.enable_history_ui {
+        return Err(ApiError::not_found("history disabled"));
+    }
+    let path = q
+        .get("path")
+        .ok_or_else(|| ApiError::bad_request("missing_path", "path required"))?;
+    let limit = q
+        .get("limit")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(50)
+        .min(200);
+    let out =
+        crate::service::history::file_history(&state, &user.user_id, &id, path, limit).await?;
+    let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
+    sync::record_view(
+        &state,
+        &user,
+        &id,
+        "view_history",
+        Some(path),
+        sync::RequestMetadata {
+            client_ip: client_ip.as_deref(),
+            user_agent: user_agent.as_deref(),
+        },
+    )
+    .await?;
+    Ok(Json(out))
+}
+
+async fn diff(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Path(id): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+    client_ip: Option<Extension<ClientIp>>,
+    headers: HeaderMap,
+) -> Result<Json<crate::service::diff::UnifiedDiff>, ApiError> {
+    if !state.runtime_cfg.snapshot().await.enable_diff_endpoint {
+        return Err(ApiError::not_found("diff disabled"));
+    }
+    let path = q
+        .get("path")
+        .ok_or_else(|| ApiError::bad_request("missing_path", "path required"))?;
+    let to = q
+        .get("to")
+        .ok_or_else(|| ApiError::bad_request("missing_to", "to required"))?;
+    let out = crate::service::diff::unified_diff(
+        &state,
+        &user.user_id,
+        &id,
+        q.get("from").map(String::as_str),
+        to,
+        path,
+    )
+    .await?;
+    let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
+    sync::record_view(
+        &state,
+        &user,
+        &id,
+        "view_diff",
+        Some(path),
+        sync::RequestMetadata {
+            client_ip: client_ip.as_deref(),
+            user_agent: user_agent.as_deref(),
+        },
+    )
+    .await?;
+    Ok(Json(out))
+}
+
+fn request_metadata_parts(
+    client_ip: Option<Extension<ClientIp>>,
+    headers: &HeaderMap,
+) -> (Option<String>, Option<String>) {
+    let client_ip = client_ip.map(|Extension(ClientIp(ip))| ip.to_string());
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(str::to_string);
+    (client_ip, user_agent)
 }
 
 #[cfg(test)]
@@ -262,7 +379,7 @@ mod tests {
     use super::*;
     use crate::auth::{password, token};
     use crate::db::pool;
-    use crate::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
+    use crate::db::repos::{NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo};
     use crate::service::AppState;
     use crate::storage::blob::LocalFsBlobStore;
     use axum::body::Body;
@@ -304,6 +421,133 @@ mod tests {
     async fn setup() -> (Router, String) {
         let (app, _state, raw) = setup_with_state().await;
         (app, raw)
+    }
+
+    async fn create_vault(app: Router, raw: &str, name: &str) -> String {
+        let create = app
+            .oneshot(req_json(
+                "POST",
+                "/api/vaults",
+                raw,
+                serde_json::json!({"name": name}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(create.status(), StatusCode::CREATED);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(create.into_body(), 4096)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        body["id"].as_str().unwrap().to_string()
+    }
+
+    async fn push_text(
+        app: Router,
+        raw: &str,
+        vault_id: &str,
+        path: &str,
+        content: &str,
+        if_match: Option<&str>,
+    ) -> String {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(format!("/api/vaults/{vault_id}/push"))
+            .header("authorization", format!("Bearer {raw}"))
+            .header("content-type", "application/json")
+            .header(
+                "idempotency-key",
+                format!("push-{}", uuid::Uuid::new_v4().simple()),
+            );
+        if let Some(head) = if_match {
+            builder = builder.header("if-match", head);
+        }
+        let resp = app
+            .oneshot(
+                builder
+                    .body(Body::from(
+                        serde_json::json!({
+                            "device_name": "test",
+                            "changes": [{"kind":"text","path":path,"content":content}]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 4096).await.unwrap())
+                .unwrap();
+        body["new_commit"].as_str().unwrap().to_string()
+    }
+
+    async fn upload_blob_bytes(app: Router, raw: &str, vault_id: &str, bytes: Vec<u8>) -> String {
+        let hash = LocalFsBlobStore::sha256(&bytes);
+        let upload = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/vaults/{vault_id}/upload/blob"))
+                    .header("authorization", format!("Bearer {raw}"))
+                    .header("content-hash", &hash)
+                    .body(Body::from(bytes))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(upload.status(), StatusCode::CREATED);
+        hash
+    }
+
+    async fn push_blob(
+        app: Router,
+        raw: &str,
+        vault_id: &str,
+        path: &str,
+        hash: &str,
+        size: usize,
+        if_match: Option<&str>,
+    ) -> String {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(format!("/api/vaults/{vault_id}/push"))
+            .header("authorization", format!("Bearer {raw}"))
+            .header("content-type", "application/json")
+            .header(
+                "idempotency-key",
+                format!("push-{}", uuid::Uuid::new_v4().simple()),
+            );
+        if let Some(head) = if_match {
+            builder = builder.header("if-match", head);
+        }
+        let resp = app
+            .oneshot(
+                builder
+                    .body(Body::from(
+                        serde_json::json!({
+                            "device_name": "test",
+                            "changes": [{
+                                "kind":"blob",
+                                "path": path,
+                                "blob_hash": hash,
+                                "size": size,
+                                "mime": "image/png"
+                            }]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 4096).await.unwrap())
+                .unwrap();
+        body["new_commit"].as_str().unwrap().to_string()
     }
 
     fn req_json(method: &str, uri: &str, raw: &str, body: serde_json::Value) -> Request<Body> {
@@ -551,7 +795,218 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(body["changed_files"][0], "note.md");
+        assert!(body.get("changed_files").is_none());
+        assert_eq!(body["changes"][0]["path"], "note.md");
+        assert_eq!(body["changes"][0]["change_type"], "added");
+    }
+
+    #[tokio::test]
+    async fn commit_detail_returns_parent_diff_changes() {
+        let (app, raw) = setup().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        let first = push_text(app.clone(), &raw, &id, "note.md", "hello", None).await;
+        let second = push_text(
+            app.clone(),
+            &raw,
+            &id,
+            "note.md",
+            "hello\nworld\n",
+            Some(&first),
+        )
+        .await;
+
+        let detail = app
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/commits/{second}"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(detail.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(detail.into_body(), 4096)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(body.get("changed_files").is_none());
+        assert_eq!(body["parent"], first);
+        assert_eq!(body["changes"][0]["path"], "note.md");
+        assert_eq!(body["changes"][0]["change_type"], "modified");
+        assert_eq!(body["changes"][0]["binary"], false);
+    }
+
+    #[tokio::test]
+    async fn file_history_endpoint_tracks_only_requested_path() {
+        let (app, raw) = setup().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        let first = push_text(app.clone(), &raw, &id, "note.md", "v1\n", None).await;
+        let second = push_text(app.clone(), &raw, &id, "note.md", "v2\n", Some(&first)).await;
+        let _third = push_text(app.clone(), &raw, &id, "other.md", "other\n", Some(&second)).await;
+
+        let history = app
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/history?path=note.md&limit=10"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(history.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(history.into_body(), 4096)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let rows = body.as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["commit"], second);
+        assert_eq!(rows[1]["commit"], first);
+    }
+
+    #[tokio::test]
+    async fn diff_endpoint_returns_unified_patch_for_text_file() {
+        let (app, raw) = setup().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        let first = push_text(app.clone(), &raw, &id, "note.md", "hello\n", None).await;
+        let second = push_text(
+            app.clone(),
+            &raw,
+            &id,
+            "note.md",
+            "hello\nworld\n",
+            Some(&first),
+        )
+        .await;
+
+        let diff = app
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/diff?to={second}&path=note.md"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(diff.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&axum::body::to_bytes(diff.into_body(), 4096).await.unwrap())
+                .unwrap();
+        assert_eq!(body["from"], first);
+        assert_eq!(body["to"], second);
+        assert_eq!(body["path"], "note.md");
+        assert_eq!(body["binary"], false);
+        assert_eq!(body["truncated"], false);
+        assert!(body["patch"].as_str().unwrap().contains("+world"));
+    }
+
+    #[tokio::test]
+    async fn diff_endpoint_marks_blob_pointer_changes_as_binary() {
+        let (app, raw) = setup().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        let first_bytes = vec![1, 2, 3, 4];
+        let first_hash = upload_blob_bytes(app.clone(), &raw, &id, first_bytes.clone()).await;
+        let first = push_blob(
+            app.clone(),
+            &raw,
+            &id,
+            "image.png",
+            &first_hash,
+            first_bytes.len(),
+            None,
+        )
+        .await;
+        let second_bytes = vec![9, 8, 7, 6];
+        let second_hash = upload_blob_bytes(app.clone(), &raw, &id, second_bytes.clone()).await;
+        let second = push_blob(
+            app.clone(),
+            &raw,
+            &id,
+            "image.png",
+            &second_hash,
+            second_bytes.len(),
+            Some(&first),
+        )
+        .await;
+
+        let diff = app
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/diff?to={second}&path=image.png"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(diff.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&axum::body::to_bytes(diff.into_body(), 4096).await.unwrap())
+                .unwrap();
+        assert_eq!(body["binary"], true);
+        assert_eq!(body["patch"], "");
+    }
+
+    #[tokio::test]
+    async fn history_and_diff_feature_flags_return_404_when_disabled() {
+        let (app, state, raw) = setup_with_state().await;
+        state
+            .runtime_cfg_repo
+            .set_history_flags(false, false, None)
+            .await
+            .unwrap();
+        let cfg = state.runtime_cfg_repo.load().await.unwrap();
+        state.runtime_cfg.replace(cfg).await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        let head = push_text(app.clone(), &raw, &id, "note.md", "hello", None).await;
+
+        let history = app
+            .clone()
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/history?path=note.md"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(history.status(), StatusCode::NOT_FOUND);
+
+        let diff = app
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/diff?to={head}&path=note.md"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(diff.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn history_endpoint_records_view_activity() {
+        let (app, state, raw) = setup_with_state().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        let _head = push_text(app.clone(), &raw, &id, "note.md", "hello", None).await;
+
+        let history = app
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/history?path=note.md"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(history.status(), StatusCode::OK);
+
+        let row: (String, String) = sqlx::query_as(
+            "SELECT action, details FROM sync_activity WHERE vault_id = ? AND action = 'view_history'",
+        )
+        .bind(&id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(row.0, "view_history");
+        let details: serde_json::Value = serde_json::from_str(&row.1).unwrap();
+        assert_eq!(details["path"], "note.md");
     }
 
     #[tokio::test]

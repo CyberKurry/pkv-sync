@@ -1,6 +1,6 @@
 use crate::storage::text_kind::TextClassifier;
 use async_trait::async_trait;
-use git2::{ObjectType, Oid, Repository, Signature, Tree};
+use git2::{Delta, DiffFindOptions, ObjectType, Oid, Repository, Signature, Tree};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -95,6 +95,155 @@ impl Git2VaultStore {
         let entries = self.list_tree(vault_id, at).await?;
         Ok(entries.into_iter().map(|e| (e.path.clone(), e)).collect())
     }
+
+    pub async fn commit_parent(
+        &self,
+        vault_id: &str,
+        commit: &str,
+    ) -> Result<Option<String>, GitStoreError> {
+        let p = self.repo_path(vault_id);
+        let commit = commit.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Option<String>, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let oid = Oid::from_str(&commit)?;
+            let commit = repo.find_commit(oid)?;
+            if commit.parent_count() == 0 {
+                return Ok(None);
+            }
+            Ok(Some(commit.parent_id(0)?.to_string()))
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
+    pub async fn tree_diff(
+        &self,
+        vault_id: &str,
+        parent: Option<&str>,
+        commit: &str,
+    ) -> Result<Vec<crate::service::diff::CommitChange>, GitStoreError> {
+        let p = self.repo_path(vault_id);
+        let parent = parent.map(str::to_string);
+        let commit = commit.to_string();
+        tokio::task::spawn_blocking(
+            move || -> Result<Vec<crate::service::diff::CommitChange>, GitStoreError> {
+                let repo = Repository::open_bare(&p)?;
+                let commit = repo.find_commit(Oid::from_str(&commit)?)?;
+                let new_tree = commit.tree()?;
+                let old_commit = match parent {
+                    Some(parent) => Some(repo.find_commit(Oid::from_str(&parent)?)?),
+                    None => None,
+                };
+                let old_tree = old_commit
+                    .as_ref()
+                    .map(|commit| commit.tree())
+                    .transpose()?;
+                let mut diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)?;
+                let mut find = DiffFindOptions::new();
+                find.renames(true);
+                let _ = diff.find_similar(Some(&mut find));
+                let mut changes = Vec::new();
+                for delta in diff.deltas() {
+                    let status = delta.status();
+                    let (path, old_path, change_type) = match status {
+                        Delta::Added => (
+                            delta_path(delta.new_file().path())?,
+                            None,
+                            crate::service::diff::ChangeType::Added,
+                        ),
+                        Delta::Deleted => (
+                            delta_path(delta.old_file().path())?,
+                            None,
+                            crate::service::diff::ChangeType::Deleted,
+                        ),
+                        Delta::Modified | Delta::Typechange => (
+                            delta_path(delta.new_file().path())?,
+                            None,
+                            crate::service::diff::ChangeType::Modified,
+                        ),
+                        Delta::Renamed => (
+                            delta_path(delta.new_file().path())?,
+                            Some(delta_path(delta.old_file().path())?),
+                            crate::service::diff::ChangeType::Modified,
+                        ),
+                        Delta::Copied => (
+                            delta_path(delta.new_file().path())?,
+                            Some(delta_path(delta.old_file().path())?),
+                            crate::service::diff::ChangeType::Added,
+                        ),
+                        _ => continue,
+                    };
+                    let binary = is_binary_delta(
+                        &repo,
+                        old_tree.as_ref(),
+                        &new_tree,
+                        &path,
+                        old_path.as_deref(),
+                    )?;
+                    changes.push(crate::service::diff::CommitChange {
+                        path,
+                        change_type,
+                        old_path,
+                        binary,
+                    });
+                }
+                changes.sort_by(|a, b| a.path.cmp(&b.path));
+                Ok(changes)
+            },
+        )
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+}
+
+fn delta_path(path: Option<&Path>) -> Result<String, GitStoreError> {
+    Ok(path
+        .ok_or(GitStoreError::NotFound)?
+        .to_string_lossy()
+        .replace('\\', "/"))
+}
+
+fn is_binary_delta(
+    repo: &Repository,
+    old_tree: Option<&Tree<'_>>,
+    new_tree: &Tree<'_>,
+    path: &str,
+    old_path: Option<&str>,
+) -> Result<bool, GitStoreError> {
+    let classifier = TextClassifier::default();
+    let text_path = classifier.is_text_path(path)
+        || old_path
+            .map(|old_path| classifier.is_text_path(old_path))
+            .unwrap_or(false);
+    if !text_path {
+        return Ok(true);
+    }
+    if tree_path_is_pointer(repo, Some(new_tree), path)? {
+        return Ok(true);
+    }
+    if let Some(old_path) = old_path.or(Some(path)) {
+        if tree_path_is_pointer(repo, old_tree, old_path)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn tree_path_is_pointer(
+    repo: &Repository,
+    tree: Option<&Tree<'_>>,
+    path: &str,
+) -> Result<bool, GitStoreError> {
+    let Some(tree) = tree else {
+        return Ok(false);
+    };
+    let Ok(entry) = tree.get_path(Path::new(path)) else {
+        return Ok(false);
+    };
+    let blob = repo.find_blob(entry.id())?;
+    Ok(is_pointer_bytes(blob.content()).is_some()
+        || (!TextClassifier::default().is_text_path(path)
+            && is_legacy_pointer_bytes(blob.content()).is_some()))
 }
 
 fn sig() -> Result<Signature<'static>, git2::Error> {

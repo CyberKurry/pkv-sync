@@ -19,6 +19,31 @@ pub struct RequestMetadata<'a> {
     pub user_agent: Option<&'a str>,
 }
 
+pub async fn record_view(
+    state: &AppState,
+    user: &crate::auth::AuthenticatedUser,
+    vault_id: &str,
+    action: &str,
+    path: Option<&str>,
+    request_metadata: RequestMetadata<'_>,
+) -> Result<(), ApiError> {
+    let details = path.map(|path| serde_json::json!({ "path": path }).to_string());
+    state
+        .activities
+        .insert(NewActivity {
+            user_id: &user.user_id,
+            vault_id: Some(vault_id),
+            token_id: Some(user.token_id.as_str()),
+            action,
+            commit_hash: None,
+            client_ip: request_metadata.client_ip,
+            user_agent: request_metadata.user_agent,
+            details: details.as_deref(),
+        })
+        .await?;
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UploadCheckReq {
     pub blob_hashes: Vec<String>,

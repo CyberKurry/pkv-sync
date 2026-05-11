@@ -251,6 +251,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       if (renderId !== this.renderId) return;
       body.empty();
       this.renderUserCard(body, me);
+      this.renderHistorySetting(body);
       this.renderVaults(body, me.vaults);
       this.renderConflictCleanup(body);
       this.renderDevices(body, tokens);
@@ -278,6 +279,19 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     meta.createDiv({ cls: "pkv-sync-user-name", text: me.username });
     meta.createDiv({ cls: "pkv-sync-user-server", text: this.serverHost() });
     this.renderButton(card, t.logout, "ghost", () => this.logout());
+  }
+
+  private renderHistorySetting(body: HTMLElement): void {
+    const t = this.plugin.text();
+    const row = body.createDiv({ cls: "pkv-sync-checkbox-row" });
+    const label = row.createEl("label", { cls: "pkv-sync-checkbox-label" });
+    const input = label.createEl("input", { type: "checkbox" });
+    input.checked = this.plugin.settings.enableHistoryUi;
+    label.createSpan({ text: t.enableHistoryUi });
+    input.addEventListener("change", () => {
+      this.plugin.settings.enableHistoryUi = input.checked;
+      void this.plugin.saveSettings({ rebuild: false });
+    });
   }
 
   private renderVaults(body: HTMLElement, vaults: VaultSummary[]): void {

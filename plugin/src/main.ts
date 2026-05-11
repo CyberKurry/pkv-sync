@@ -1,6 +1,8 @@
-import { Notice, Platform, Plugin } from "obsidian";
+import { Notice, Platform, Plugin, TFile } from "obsidian";
 import { ApiClient } from "./api/client";
+import { HistoryApi } from "./api/history-client";
 import { SyncApi } from "./api/sync-client";
+import type { CommitSummary, ServerCapabilities } from "./api/types";
 import {
   readPluginSettings,
   readSyncIndex,
@@ -10,8 +12,9 @@ import {
 } from "./plugin-data";
 import {
   DEFAULT_SETTINGS,
+  historyUiAvailable,
   type PKVSyncSettings,
-  isLoggedIn,
+  isLoggedIn
 } from "./settings";
 import { Debouncer } from "./sync/debounce";
 import { SyncEngine } from "./sync/engine";
@@ -21,11 +24,15 @@ import {
 } from "./sync/conflict-files";
 import type { LocalIndex } from "./sync/types";
 import { ObsidianVaultAdapter, shouldSyncPath } from "./sync/vault-adapter";
+import { restoreFileToCommit } from "./sync/restore";
 import { format, strings, type Strings } from "./i18n";
+import { DiffModal } from "./ui/diff-modal";
+import { HistoryModal, shortCommit } from "./ui/history-modal";
+import { RestoreConfirmModal } from "./ui/restore-confirm";
 import { PKVSyncSettingTab } from "./ui/settings-tab";
 import { SyncStatusModal } from "./ui/sync-modal";
 import { statusText } from "./ui/status";
-import { formatUnixSeconds } from "./time";
+import { formatRelativeUnixSeconds, formatUnixSeconds } from "./time";
 import { SerializedPluginDataStore } from "./plugin-store";
 
 export default class PKVSyncPlugin extends Plugin {
@@ -36,6 +43,7 @@ export default class PKVSyncPlugin extends Plugin {
   private pushDebouncer: Debouncer | null = null;
   private pollTimer: number | null = null;
   private fallbackTimer: number | null = null;
+  private serverCapabilities: ServerCapabilities | null = null;
   private syncGeneration = 0;
   private dataStore = new SerializedPluginDataStore(
     () => this.loadData(),
@@ -58,6 +66,7 @@ export default class PKVSyncPlugin extends Plugin {
       await this.saveSettings({ rebuild: false });
     }
     this.client = this.makeClient();
+    void this.refreshServerCapabilities();
     this.statusEl = this.addStatusBarItem();
     this.updateStatus();
     this.addSettingTab(new PKVSyncSettingTab(this.app, this));
@@ -134,6 +143,25 @@ export default class PKVSyncPlugin extends Plugin {
       name: t.deleteConflictsCommand,
       callback: () => void this.deleteConflictFiles()
     });
+    this.addCommand({
+      id: "pkv-sync-show-file-history",
+      name: t.showFileHistoryCommand,
+      checkCallback: (checking) => {
+        if (!this.historyEnabled()) return false;
+        if (!checking) void this.openHistoryForActive();
+        return true;
+      }
+    });
+    this.addCommand({
+      id: "pkv-sync-show-vault-history",
+      name: t.showVaultHistoryCommand,
+      checkCallback: (checking) => {
+        if (!this.historyEnabled()) return false;
+        if (!checking) void this.openVaultHistory();
+        return true;
+      }
+    });
+    this.registerHistoryFileMenu();
     this.rebuildSyncEngine();
   }
 
@@ -162,6 +190,7 @@ export default class PKVSyncPlugin extends Plugin {
       writePluginSettings(data, this.settings)
     );
     this.client = this.makeClient();
+    void this.refreshServerCapabilities();
     this.updateStatus();
     if (options.rebuild !== false) this.rebuildSyncEngine();
   }
@@ -240,6 +269,23 @@ export default class PKVSyncPlugin extends Plugin {
     });
   }
 
+  private historyApi(): HistoryApi {
+    return new HistoryApi(this.api());
+  }
+
+  private async refreshServerCapabilities(): Promise<void> {
+    if (!this.settings.serverUrl || !this.settings.deploymentKey) {
+      this.serverCapabilities = null;
+      return;
+    }
+    try {
+      const cfg = await this.api().config();
+      this.serverCapabilities = cfg.capabilities ?? { history: true, diff: true };
+    } catch {
+      this.serverCapabilities = null;
+    }
+  }
+
   private rebuildSyncEngine(): void {
     const generation = ++this.syncGeneration;
     this.pushDebouncer?.cancel();
@@ -314,6 +360,231 @@ export default class PKVSyncPlugin extends Plugin {
     this.registerDomEvent(window, "blur", () => {
       void this.engine?.syncNow();
     });
+  }
+
+  private registerHistoryFileMenu(): void {
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file) => {
+        if (!this.historyEnabled() || !(file instanceof TFile)) return;
+        const t = this.text();
+        menu.addItem((item) => {
+          item
+            .setTitle(t.fileHistoryMenu)
+            .setIcon("history")
+            .onClick(() => void this.openHistoryFor(file));
+        });
+        if (!this.diffEnabled()) return;
+        menu.addItem((item) => {
+          item
+            .setTitle(t.diffWithPreviousMenu)
+            .setIcon("git-compare")
+            .onClick(() => void this.openDiffWithPrevious(file));
+        });
+      })
+    );
+  }
+
+  private historyEnabled(): boolean {
+    return historyUiAvailable(this.settings, this.serverCapabilities);
+  }
+
+  private diffEnabled(): boolean {
+    return this.historyEnabled() && (this.serverCapabilities?.diff ?? true);
+  }
+
+  private async openHistoryForActive(): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+    if (!(file instanceof TFile)) {
+      new Notice(this.text().historyDisabled);
+      return;
+    }
+    await this.openHistoryFor(file);
+  }
+
+  private async openHistoryFor(file: TFile): Promise<void> {
+    const t = this.text();
+    if (!this.historyEnabled()) {
+      new Notice(t.historyDisabled);
+      return;
+    }
+    new HistoryModal(this.app, {
+      api: this.historyApi(),
+      vaultId: this.settings.selectedVaultId,
+      path: file.path,
+      timezone: this.settings.timezone,
+      labels: {
+        historyTitle: t.historyTitle,
+        historyEmpty: t.historyEmpty,
+        historyRetry: t.historyRetry,
+        historyViewDiffPrevious: t.historyViewDiffPrevious,
+        historyRestoreVersion: t.historyRestoreVersion,
+        historyUnknownDevice: t.historyUnknownDevice
+      },
+      onDiffPrevious: (entry) =>
+        this.openDiffFor(
+          file.path,
+          entry.parent ?? undefined,
+          entry.commit,
+          entry.change_type !== "deleted"
+        ),
+      onRestore: (entry) =>
+        this.confirmRestore(
+          file.path,
+          entry.commit,
+          this.isBinaryPath(file.path),
+          entry.timestamp
+        )
+    }).open();
+  }
+
+  private async openVaultHistory(): Promise<void> {
+    const t = this.text();
+    if (!this.historyEnabled()) {
+      new Notice(t.historyDisabled);
+      return;
+    }
+    try {
+      const commits = await this.historyApi().commits(
+        this.settings.selectedVaultId,
+        50
+      );
+      const text = commits.length
+        ? commits.map((entry) => this.commitLine(entry)).join("\n")
+        : t.historyEmpty;
+      new SyncStatusModal(this.app, t.showVaultHistoryCommand, text).open();
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async openDiffWithPrevious(file: TFile): Promise<void> {
+    const t = this.text();
+    if (!this.diffEnabled()) {
+      new Notice(t.historyDisabled);
+      return;
+    }
+    try {
+      const [entry] = await this.historyApi().fileHistory(
+        this.settings.selectedVaultId,
+        file.path,
+        1
+      );
+      if (!entry) {
+        new Notice(t.historyEmpty);
+        return;
+      }
+      await this.openDiffFor(
+        file.path,
+        entry.parent ?? undefined,
+        entry.commit,
+        entry.change_type !== "deleted"
+      );
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async openDiffFor(
+    path: string,
+    from: string | undefined,
+    to: string,
+    allowRestoreRight = true
+  ): Promise<void> {
+    const t = this.text();
+    if (!this.diffEnabled()) {
+      new Notice(t.historyDisabled);
+      return;
+    }
+    new DiffModal(this.app, {
+      api: this.historyApi(),
+      vaultId: this.settings.selectedVaultId,
+      path,
+      from,
+      to,
+      allowRestoreRight,
+      labels: {
+        diffTitle: t.diffTitle,
+        diffBinary: t.diffBinary,
+        diffTruncated: t.diffTruncated,
+        diffRestoreLeft: t.diffRestoreLeft,
+        diffRestoreRight: t.diffRestoreRight,
+        historyRetry: t.historyRetry
+      },
+      onRestore: (commit, isBinary) => this.confirmRestore(path, commit, isBinary)
+    }).open();
+  }
+
+  private async confirmRestore(
+    path: string,
+    commit: string,
+    isBinary: boolean,
+    timestamp?: number
+  ): Promise<void> {
+    const t = this.text();
+    const hasUnsyncedLocalChanges = await this.hasUnsyncedLocalChanges(path);
+    new RestoreConfirmModal({
+      app: this.app,
+      fileName: path.split("/").pop() || path,
+      atCommitShort: shortCommit(commit),
+      atTimeRelative:
+        (timestamp && formatRelativeUnixSeconds(timestamp)) ||
+        (timestamp && formatUnixSeconds(timestamp, this.settings.timezone)) ||
+        shortCommit(commit),
+      hasUnsyncedLocalChanges,
+      labels: {
+        restoreConfirmTitle: t.restoreConfirmTitle,
+        restoreConfirmBody: t.restoreConfirmBody,
+        restoreUnsyncedWarning: t.restoreUnsyncedWarning,
+        restoreCancel: t.restoreCancel,
+        restoreConfirm: t.restoreConfirm
+      },
+      onConfirm: async () => {
+        const result = await restoreFileToCommit({
+          vault: this.app.vault,
+          api: this.historyApi(),
+          vaultId: this.settings.selectedVaultId,
+          path,
+          atCommit: commit,
+          isBinary
+        });
+        if (result.ok) {
+          new Notice(format(t.restoreSuccess, { path }));
+          this.pushDebouncer?.trigger();
+          return;
+        }
+        const reason =
+          result.reason === "deleted_at_commit"
+            ? t.restoreDeletedAtCommit
+            : result.detail ?? result.reason;
+        new Notice(format(t.restoreFailed, { reason }));
+      }
+    }).open();
+  }
+
+  private async hasUnsyncedLocalChanges(path: string): Promise<boolean> {
+    try {
+      const index = await this.loadSyncIndex();
+      const adapter = new ObsidianVaultAdapter(this.app.vault);
+      const snapshot = await adapter.snapshot(
+        path,
+        new Set(this.settings.textExtensions)
+      );
+      const lastSyncedHash = index.files[path]?.lastSyncedHash;
+      return !lastSyncedHash || snapshot.hash !== lastSyncedHash;
+    } catch {
+      return false;
+    }
+  }
+
+  private isBinaryPath(path: string): boolean {
+    const ext = path.includes(".") ? path.split(".").pop()?.toLowerCase() : "";
+    return !ext || !this.settings.textExtensions.includes(ext);
+  }
+
+  private commitLine(entry: CommitSummary): string {
+    const device = entry.author_device || this.text().historyUnknownDevice;
+    const time = formatUnixSeconds(entry.timestamp, this.settings.timezone);
+    return `${shortCommit(entry.commit)}  ${time}  ${device}  ${entry.message.split(/\r?\n/, 1)[0]}`;
   }
 
   text(): Strings {

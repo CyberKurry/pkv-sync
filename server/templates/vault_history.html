@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% block title %}{{ path }} History - {{ t.admin_title }}{% endblock %}
+{% block nav_vaults %}is-active{% endblock %}
+{% block page_title %}{{ path }} History{% endblock %}
+{% block header_actions %}
+<a class="secondary action-button" href="/admin/vaults/{{ vault.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg> Files</a>
+{% endblock %}
+{% block content %}
+<section class="panel history-panel">
+  <div class="panel-header">
+    <h2>{{ path }}</h2>
+    <span class="muted-text">{{ vault.name }} · {{ vault.owner_username }}</span>
+  </div>
+  {% if entries.is_empty() %}
+  <p class="empty-state">No history for this file yet.</p>
+  {% else %}
+  <div class="history-list">
+    {% for entry in entries %}
+    <article class="history-row">
+      <div class="history-row-main">
+        <h2>{{ entry.short_commit }}</h2>
+        <p>{{ entry.timestamp }} · {{ entry.author_device }} · {{ entry.change_type }}</p>
+        <p class="muted-text">{{ entry.message }}</p>
+      </div>
+      <div class="card-actions">
+        <a class="table-action" href="{{ entry.view_url }}">View at this commit</a>
+        <a class="table-action" href="{{ entry.diff_url }}">Diff with previous</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

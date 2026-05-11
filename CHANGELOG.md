@@ -7,6 +7,19 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- Per-file commit history endpoint `GET /api/vaults/:id/history?path=`.
+- Unified diff endpoint `GET /api/vaults/:id/diff?from=&to=&path=`.
+- Obsidian plugin file history and diff modals from the command palette and file menu.
+- Obsidian plugin single-file restore from history/diff views. Historical content is written back to the local file and pushed by the existing sync engine; no new server write endpoint is added.
+- Admin WebUI read-only vault file browser, per-file history timeline, and unified diff viewer. Admin still has no restore, revert, or rollback UI.
+- Runtime config flags `enable_history_ui` and `enable_diff_endpoint`.
+
+### Changed
+
+- BREAKING: `GET /api/vaults/:id/commits/:commit` now returns parent-diff `changes[]` instead of the full commit tree listing. This remains within the pre-1.0 API compatibility window.
+
 ## [0.1.8] - 2026-05-09
 
 ### Changed

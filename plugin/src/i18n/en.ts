@@ -74,5 +74,32 @@ export const en = {
   statusError: "error",
   defaultAndroidDevice: "Android device",
   defaultIosDevice: "iOS device",
-  defaultDesktopDevice: "Desktop"
+  defaultDesktopDevice: "Desktop",
+  enableHistoryUi: "Enable history and diff UI",
+  showFileHistoryCommand: "Show file history",
+  showVaultHistoryCommand: "Show vault history",
+  fileHistoryMenu: "PKV Sync: File history",
+  diffWithPreviousMenu: "PKV Sync: Diff with previous",
+  historyTitle: "File history",
+  historyEmpty: "No history for this file yet.",
+  historyRetry: "Retry",
+  historyViewDiffPrevious: "Diff with previous",
+  historyRestoreVersion: "Restore this version",
+  historyUnknownDevice: "Unknown device",
+  historyDisabled: "History is disabled or unavailable on this server.",
+  diffTitle: "Diff",
+  diffBinary: "Binary file. Diff preview is not available.",
+  diffTruncated: "Large diff truncated to keep the preview responsive.",
+  diffRestoreLeft: "Restore left",
+  diffRestoreRight: "Restore right",
+  restoreConfirmTitle: "Restore {fileName}?",
+  restoreConfirmBody:
+    "This will overwrite the current content with the version from {time} ({commit}).",
+  restoreUnsyncedWarning:
+    "Warning: this file has local changes that have not been synced yet. They will be lost.",
+  restoreCancel: "Cancel",
+  restoreConfirm: "Restore",
+  restoreSuccess: "Restored {path}. PKV Sync will push it as a normal change.",
+  restoreFailed: "Restore failed: {reason}",
+  restoreDeletedAtCommit: "This file did not exist at the selected commit."
 };

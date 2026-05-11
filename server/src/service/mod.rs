@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod cleanup;
+pub mod diff;
 pub mod gc;
 pub mod history;
 pub mod state;

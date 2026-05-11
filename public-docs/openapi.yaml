@@ -144,6 +144,7 @@ components:
         - registration
         - max_file_size
         - supported_text_extensions
+        - capabilities
       properties:
         server_name:
           type: string
@@ -160,6 +161,16 @@ components:
           type: array
           items:
             type: string
+        capabilities:
+          $ref: '#/components/schemas/ServerCapabilities'
+    ServerCapabilities:
+      type: object
+      required: [history, diff]
+      properties:
+        history:
+          type: boolean
+        diff:
+          type: boolean
     LoginRequest:
       type: object
       required: [username, password, device_id, device_name]
@@ -478,31 +489,80 @@ components:
             type: string
     CommitSummary:
       type: object
-      required: [commit, message, timestamp]
+      required: [commit, parent, message, timestamp, author_device]
       properties:
         commit:
           type: string
+        parent:
+          type: string
+          nullable: true
         message:
           type: string
         timestamp:
           type: integer
           format: int64
+        author_device:
+          type: string
+          nullable: true
+        change_type:
+          $ref: '#/components/schemas/ChangeType'
+    ChangeType:
+      type: string
+      enum: [added, modified, deleted]
+    CommitChange:
+      type: object
+      required: [path, change_type, old_path, binary]
+      properties:
+        path:
+          type: string
+        change_type:
+          $ref: '#/components/schemas/ChangeType'
+        old_path:
+          type: string
+          nullable: true
+        binary:
+          type: boolean
     CommitDetail:
       type: object
-      required: [commit, message, timestamp, changed_files]
+      required: [commit, parent, message, timestamp, author_device, changes]
       properties:
         commit:
           type: string
+        parent:
+          type: string
+          nullable: true
         message:
           type: string
         timestamp:
           type: integer
           format: int64
-        changed_files:
+        author_device:
+          type: string
+          nullable: true
+        changes:
           type: array
-          description: Current implementation returns paths present in the requested commit tree.
           items:
-            type: string
+            $ref: '#/components/schemas/CommitChange'
+    UnifiedDiff:
+      type: object
+      required: [from, to, path, binary, truncated, patch]
+      properties:
+        from:
+          type: string
+          nullable: true
+        to:
+          type: string
+          nullable: true
+        path:
+          type: string
+        binary:
+          type: boolean
+        truncated:
+          type: boolean
+          description: True when the patch text is truncated to the 1 MiB preview limit.
+        patch:
+          type: string
+          description: Unified diff text for text files; empty for binary files.
     CreateAdminUserRequest:
       type: object
       required: [username, password]
@@ -999,6 +1059,11 @@ paths:
             type: integer
             default: 50
             maximum: 200
+        - in: query
+          name: path
+          schema:
+            type: string
+          description: Optional vault-relative path. When present, returns the per-file history for that path.
       responses:
         '200':
           description: Commit summaries
@@ -1010,6 +1075,83 @@ paths:
                   $ref: '#/components/schemas/CommitSummary'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/vaults/{vault_id}/history:
+    get:
+      tags: [Vaults]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: List commits that changed one file
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+          description: Vault-relative path.
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+      responses:
+        '200':
+          description: Per-file commit summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CommitSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/vaults/{vault_id}/diff:
+    get:
+      tags: [Vaults]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Read a per-file unified diff
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+          description: Vault-relative path.
+        - in: query
+          name: to
+          required: true
+          schema:
+            type: string
+          description: Target commit hash.
+        - in: query
+          name: from
+          schema:
+            type: string
+          description: Optional base commit hash. Defaults to the parent of `to`.
+      responses:
+        '200':
+          description: Unified diff result. Binary files return `binary=true` and an empty patch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnifiedDiff'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/vaults/{vault_id}/commits/{commit}:
     get:
       tags: [Vaults]

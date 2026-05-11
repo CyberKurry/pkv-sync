@@ -3,6 +3,7 @@ export type PluginLanguage = "auto" | "en" | "zh-CN";
 export interface PKVSyncSettings {
   language: PluginLanguage;
   timezone: string;
+  enableHistoryUi: boolean;
   serverUrl: string;
   deploymentKey: string;
   token: string;
@@ -21,6 +22,7 @@ export interface PKVSyncSettings {
 export const DEFAULT_SETTINGS: PKVSyncSettings = {
   language: "auto",
   timezone: "Asia/Shanghai",
+  enableHistoryUi: true,
   serverUrl: "",
   deploymentKey: "",
   token: "",
@@ -42,6 +44,9 @@ export function normalizeSettings(
   const settings = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
   if (!settings.deviceId) settings.deviceId = generateDeviceId();
   if (!settings.timezone) settings.timezone = DEFAULT_SETTINGS.timezone;
+  if (typeof settings.enableHistoryUi !== "boolean") {
+    settings.enableHistoryUi = DEFAULT_SETTINGS.enableHistoryUi;
+  }
   if (
     typeof settings.lastSyncSuccessAt !== "number" ||
     !Number.isFinite(settings.lastSyncSuccessAt)
@@ -77,6 +82,18 @@ export function isLoggedIn(settings: PKVSyncSettings): boolean {
     settings.serverUrl.length > 0 &&
     settings.deploymentKey.length > 0 &&
     settings.token.length > 0
+  );
+}
+
+export function historyUiAvailable(
+  settings: PKVSyncSettings,
+  capabilities: { history?: boolean } | null | undefined
+): boolean {
+  return (
+    settings.enableHistoryUi &&
+    isLoggedIn(settings) &&
+    settings.selectedVaultId.length > 0 &&
+    (capabilities?.history ?? true)
   );
 }
 

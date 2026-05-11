@@ -48,6 +48,8 @@ The web panel includes:
 - Global device token page for listing, creating, and revoking tokens
 - Vault cards with owner, file count, size, last sync, reconcile, and delete
   actions
+- Read-only vault file browser with file previews, per-file history timelines,
+  and unified diff rendering
 - Invite creation with optional expiration, active invite listing, and deletion
   for unused invites
 - Runtime settings grouped as General, Security, Sync & Storage, and Network
@@ -111,6 +113,22 @@ they are unreferenced beyond the grace period.
 Use vault metadata reconciliation if file counts, sizes, or blob references
 look wrong after an interrupted operation.
 
+### Read-Only File History
+
+From **Vaults**, open **Browse files** on a vault card. The browser lists the
+current HEAD files with size and text/binary kind. Opening a file shows a
+read-only preview when the file is text, plus links to **History** and **Diff
+with previous**.
+
+The history page lists commits for that file and links to the file at each
+commit and the corresponding diff. The diff page renders unified diff lines with
+add/delete/hunk coloring. Binary files show metadata and do not render binary
+diff content.
+
+The Admin WebUI intentionally has no restore, revert, rollback, or write-back
+controls. Browsing files, history, and diffs records `view_commit`,
+`view_history`, and `view_diff` activity rows.
+
 ## Invites and Registration
 
 Configure registration from **Settings**:
@@ -128,7 +146,8 @@ monitoring and rate limits.
 
 ## Activity
 
-The activity log records sync operations such as push and pull, including:
+The activity log records sync and read-only browsing operations such as push,
+pull, view_commit, view_history, and view_diff, including:
 
 - user
 - vault

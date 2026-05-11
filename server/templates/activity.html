@@ -14,6 +14,9 @@
     <option value="" {% if selected_action.is_empty() %}selected{% endif %}>All Actions</option>
     <option value="push" {% if selected_action == "push" %}selected{% endif %}>Push</option>
     <option value="pull" {% if selected_action == "pull" %}selected{% endif %}>Pull</option>
+    <option value="view_commit" {% if selected_action == "view_commit" %}selected{% endif %}>View commit</option>
+    <option value="view_history" {% if selected_action == "view_history" %}selected{% endif %}>View history</option>
+    <option value="view_diff" {% if selected_action == "view_diff" %}selected{% endif %}>View diff</option>
   </select>
   <noscript><button class="secondary small">Apply</button></noscript>
 </form>

@@ -10,6 +10,13 @@ pub struct ConfigResponse {
     pub registration: &'static str,
     pub max_file_size: u64,
     pub supported_text_extensions: Vec<String>,
+    pub capabilities: ServerCapabilities,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ServerCapabilities {
+    pub history: bool,
+    pub diff: bool,
 }
 
 fn response(
@@ -17,6 +24,7 @@ fn response(
     registration: &'static str,
     max_file_size: u64,
     text_extensions: Vec<String>,
+    capabilities: ServerCapabilities,
 ) -> ConfigResponse {
     ConfigResponse {
         server_name,
@@ -24,6 +32,7 @@ fn response(
         registration,
         max_file_size,
         supported_text_extensions: text_extensions,
+        capabilities,
     }
 }
 
@@ -34,6 +43,10 @@ pub async fn config(State(state): State<AppState>) -> Json<ConfigResponse> {
         cfg.registration_mode.as_str(),
         cfg.max_file_size,
         cfg.text_extensions,
+        ServerCapabilities {
+            history: cfg.enable_history_ui,
+            diff: cfg.enable_diff_endpoint,
+        },
     ))
 }
 
@@ -45,6 +58,10 @@ pub async fn public_config(
         "disabled",
         cfg.max_file_size,
         cfg.text_extensions,
+        ServerCapabilities {
+            history: cfg.enable_history_ui,
+            diff: cfg.enable_diff_endpoint,
+        },
     ))
 }
 
@@ -98,6 +115,8 @@ mod tests {
         assert_eq!(v["registration"], "disabled");
         assert_eq!(v["max_file_size"], 100 * 1024 * 1024);
         assert!(v["supported_text_extensions"].is_array());
+        assert_eq!(v["capabilities"]["history"], true);
+        assert_eq!(v["capabilities"]["diff"], true);
     }
 
     #[tokio::test]

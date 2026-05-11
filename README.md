@@ -36,6 +36,8 @@ disks, encrypted backups, and host-level hardening for real deployments.
 | --- | --- |
 | Sync model | Multi-user, multi-vault Obsidian sync through authenticated devices |
 | Text history | Text files are committed into per-vault Git history |
+| History & diff | Obsidian can show per-file history and unified diffs; Admin WebUI can browse files, history, and diffs read-only |
+| Single-file restore | Obsidian can restore one historical file version by writing it back locally and letting normal sync push it |
 | Attachments | Binary files are stored as SHA-256 blobs and referenced from Git pointer files |
 | Conflict handling | Local/remote conflicts are preserved as generated `.conflict-*` files |
 | Conflict cleanup | Plugin settings and command palette can list or delete generated conflict files |
@@ -43,8 +45,8 @@ disks, encrypted backups, and host-level hardening for real deployments.
 | Auth | Deployment-key pre-auth plus username/password login and 90-day bearer device tokens |
 | Devices | Stable plugin device IDs; repeated login replaces the old active token for that device |
 | Registration | Runtime modes: disabled, invite-only, or open |
-| Admin | Responsive dashboard, users, user details, device tokens, vaults, invites, settings, activity, and blob GC |
-| Activity | Push and pull activity rows with user/action filters, device name, vault, IP, User-Agent, and details |
+| Admin | Responsive dashboard, users, user details, device tokens, vaults, read-only file/history/diff browsing, invites, settings, activity, and blob GC |
+| Activity | Push, pull, history, diff, and commit-view activity rows with user/action filters, device name, vault, IP, User-Agent, and details |
 | Time display | Admin and plugin timestamps use selectable IANA timezones, defaulting to `Asia/Shanghai` |
 | Human-readable values | Admin UI renders time, uptime, durations, sizes, and vault totals in readable units |
 | Reliability | Serialized plugin state reads/writes, partial pull progress, idempotent pushes, and per-vault push locks |
@@ -227,6 +229,7 @@ Plugin settings include:
   `YYYY/MM/DD HH:MM:SS` timestamp
 - Conflict file count and one-click deletion of generated conflict files
 - Device list with current device marker
+- History and diff UI toggle
 
 Command palette actions:
 
@@ -234,6 +237,8 @@ Command palette actions:
 - Refresh account info
 - Manual sync now
 - View sync status details
+- Show file history
+- Show vault history
 - List conflict files
 - Delete conflict files
 
@@ -247,6 +252,9 @@ Sync behavior:
 - Stores plugin settings and sync indexes through a serialized data store
 - Records partial pull progress if a write fails midway, reducing duplicate
   conflict files on retry
+- Restores a selected file version by reading historical content from the
+  server, writing it to the local vault, and letting the existing sync engine
+  push it as a normal change
 
 Device tokens expire after 90 days. Logging in again on the same device replaces
 the previous active token for that device instead of leaving multiple active
@@ -264,6 +272,9 @@ Open `/admin/login` on your server. The Admin WebUI includes:
 - Global device token page for listing, creating, and revoking tokens
 - Vault cards with owner, file count, size, last sync, reconcile, and delete
   actions
+- Read-only vault file browser with file preview, per-file history timeline, and
+  unified diff viewer. Admin WebUI does not provide restore, revert, or rollback
+  controls.
 - Invite creation, expiration display, and deletion for unused invites
 - Runtime settings grouped as General, Security, Sync & Storage, and Network
 - Login rate-limit settings
@@ -300,6 +311,7 @@ Runtime settings stored in SQLite and editable from Admin WebUI:
 - Login failure threshold, window, and lock duration
 - Maximum file size, default `100 MiB`
 - Supported text extensions, default `md`, `canvas`, `base`, `json`, `txt`, `css`
+- History UI and diff endpoint feature flags, both enabled by default
 
 ## HTTP API
 
@@ -327,6 +339,8 @@ Main route groups:
 - `GET /api/vaults/:id/pull`
 - `GET /api/vaults/:id/commits`
 - `GET /api/vaults/:id/commits/:commit`
+- `GET /api/vaults/:id/history?path=`
+- `GET /api/vaults/:id/diff?from=&to=&path=`
 - `GET /api/vaults/:id/files/*path`
 - Admin API routes under `/api/admin/*`
 

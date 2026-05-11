@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+{% block title %}{{ path }} Diff - {{ t.admin_title }}{% endblock %}
+{% block nav_vaults %}is-active{% endblock %}
+{% block page_title %}{{ path }} Diff{% endblock %}
+{% block header_actions %}
+<a class="secondary action-button" href="/admin/vaults/{{ vault.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg> Files</a>
+{% endblock %}
+{% block content %}
+<section class="panel diff-panel">
+  <div class="panel-header">
+    <h2>{{ path }}</h2>
+    <span class="muted-text">{% if let Some(from) = from %}{{ from }}..{% endif %}{{ to }}</span>
+  </div>
+  {% if truncated %}
+  <p class="warning">Large diff truncated to keep the page responsive.</p>
+  {% endif %}
+  {% if binary %}
+  <p class="empty-state">Binary file. Diff preview is not available.</p>
+  {% else %}
+  <pre class="diff-view">{% for line in lines %}<span class="{{ line.class }}">{{ line.text }}</span>
+{% endfor %}</pre>
+  {% endif %}
+</section>
+{% endblock %}
