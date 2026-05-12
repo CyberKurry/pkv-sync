@@ -7,6 +7,22 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-05-12
+
+### Security
+
+- Stop registration validation errors from consuming the login rate-limit budget.
+- Rotate existing Admin WebUI sessions after a successful admin login.
+- Use generic Admin WebUI login errors to reduce account-state disclosure.
+- Reject non-loopback HTTP server URLs in the Obsidian plugin while preserving local development URLs.
+- Add password, upload-check, and file-history scan limits to reduce avoidable resource abuse.
+- Remove vault storage when an administrator deletes a user through the Admin API.
+- Harden Admin WebUI language redirect targets to stay under the admin path boundary.
+
+### Fixed
+
+- Rebuilt the Obsidian plugin package with the latest sync safety changes.
+
 ## [0.1.11] - 2026-05-12
 
 ### Security
