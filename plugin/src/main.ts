@@ -556,6 +556,7 @@ export default class PKVSyncPlugin extends Plugin {
       path,
       from,
       to,
+      timezone: this.settings.timezone,
       allowRestoreRight,
       labels: {
         diffTitle: t.diffTitle,

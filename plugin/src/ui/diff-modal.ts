@@ -1,7 +1,12 @@
 import { App, Modal } from "obsidian";
 import type { HistoryApi } from "../api/history-client";
 import type { CommitSummary, UnifiedDiff } from "../api/types";
-import { parseUnifiedDiff, type DiffLineKind } from "../sync/unified-diff";
+import {
+  parseUnifiedDiffSideBySide,
+  type DiffLineKind,
+  type SideBySideDiffRow
+} from "../sync/unified-diff";
+import { DEFAULT_TIMEZONE, formatUnixSeconds } from "../time";
 import { shortCommit } from "./history-modal";
 
 export interface DiffModalLabels {
@@ -22,6 +27,7 @@ export interface DiffModalOptions {
   path: string;
   from?: string;
   to: string;
+  timezone?: string;
   allowRestoreRight?: boolean;
   labels: DiffModalLabels;
   onRestore?: (commit: string, isBinary: boolean) => void | Promise<void>;
@@ -51,6 +57,16 @@ export function diffRestoreTargets(
     ...(left ? { left } : {}),
     ...(options.allowRestoreRight === false || !right ? {} : { right })
   };
+}
+
+export function commitOptionLabel(
+  commit: string,
+  historyRows: CommitSummary[],
+  timezone = DEFAULT_TIMEZONE
+): string {
+  const timestamp = historyRows.find((row) => row.commit === commit)?.timestamp;
+  const formatted = formatUnixSeconds(timestamp, timezone);
+  return formatted ? `${shortCommit(commit)} - ${formatted}` : shortCommit(commit);
 }
 
 export class DiffModal extends Modal {
@@ -115,15 +131,53 @@ export class DiffModal extends Modal {
         text: this.options.labels.diffBinary
       });
     } else {
-      const body = this.contentEl.createEl("pre", { cls: "pkvsync-diff" });
-      for (const line of parseUnifiedDiff(diff.patch)) {
-        body.createEl("span", {
-          cls: diffLineClass(line.kind),
-          text: `${line.text}\n`
-        });
-      }
+      this.renderSideBySideDiff(diff.patch);
     }
     this.renderRestoreActions(diff);
+  }
+
+  private renderSideBySideDiff(patch: string): void {
+    const rows = parseUnifiedDiffSideBySide(patch);
+    const table = this.contentEl.createDiv({ cls: "pkvsync-diff-split" });
+    const header = table.createDiv({ cls: "pkvsync-diff-split-header" });
+    header.createDiv({ cls: "pkvsync-diff-line-no" });
+    header.createDiv({ cls: "pkvsync-diff-header-cell", text: this.options.labels.diffFrom });
+    header.createDiv({ cls: "pkvsync-diff-line-no" });
+    header.createDiv({ cls: "pkvsync-diff-header-cell", text: this.options.labels.diffTo });
+
+    for (const row of rows) {
+      this.renderSideBySideRow(table, row);
+    }
+  }
+
+  private renderSideBySideRow(parent: HTMLElement, row: SideBySideDiffRow): void {
+    if (row.kind === "meta" || row.kind === "hunk") {
+      parent.createDiv({
+        cls: `pkvsync-diff-split-row is-${row.kind} is-full`,
+        text: row.text ?? ""
+      });
+      return;
+    }
+
+    const item = parent.createDiv({
+      cls: `pkvsync-diff-split-row is-${row.kind}`
+    });
+    item.createDiv({
+      cls: "pkvsync-diff-line-no",
+      text: row.leftLine ? String(row.leftLine) : ""
+    });
+    item.createDiv({
+      cls: `pkvsync-diff-cell ${leftCellClass(row.kind)}`,
+      text: row.leftText ?? ""
+    });
+    item.createDiv({
+      cls: "pkvsync-diff-line-no",
+      text: row.rightLine ? String(row.rightLine) : ""
+    });
+    item.createDiv({
+      cls: `pkvsync-diff-cell ${rightCellClass(row.kind)}`,
+      text: row.rightText ?? ""
+    });
   }
 
   private renderRangeControls(diff: UnifiedDiff): void {
@@ -179,7 +233,11 @@ export class DiffModal extends Modal {
     for (const commit of commits) {
       select.createEl("option", {
         value: commit,
-        text: shortCommit(commit)
+        text: commitOptionLabel(
+          commit,
+          this.historyRows,
+          this.options.timezone ?? DEFAULT_TIMEZONE
+        )
       });
     }
     select.value = selected;
@@ -236,4 +294,16 @@ function uniqueCommits(commits: Array<string | null | undefined>): string[] {
     out.push(commit);
   }
   return out;
+}
+
+function leftCellClass(kind: SideBySideDiffRow["kind"]): string {
+  if (kind === "del" || kind === "modify") return "pkvsync-diff-del";
+  if (kind === "add") return "pkvsync-diff-empty";
+  return "pkvsync-diff-context";
+}
+
+function rightCellClass(kind: SideBySideDiffRow["kind"]): string {
+  if (kind === "add" || kind === "modify") return "pkvsync-diff-add";
+  if (kind === "del") return "pkvsync-diff-empty";
+  return "pkvsync-diff-context";
 }

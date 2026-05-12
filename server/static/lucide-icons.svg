@@ -61,6 +61,7 @@
   <path d="M12 6v6l4 2" /></symbol>
   <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14" />
   <path d="M12 5v14" /></symbol>
+  <symbol id="folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.8 2.9l-1.54 3.08A2 2 0 0 1 18.47 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4.9a2 2 0 0 1 1.69.93L12 6h6a2 2 0 0 1 2 2v2" /></symbol>
   <symbol id="rotate-cw" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
   <path d="M21 3v5h-5" /></symbol>
   <symbol id="trash-2" viewBox="0 0 24 24"><path d="M10 11v6" />

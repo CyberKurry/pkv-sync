@@ -472,7 +472,9 @@ async fn admin_can_browse_vault_files_history_and_diff_read_only() {
     let diff_resp = app.oneshot(diff_req).await.unwrap();
     assert_eq!(diff_resp.status(), StatusCode::OK);
     let diff_body = read_body(diff_resp).await;
-    assert!(diff_body.contains("+world"));
+    assert!(diff_body.contains("diff-split"));
+    assert!(diff_body.contains("diff-right-cell diff-add"));
+    assert!(diff_body.contains(">world<"));
     assert!(diff_body.contains("diff-add"));
     assert!(!diff_body.contains("Restore"));
     assert!(!diff_body.contains("Rollback"));

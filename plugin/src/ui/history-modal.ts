@@ -82,9 +82,7 @@ export class HistoryModal extends Modal {
   }
 
   private renderShell(): void {
-    this.contentEl.createEl("h2", {
-      text: `${this.options.labels.historyTitle}: ${this.options.path}`
-    });
+    this.renderHeader();
     this.contentEl.createDiv({ cls: "pkvsync-history-loading", text: "Loading..." });
   }
 
@@ -104,9 +102,7 @@ export class HistoryModal extends Modal {
   private renderRows(rows: CommitSummary[]): void {
     this.contentEl.empty();
     this.contentEl.addClass("pkvsync-history-modal");
-    this.contentEl.createEl("h2", {
-      text: `${this.options.labels.historyTitle}: ${this.options.path}`
-    });
+    this.renderHeader();
     if (rows.length === 0) {
       this.contentEl.createDiv({
         cls: "pkvsync-history-empty",
@@ -125,11 +121,20 @@ export class HistoryModal extends Modal {
       const item = list.createDiv({
         cls: `pkvsync-history-row is-${view.changeType}`
       });
-      const meta = item.createDiv({ cls: "pkvsync-history-meta" });
-      meta.createDiv({ cls: "pkvsync-history-title", text: view.title });
-      meta.createDiv({
-        cls: "pkvsync-history-subtitle",
-        text: `${view.device} - ${view.time} - ${shortCommit(row.commit)}`
+      const main = item.createDiv({ cls: "pkvsync-history-main" });
+      const meta = main.createDiv({ cls: "pkvsync-history-meta" });
+      const titleRow = meta.createDiv({ cls: "pkvsync-history-title-row" });
+      titleRow.createDiv({ cls: "pkvsync-history-title", text: view.title });
+      titleRow.createDiv({
+        cls: `pkvsync-history-change is-${view.changeType}`,
+        text: view.changeType
+      });
+      const details = meta.createDiv({ cls: "pkvsync-history-details" });
+      details.createSpan({ cls: "pkvsync-history-device", text: view.device });
+      details.createSpan({ cls: "pkvsync-history-time", text: view.time });
+      details.createSpan({
+        cls: "pkvsync-history-commit",
+        text: shortCommit(row.commit)
       });
 
       const actions = item.createDiv({ cls: "pkvsync-history-actions" });
@@ -158,11 +163,21 @@ export class HistoryModal extends Modal {
 
   private renderError(message: string): void {
     this.contentEl.empty();
-    this.contentEl.createEl("h2", {
-      text: `${this.options.labels.historyTitle}: ${this.options.path}`
-    });
+    this.renderHeader();
     this.contentEl.createDiv({ cls: "pkvsync-history-error", text: message });
     this.button(this.contentEl, this.options.labels.historyRetry, () => this.load());
+  }
+
+  private renderHeader(): void {
+    const header = this.contentEl.createDiv({ cls: "pkvsync-history-header" });
+    header.createEl("h2", {
+      cls: "pkvsync-history-heading",
+      text: this.options.labels.historyTitle
+    });
+    header.createDiv({
+      cls: "pkvsync-history-path",
+      text: this.options.path
+    });
   }
 
   private button(

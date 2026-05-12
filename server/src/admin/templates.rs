@@ -175,9 +175,16 @@ pub struct VaultHistoryTemplate {
 }
 
 #[derive(Debug, Clone)]
-pub struct DiffLineView {
+pub struct DiffRowView {
     pub class: String,
+    pub full_width: bool,
     pub text: String,
+    pub left_line: Option<usize>,
+    pub right_line: Option<usize>,
+    pub left_class: String,
+    pub right_class: String,
+    pub left_text: String,
+    pub right_text: String,
 }
 
 #[derive(Template)]
@@ -188,9 +195,11 @@ pub struct VaultDiffTemplate {
     pub path: String,
     pub from: Option<String>,
     pub to: String,
+    pub from_label: String,
+    pub to_label: String,
     pub binary: bool,
     pub truncated: bool,
-    pub lines: Vec<DiffLineView>,
+    pub rows: Vec<DiffRowView>,
 }
 
 #[derive(Template)]
@@ -515,6 +524,8 @@ mod tests {
         assert!(html.contains("main"));
         assert!(html.contains("admin"));
         assert!(html.contains("Reconcile"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#folder-open"));
+        assert!(include_str!("../../static/lucide-icons.svg").contains("id=\"folder-open\""));
     }
 
     #[test]

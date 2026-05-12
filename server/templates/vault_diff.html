@@ -17,8 +17,26 @@
   {% if binary %}
   <p class="empty-state">Binary file. Diff preview is not available.</p>
   {% else %}
-  <pre class="diff-view">{% for line in lines %}<span class="{{ line.class }}">{{ line.text }}</span>
-{% endfor %}</pre>
+  <div class="diff-split" role="table" aria-label="Diff">
+    <div class="diff-split-head" role="row">
+      <span class="diff-line-no" aria-hidden="true"></span>
+      <span class="diff-head-cell">{{ from_label }}</span>
+      <span class="diff-line-no" aria-hidden="true"></span>
+      <span class="diff-head-cell">{{ to_label }}</span>
+    </div>
+    {% for row in rows %}
+    {% if row.full_width %}
+    <div class="diff-split-row {{ row.class }} is-full" role="row"><span>{{ row.text }}</span></div>
+    {% else %}
+    <div class="diff-split-row {{ row.class }}" role="row">
+      <span class="diff-line-no">{% if let Some(line) = row.left_line %}{{ line }}{% endif %}</span>
+      <span class="diff-left-cell {{ row.left_class }}">{{ row.left_text }}</span>
+      <span class="diff-line-no">{% if let Some(line) = row.right_line %}{{ line }}{% endif %}</span>
+      <span class="diff-right-cell {{ row.right_class }}">{{ row.right_text }}</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
   {% endif %}
 </section>
 {% endblock %}

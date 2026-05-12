@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  commitOptionLabel,
   diffLineClass,
   diffRestoreTargets,
   diffTitle
 } from "../../src/ui/diff-modal";
+import type { CommitSummary } from "../../src/api/types";
+
+function commit(overrides: Partial<CommitSummary> = {}): CommitSummary {
+  return {
+    commit: "1234567890abcdef",
+    parent: "abcdef1234567890",
+    message: "sync: Laptop\n\nUpdated note",
+    timestamp: 0,
+    author_device: "Laptop",
+    change_type: "modified",
+    ...overrides
+  };
+}
 
 describe("diff modal helpers", () => {
   it("maps parsed diff line kinds to stable CSS classes", () => {
@@ -29,5 +43,15 @@ describe("diff modal helpers", () => {
     ).toEqual({
       left: "1234567890"
     });
+  });
+
+  it("labels commit options with the file history timestamp", () => {
+    expect(
+      commitOptionLabel(
+        "1234567890abcdef",
+        [commit()],
+        "Asia/Shanghai"
+      )
+    ).toBe("1234567 - 1970-01-01 08:00:00");
   });
 });

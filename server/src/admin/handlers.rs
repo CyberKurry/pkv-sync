@@ -1,7 +1,7 @@
 use crate::admin::session::{self, AdminSession};
 use crate::admin::templates::{
     ActivityFilterUser, ActivityTemplate, ActivityView, DashboardTemplate, DeviceTokenAdminView,
-    DevicesTemplate, DiffLineView, InviteAdminView, InvitesTemplate, LoginTemplate,
+    DevicesTemplate, DiffRowView, InviteAdminView, InvitesTemplate, LoginTemplate,
     SettingsTemplate, TokenAdminView, UserAdminView, UserDetailTemplate, UsersTemplate,
     VaultAdminView, VaultBrowserView, VaultDiffTemplate, VaultFileEntryView, VaultFileViewTemplate,
     VaultFilesTemplate, VaultHistoryEntryView, VaultHistoryTemplate, VaultsTemplate,
@@ -891,7 +891,14 @@ async fn vault_diff_page(
         &query.path,
     )
     .await?;
-    let lines = diff_lines(&diff.patch);
+    let rows = diff_rows(&diff.patch);
+    let from_label = diff
+        .from
+        .as_deref()
+        .map(short_commit)
+        .unwrap_or_else(|| "base".into());
+    let to = diff.to.unwrap_or(query.to);
+    let to_label = short_commit(&to);
     record_admin_view(
         &state,
         &session,
@@ -907,10 +914,12 @@ async fn vault_diff_page(
             vault: vault_view,
             path: diff.path,
             from: diff.from,
-            to: diff.to.unwrap_or(query.to),
+            to,
+            from_label,
+            to_label,
             binary: diff.binary,
             truncated: diff.truncated,
-            lines,
+            rows,
         }
         .render()
         .unwrap(),
@@ -1143,20 +1152,148 @@ fn history_entry_view(
     }
 }
 
-fn diff_lines(patch: &str) -> Vec<DiffLineView> {
-    patch
-        .lines()
-        .map(|line| DiffLineView {
-            class: diff_line_class(line).into(),
-            text: line.to_string(),
-        })
-        .collect()
+fn diff_rows(patch: &str) -> Vec<DiffRowView> {
+    let lines: Vec<&str> = patch.lines().collect();
+    let mut rows = Vec::new();
+    let mut left_line = 0usize;
+    let mut right_line = 0usize;
+    let mut index = 0usize;
+    while index < lines.len() {
+        let line = lines[index];
+        let class = diff_line_class(line);
+        if class == "diff-meta" || class == "diff-hunk" {
+            if class == "diff-hunk" {
+                if let Some((left, right)) = parse_hunk_header(line) {
+                    left_line = left;
+                    right_line = right;
+                }
+            }
+            rows.push(DiffRowView {
+                class: class.into(),
+                full_width: true,
+                text: line.to_string(),
+                left_line: None,
+                right_line: None,
+                left_class: String::new(),
+                right_class: String::new(),
+                left_text: String::new(),
+                right_text: String::new(),
+            });
+            index += 1;
+            continue;
+        }
+
+        if class == "diff-context" {
+            rows.push(DiffRowView {
+                class: class.into(),
+                full_width: false,
+                text: String::new(),
+                left_line: Some(left_line),
+                right_line: Some(right_line),
+                left_class: "diff-context".into(),
+                right_class: "diff-context".into(),
+                left_text: strip_diff_prefix(line).into(),
+                right_text: strip_diff_prefix(line).into(),
+            });
+            left_line += 1;
+            right_line += 1;
+            index += 1;
+            continue;
+        }
+
+        if class == "diff-del" {
+            let mut deleted = Vec::new();
+            let mut added = Vec::new();
+            let mut cursor = index;
+            while lines
+                .get(cursor)
+                .map(|line| diff_line_class(line) == "diff-del")
+                .unwrap_or(false)
+            {
+                deleted.push(lines[cursor]);
+                cursor += 1;
+            }
+            while lines
+                .get(cursor)
+                .map(|line| diff_line_class(line) == "diff-add")
+                .unwrap_or(false)
+            {
+                added.push(lines[cursor]);
+                cursor += 1;
+            }
+            for offset in 0..deleted.len().max(added.len()) {
+                match (deleted.get(offset), added.get(offset)) {
+                    (Some(deleted_line), Some(added_line)) => {
+                        rows.push(DiffRowView {
+                            class: "diff-modify".into(),
+                            full_width: false,
+                            text: String::new(),
+                            left_line: Some(left_line),
+                            right_line: Some(right_line),
+                            left_class: "diff-del".into(),
+                            right_class: "diff-add".into(),
+                            left_text: strip_diff_prefix(deleted_line).into(),
+                            right_text: strip_diff_prefix(added_line).into(),
+                        });
+                        left_line += 1;
+                        right_line += 1;
+                    }
+                    (Some(deleted_line), None) => {
+                        rows.push(DiffRowView {
+                            class: "diff-del".into(),
+                            full_width: false,
+                            text: String::new(),
+                            left_line: Some(left_line),
+                            right_line: None,
+                            left_class: "diff-del".into(),
+                            right_class: "diff-empty".into(),
+                            left_text: strip_diff_prefix(deleted_line).into(),
+                            right_text: String::new(),
+                        });
+                        left_line += 1;
+                    }
+                    (None, Some(added_line)) => {
+                        rows.push(DiffRowView {
+                            class: "diff-add".into(),
+                            full_width: false,
+                            text: String::new(),
+                            left_line: None,
+                            right_line: Some(right_line),
+                            left_class: "diff-empty".into(),
+                            right_class: "diff-add".into(),
+                            left_text: String::new(),
+                            right_text: strip_diff_prefix(added_line).into(),
+                        });
+                        right_line += 1;
+                    }
+                    (None, None) => {}
+                }
+            }
+            index = cursor;
+            continue;
+        }
+
+        rows.push(DiffRowView {
+            class: "diff-add".into(),
+            full_width: false,
+            text: String::new(),
+            left_line: None,
+            right_line: Some(right_line),
+            left_class: "diff-empty".into(),
+            right_class: "diff-add".into(),
+            left_text: String::new(),
+            right_text: strip_diff_prefix(line).into(),
+        });
+        right_line += 1;
+        index += 1;
+    }
+    rows
 }
 
 fn diff_line_class(line: &str) -> &'static str {
     if line.starts_with("@@") {
         "diff-hunk"
-    } else if line.starts_with("+++") || line.starts_with("---") {
+    } else if line.starts_with("+++") || line.starts_with("---") || line.starts_with('\\') {
         "diff-meta"
     } else if line.starts_with('+') {
         "diff-add"
@@ -1164,6 +1301,59 @@ fn diff_line_class(line: &str) -> &'static str {
         "diff-del"
     } else {
         "diff-context"
+    }
+}
+
+fn parse_hunk_header(line: &str) -> Option<(usize, usize)> {
+    let mut parts = line.split_whitespace();
+    if parts.next()? != "@@" {
+        return None;
+    }
+    let left = parts.next()?.trim_start_matches('-');
+    let right = parts.next()?.trim_start_matches('+');
+    Some((parse_hunk_start(left)?, parse_hunk_start(right)?))
+}
+
+fn parse_hunk_start(value: &str) -> Option<usize> {
+    value.split(',').next()?.parse().ok()
+}
+
+fn strip_diff_prefix(line: &str) -> &str {
+    if line.starts_with(' ') || line.starts_with('+') || line.starts_with('-') {
+        &line[1..]
+    } else {
+        line
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diff_rows_pair_deleted_and_added_lines_for_split_view() {
+        let rows = diff_rows("--- c1\n+++ c2\n@@ -1,2 +1,2 @@\n keep\n-old\n+new");
+
+        assert_eq!(rows[3].left_text, "keep");
+        assert_eq!(rows[3].right_text, "keep");
+        assert_eq!(rows[4].class, "diff-modify");
+        assert_eq!(rows[4].left_line, Some(2));
+        assert_eq!(rows[4].right_line, Some(2));
+        assert_eq!(rows[4].left_text, "old");
+        assert_eq!(rows[4].right_text, "new");
+    }
+
+    #[test]
+    fn diff_rows_pair_grouped_deleted_and_added_blocks() {
+        let rows =
+            diff_rows("@@ -1,4 +1,4 @@\n-old title\n-old subtitle\n+new title\n+new subtitle");
+
+        assert_eq!(rows[1].class, "diff-modify");
+        assert_eq!(rows[1].left_text, "old title");
+        assert_eq!(rows[1].right_text, "new title");
+        assert_eq!(rows[2].class, "diff-modify");
+        assert_eq!(rows[2].left_text, "old subtitle");
+        assert_eq!(rows[2].right_text, "new subtitle");
     }
 }
 
