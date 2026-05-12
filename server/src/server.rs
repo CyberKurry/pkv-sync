@@ -56,6 +56,7 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
         .layer(axum::middleware::from_fn(ua_filter::middleware));
     let admin_cookie_policy = admin::handlers::AdminCookiePolicy {
         secure: cfg.server.public_host.is_some(),
+        public_host: cfg.server.public_host.clone(),
     };
     let admin_routes = admin::handlers::router()
         .layer(tower_cookies::CookieManagerLayer::new())
@@ -216,6 +217,19 @@ pub async fn run_with_listener_and_state(
             );
         }
     });
+    let cleanup_limiter = limiter.clone();
+    let limiter_cleanup_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5 * 60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            let removed = cleanup_limiter.prune_stale();
+            if removed > 0 {
+                tracing::debug!(removed, "pruned stale login limiter entries");
+            }
+        }
+    });
 
     let app = build_app(state, &cfg, limiter);
     axum::serve(
@@ -226,6 +240,7 @@ pub async fn run_with_listener_and_state(
     .await
     .map_err(|e| crate::Error::Internal(format!("server error: {e}")))?;
     cleanup_handle.abort();
+    limiter_cleanup_handle.abort();
     Ok(())
 }
 

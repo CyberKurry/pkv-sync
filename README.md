@@ -84,7 +84,7 @@ Docker images are published to GHCR:
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.1.9
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.1.10
 ```
 
 Release Docker images are multi-arch for `linux/amd64` and `linux/arm64`.

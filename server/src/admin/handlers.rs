@@ -43,9 +43,10 @@ const URL_PATH: &AsciiSet = &CONTROLS
     .add(b'}');
 const URL_QUERY: &AsciiSet = &URL_PATH.add(b'&').add(b'=').add(b'+');
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct AdminCookiePolicy {
     pub secure: bool,
+    pub public_host: Option<String>,
 }
 
 pub fn router() -> Router<AppState> {

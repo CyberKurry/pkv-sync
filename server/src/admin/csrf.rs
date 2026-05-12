@@ -18,7 +18,7 @@ fn requires_check(req: &Request) -> bool {
 }
 
 fn same_origin(req: &Request) -> bool {
-    let Some(expected) = expected_origin(req) else {
+    let Some(expected) = expected_origins(req) else {
         return false;
     };
     if let Some(origin) = req
@@ -26,29 +26,56 @@ fn same_origin(req: &Request) -> bool {
         .get(header::ORIGIN)
         .and_then(|h| h.to_str().ok())
     {
-        return origin == expected;
+        return expected.iter().any(|value| origin == value);
     }
     req.headers()
         .get(header::REFERER)
         .and_then(|h| h.to_str().ok())
-        .is_some_and(|referer| referer == expected || referer.starts_with(&format!("{expected}/")))
+        .is_some_and(|referer| {
+            expected
+                .iter()
+                .any(|value| referer == value || referer.starts_with(&format!("{value}/")))
+        })
 }
 
-fn expected_origin(req: &Request) -> Option<String> {
-    let host = req
-        .headers()
-        .get(header::HOST)
-        .and_then(|h| h.to_str().ok())
+fn expected_origins(req: &Request) -> Option<Vec<String>> {
+    let policy = req
+        .extensions()
+        .get::<crate::admin::handlers::AdminCookiePolicy>();
+    let host = policy
+        .and_then(|p| p.public_host.as_deref())
+        .or_else(|| {
+            req.headers()
+                .get(header::HOST)
+                .and_then(|h| h.to_str().ok())
+        })
         .or_else(|| req.uri().authority().map(|a| a.as_str()))?;
-    let proto = req
-        .headers()
+    let proto = trusted_forwarded_proto(req).unwrap_or(if policy.is_some_and(|p| p.secure) {
+        "https"
+    } else {
+        "http"
+    });
+    Some(vec![format!("{proto}://{host}")])
+}
+
+fn trusted_forwarded_proto(req: &Request) -> Option<&'static str> {
+    if !req
+        .extensions()
+        .get::<crate::middleware::real_ip::ForwardedFromTrustedProxy>()
+        .is_some_and(|trusted| trusted.0)
+    {
+        return None;
+    }
+    req.headers()
         .get("x-forwarded-proto")
         .and_then(|h| h.to_str().ok())
         .and_then(|v| v.split(',').next())
         .map(str::trim)
-        .filter(|v| matches!(*v, "http" | "https"))
-        .unwrap_or("http");
-    Some(format!("{proto}://{host}"))
+        .and_then(|v| match v {
+            "http" => Some("http"),
+            "https" => Some("https"),
+            _ => None,
+        })
 }
 
 #[cfg(test)]
@@ -68,6 +95,27 @@ mod tests {
             builder = builder.header(header::REFERER, referer);
         }
         builder.body(Body::empty()).unwrap()
+    }
+
+    fn req_with_forwarded_proto(origin: &str, proto: &str) -> Request {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/admin/gc")
+            .header(header::HOST, "example.test")
+            .header(header::ORIGIN, origin)
+            .header("x-forwarded-proto", proto)
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    fn req_with_host(host: &str, origin: &str) -> Request {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/admin/gc")
+            .header(header::HOST, host)
+            .header(header::ORIGIN, origin)
+            .body(Body::empty())
+            .unwrap()
     }
 
     #[test]
@@ -100,5 +148,40 @@ mod tests {
             Some("http://attacker.test"),
             None
         )));
+    }
+
+    #[test]
+    fn rejects_untrusted_forwarded_proto_spoof() {
+        assert!(!same_origin(&req_with_forwarded_proto(
+            "https://example.test",
+            "https"
+        )));
+    }
+
+    #[test]
+    fn accepts_forwarded_proto_from_trusted_proxy() {
+        let mut req = req_with_forwarded_proto("https://example.test", "https");
+        req.extensions_mut()
+            .insert(crate::middleware::real_ip::ForwardedFromTrustedProxy(true));
+        assert!(same_origin(&req));
+    }
+
+    #[test]
+    fn public_host_policy_overrides_request_host() {
+        let mut req = req_with_host("attacker.test", "https://attacker.test");
+        req.extensions_mut()
+            .insert(crate::admin::handlers::AdminCookiePolicy {
+                secure: true,
+                public_host: Some("example.test".into()),
+            });
+        assert!(!same_origin(&req));
+
+        let mut req = req_with_host("attacker.test", "https://example.test");
+        req.extensions_mut()
+            .insert(crate::admin::handlers::AdminCookiePolicy {
+                secure: true,
+                public_host: Some("example.test".into()),
+            });
+        assert!(same_origin(&req));
     }
 }

@@ -45,13 +45,18 @@ impl LoginRateLimiter {
     }
 
     pub fn check(&self, ip: IpAddr) -> Result<(), Duration> {
+        let now = Instant::now();
+        let config = *self.config.read().expect("login limiter lock poisoned");
+        let mut stale = false;
         if let Some(e) = self.inner.get(&ip) {
-            if let Some(until) = e.locked_until {
-                let now = Instant::now();
-                if until > now {
-                    return Err(until - now);
-                }
+            if entry_is_stale(&e, now, config) {
+                stale = true;
+            } else if let Some(until) = e.locked_until {
+                return Err(until - now);
             }
+        }
+        if stale {
+            self.inner.remove(&ip);
         }
         Ok(())
     }
@@ -78,6 +83,28 @@ impl LoginRateLimiter {
     pub fn record_success(&self, ip: IpAddr) {
         self.inner.remove(&ip);
     }
+
+    pub fn prune_stale(&self) -> usize {
+        let now = Instant::now();
+        let config = *self.config.read().expect("login limiter lock poisoned");
+        let stale: Vec<IpAddr> = self
+            .inner
+            .iter()
+            .filter_map(|entry| entry_is_stale(entry.value(), now, config).then_some(*entry.key()))
+            .collect();
+        let removed = stale.len();
+        for ip in stale {
+            self.inner.remove(&ip);
+        }
+        removed
+    }
+}
+
+fn entry_is_stale(entry: &Entry, now: Instant, config: Config) -> bool {
+    if let Some(until) = entry.locked_until {
+        return until <= now;
+    }
+    now.duration_since(entry.first_failure) > config.window
 }
 
 #[cfg(test)]
@@ -126,6 +153,17 @@ mod tests {
         assert!(l.check(ip()).is_err());
         std::thread::sleep(Duration::from_millis(80));
         assert!(l.check(ip()).is_ok());
+    }
+
+    #[test]
+    fn check_prunes_expired_lock_entry() {
+        let l = LoginRateLimiter::new(2, Duration::from_secs(60), Duration::from_millis(50));
+        l.record_failure(ip());
+        l.record_failure(ip());
+        std::thread::sleep(Duration::from_millis(80));
+
+        assert!(l.check(ip()).is_ok());
+        assert_eq!(l.inner.len(), 0);
     }
 
     #[test]

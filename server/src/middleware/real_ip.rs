@@ -9,6 +9,9 @@ use std::sync::Arc;
 #[derive(Clone, Debug)]
 pub struct ClientIp(pub IpAddr);
 
+#[derive(Clone, Debug)]
+pub struct ForwardedFromTrustedProxy(pub bool);
+
 #[derive(Clone)]
 pub struct TrustedProxies(pub Arc<Vec<IpNet>>);
 
@@ -41,6 +44,8 @@ pub async fn middleware(
         socket_ip
     };
     req.extensions_mut().insert(ClientIp(client_ip));
+    req.extensions_mut()
+        .insert(ForwardedFromTrustedProxy(trusted.contains(socket_ip)));
     next.run(req).await
 }
 

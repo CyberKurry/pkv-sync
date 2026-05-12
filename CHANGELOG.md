@@ -7,6 +7,14 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-05-12
+
+### Security
+
+- Harden Obsidian plugin sync paths so remote pull data cannot write `.obsidian`, `.trash`, `.git`, absolute paths, drive-letter paths, or traversal paths into a vault.
+- Harden Admin WebUI CSRF origin checks by using the configured public host when present and only trusting `X-Forwarded-Proto` from configured trusted proxies.
+- Prune stale login rate-limit entries so expired failures and locks do not accumulate indefinitely.
+
 ## [0.1.9] - 2026-05-11
 
 ### Added

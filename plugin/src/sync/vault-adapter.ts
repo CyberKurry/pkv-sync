@@ -23,44 +23,49 @@ export class ObsidianVaultAdapter implements VaultAdapter {
   }
 
   async readText(path: string): Promise<string> {
-    return this.vault.read(this.requireFile(path));
+    return this.vault.read(this.requireFile(requireSafeSyncPath(path)));
   }
 
   async readBinary(path: string): Promise<ArrayBuffer> {
-    return this.vault.readBinary(this.requireFile(path));
+    return this.vault.readBinary(this.requireFile(requireSafeSyncPath(path)));
   }
 
   async writeText(path: string, content: string): Promise<void> {
-    const file = this.vault.getAbstractFileByPath(path);
+    const safePath = requireSafeSyncPath(path);
+    const file = this.vault.getAbstractFileByPath(safePath);
     if (file instanceof TFile) await this.vault.modify(file, content);
     else {
-      await this.ensureParentFolders(path);
-      await this.vault.create(path, content);
+      await this.ensureParentFolders(safePath);
+      await this.vault.create(safePath, content);
     }
   }
 
   async writeBinary(path: string, bytes: ArrayBuffer): Promise<void> {
-    const file = this.vault.getAbstractFileByPath(path);
+    const safePath = requireSafeSyncPath(path);
+    const file = this.vault.getAbstractFileByPath(safePath);
     if (file instanceof TFile) await this.vault.modifyBinary(file, bytes);
     else {
-      await this.ensureParentFolders(path);
-      await this.vault.createBinary(path, bytes);
+      await this.ensureParentFolders(safePath);
+      await this.vault.createBinary(safePath, bytes);
     }
   }
 
   async delete(path: string): Promise<void> {
-    const file = this.vault.getAbstractFileByPath(path);
+    const safePath = requireSafeSyncPath(path);
+    const file = this.vault.getAbstractFileByPath(safePath);
     if (file) await this.vault.delete(file);
   }
 
   exists(path: string): boolean {
-    return this.vault.getAbstractFileByPath(path) instanceof TFile;
+    const safePath = normalizeSyncPath(path);
+    return safePath !== null && this.vault.getAbstractFileByPath(safePath) instanceof TFile;
   }
 
   async snapshot(
     path: string,
     textExtensions: Set<string>
   ): Promise<LocalFileSnapshot> {
+    path = requireSafeSyncPath(path);
     const ext = path.includes(".") ? path.split(".").pop()!.toLowerCase() : "";
     if (textExtensions.has(ext)) {
       const content = await this.readText(path);
@@ -113,8 +118,57 @@ export class ObsidianVaultAdapter implements VaultAdapter {
 }
 
 export function shouldSyncPath(path: string): boolean {
-  if (path.startsWith(".obsidian/")) return false;
-  if (path.startsWith(".trash/")) return false;
-  if (isConflictPath(path)) return false;
+  return normalizeSyncPath(path) !== null;
+}
+
+export function normalizeSyncPath(path: string): string | null {
+  const normalized = normalizeSeparators(path);
+  if (!isSafePathShape(normalized)) return null;
+  if (hasUnsafeDecodedShape(normalized)) return null;
+  if (hasProtectedRoot(normalized)) return null;
+  if (isConflictPath(normalized)) return null;
+  return normalized;
+}
+
+function requireSafeSyncPath(path: string): string {
+  const normalized = normalizeSyncPath(path);
+  if (normalized === null) throw new Error(`Unsafe sync path: ${path}`);
+  return normalized;
+}
+
+function normalizeSeparators(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function isSafePathShape(path: string): boolean {
+  if (path.length === 0) return false;
+  if (path.includes("\0")) return false;
+  if (path.startsWith("/") || path.startsWith("//")) return false;
+  if (/^[A-Za-z]:\//.test(path)) return false;
+  const parts = path.split("/");
+  if (parts.some((part) => part === "" || part === "." || part === "..")) {
+    return false;
+  }
   return true;
+}
+
+function hasUnsafeDecodedShape(path: string): boolean {
+  let current = path;
+  for (let i = 0; i < 4; i++) {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(current);
+    } catch {
+      return false;
+    }
+    if (decoded === current) return false;
+    current = normalizeSeparators(decoded);
+    if (!isSafePathShape(current) || hasProtectedRoot(current)) return true;
+  }
+  return false;
+}
+
+function hasProtectedRoot(path: string): boolean {
+  const firstSegment = path.split("/", 1)[0].toLowerCase();
+  return firstSegment === ".obsidian" || firstSegment === ".trash" || firstSegment === ".git";
 }

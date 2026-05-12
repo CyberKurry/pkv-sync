@@ -83,6 +83,18 @@ describe("ObsidianVaultAdapter", () => {
     expect(vault.createdFolders).toEqual(["folder", "folder/deeper"]);
     expect(vault.createdFiles.get("folder/deeper/remote.md")).toBe("remote");
   });
+
+  it("rejects unsafe remote write paths before touching the vault", async () => {
+    const vault = new FakeVault();
+    const adapter = new ObsidianVaultAdapter(vault as any);
+
+    await expect(
+      adapter.writeText("folder/../.obsidian/plugins/evil/main.js", "evil")
+    ).rejects.toThrow(/Unsafe sync path/);
+
+    expect(vault.createdFolders).toEqual([]);
+    expect(vault.createdFiles.size).toBe(0);
+  });
 });
 
 describe("shouldSyncPath", () => {
@@ -92,6 +104,18 @@ describe("shouldSyncPath", () => {
 
   it("excludes .trash paths", () => {
     expect(shouldSyncPath(".trash/deleted.md")).toBe(false);
+  });
+
+  it("excludes git internals and unsafe traversal paths", () => {
+    expect(shouldSyncPath(".git/config")).toBe(false);
+    expect(shouldSyncPath("../outside.md")).toBe(false);
+    expect(shouldSyncPath("folder/../outside.md")).toBe(false);
+    expect(shouldSyncPath("/absolute.md")).toBe(false);
+    expect(shouldSyncPath("C:/vault/note.md")).toBe(false);
+    expect(shouldSyncPath("folder\\..\\outside.md")).toBe(false);
+    expect(shouldSyncPath("%2e%2e/outside.md")).toBe(false);
+    expect(shouldSyncPath("%252e%252e/outside.md")).toBe(false);
+    expect(shouldSyncPath("%2eobsidian/plugins/evil/main.js")).toBe(false);
   });
 
   it("excludes conflict files", () => {
