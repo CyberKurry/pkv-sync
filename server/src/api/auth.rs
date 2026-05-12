@@ -53,10 +53,11 @@ async fn register_handler(
     }
     match register(&state, req).await {
         Ok(resp) => Ok((axum::http::StatusCode::CREATED, Json(resp))),
-        Err(e) => {
+        Err(e) if e.status == axum::http::StatusCode::UNAUTHORIZED => {
             limiter.record_failure(ip);
             Err(e)
         }
+        Err(e) => Err(e),
     }
 }
 
@@ -145,7 +146,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn register_failures_are_rate_limited() {
+    async fn register_validation_failures_do_not_consume_login_limiter() {
         let app = make_app(RegistrationMode::Open).await;
         for _ in 0..10 {
             let resp = app
@@ -171,7 +172,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(resp.status(), StatusCode::CREATED);
     }
 
     #[tokio::test]

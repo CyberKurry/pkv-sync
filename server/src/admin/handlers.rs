@@ -153,10 +153,21 @@ async fn set_language(
     }
     let next = params
         .get("next")
-        .filter(|value| value.starts_with("/admin") && !value.starts_with("//"))
+        .filter(|value| is_safe_admin_next(value))
         .map(String::as_str)
         .unwrap_or("/admin");
     Redirect::to(next)
+}
+
+fn is_safe_admin_next(value: &str) -> bool {
+    if value.starts_with("//") || value.contains('\\') {
+        return false;
+    }
+    match value.strip_prefix("/admin") {
+        Some("") => true,
+        Some(rest) => rest.starts_with('/') || rest.starts_with('?') || rest.starts_with('#'),
+        None => false,
+    }
 }
 
 #[derive(Deserialize)]
@@ -194,12 +205,8 @@ async fn login_post(
             limiter.record_failure(ip);
             return Ok(login_error(
                 t,
-                if e.status == StatusCode::FORBIDDEN {
-                    "Account disabled"
-                } else {
-                    "Invalid credentials"
-                },
-                e.status,
+                "Invalid credentials",
+                StatusCode::UNAUTHORIZED,
             ));
         }
         Err(e) => return Err(e),
@@ -208,8 +215,8 @@ async fn login_post(
         limiter.record_failure(ip);
         return Ok(login_error(
             t,
-            "Admin access required",
-            StatusCode::FORBIDDEN,
+            "Invalid credentials",
+            StatusCode::UNAUTHORIZED,
         ));
     }
 
@@ -217,6 +224,7 @@ async fn login_post(
         .users
         .touch_last_login(&user.id, chrono::Utc::now().timestamp())
         .await?;
+    session::delete_sessions_for_user(&state, &user.id).await?;
     let session_id = session::create_session(&state, &user.id).await?;
     cookies.add(session::make_cookie(session_id, cookie_policy.secure));
     limiter.record_success(ip);
@@ -364,7 +372,7 @@ async fn create_user_form(
         return Err(ApiError::conflict("username_taken", "username exists"));
     }
     let password_hash = password::hash(&form.password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } => {
+        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
             ApiError::bad_request("weak_password", e.to_string())
         }
         _ => ApiError::internal(e.to_string()),
@@ -488,7 +496,7 @@ async fn reset_password_form(
     Form(form): Form<PasswordForm>,
 ) -> Result<Redirect, ApiError> {
     let password_hash = password::hash(&form.password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } => {
+        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
             ApiError::bad_request("weak_password", e.to_string())
         }
         _ => ApiError::internal(e.to_string()),
@@ -1367,6 +1375,139 @@ mod tests {
         assert_eq!(rows[2].class, "diff-modify");
         assert_eq!(rows[2].left_text, "old subtitle");
         assert_eq!(rows[2].right_text, "new subtitle");
+    }
+
+    async fn admin_login_test_app(
+        active: bool,
+    ) -> (axum::Router, AppState, crate::db::repos::User) {
+        use crate::auth::LoginRateLimiter;
+        use crate::db::pool;
+        use crate::db::repos::{NewUser, UserRepo};
+        use crate::middleware::real_ip::ClientIp;
+        use axum::extract::Extension;
+        use std::time::Duration;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into())
+            .await
+            .unwrap();
+        let user = state
+            .users
+            .create(NewUser {
+                username: "admin".into(),
+                password_hash: crate::auth::password::hash("passw0rd!!").unwrap(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        state.users.set_active(&user.id, active).await.unwrap();
+        let app = router()
+            .with_state(state.clone())
+            .layer(tower_cookies::CookieManagerLayer::new())
+            .layer(Extension(AdminCookiePolicy {
+                secure: false,
+                public_host: None,
+            }))
+            .layer(Extension(LoginRateLimiter::new(
+                10,
+                Duration::from_secs(60),
+                Duration::from_secs(60),
+            )))
+            .layer(Extension(ClientIp("127.0.0.1".parse().unwrap())));
+        (app, state, user)
+    }
+
+    fn login_request() -> axum::http::Request<axum::body::Body> {
+        axum::http::Request::builder()
+            .method("POST")
+            .uri("/admin/login")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(axum::body::Body::from(
+                "username=admin&password=passw0rd%21%21",
+            ))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn admin_login_rotates_existing_sessions_for_user() {
+        use crate::admin::session;
+        use tower::ServiceExt;
+
+        let (app, state, user) = admin_login_test_app(true).await;
+        let old_session = session::create_session(&state, &user.id).await.unwrap();
+
+        let resp = app.oneshot(login_request()).await.unwrap();
+
+        assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
+        let (count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM admin_sessions WHERE user_id = ?")
+                .bind(&user.id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        let (old_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM admin_sessions WHERE id = ?")
+                .bind(old_session)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(old_count, 0);
+    }
+
+    #[tokio::test]
+    async fn inactive_admin_login_uses_generic_error() {
+        use axum::body::to_bytes;
+        use tower::ServiceExt;
+
+        let (app, _state, _user) = admin_login_test_app(false).await;
+
+        let resp = app.oneshot(login_request()).await.unwrap();
+
+        assert_eq!(resp.status(), axum::http::StatusCode::UNAUTHORIZED);
+        let body =
+            String::from_utf8(to_bytes(resp.into_body(), 16384).await.unwrap().to_vec()).unwrap();
+        assert!(body.contains("Invalid credentials"));
+        assert!(!body.contains("Account disabled"));
+    }
+
+    #[tokio::test]
+    async fn language_redirect_rejects_admin_prefix_without_boundary() {
+        use crate::db::pool;
+        use crate::service::AppState;
+        use axum::body::Body;
+        use axum::extract::Extension;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into())
+            .await
+            .unwrap();
+        let app = router()
+            .with_state(state)
+            .layer(tower_cookies::CookieManagerLayer::new())
+            .layer(Extension(AdminCookiePolicy {
+                secure: false,
+                public_host: None,
+            }));
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/admin/language/en?next=/admin@attacker.test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.headers()["location"].to_str().unwrap(), "/admin");
     }
 }
 

@@ -7,6 +7,11 @@ use git2::{Oid, Repository};
 use serde::Serialize;
 use std::path::Path;
 
+const MAX_FILE_HISTORY_LIMIT: usize = 200;
+const MIN_FILE_HISTORY_COMMITS_INSPECTED: usize = 1_000;
+const MAX_FILE_HISTORY_COMMITS_INSPECTED: usize = 10_000;
+const FILE_HISTORY_SCAN_MULTIPLIER: usize = 100;
+
 #[derive(Debug, Serialize)]
 pub struct CommitSummary {
     pub commit: String,
@@ -109,58 +114,81 @@ pub async fn file_history(
     let file_path = path::normalize(file_path)
         .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
     let root = state.default_vault_root().join(vault_id);
-    let limit = limit.min(200);
+    let limit = limit.min(MAX_FILE_HISTORY_LIMIT);
+    let scan_budget = file_history_scan_budget(limit);
     tokio::task::spawn_blocking(move || -> Result<Vec<CommitSummary>, ApiError> {
-        let repo = Repository::open_bare(root).map_err(|e| ApiError::internal(e.to_string()))?;
-        let mut walk = repo
-            .revwalk()
-            .map_err(|e| ApiError::internal(e.to_string()))?;
-        walk.push_head()
-            .map_err(|e| ApiError::internal(e.to_string()))?;
-        let mut out = Vec::new();
-        for oid in walk {
-            let oid = oid.map_err(|e| ApiError::internal(e.to_string()))?;
-            let commit = repo
-                .find_commit(oid)
-                .map_err(|e| ApiError::internal(e.to_string()))?;
-            let tree = commit
-                .tree()
-                .map_err(|e| ApiError::internal(e.to_string()))?;
-            let current = tree.get_path(Path::new(&file_path)).ok().map(|e| e.id());
-            let parent = if commit.parent_count() > 0 {
-                let parent = commit
-                    .parent(0)
-                    .map_err(|e| ApiError::internal(e.to_string()))?;
-                let parent_tree = parent
-                    .tree()
-                    .map_err(|e| ApiError::internal(e.to_string()))?;
-                parent_tree
-                    .get_path(Path::new(&file_path))
-                    .ok()
-                    .map(|e| e.id())
-            } else {
-                None
-            };
-            if current == parent {
-                continue;
-            }
-            let change_type = match (parent, current) {
-                (None, Some(_)) => Some(ChangeType::Added),
-                (Some(_), Some(_)) => Some(ChangeType::Modified),
-                (Some(_), None) => Some(ChangeType::Deleted),
-                (None, None) => None,
-            };
-            if let Some(change_type) = change_type {
-                out.push(summary_from_commit(&commit, Some(change_type))?);
-                if out.len() >= limit {
-                    break;
-                }
-            }
-        }
-        Ok(out)
+        file_history_from_repo(&root, &file_path, limit, scan_budget)
     })
     .await
     .map_err(|_| ApiError::internal("blocking task panicked"))?
+}
+
+fn file_history_scan_budget(limit: usize) -> usize {
+    if limit == 0 {
+        return 0;
+    }
+    limit.saturating_mul(FILE_HISTORY_SCAN_MULTIPLIER).clamp(
+        MIN_FILE_HISTORY_COMMITS_INSPECTED,
+        MAX_FILE_HISTORY_COMMITS_INSPECTED,
+    )
+}
+
+fn file_history_from_repo(
+    root: &Path,
+    file_path: &str,
+    limit: usize,
+    scan_budget: usize,
+) -> Result<Vec<CommitSummary>, ApiError> {
+    if limit == 0 || scan_budget == 0 {
+        return Ok(Vec::new());
+    }
+    let repo = Repository::open_bare(root).map_err(|e| ApiError::internal(e.to_string()))?;
+    let mut walk = repo
+        .revwalk()
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    walk.push_head()
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let mut out = Vec::new();
+    for oid in walk.take(scan_budget) {
+        let oid = oid.map_err(|e| ApiError::internal(e.to_string()))?;
+        let commit = repo
+            .find_commit(oid)
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+        let tree = commit
+            .tree()
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+        let current = tree.get_path(Path::new(file_path)).ok().map(|e| e.id());
+        let parent = if commit.parent_count() > 0 {
+            let parent = commit
+                .parent(0)
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            let parent_tree = parent
+                .tree()
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            parent_tree
+                .get_path(Path::new(file_path))
+                .ok()
+                .map(|e| e.id())
+        } else {
+            None
+        };
+        if current == parent {
+            continue;
+        }
+        let change_type = match (parent, current) {
+            (None, Some(_)) => Some(ChangeType::Added),
+            (Some(_), Some(_)) => Some(ChangeType::Modified),
+            (Some(_), None) => Some(ChangeType::Deleted),
+            (None, None) => None,
+        };
+        if let Some(change_type) = change_type {
+            out.push(summary_from_commit(&commit, Some(change_type))?);
+            if out.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn summary_from_commit(
@@ -273,5 +301,51 @@ mod tests {
         assert_eq!(detail.changes.len(), 1);
         assert_eq!(detail.changes[0].path, "note.md");
         assert_eq!(detail.changes[0].change_type, ChangeType::Added);
+    }
+
+    #[tokio::test]
+    async fn file_history_stops_after_scan_budget() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let first = sync::push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            sync::PushReq {
+                device_name: Some("test".into()),
+                changes: vec![sync::PushChange::Text {
+                    path: "target.md".into(),
+                    content: "v1".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let mut head = first.new_commit;
+        for index in 0..3 {
+            let pushed = sync::push(
+                &state,
+                &user,
+                &vid,
+                Some(&head),
+                None,
+                sync::PushReq {
+                    device_name: Some("test".into()),
+                    changes: vec![sync::PushChange::Text {
+                        path: "other.md".into(),
+                        content: format!("v{index}"),
+                    }],
+                },
+            )
+            .await
+            .unwrap();
+            head = pushed.new_commit;
+        }
+
+        let root = state.default_vault_root().join(&vid);
+        let rows = file_history_from_repo(&root, "target.md", 1, 2).unwrap();
+
+        assert!(rows.is_empty());
     }
 }

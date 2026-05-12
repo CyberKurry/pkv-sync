@@ -49,6 +49,14 @@ pub async fn delete_session(state: &AppState, id: &str) -> Result<(), sqlx::Erro
     Ok(())
 }
 
+pub async fn delete_sessions_for_user(state: &AppState, user_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM admin_sessions WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&state.pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn cleanup_expired_sessions(state: &AppState) -> Result<u64, sqlx::Error> {
     let now = chrono::Utc::now().timestamp();
     let deleted = sqlx::query("DELETE FROM admin_sessions WHERE expires_at < ?")

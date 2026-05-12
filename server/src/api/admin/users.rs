@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::auth::{password, AdminUser};
-use crate::db::repos::{NewUser, TokenRepo, TokenRow, User, UserRepo};
+use crate::db::repos::{NewUser, TokenRepo, TokenRow, User, UserRepo, VaultRepo};
 use crate::service::auth::validate_username;
 use crate::service::AppState;
 use axum::extract::{Path, State};
@@ -75,7 +75,7 @@ async fn create(
         return Err(ApiError::conflict("username_taken", "username exists"));
     }
     let password_hash = password::hash(&req.password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } => {
+        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
             ApiError::bad_request("weak_password", e.to_string())
         }
         _ => ApiError::internal(e.to_string()),
@@ -134,7 +134,7 @@ async fn update(
     }
     if let Some(password) = req.password {
         let password_hash = password::hash(&password).map_err(|e| match e {
-            password::PasswordError::TooShort { .. } => {
+            password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
                 ApiError::bad_request("weak_password", e.to_string())
             }
             _ => ApiError::internal(e.to_string()),
@@ -158,6 +158,10 @@ async fn remove(
     }
     if state.users.find_by_id(&id).await?.is_none() {
         return Err(ApiError::not_found("user not found"));
+    }
+    let vaults = state.vaults.list_for_user(&id).await?;
+    for vault in vaults {
+        crate::service::vault::delete_vault_for_user(&state, &id, &vault.id).await?;
     }
     state.users.delete(&id).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -193,7 +197,7 @@ mod tests {
     use crate::auth::{password, token};
     use crate::db::pool;
     use crate::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
-    use crate::service::AppState;
+    use crate::service::{vault, AppState};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use axum::Router;
@@ -230,7 +234,7 @@ mod tests {
         (super::router().with_state(state), raw)
     }
 
-    async fn setup_with_second_user() -> (Router, String, String, String, String) {
+    async fn setup_with_second_user_state() -> (Router, AppState, String, String, String, String) {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
@@ -278,12 +282,19 @@ mod tests {
             .await
             .unwrap();
         (
-            super::router().with_state(state),
+            super::router().with_state(state.clone()),
+            state,
             raw,
             other.id,
             admin_token.id,
             other_token.id,
         )
+    }
+
+    async fn setup_with_second_user() -> (Router, String, String, String, String) {
+        let (app, _state, raw, other_id, admin_token_id, other_token_id) =
+            setup_with_second_user_state().await;
+        (app, raw, other_id, admin_token_id, other_token_id)
     }
 
     fn auth_request(method: &str, uri: impl Into<String>, raw: &str) -> Request<Body> {
@@ -394,6 +405,32 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn admin_delete_user_removes_vault_storage() {
+        let (app, state, raw, other_id, _admin_token_id, _other_token_id) =
+            setup_with_second_user_state().await;
+        let vault = vault::create_vault(&state, &other_id, "main")
+            .await
+            .unwrap();
+        let repo_dir = state.default_vault_root().join(&vault.id);
+        tokio::fs::create_dir_all(&repo_dir).await.unwrap();
+        tokio::fs::write(repo_dir.join("HEAD"), b"ref: main")
+            .await
+            .unwrap();
+
+        let resp = app
+            .oneshot(auth_request(
+                "DELETE",
+                format!("/api/admin/users/{other_id}"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+        assert!(!tokio::fs::try_exists(&repo_dir).await.unwrap());
     }
 
     #[tokio::test]

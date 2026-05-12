@@ -124,7 +124,7 @@ pub async fn register(state: &AppState, req: RegisterReq) -> Result<AuthResp, Ap
         ));
     }
     let pwd_hash = password::hash(&req.password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } => {
+        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
             ApiError::bad_request("weak_password", e.to_string())
         }
         _ => ApiError::internal(e.to_string()),
@@ -200,7 +200,7 @@ pub async fn change_password(
         return Err(ApiError::unauthorized("current password incorrect"));
     }
     let new_hash = password::hash(&req.new_password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } => {
+        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
             ApiError::bad_request("weak_password", e.to_string())
         }
         _ => ApiError::internal(e.to_string()),

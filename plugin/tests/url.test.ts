@@ -23,6 +23,17 @@ describe("parseServerUrl", () => {
     });
   });
 
+  it("rejects non-loopback http URLs", () => {
+    expect(() => parseServerUrl("http://sync.example.com", "k_1")).toThrow(ServerUrlError);
+  });
+
+  it("allows loopback http URLs for local development", () => {
+    expect(parseServerUrl("http://127.0.0.1:6710/k_local/")).toEqual({
+      serverUrl: "http://127.0.0.1:6710",
+      deploymentKey: "k_local"
+    });
+  });
+
   it("rejects missing key", () => {
     expect(() => parseServerUrl("https://x")).toThrow(ServerUrlError);
   });

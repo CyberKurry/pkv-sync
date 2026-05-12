@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
 const MAX_PUSH_CHANGES: usize = 1000;
+const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RequestMetadata<'a> {
@@ -118,6 +119,12 @@ pub async fn upload_check(
     hashes: Vec<String>,
 ) -> Result<UploadCheckResp, ApiError> {
     let _vault = vault::ensure_user_vault(state, user_id, vault_id).await?;
+    if hashes.len() > MAX_UPLOAD_CHECK_HASHES {
+        return Err(ApiError::bad_request(
+            "too_many_blob_hashes",
+            format!("upload check exceeds limit of {MAX_UPLOAD_CHECK_HASHES} hashes"),
+        ));
+    }
     let store = blob_store(state);
     let mut missing = Vec::new();
     for h in hashes {
@@ -948,6 +955,18 @@ mod tests {
         .unwrap();
 
         assert_eq!(resp.missing, vec![missing_hash]);
+    }
+
+    #[tokio::test]
+    async fn upload_check_rejects_too_many_hashes() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let hashes = vec!["0".repeat(64); 10_001];
+
+        let err = upload_check(&state, &user.user_id, &vid, hashes)
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, "too_many_blob_hashes");
     }
 
     #[tokio::test]
