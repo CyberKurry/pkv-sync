@@ -19,9 +19,9 @@
     <option value="inactive" {% if status == "inactive" %}selected{% endif %}>Inactive</option>
     <option value="admin" {% if status == "admin" %}selected{% endif %}>{{ t.admin }}</option>
   </select>
-  <button class="secondary small" type="submit">Apply</button>
+  <button class="secondary small" type="submit"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#filter"></use></svg>Apply</button>
   {% if !query.is_empty() || !status.is_empty() %}
-  <a class="secondary small" href="/admin/users">Clear</a>
+  <a class="secondary small" href="/admin/users"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#x"></use></svg>Clear</a>
   {% endif %}
 </form>
 
@@ -39,7 +39,7 @@
         <td>—</td>
         <td>{{ u.created_at }}</td>
         <td>{% if u.is_admin %}<span class="pill pill-blue">{{ t.admin }}</span>{% else %}<span class="muted-text">—</span>{% endif %}</td>
-        <td class="align-right"><a class="table-action" href="/admin/users/{{ u.id }}">{{ t.details }}</a></td>
+        <td class="align-right"><a class="table-action" href="/admin/users/{{ u.id }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#square-pen"></use></svg>{{ t.details }}</a></td>
       </tr>
     {% endfor %}
     {% if users.len() == 0 %}
@@ -58,6 +58,6 @@
     <label>{{ t.password }} <input name="password" type="password" autocomplete="new-password" required></label>
     <label class="check-row"><input type="checkbox" name="is_admin" value="true"> {{ t.admin }}</label>
   </div>
-  <button class="primary">{{ t.create_user }}</button>
+  <button class="primary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#user-plus"></use></svg>{{ t.create_user }}</button>
 </form>
 {% endblock %}

@@ -38,6 +38,6 @@
 <form id="create-invite" method="post" action="/admin/invites" class="panel form-panel collapsible-create">
   <div class="panel-header"><h2>{{ t.create_invite }}</h2></div>
   <label>{{ t.expires_at }} <input name="expires_at" type="datetime-local"></label>
-  <button class="primary">{{ t.create_invite }}</button>
+  <button class="primary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#plus"></use></svg>{{ t.create_invite }}</button>
 </form>
 {% endblock %}

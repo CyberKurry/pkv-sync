@@ -11,6 +11,7 @@
   --pkv-muted: #8B8B8B;
   --pkv-faint: #6B6B6B;
   --pkv-disabled: #59595E;
+  --pkv-mobile-top-offset: 0px;
   min-height: 100%;
   box-sizing: border-box;
   padding: 0 !important;
@@ -900,4 +901,8 @@
   .pkvsync-diff-range {
     grid-template-columns: 1fr;
   }
+}
+
+body.is-mobile .pkv-sync-panel {
+  padding-top: calc(72px + env(safe-area-inset-top) + var(--pkv-mobile-top-offset));
 }

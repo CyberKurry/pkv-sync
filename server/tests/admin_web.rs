@@ -910,6 +910,50 @@ async fn activity_page_filters_by_user_and_action() {
 }
 
 #[tokio::test]
+async fn activity_page_masks_client_ips_and_limits_recent_rows() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin_id = first_admin_user_id(&app, &session_cookie).await;
+
+    for idx in 0..31 {
+        let ip = match idx {
+            30 => "203.0.113.42",
+            29 => "2001:db8:85a3::8a2e:370:7334",
+            _ => "198.51.100.9",
+        };
+        let user_agent = format!("PKVSync-Plugin/limited-{idx:02}");
+        sqlx::query(
+            "INSERT INTO sync_activity
+             (user_id, action, client_ip, user_agent, timestamp)
+             VALUES (?, 'push', ?, ?, ?)",
+        )
+        .bind(&admin_id)
+        .bind(ip)
+        .bind(&user_agent)
+        .bind(1_700_000_000_i64 + idx)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    }
+
+    let mut req = request(Method::GET, "/admin/activity", Body::empty());
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = read_body(resp).await;
+
+    assert_eq!(body.matches("PKVSync-Plugin/limited-").count(), 30);
+    assert!(body.contains("PKVSync-Plugin/limited-30"));
+    assert!(body.contains("PKVSync-Plugin/limited-29"));
+    assert!(!body.contains("PKVSync-Plugin/limited-00"));
+    assert!(body.contains("203.*.*.42"));
+    assert!(!body.contains("203.0.113.42"));
+    assert!(body.contains("2001:db8:*:*:*:*:370:7334"));
+    assert!(!body.contains("2001:db8:85a3::8a2e:370:7334"));
+}
+
+#[tokio::test]
 async fn user_detail_token_revoke_requires_token_to_belong_to_path_user() {
     let (app, state) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;

@@ -18,7 +18,7 @@
     <option value="view_history" {% if selected_action == "view_history" %}selected{% endif %}>View history</option>
     <option value="view_diff" {% if selected_action == "view_diff" %}selected{% endif %}>View diff</option>
   </select>
-  <noscript><button class="secondary small">Apply</button></noscript>
+  <noscript><button class="secondary small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#filter"></use></svg>Apply</button></noscript>
 </form>
 {% endblock %}
 {% block content %}

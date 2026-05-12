@@ -46,7 +46,7 @@
           <h2>{{ t.reset_password }}</h2>
         </div>
         <label>{{ t.new_password }} <input name="password" type="password" autocomplete="new-password" required></label>
-        <button class="secondary">{{ t.reset }}</button>
+        <button class="secondary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#key-round"></use></svg>{{ t.reset }}</button>
       </form>
 
       <form method="post" action="/admin/users/{{ user.id }}/active" class="panel form-panel action-panel">
@@ -56,7 +56,7 @@
         </div>
         <p class="section-note">{% if user.is_active %}Active account{% else %}Inactive account{% endif %}</p>
         <input type="hidden" name="active" value="{% if user.is_active %}false{% else %}true{% endif %}">
-        <button class="{% if user.is_active %}danger{% else %}primary{% endif %}">{% if user.is_active %}{{ t.disable }}{% else %}{{ t.enable }}{% endif %}</button>
+        <button class="{% if user.is_active %}danger{% else %}primary{% endif %}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#{% if user.is_active %}ban{% else %}shield{% endif %}"></use></svg>{% if user.is_active %}{{ t.disable }}{% else %}{{ t.enable }}{% endif %}</button>
       </form>
 
       <form method="post" action="/admin/users/{{ user.id }}/admin" class="panel form-panel action-panel">
@@ -66,7 +66,7 @@
         </div>
         <p class="section-note">{% if user.is_admin %}Admin privileges{% else %}Standard user{% endif %}</p>
         <input type="hidden" name="admin" value="{% if user.is_admin %}false{% else %}true{% endif %}">
-        <button class="secondary">{% if user.is_admin %}{{ t.demote }}{% else %}{{ t.promote }}{% endif %}</button>
+        <button class="secondary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg>{% if user.is_admin %}{{ t.demote }}{% else %}{{ t.promote }}{% endif %}</button>
       </form>
     </div>
 
@@ -74,7 +74,7 @@
       <div class="panel-header"><h2>{{ t.create_device_token }}</h2></div>
       <div class="form-grid single-action-form">
         <label>{{ t.device_name }} <input name="device_name" autocomplete="off" required></label>
-        <button class="primary">{{ t.create_token }}</button>
+        <button class="primary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#key-round"></use></svg>{{ t.create_token }}</button>
       </div>
     </form>
   </section>
@@ -96,7 +96,7 @@
           {% if let Some(_ts) = token.revoked_at %}
           <span class="muted-text">-</span>
           {% else %}
-          <form method="post" action="/admin/users/{{ user.id }}/tokens/{{ token.id }}/revoke" class="inline"><button class="danger small">{{ t.revoke }}</button></form>
+          <form method="post" action="/admin/users/{{ user.id }}/tokens/{{ token.id }}/revoke" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#ban"></use></svg>{{ t.revoke }}</button></form>
           {% endif %}
         </td>
       </tr>

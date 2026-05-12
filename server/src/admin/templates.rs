@@ -316,11 +316,59 @@ mod tests {
     #[test]
     fn admin_css_uses_designer_shell_tokens() {
         let css = include_str!("../../static/admin.css");
+        assert!(css.contains("color-scheme: light"));
+        assert!(css.contains("@media (prefers-color-scheme: dark)"));
         assert!(css.contains("#0f111c"));
         assert!(css.contains("#141623"));
         assert!(css.contains("#161928"));
         assert!(css.contains(".app-shell"));
         assert!(css.contains(".sidebar-nav"));
+    }
+
+    #[test]
+    fn admin_templates_reference_existing_icon_symbols() {
+        let sprite = include_str!("../../static/lucide-icons.svg");
+        let templates = [
+            ("activity", include_str!("../../templates/activity.html")),
+            ("dashboard", include_str!("../../templates/dashboard.html")),
+            ("devices", include_str!("../../templates/devices.html")),
+            ("invites", include_str!("../../templates/invites.html")),
+            ("layout", include_str!("../../templates/layout.html")),
+            ("login", include_str!("../../templates/login.html")),
+            ("settings", include_str!("../../templates/settings.html")),
+            ("users", include_str!("../../templates/users.html")),
+            (
+                "user_detail",
+                include_str!("../../templates/user_detail.html"),
+            ),
+            ("vaults", include_str!("../../templates/vaults.html")),
+            (
+                "vault_diff",
+                include_str!("../../templates/vault_diff.html"),
+            ),
+            (
+                "vault_files",
+                include_str!("../../templates/vault_files.html"),
+            ),
+            (
+                "vault_file_view",
+                include_str!("../../templates/vault_file_view.html"),
+            ),
+            (
+                "vault_history",
+                include_str!("../../templates/vault_history.html"),
+            ),
+        ];
+        let re = regex::Regex::new(r#"lucide-icons\.svg#([A-Za-z0-9_-]+)"#).unwrap();
+        for (name, template) in templates {
+            for cap in re.captures_iter(template) {
+                let id = &cap[1];
+                assert!(
+                    sprite.contains(&format!(r#"id="{id}""#)),
+                    "template {name} references missing icon {id}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -391,14 +439,17 @@ mod tests {
         let html = UsersTemplate {
             t: AdminText::en(),
             users: vec![user("u1", "admin", true)],
-            query: String::new(),
-            status: String::new(),
+            query: "adm".into(),
+            status: "active".into(),
             message: Some("created".into()),
         }
         .render()
         .unwrap();
         assert!(html.contains("admin"));
         assert!(html.contains("Create user"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#filter"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#x"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#square-pen"));
     }
 
     #[test]
@@ -421,6 +472,8 @@ mod tests {
         assert!(html.contains("desktop"));
         assert!(html.contains("Reset password"));
         assert!(html.contains("<h1>User Details</h1>"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#ban"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#key-round"));
         assert!(!html.contains("User: admin"));
         assert!(!html.contains("+00:00 UTC"));
         assert!(!html.contains("+08:00 CST"));
@@ -495,6 +548,7 @@ mod tests {
         assert!(html.contains("MacBook Pro"));
         assert!(html.contains("pks_device_token"));
         assert!(html.contains("Create token"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#ban"));
     }
 
     #[test]
@@ -547,6 +601,7 @@ mod tests {
         assert!(html.contains("inv_abc"));
         assert!(html.contains("Create invite"));
         assert!(html.contains("type=\"datetime-local\""));
+        assert!(html.contains("/admin/static/lucide-icons.svg#plus"));
     }
 
     #[test]
@@ -575,6 +630,7 @@ mod tests {
         assert!(html.contains("select name=\"timezone\""));
         assert!(html.contains("option value=\"UTC\" selected"));
         assert!(html.contains("Save"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#trash-2"));
     }
 
     #[test]
@@ -635,5 +691,18 @@ mod tests {
         assert!(html.contains("Laptop"));
         assert!(html.contains("<summary>ID</summary>"));
         assert!(html.contains("PKVSync-Plugin"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#filter"));
+    }
+
+    #[test]
+    fn login_template_submit_has_icon() {
+        let html = LoginTemplate {
+            t: AdminText::en(),
+            error: None,
+            version: env!("CARGO_PKG_VERSION"),
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("/admin/static/lucide-icons.svg#log-in"));
     }
 }

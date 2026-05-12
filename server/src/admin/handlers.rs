@@ -28,6 +28,7 @@ use chrono_tz::Tz;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use tower_cookies::Cookies;
 
 const URL_PATH: &AsciiSet = &CONTROLS
@@ -42,6 +43,7 @@ const URL_PATH: &AsciiSet = &CONTROLS
     .add(b'{')
     .add(b'}');
 const URL_QUERY: &AsciiSet = &URL_PATH.add(b'&').add(b'=').add(b'+');
+const ADMIN_ACTIVITY_LIMIT: i64 = 30;
 
 #[derive(Clone)]
 pub struct AdminCookiePolicy {
@@ -1332,6 +1334,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn masks_client_ips_for_admin_activity_views() {
+        assert_eq!(mask_client_ip("203.0.113.42"), "203.*.*.42");
+        assert_eq!(
+            mask_client_ip("2001:db8:85a3::8a2e:370:7334"),
+            "2001:db8:*:*:*:*:370:7334"
+        );
+        assert_eq!(mask_client_ip("not-an-ip"), "redacted");
+    }
+
+    #[test]
     fn diff_rows_pair_deleted_and_added_lines_for_split_view() {
         let rows = diff_rows("--- c1\n+++ c2\n@@ -1,2 +1,2 @@\n keep\n-old\n+new");
 
@@ -1604,11 +1616,28 @@ async fn list_admin_activities(
                 vault_id,
                 vault_name,
                 device_name,
-                client_ip,
+                client_ip: client_ip.map(|ip| mask_client_ip(&ip)),
                 user_agent,
             },
         )
         .collect())
+}
+
+fn mask_client_ip(value: &str) -> String {
+    match value.parse::<IpAddr>() {
+        Ok(IpAddr::V4(addr)) => {
+            let octets = addr.octets();
+            format!("{}.*.*.{}", octets[0], octets[3])
+        }
+        Ok(IpAddr::V6(addr)) => {
+            let segments = addr.segments();
+            format!(
+                "{:x}:{:x}:*:*:*:*:{:x}:{:x}",
+                segments[0], segments[1], segments[6], segments[7]
+            )
+        }
+        Err(_) => "redacted".to_string(),
+    }
 }
 
 async fn list_activity_filter_users(state: &AppState) -> Result<Vec<ActivityFilterUser>, ApiError> {
@@ -1692,7 +1721,7 @@ async fn activity_page(
     Ok(Html(
         ActivityTemplate {
             t: admin_text(&headers, &cookies),
-            activities: list_admin_activities(&state, 200, &filters).await?,
+            activities: list_admin_activities(&state, ADMIN_ACTIVITY_LIMIT, &filters).await?,
             users: list_activity_filter_users(&state).await?,
             selected_user_id,
             selected_action,

@@ -22,7 +22,7 @@
         <td><a class="file-link" href="{{ file.view_url }}">{{ file.path }}</a></td>
         <td>{{ file.size_display }}</td>
         <td><span class="pill pill-blue">{{ file.kind }}</span></td>
-        <td class="align-right"><a class="table-action" href="{{ file.view_url }}">View</a></td>
+        <td class="align-right"><a class="table-action" href="{{ file.view_url }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#eye"></use></svg>View</a></td>
       </tr>
     {% endfor %}
     </tbody>

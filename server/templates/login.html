@@ -19,7 +19,7 @@
       <form method="post" action="/admin/login" class="login-form">
         <label>{{ t.username }} <input name="username" autocomplete="username" placeholder="Enter your username"></label>
         <label>{{ t.password }} <input name="password" type="password" autocomplete="current-password" placeholder="••••••••"></label>
-        <button type="submit" class="primary full-width">{{ t.login }}</button>
+        <button type="submit" class="primary full-width"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#log-in"></use></svg>{{ t.login }}</button>
       </form>
       <p class="login-footnote">Deployment key required for first setup</p>
     </section>

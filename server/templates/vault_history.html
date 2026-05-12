@@ -23,8 +23,8 @@
         <p class="muted-text">{{ entry.message }}</p>
       </div>
       <div class="card-actions">
-        <a class="table-action" href="{{ entry.view_url }}">View at this commit</a>
-        <a class="table-action" href="{{ entry.diff_url }}">Diff with previous</a>
+        <a class="table-action" href="{{ entry.view_url }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#eye"></use></svg>View at this commit</a>
+        <a class="table-action" href="{{ entry.diff_url }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#git-compare"></use></svg>Diff with previous</a>
       </div>
     </article>
     {% endfor %}

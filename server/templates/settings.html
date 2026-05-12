@@ -8,10 +8,10 @@
 {% block content %}
 <div class="settings-layout">
   <aside class="settings-tabs" aria-label="Settings sections">
-    <a class="is-active" href="#general">General</a>
-    <a href="#security">Security</a>
-    <a href="#sync-storage">Sync</a>
-    <a href="#network">Network</a>
+    <a class="is-active" href="#general"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#settings"></use></svg>General</a>
+    <a href="#security"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg>Security</a>
+    <a href="#sync-storage"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#refresh-cw"></use></svg>Sync</a>
+    <a href="#network"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#network"></use></svg>Network</a>
   </aside>
 
   <form id="settings-form" method="post" action="/admin/settings" class="settings-form">
@@ -59,7 +59,7 @@
       <label class="check-row"><input name="enable_diff_endpoint" type="checkbox" {% if cfg.enable_diff_endpoint %}checked{% endif %}> Enable unified diff endpoint</label>
       <div class="danger-row">
         <span><strong>Blob Garbage Collection</strong><small>Reclaim orphaned SHA-256 blobs</small></span>
-        <button class="danger small" form="gc-form">{{ t.run_blob_gc }}</button>
+        <button class="danger small" form="gc-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#trash-2"></use></svg>{{ t.run_blob_gc }}</button>
       </div>
     </section>
 

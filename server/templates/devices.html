@@ -34,7 +34,7 @@
           {% if let Some(_ts) = token.revoked_at %}
           <span class="muted-text">—</span>
           {% else %}
-          <form method="post" action="/admin/devices/{{ token.id }}/revoke" class="inline"><button class="danger small">{{ t.revoke }}</button></form>
+          <form method="post" action="/admin/devices/{{ token.id }}/revoke" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#ban"></use></svg>{{ t.revoke }}</button></form>
           {% endif %}
         </td>
       </tr>
@@ -55,6 +55,6 @@
     </label>
     <label>{{ t.device_name }} <input name="device_name" autocomplete="off" required></label>
   </div>
-  <button class="primary">{{ t.create_token }}</button>
+  <button class="primary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#key-round"></use></svg>{{ t.create_token }}</button>
 </form>
 {% endblock %}
