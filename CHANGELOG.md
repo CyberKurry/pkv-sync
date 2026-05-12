@@ -7,6 +7,19 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-05-12
+
+### Security
+
+- Mask client IP addresses in the Admin WebUI activity log while retaining enough prefix/suffix detail for troubleshooting.
+- Limit the Admin WebUI activity log to the latest 30 rows; deeper log inspection now stays server-side.
+
+### Changed
+
+- Add missing Admin WebUI action and settings icons across the admin templates.
+- Default the Admin WebUI to light mode and keep the existing dark palette for browser dark-mode preference.
+- Add top safe-area padding for the Obsidian plugin settings UI on mobile.
+
 ## [0.1.10] - 2026-05-12
 
 ### Security
