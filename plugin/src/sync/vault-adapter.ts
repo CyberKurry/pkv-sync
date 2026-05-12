@@ -23,15 +23,15 @@ export class ObsidianVaultAdapter implements VaultAdapter {
   }
 
   async readText(path: string): Promise<string> {
-    return this.vault.read(this.requireFile(requireSafeSyncPath(path)));
+    return this.vault.read(this.requireFile(requireSafeVaultPath(path)));
   }
 
   async readBinary(path: string): Promise<ArrayBuffer> {
-    return this.vault.readBinary(this.requireFile(requireSafeSyncPath(path)));
+    return this.vault.readBinary(this.requireFile(requireSafeVaultPath(path)));
   }
 
   async writeText(path: string, content: string): Promise<void> {
-    const safePath = requireSafeSyncPath(path);
+    const safePath = requireSafeVaultPath(path);
     const file = this.vault.getAbstractFileByPath(safePath);
     if (file instanceof TFile) await this.vault.modify(file, content);
     else {
@@ -41,7 +41,7 @@ export class ObsidianVaultAdapter implements VaultAdapter {
   }
 
   async writeBinary(path: string, bytes: ArrayBuffer): Promise<void> {
-    const safePath = requireSafeSyncPath(path);
+    const safePath = requireSafeVaultPath(path);
     const file = this.vault.getAbstractFileByPath(safePath);
     if (file instanceof TFile) await this.vault.modifyBinary(file, bytes);
     else {
@@ -51,13 +51,13 @@ export class ObsidianVaultAdapter implements VaultAdapter {
   }
 
   async delete(path: string): Promise<void> {
-    const safePath = requireSafeSyncPath(path);
+    const safePath = requireSafeVaultPath(path);
     const file = this.vault.getAbstractFileByPath(safePath);
     if (file) await this.vault.delete(file);
   }
 
   exists(path: string): boolean {
-    const safePath = normalizeSyncPath(path);
+    const safePath = normalizeVaultPath(path);
     return safePath !== null && this.vault.getAbstractFileByPath(safePath) instanceof TFile;
   }
 
@@ -65,7 +65,7 @@ export class ObsidianVaultAdapter implements VaultAdapter {
     path: string,
     textExtensions: Set<string>
   ): Promise<LocalFileSnapshot> {
-    path = requireSafeSyncPath(path);
+    path = requireSafeVaultPath(path);
     const ext = path.includes(".") ? path.split(".").pop()!.toLowerCase() : "";
     if (textExtensions.has(ext)) {
       const content = await this.readText(path);
@@ -122,17 +122,23 @@ export function shouldSyncPath(path: string): boolean {
 }
 
 export function normalizeSyncPath(path: string): string | null {
-  const normalized = normalizeSeparators(path);
-  if (!isSafePathShape(normalized)) return null;
-  if (hasUnsafeDecodedShape(normalized)) return null;
-  if (hasProtectedRoot(normalized)) return null;
+  const normalized = normalizeVaultPath(path);
+  if (normalized === null) return null;
   if (isConflictPath(normalized)) return null;
   return normalized;
 }
 
-function requireSafeSyncPath(path: string): string {
-  const normalized = normalizeSyncPath(path);
+function requireSafeVaultPath(path: string): string {
+  const normalized = normalizeVaultPath(path);
   if (normalized === null) throw new Error(`Unsafe sync path: ${path}`);
+  return normalized;
+}
+
+function normalizeVaultPath(path: string): string | null {
+  const normalized = normalizeSeparators(path);
+  if (!isSafePathShape(normalized)) return null;
+  if (hasUnsafeDecodedShape(normalized)) return null;
+  if (hasProtectedRoot(normalized)) return null;
   return normalized;
 }
 

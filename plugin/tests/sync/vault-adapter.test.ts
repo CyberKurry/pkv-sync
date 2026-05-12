@@ -95,6 +95,18 @@ describe("ObsidianVaultAdapter", () => {
     expect(vault.createdFolders).toEqual([]);
     expect(vault.createdFiles.size).toBe(0);
   });
+
+  it("allows writing generated conflict files without making them syncable", async () => {
+    const vault = new FakeVault();
+    const adapter = new ObsidianVaultAdapter(vault as any);
+    const conflict = "单片机/P155 T14.conflict-2026-05-12-204915-LJYsPredator.md";
+
+    await adapter.writeText(conflict, "local version");
+
+    expect(vault.createdFolders).toEqual(["单片机"]);
+    expect(vault.createdFiles.get(conflict)).toBe("local version");
+    expect(shouldSyncPath(conflict)).toBe(false);
+  });
 });
 
 describe("shouldSyncPath", () => {
