@@ -1,3 +1,5 @@
+pub mod materialize;
+
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -32,6 +34,17 @@ pub enum Command {
     User {
         #[command(subcommand)]
         op: UserOp,
+    },
+    /// Expand a vault's git+blob storage into a plain file tree.
+    Materialize {
+        /// Vault ID to materialize
+        vault_id: String,
+        /// Output directory (must not exist or be empty)
+        #[arg(short, long)]
+        output: std::path::PathBuf,
+        /// Specific commit SHA to materialize (default: HEAD)
+        #[arg(long)]
+        at: Option<String>,
     },
 }
 
@@ -117,5 +130,49 @@ mod tests {
     fn cli_parses_user_list() {
         let cli = Cli::try_parse_from(["pkvsyncd", "user", "list"]).unwrap();
         assert!(matches!(cli.command, Command::User { op: UserOp::List }));
+    }
+
+    #[test]
+    fn cli_parses_materialize() {
+        let cli =
+            Cli::try_parse_from(["pkvsyncd", "materialize", "vault1", "-o", "/tmp/out"]).unwrap();
+        match cli.command {
+            Command::Materialize {
+                vault_id,
+                output,
+                at,
+            } => {
+                assert_eq!(vault_id, "vault1");
+                assert_eq!(output, PathBuf::from("/tmp/out"));
+                assert!(at.is_none());
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_materialize_with_at() {
+        let cli = Cli::try_parse_from([
+            "pkvsyncd",
+            "materialize",
+            "vault1",
+            "-o",
+            "/tmp/out",
+            "--at",
+            "abc123",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Materialize {
+                vault_id,
+                output,
+                at,
+            } => {
+                assert_eq!(vault_id, "vault1");
+                assert_eq!(output, PathBuf::from("/tmp/out"));
+                assert_eq!(at.as_deref(), Some("abc123"));
+            }
+            _ => panic!("wrong variant"),
+        }
     }
 }

@@ -111,6 +111,15 @@ fn main() -> anyhow::Result<()> {
                 Ok::<_, anyhow::Error>(())
             })?;
         }
+        Command::Materialize {
+            vault_id,
+            output,
+            at,
+        } => {
+            let cfg = Config::load(&cli.config)?;
+            pkv_sync_server::logging::init_with_config(&cfg.logging);
+            pkv_sync_server::cli::materialize::run(&cfg, &vault_id, &output, at.as_deref())?;
+        }
     }
     Ok(())
 }
