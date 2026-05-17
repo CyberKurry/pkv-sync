@@ -51,7 +51,7 @@ Docker 镜像发布到 GHCR(多架构 `linux/amd64`、`linux/arm64`):
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.3.1
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.3.2
 ```
 
 ## 快速开始:Docker Compose

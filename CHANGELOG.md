@@ -7,6 +7,13 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-18
+
+### Fixed
+
+- Vault row in settings tab: the select button and delete button now sit on the same row inside an action group instead of the delete button wrapping to its own line.
+- Vault delete button style now matches the select button (consistent border, radius, size).
+
 ## [0.3.1] - 2026-05-17
 
 ### Security
