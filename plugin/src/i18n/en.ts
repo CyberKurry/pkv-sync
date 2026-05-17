@@ -114,5 +114,17 @@ export const en = {
   deleteVaultConfirmButton: "Delete permanently",
   deleteVaultCancelButton: "Cancel",
   deletedVaultNotice: "Deleted vault \"{name}\"",
-  deleteVaultFailed: "Failed to delete vault"
+  deleteVaultFailed: "Failed to delete vault",
+  resolveConflictsCommand: "Resolve conflict files",
+  conflictsListTitle: "Conflict files",
+  conflictsListEmpty: "No conflicts to resolve",
+  conflictResolveTitle: "Resolve conflict",
+  conflictResolveBody: "{path} has a conflict with a remote version",
+  acceptLocalButton: "Keep local",
+  acceptRemoteButton: "Accept remote",
+  dismissConflictButton: "Later",
+  conflictBinaryNotice: "Binary file, diff preview not available",
+  conflictAcceptedLocalNotice: "Kept local version and deleted conflict file",
+  conflictAcceptedRemoteNotice: "Accepted remote version, will push on next sync",
+  conflictResolveFailed: "Failed to resolve conflict"
 };

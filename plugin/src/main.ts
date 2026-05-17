@@ -31,6 +31,7 @@ import { HistoryModal, shortCommit } from "./ui/history-modal";
 import { RestoreConfirmModal } from "./ui/restore-confirm";
 import { PKVSyncSettingTab } from "./ui/settings-tab";
 import { SyncStatusModal } from "./ui/sync-modal";
+import { ConflictsListModal } from "./ui/conflicts-list-modal";
 import { statusText } from "./ui/status";
 import { formatRelativeUnixSeconds, formatUnixSeconds } from "./time";
 import { SerializedPluginDataStore } from "./plugin-store";
@@ -142,6 +143,13 @@ export default class PKVSyncPlugin extends Plugin {
       id: "pkv-sync-delete-conflicts",
       name: t.deleteConflictsCommand,
       callback: () => void this.deleteConflictFiles()
+    });
+    this.addCommand({
+      id: "pkv-sync-resolve-conflicts",
+      name: t.resolveConflictsCommand,
+      callback: () => {
+        new ConflictsListModal(this.app, this.text(), () => {}).open();
+      }
     });
     this.addCommand({
       id: "pkv-sync-show-file-history",

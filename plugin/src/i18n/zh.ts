@@ -111,5 +111,17 @@ export const zh = {
   deleteVaultConfirmButton: "永久删除",
   deleteVaultCancelButton: "取消",
   deletedVaultNotice: "已删除笔记库 \"{name}\"",
-  deleteVaultFailed: "删除笔记库失败"
+  deleteVaultFailed: "删除笔记库失败",
+  resolveConflictsCommand: "解决冲突文件",
+  conflictsListTitle: "冲突文件",
+  conflictsListEmpty: "没有需要解决的冲突",
+  conflictResolveTitle: "解决冲突",
+  conflictResolveBody: "{path} 与远端版本冲突",
+  acceptLocalButton: "保留本地",
+  acceptRemoteButton: "采纳远端",
+  dismissConflictButton: "稍后",
+  conflictBinaryNotice: "二进制文件，无法显示差异",
+  conflictAcceptedLocalNotice: "已保留本地版本并删除冲突文件",
+  conflictAcceptedRemoteNotice: "已采纳远端版本，将在下次同步推送",
+  conflictResolveFailed: "解决冲突失败"
 };
