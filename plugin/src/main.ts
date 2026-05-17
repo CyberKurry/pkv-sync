@@ -666,6 +666,20 @@ export default class PKVSyncPlugin extends Plugin {
     }
   }
 
+  invalidateSyncEngine(): void {
+    this.pushDebouncer?.cancel();
+    if (this.pollTimer !== null) {
+      window.clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    if (this.fallbackTimer !== null) {
+      window.clearInterval(this.fallbackTimer);
+      this.fallbackTimer = null;
+    }
+    this.syncGeneration++;
+    this.engine = null;
+  }
+
   async deleteConflictFiles(): Promise<number> {
     const t = this.text();
     try {

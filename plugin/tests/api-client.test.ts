@@ -103,4 +103,24 @@ describe("ApiClient helpers", () => {
       message: "HTTP 404"
     });
   });
+
+  it("deleteVault calls DELETE /api/vaults/:id with auth", async () => {
+    requestUrlMock.mockResolvedValueOnce({ status: 204, headers: {}, text: "", arrayBuffer: new ArrayBuffer(0), json: null });
+    const client = new ApiClient({
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_test",
+      token: "tok_abc",
+      pluginVersion: "0.2.0"
+    });
+    await client.deleteVault("vault-123");
+    expect(requestUrlMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "DELETE",
+        url: "https://sync.example.com/api/vaults/vault-123",
+        headers: expect.objectContaining({
+          Authorization: "Bearer tok_abc"
+        })
+      })
+    );
+  });
 });

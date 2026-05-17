@@ -106,5 +106,13 @@ export const en = {
   restoreConfirm: "Restore",
   restoreSuccess: "Restored {path}. PKV Sync will push it as a normal change.",
   restoreFailed: "Restore failed: {reason}",
-  restoreDeletedAtCommit: "This file did not exist at the selected commit."
+  restoreDeletedAtCommit: "This file did not exist at the selected commit.",
+  deleteVaultButton: "Delete",
+  deleteVaultModalTitle: "Delete vault",
+  deleteVaultModalBody: "This will permanently delete the vault \"{name}\" on the server, including all history. Files in your local Obsidian vault remain untouched.",
+  deleteVaultConfirmPrompt: "Type the vault name \"{name}\" to confirm",
+  deleteVaultConfirmButton: "Delete permanently",
+  deleteVaultCancelButton: "Cancel",
+  deletedVaultNotice: "Deleted vault \"{name}\"",
+  deleteVaultFailed: "Failed to delete vault"
 };

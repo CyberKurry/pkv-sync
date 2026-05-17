@@ -103,5 +103,13 @@ export const zh = {
   restoreConfirm: "恢复",
   restoreSuccess: "已恢复 {path}。PKV Sync 会把它作为普通修改同步。",
   restoreFailed: "恢复失败：{reason}",
-  restoreDeletedAtCommit: "所选提交中不存在这个文件。"
+  restoreDeletedAtCommit: "所选提交中不存在这个文件。",
+  deleteVaultButton: "删除",
+  deleteVaultModalTitle: "删除笔记库",
+  deleteVaultModalBody: "此操作将永久删除服务器上的笔记库 \"{name}\"，包括全部历史记录。你本地 Obsidian 仓库中的文件不受影响。",
+  deleteVaultConfirmPrompt: "请输入笔记库名 \"{name}\" 以确认删除",
+  deleteVaultConfirmButton: "永久删除",
+  deleteVaultCancelButton: "取消",
+  deletedVaultNotice: "已删除笔记库 \"{name}\"",
+  deleteVaultFailed: "删除笔记库失败"
 };

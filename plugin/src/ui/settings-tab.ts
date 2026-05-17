@@ -11,6 +11,7 @@ import { format } from "../i18n";
 import type PKVSyncPlugin from "../main";
 import type { PluginLanguage } from "../settings";
 import { listConflictFiles } from "../sync/conflict-files";
+import { DeleteVaultModal } from "./delete-vault-modal";
 import {
   formatDetailedUnixSeconds,
   formatRelativeUnixSeconds,
@@ -327,6 +328,20 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         }
       );
       button.disabled = selected;
+
+      this.renderButton(row, t.deleteVaultButton, "ghost", () => {
+        new DeleteVaultModal(this.app, vault, t, async () => {
+          await this.plugin.api().deleteVault(vault.id);
+          if (this.plugin.settings.selectedVaultId === vault.id) {
+            this.plugin.settings.selectedVaultId = "";
+            this.plugin.settings.selectedVaultName = "";
+            this.plugin.invalidateSyncEngine();
+          }
+          await this.plugin.saveSettings();
+          new Notice(format(t.deletedVaultNotice, { name: vault.name }));
+          this.display();
+        }).open();
+      }).addClass("pkv-sync-vault-delete");
     }
 
     this.renderCreateVault(body);

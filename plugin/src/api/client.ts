@@ -77,6 +77,10 @@ export class ApiClient {
     return this.request<VaultSummary>("POST", "/api/vaults", { name }, true);
   }
 
+  async deleteVault(id: string): Promise<void> {
+    await this.request<void>("DELETE", `/api/vaults/${encodeURIComponent(id)}`, undefined, true);
+  }
+
   async logout(): Promise<void> {
     await this.request<void>("POST", "/api/me/logout", undefined, true);
   }
