@@ -1669,6 +1669,7 @@ async fn settings_page(
             t: admin_text(&headers, &cookies),
             max_file_size_display: crate::human::format_bytes(cfg.max_file_size),
             text_extensions_display: cfg.text_extensions.join(", "),
+            extra_exclude_globs_display: cfg.extra_exclude_globs.join("\n"),
             cfg,
         }
         .render()
@@ -1686,6 +1687,7 @@ struct SettingsForm {
     login_lock_seconds: u64,
     enable_history_ui: Option<String>,
     enable_diff_endpoint: Option<String>,
+    extra_exclude_globs: String,
 }
 
 type ActivityRow = (
@@ -1839,6 +1841,17 @@ async fn settings_post(
             form.enable_diff_endpoint.is_some(),
             Some(&session.user.id),
         )
+        .await?;
+    let extra_exclude_globs: Vec<String> = form.extra_exclude_globs
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    crate::service::exclude::EffectiveExcludes::compile(&extra_exclude_globs)
+        .map_err(|e| ApiError::bad_request("invalid_glob", format!("invalid glob pattern: {}", e)))?;
+    state
+        .runtime_cfg_repo
+        .set_extra_exclude_globs(extra_exclude_globs, Some(&session.user.id))
         .await?;
     let cfg = state.runtime_cfg_repo.load().await?;
     limiter.update_config(

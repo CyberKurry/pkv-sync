@@ -83,6 +83,8 @@ pub struct AdminText {
     pub action: &'static str,
     pub ip: &'static str,
     pub user_agent: &'static str,
+    pub extra_exclude_globs: &'static str,
+    pub extra_exclude_globs_hint: &'static str,
 }
 
 impl AdminLang {
@@ -183,6 +185,8 @@ impl AdminText {
             action: "Action",
             ip: "IP",
             user_agent: "User-Agent",
+            extra_exclude_globs: "Extra Exclude Globs",
+            extra_exclude_globs_hint: "File patterns to exclude from sync (one per line). These are in addition to the built-in hard excludes.",
         }
     }
 
@@ -259,6 +263,8 @@ impl AdminText {
             action: "操作",
             ip: "IP",
             user_agent: "User-Agent",
+            extra_exclude_globs: "额外排除规则",
+            extra_exclude_globs_hint: "从同步中排除的文件模式（每行一个）。这些规则在内置硬排除之外额外生效。",
         }
     }
 }

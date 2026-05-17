@@ -227,6 +227,7 @@ pub struct SettingsTemplate {
     pub cfg: RuntimeConfig,
     pub max_file_size_display: String,
     pub text_extensions_display: String,
+    pub extra_exclude_globs_display: String,
 }
 
 #[derive(Debug, Clone)]
@@ -619,9 +620,11 @@ mod tests {
                 text_extensions: RuntimeConfig::default().text_extensions.clone(),
                 enable_history_ui: true,
                 enable_diff_endpoint: true,
+                extra_exclude_globs: vec![],
             },
             max_file_size_display: "100 MB".into(),
             text_extensions_display: "md, txt".into(),
+            extra_exclude_globs_display: String::new(),
         }
         .render()
         .unwrap();
@@ -648,9 +651,11 @@ mod tests {
                 text_extensions: RuntimeConfig::default().text_extensions.clone(),
                 enable_history_ui: true,
                 enable_diff_endpoint: true,
+                extra_exclude_globs: vec![],
             },
             max_file_size_display: "100 MB".into(),
             text_extensions_display: "md, txt".into(),
+            extra_exclude_globs_display: String::new(),
         }
         .render()
         .unwrap();

@@ -43,6 +43,7 @@ pub struct RuntimeConfig {
     pub text_extensions: Vec<String>,
     pub enable_history_ui: bool,
     pub enable_diff_endpoint: bool,
+    pub extra_exclude_globs: Vec<String>,
 }
 
 impl Default for RuntimeConfig {
@@ -65,6 +66,7 @@ impl Default for RuntimeConfig {
             ],
             enable_history_ui: true,
             enable_diff_endpoint: true,
+            extra_exclude_globs: vec![],
         }
     }
 }
@@ -100,6 +102,11 @@ pub trait RuntimeConfigRepo: Send + Sync {
         &self,
         enable_history_ui: bool,
         enable_diff_endpoint: bool,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
+    async fn set_extra_exclude_globs(
+        &self,
+        globs: Vec<String>,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 }
@@ -200,6 +207,11 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         if let Some(v) = read_kv(&self.pool, "enable_diff_endpoint").await? {
             if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
                 cfg.enable_diff_endpoint = enabled;
+            }
+        }
+        if let Some(v) = read_kv(&self.pool, "extra_exclude_globs").await? {
+            if let Ok(globs) = serde_json::from_str::<Vec<String>>(&v) {
+                cfg.extra_exclude_globs = globs;
             }
         }
         Ok(cfg)
@@ -327,6 +339,15 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         tx.commit().await?;
         Ok(())
     }
+
+    async fn set_extra_exclude_globs(
+        &self,
+        globs: Vec<String>,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let json = serde_json::to_string(&globs).unwrap_or_else(|_| "[]".into());
+        write_kv(&self.pool, "extra_exclude_globs", &json, by).await
+    }
 }
 
 /// Hot-reloadable cache shared by handlers.
@@ -409,6 +430,7 @@ mod tests {
                 text_extensions: RuntimeConfig::default().text_extensions.clone(),
                 enable_history_ui: true,
                 enable_diff_endpoint: true,
+                extra_exclude_globs: vec![],
             })
             .await;
         let snap2 = cache.snapshot().await;
