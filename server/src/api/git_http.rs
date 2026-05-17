@@ -104,6 +104,13 @@ pub async fn info_refs(
 ///
 /// Stateless-RPC endpoint for the actual pack negotiation. The client sends
 /// its wants/haves and the server responds with a packfile.
+/// Upper bound on a single `git-upload-pack` request body. Real-world
+/// negotiation requests are tens of KB even for very large repos because the
+/// body only contains `want`/`have` ref lists, not pack data. 10 MiB is a wide
+/// margin; anything over it is almost certainly hostile or malformed and we
+/// reject before allocating it.
+const MAX_UPLOAD_PACK_BODY_BYTES: usize = 10 * 1024 * 1024;
+
 pub async fn upload_pack(
     State(state): State<AppState>,
     Path(vault_id): Path<String>,
@@ -113,6 +120,15 @@ pub async fn upload_pack(
     check_enabled(&state).await?;
     let user = authenticate_basic(&state, &headers).await?;
     let _vault = vault::ensure_user_vault(&state, &user.user_id, &vault_id).await?;
+    if body.len() > MAX_UPLOAD_PACK_BODY_BYTES {
+        return Err(ApiError::bad_request(
+            "upload_pack_body_too_large",
+            format!(
+                "git-upload-pack request body exceeds {} bytes",
+                MAX_UPLOAD_PACK_BODY_BYTES
+            ),
+        ));
+    }
 
     let repo_path = state.default_vault_root().join(&vault_id);
     if !repo_path.exists() {
@@ -239,6 +255,7 @@ async fn authenticate_basic(
         username: user.username,
         is_admin: user.is_admin,
         token_id: row.id,
+        device_id: row.device_id,
     })
 }
 

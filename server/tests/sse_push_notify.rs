@@ -38,11 +38,13 @@ async fn setup() -> (AppState, AuthenticatedUser, String, tempfile::TempDir) {
         .await
         .unwrap();
     let vault = vault::create_vault(&state, &user.id, "main").await.unwrap();
+    let device_id = token_row.device_id.clone();
     let auth = AuthenticatedUser {
         user_id: user.id,
         username: user.username,
         is_admin: false,
         token_id: token_row.id,
+        device_id,
     };
     (state, auth, vault.id, tmp)
 }
@@ -158,6 +160,51 @@ async fn push_blob_emits_blob_event() {
         }
         other => panic!("expected Blob, got {:?}", other),
     }
+}
+
+/// Regression for the GLM5.1 audit finding: source_device_id in the published
+/// VaultEvent must be the token's device_id (a stable per-device identifier
+/// like "device-sse-test"), not the token row's database id. Using the row id
+/// breaks SSE self-echo filtering because the client compares against its own
+/// device_id, never the token row id, so it would receive its own push back.
+#[tokio::test]
+async fn push_event_carries_token_device_id_not_token_row_id() {
+    let (state, user, vid, _tmp) = setup().await;
+    let mut rx = state.events.subscribe(&vid);
+
+    // Sanity: setup() uses device_id="device-sse-test" when creating the token.
+    assert_eq!(user.device_id, "device-sse-test");
+    assert_ne!(
+        user.device_id, user.token_id,
+        "test setup should distinguish device_id from token_id so the assertion is meaningful"
+    );
+
+    push(
+        &state,
+        &user,
+        &vid,
+        None,
+        None,
+        PushReq {
+            device_name: None,
+            changes: vec![PushChange::Text {
+                path: "note.md".into(),
+                content: "hi".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let event = rx.try_recv().unwrap();
+    assert_eq!(
+        event.source_device_id, "device-sse-test",
+        "event must carry the device_id so client-side echo filtering works"
+    );
+    assert_ne!(
+        event.source_device_id, user.token_id,
+        "event must NOT carry the token row id; that was the v0.3.0 echo bug"
+    );
 }
 
 #[tokio::test]

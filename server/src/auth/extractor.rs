@@ -12,6 +12,10 @@ pub struct AuthenticatedUser {
     pub username: String,
     pub is_admin: bool,
     pub token_id: String,
+    /// Stable per-device id carried by the token. Used by SSE to filter the
+    /// authenticating device's own push echo. Never use `token_id` for that
+    /// purpose — it is a database row id, not a device identifier.
+    pub device_id: String,
 }
 
 #[async_trait]
@@ -54,6 +58,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             username: user.username,
             is_admin: user.is_admin,
             token_id: row.id,
+            device_id: row.device_id,
         })
     }
 }

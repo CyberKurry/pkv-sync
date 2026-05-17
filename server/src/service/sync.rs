@@ -443,6 +443,22 @@ pub async fn push_with_request_metadata(
         .commit_changes(vault_id, head.as_deref(), &git_changes, &msg)
         .await
         .map_err(git_write_error)?;
+    // Publish to SSE subscribers IMMEDIATELY after the commit lands in git, before
+    // any of the metadata-side bookkeeping (idempotency cache write, activity log).
+    // Plan J explicitly requires this ordering so subscribers do not pay for DB
+    // writes in the sub-second latency budget. Failures elsewhere (metadata,
+    // idempotency) do not roll back the commit — the broadcast is therefore
+    // honest about what state the git tree is in.
+    state.events.publish(
+        vault_id,
+        VaultEvent {
+            commit: new_commit.clone(),
+            parent: head.clone(),
+            source_device_id: user.device_id.clone(),
+            at: chrono::Utc::now().timestamp(),
+            changes: event_changes,
+        },
+    );
     let resp = PushResp {
         new_commit: new_commit.clone(),
         files_changed: git_changes.len(),
@@ -500,16 +516,6 @@ pub async fn push_with_request_metadata(
             }
         }
     }
-    state.events.publish(
-        vault_id,
-        VaultEvent {
-            commit: new_commit.clone(),
-            parent: head,
-            source_device_id: user.token_id.clone(),
-            at: chrono::Utc::now().timestamp(),
-            changes: event_changes,
-        },
-    );
     tracing::info!(
         user_id = %user.user_id,
         vault_id = %vault_id,
@@ -1004,11 +1010,13 @@ mod tests {
             .await
             .unwrap();
         let vault = vault::create_vault(&state, &user.id, "main").await.unwrap();
+        let device_id = token_row.device_id.clone();
         let auth = AuthenticatedUser {
             user_id: user.id,
             username: user.username,
             is_admin: false,
             token_id: token_row.id,
+            device_id,
         };
         (state, auth, vault.id, tmp)
     }
@@ -1556,11 +1564,13 @@ mod integration_tests {
             })
             .await
             .unwrap();
+        let device_id = tr.device_id.clone();
         let user = crate::auth::AuthenticatedUser {
             user_id: u.id.clone(),
             username: u.username.clone(),
             is_admin: false,
             token_id: tr.id,
+            device_id,
         };
         let v = vault::create_vault(&state, &u.id, "main").await.unwrap();
         (state, user, v.id, tmp)

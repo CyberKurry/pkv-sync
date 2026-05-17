@@ -261,11 +261,13 @@ mod tests {
             .await
             .unwrap();
         let vault = vault::create_vault(&state, &user.id, "main").await.unwrap();
+        let device_id = token_row.device_id.clone();
         let auth = AuthenticatedUser {
             user_id: user.id,
             username: user.username,
             is_admin: false,
             token_id: token_row.id,
+            device_id,
         };
         (state, auth, vault.id, tmp)
     }
