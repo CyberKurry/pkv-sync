@@ -295,8 +295,18 @@ pub async fn push_with_request_metadata(
     let runtime_cfg = state.runtime_cfg.snapshot().await;
     let classifier = TextClassifier::new(runtime_cfg.text_extensions.iter().map(|s| s.as_str()));
     let excludes =
-        crate::service::exclude::EffectiveExcludes::compile(&runtime_cfg.extra_exclude_globs)
-            .unwrap_or_else(|_| crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap());
+        match crate::service::exclude::EffectiveExcludes::compile(&runtime_cfg.extra_exclude_globs)
+        {
+            Ok(set) => set,
+            Err(err) => {
+                tracing::warn!(
+                    vault_id = %vault_id,
+                    error = %err,
+                    "extra_exclude_globs failed to compile on push; ignoring all configured globs"
+                );
+                crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap()
+            }
+        };
     let blob_store = blob_store(state);
     let mut git_changes = Vec::new();
     let mut blob_hashes = Vec::new();
@@ -799,8 +809,18 @@ async fn pull_for_user(
         }
     }
     let rc = state.runtime_cfg.snapshot().await;
-    let excludes = crate::service::exclude::EffectiveExcludes::compile(&rc.extra_exclude_globs)
-        .unwrap_or_else(|_| crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap());
+    let excludes =
+        match crate::service::exclude::EffectiveExcludes::compile(&rc.extra_exclude_globs) {
+            Ok(set) => set,
+            Err(err) => {
+                tracing::warn!(
+                    vault_id = %vault_id,
+                    error = %err,
+                    "extra_exclude_globs failed to compile on pull; ignoring all configured globs"
+                );
+                crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap()
+            }
+        };
     added.retain(|f| !excludes.is_excluded(&f.path));
     modified.retain(|f| !excludes.is_excluded(&f.path));
     deleted.retain(|p| !excludes.is_excluded(p));
