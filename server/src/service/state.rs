@@ -3,6 +3,7 @@ use crate::db::repos::{
     SqliteInviteRepo, SqliteRuntimeConfigRepo, SqliteSyncActivityRepo, SqliteTokenRepo,
     SqliteUserRepo, SqliteVaultRepo,
 };
+use crate::service::events::VaultEventBus;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,6 +27,7 @@ pub struct AppState {
     pub runtime_cfg: RuntimeConfigCache,
     /// Default server name override from config.toml, used as fallback.
     pub default_server_name: String,
+    pub events: VaultEventBus,
     push_locks: VaultPushLocks,
 }
 
@@ -61,6 +63,7 @@ impl AppState {
             runtime_cfg_repo,
             runtime_cfg,
             default_server_name,
+            events: VaultEventBus::new(64),
             push_locks: Arc::new(Mutex::new(HashMap::new())),
         })
     }

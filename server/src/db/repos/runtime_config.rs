@@ -44,6 +44,7 @@ pub struct RuntimeConfig {
     pub enable_history_ui: bool,
     pub enable_diff_endpoint: bool,
     pub extra_exclude_globs: Vec<String>,
+    pub inline_content_max_bytes: u32,
 }
 
 impl Default for RuntimeConfig {
@@ -67,6 +68,7 @@ impl Default for RuntimeConfig {
             enable_history_ui: true,
             enable_diff_endpoint: true,
             extra_exclude_globs: vec![],
+            inline_content_max_bytes: 8192,
         }
     }
 }
@@ -212,6 +214,11 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         if let Some(v) = read_kv(&self.pool, "extra_exclude_globs").await? {
             if let Ok(globs) = serde_json::from_str::<Vec<String>>(&v) {
                 cfg.extra_exclude_globs = globs;
+            }
+        }
+        if let Some(v) = read_kv(&self.pool, "inline_content_max_bytes").await? {
+            if let Ok(n) = serde_json::from_str::<u32>(&v) {
+                cfg.inline_content_max_bytes = n.max(1);
             }
         }
         Ok(cfg)
@@ -431,6 +438,7 @@ mod tests {
                 enable_history_ui: true,
                 enable_diff_endpoint: true,
                 extra_exclude_globs: vec![],
+                inline_content_max_bytes: 8192,
             })
             .await;
         let snap2 = cache.snapshot().await;

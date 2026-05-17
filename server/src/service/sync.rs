@@ -1,5 +1,6 @@
 use crate::api::error::ApiError;
 use crate::db::repos::{BlobRefRepo, IdempotencyRepo, NewActivity, SyncActivityRepo};
+use crate::service::events::{EventChange, VaultEvent};
 use crate::service::vault;
 use crate::service::AppState;
 use crate::storage::blob::{BlobStore, LocalFsBlobStore};
@@ -310,6 +311,8 @@ pub async fn push_with_request_metadata(
     let blob_store = blob_store(state);
     let mut git_changes = Vec::new();
     let mut blob_hashes = Vec::new();
+    let inline_max = runtime_cfg.inline_content_max_bytes as usize;
+    let mut event_changes = Vec::new();
 
     for ch in req.changes {
         match ch {
@@ -336,6 +339,18 @@ pub async fn push_with_request_metadata(
                         "wrong_file_kind",
                         "non-text path sent as text",
                     ));
+                }
+                let content_len = content.len();
+                if content_len <= inline_max {
+                    event_changes.push(EventChange::TextInline {
+                        path: p.clone(),
+                        content: content.clone(),
+                    });
+                } else {
+                    event_changes.push(EventChange::TextRef {
+                        path: p.clone(),
+                        size: content_len as u64,
+                    });
                 }
                 git_changes.push(FileChange::Upsert {
                     path: p,
@@ -390,6 +405,11 @@ pub async fn push_with_request_metadata(
                     ));
                 }
                 blob_hashes.push(blob_hash.clone());
+                event_changes.push(EventChange::Blob {
+                    path: p.clone(),
+                    blob_hash: blob_hash.clone(),
+                    size,
+                });
                 git_changes.push(FileChange::Upsert {
                     path: p,
                     file: StoredFile::BlobPointer {
@@ -408,6 +428,7 @@ pub async fn push_with_request_metadata(
                         format!("path '{}' is excluded by server configuration", p),
                     ));
                 }
+                event_changes.push(EventChange::Delete { path: p.clone() });
                 git_changes.push(FileChange::Delete { path: p });
             }
         }
@@ -479,6 +500,16 @@ pub async fn push_with_request_metadata(
             }
         }
     }
+    state.events.publish(
+        vault_id,
+        VaultEvent {
+            commit: new_commit.clone(),
+            parent: head,
+            source_device_id: user.token_id.clone(),
+            at: chrono::Utc::now().timestamp(),
+            changes: event_changes,
+        },
+    );
     tracing::info!(
         user_id = %user.user_id,
         vault_id = %vault_id,
