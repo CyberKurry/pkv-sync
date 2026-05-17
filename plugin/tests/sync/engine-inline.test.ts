@@ -52,6 +52,8 @@ class FakeVault {
 
 class FakeIndex implements IndexPersistence {
   saved: LocalIndex | null = null;
+  /** Chain used to model serialised updates (mirrors SerializedPluginDataStore). */
+  private chain: Promise<void> = Promise.resolve();
   constructor(public idx: LocalIndex) {}
   async loadIndex(): Promise<LocalIndex> {
     return this.idx;
@@ -59,6 +61,17 @@ class FakeIndex implements IndexPersistence {
   async saveIndex(index: LocalIndex): Promise<void> {
     this.saved = index;
     this.idx = index;
+  }
+  async updateIndex(
+    updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>
+  ): Promise<void> {
+    const run = this.chain.then(async () => {
+      const next = await updater(this.idx);
+      this.saved = next;
+      this.idx = next;
+    });
+    this.chain = run.catch(() => undefined);
+    await run;
   }
 }
 
@@ -133,6 +146,35 @@ describe("SyncEngine inline apply dirty detection", () => {
     expect(vault.writes.get("note.md")).toBe("new remote content");
     expect(index.saved?.files["note.md"]?.lastSyncedHash).toBe(
       await sha256Text("new remote content")
+    );
+  });
+
+  /// GLM5 Ultra Review H-5 regression: two concurrent applyInlineText calls
+  /// must end with BOTH files reflected in the index. With the pre-fix
+  /// load-modify-save pattern, the second call's loadIndex read the same
+  /// stale state as the first, so its saveIndex overwrote the first's
+  /// entry — losing one of the files.
+  it("two concurrent applyInlineText calls both reach the index without loss", async () => {
+    const vault = new FakeVault();
+    const index = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const engine = buildEngine({ vault, index });
+    type Fn = (p: string, c: string, sha: string) => Promise<void>;
+    const apply = (engine as never as { applyInlineText: Fn }).applyInlineText;
+
+    // Fire both concurrently without awaiting in between.
+    await Promise.all([
+      apply.call(engine, "a.md", "alpha content", "c1"),
+      apply.call(engine, "b.md", "beta content", "c2")
+    ]);
+
+    expect(vault.writes.get("a.md")).toBe("alpha content");
+    expect(vault.writes.get("b.md")).toBe("beta content");
+    // Both files must be present in the final index.
+    expect(index.saved?.files["a.md"]?.lastSyncedHash).toBe(
+      await sha256Text("alpha content")
+    );
+    expect(index.saved?.files["b.md"]?.lastSyncedHash).toBe(
+      await sha256Text("beta content")
     );
   });
 

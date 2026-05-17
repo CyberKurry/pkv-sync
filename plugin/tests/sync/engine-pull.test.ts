@@ -60,6 +60,15 @@ class FakeIndex implements IndexPersistence {
     this.saved = index;
     this.idx = index;
   }
+
+  async updateIndex(
+    updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>
+  ): Promise<void> {
+    const next = await updater(this.idx);
+    this.saves.push(next);
+    this.saved = next;
+    this.idx = next;
+  }
 }
 
 describe("SyncEngine pull", () => {

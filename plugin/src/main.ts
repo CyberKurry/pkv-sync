@@ -220,6 +220,22 @@ export default class PKVSyncPlugin extends Plugin {
     );
   }
 
+  /**
+   * Atomic read-modify-write of the sync index. The updater runs inside the
+   * SerializedPluginDataStore.update transaction, so concurrent callers
+   * cannot observe a stale load between each other's writes (GLM5 H-5).
+   */
+  async updateSyncIndex(
+    updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>,
+    scopeKey = syncScopeKey(this.settings)
+  ): Promise<void> {
+    await this.dataStore.update(async (data) => {
+      const current = readSyncIndex(data, scopeKey);
+      const next = await updater(current);
+      return writePluginSettings(writeSyncIndex(data, scopeKey, next), this.settings);
+    });
+  }
+
   updateStatus(): void {
     const t = this.text();
     this.statusEl?.setText(
@@ -350,6 +366,10 @@ export default class PKVSyncPlugin extends Plugin {
         saveIndex: async (index) => {
           if (generation !== this.syncGeneration) return;
           await this.saveSyncIndex(index, scopeKey);
+        },
+        updateIndex: async (updater) => {
+          if (generation !== this.syncGeneration) return;
+          await this.updateSyncIndex(updater, scopeKey);
         }
       },
       setStatus: (status, detail) =>

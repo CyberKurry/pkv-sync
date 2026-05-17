@@ -19,6 +19,17 @@ import { shouldSyncPath, type VaultAdapter } from "./vault-adapter";
 export interface IndexPersistence {
   loadIndex(): Promise<LocalIndex>;
   saveIndex(index: LocalIndex): Promise<void>;
+  /**
+   * Atomic read-modify-write of the sync index. Two concurrent calls are
+   * serialised through the underlying plugin data store so neither caller
+   * observes a stale read or overwrites the other's write. This is the
+   * recommended path for any change that depends on the previous index
+   * state (mark a file synced after inline apply, advance HEAD, etc.).
+   * (GLM5 Ultra Review H-5.)
+   */
+  updateIndex(
+    updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>
+  ): Promise<void>;
 }
 
 /**
@@ -55,6 +66,13 @@ export interface SyncEngineOptions {
 export class SyncEngine {
   private running: Promise<void> | null = null;
   private unsubscribeEvents: (() => void) | null = null;
+  /**
+   * Chain head for serialising SSE event handlers. Each incoming event
+   * appends a task that awaits the previous one before running, so events
+   * never interleave between each other or with syncNow's atomic phase
+   * (GLM5 H-5).
+   */
+  private eventChain: Promise<void> = Promise.resolve();
 
   constructor(private opts: SyncEngineOptions) {
     if (!opts.vaultId.trim()) throw new Error("SyncEngine requires a non-empty vaultId");
@@ -86,37 +104,46 @@ export class SyncEngine {
       deploymentKey: this.opts.deploymentKey,
       token: this.opts.token,
       ownDeviceId: this.opts.deviceId,
-      onEvent: async (ev: VaultEvent) => {
-        if (!ev.commit) {
-          // lagged — do a full pull
-          await this.syncNow();
-          return;
-        }
-        let needFallbackPull = false;
-        for (const change of ev.changes) {
-          try {
-            switch (change.kind) {
-              case "text_inline":
-                await this.applyInlineText(change.path, change.content, ev.commit);
-                break;
-              case "delete":
-                await this.applyDelete(change.path, ev.commit);
-                break;
-              case "text_ref":
-              case "blob":
-                needFallbackPull = true;
-                break;
-            }
-          } catch (err) {
-            console.warn("[pkv-sync] inline apply failed, falling back to pull:", err);
-            needFallbackPull = true;
+      onEvent: (ev: VaultEvent) => {
+        // Serialise all SSE event handling through eventChain so that two
+        // quick-succession events cannot interleave their applyInlineText /
+        // applyDelete / advanceIndexHead steps. Without this, event B could
+        // read a stale local file between event A's writeText and A's
+        // index update, leading to either lost content or a same-commit
+        // echo push back to the server (GLM5 H-5).
+        const task = this.eventChain.then(async () => {
+          if (!ev.commit) {
+            // lagged — do a full pull
+            await this.syncNow();
+            return;
           }
-        }
-        if (needFallbackPull) {
-          await this.syncNow();
-        } else {
-          await this.advanceIndexHead(ev.commit);
-        }
+          let needFallbackPull = false;
+          for (const change of ev.changes) {
+            try {
+              switch (change.kind) {
+                case "text_inline":
+                  await this.applyInlineText(change.path, change.content, ev.commit);
+                  break;
+                case "delete":
+                  await this.applyDelete(change.path, ev.commit);
+                  break;
+                case "text_ref":
+                case "blob":
+                  needFallbackPull = true;
+                  break;
+              }
+            } catch (err) {
+              console.warn("[pkv-sync] inline apply failed, falling back to pull:", err);
+              needFallbackPull = true;
+            }
+          }
+          if (needFallbackPull) {
+            await this.syncNow();
+          } else {
+            await this.advanceIndexHead(ev.commit);
+          }
+        });
+        this.eventChain = task.catch(() => undefined);
       },
       onError: (err: Error) => {
         console.warn("[pkv-sync] SSE subscribe failed, falling back to polling:", err);
@@ -382,40 +409,44 @@ export class SyncEngine {
   }
 
   private async applyInlineText(path: string, content: string, commit: string): Promise<void> {
-    const index = await this.opts.index.loadIndex();
-    const indexed = index.files[path];
-    // Dirty check: if we have an indexed copy and the local file has diverged
-    // from it, the user has unsynced local edits. Refuse to silently overwrite;
-    // bubble up so the caller falls back to a full pull that will materialise
-    // the remote version as a `.conflict-*` file and preserve local content.
-    if (indexed && this.opts.vault.exists(path)) {
-      const localContent = await this.opts.vault.readText(path);
-      const localHash = await sha256Text(localContent);
-      if (localHash !== indexed.lastSyncedHash) {
-        throw new InlineApplyDirtyError(path);
-      }
-    }
-    await this.opts.vault.writeText(path, content);
+    // Dirty check + write must look at one consistent index snapshot.
+    // updateIndex serialises through the underlying data store so two
+    // concurrent inline-event handlers cannot observe stale state or
+    // overwrite each other's index updates (GLM5 H-5).
     const hash = await sha256Text(content);
-    const snapshot: LocalFileSnapshot = {
-      path, hash, size: new TextEncoder().encode(content).byteLength, kind: "text", content
-    };
-    const next = markSynced(index, commit, [snapshot]);
-    await this.opts.index.saveIndex(next);
+    const size = new TextEncoder().encode(content).byteLength;
+    const snapshot: LocalFileSnapshot = { path, hash, size, kind: "text", content };
+    await this.opts.index.updateIndex(async (index) => {
+      const indexed = index.files[path];
+      if (indexed && this.opts.vault.exists(path)) {
+        const localContent = await this.opts.vault.readText(path);
+        const localHash = await sha256Text(localContent);
+        if (localHash !== indexed.lastSyncedHash) {
+          // Local has unsynced edits. Throwing inside updateIndex aborts
+          // the data-store update without writing, so the index does not
+          // advance and the file is not touched.
+          throw new InlineApplyDirtyError(path);
+        }
+      }
+      // Write file inside the atomic update so a concurrent applyInlineText
+      // cannot interleave its writeText between our dirty check and our save.
+      await this.opts.vault.writeText(path, content);
+      return markSynced(index, commit, [snapshot]);
+    });
   }
 
   private async applyDelete(path: string, commit: string): Promise<void> {
-    await this.opts.vault.delete(path);
-    const index = await this.opts.index.loadIndex();
-    const next = markDeleted(index, commit, [path]);
-    await this.opts.index.saveIndex(next);
+    await this.opts.index.updateIndex(async (index) => {
+      await this.opts.vault.delete(path);
+      return markDeleted(index, commit, [path]);
+    });
   }
 
   private async advanceIndexHead(commit: string): Promise<void> {
-    const index = await this.opts.index.loadIndex();
-    if (index.lastSyncedCommit === commit) return;
-    const next: LocalIndex = { ...index, lastSyncedCommit: commit };
-    await this.opts.index.saveIndex(next);
+    await this.opts.index.updateIndex(async (index) => {
+      if (index.lastSyncedCommit === commit) return index;
+      return { ...index, lastSyncedCommit: commit };
+    });
   }
 
   private async matchingLocalSnapshot(
