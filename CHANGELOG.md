@@ -7,6 +7,15 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-17
+
+### Added
+
+- Delete vault entry in the Obsidian plugin settings, with typed-confirm protection (closes #3).
+- Runtime-configurable extra exclude globs (admin Sync &amp; Storage panel).
+- Conflict file resolution UI: command palette "Resolve conflict files" lists `.conflict-*` files, shows diff vs the original, and offers "Keep local" / "Accept remote" / "Later".
+- Obsidian community plugin store submission materials and `versions.json`.
+
 ## [0.1.12] - 2026-05-12
 
 ### Security
