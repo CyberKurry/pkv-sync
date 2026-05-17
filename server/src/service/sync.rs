@@ -294,8 +294,9 @@ pub async fn push_with_request_metadata(
 
     let runtime_cfg = state.runtime_cfg.snapshot().await;
     let classifier = TextClassifier::new(runtime_cfg.text_extensions.iter().map(|s| s.as_str()));
-    let excludes = crate::service::exclude::EffectiveExcludes::compile(&runtime_cfg.extra_exclude_globs)
-        .unwrap_or_else(|_| crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap());
+    let excludes =
+        crate::service::exclude::EffectiveExcludes::compile(&runtime_cfg.extra_exclude_globs)
+            .unwrap_or_else(|_| crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap());
     let blob_store = blob_store(state);
     let mut git_changes = Vec::new();
     let mut blob_hashes = Vec::new();
@@ -306,7 +307,10 @@ pub async fn push_with_request_metadata(
                 let p = path::normalize(&path)
                     .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
                 if excludes.is_excluded(&p) {
-                    return Err(ApiError::bad_request("path_excluded", format!("path '{}' is excluded by server configuration", p)));
+                    return Err(ApiError::bad_request(
+                        "path_excluded",
+                        format!("path '{}' is excluded by server configuration", p),
+                    ));
                 }
                 if content.len() as u64 > runtime_cfg.max_file_size {
                     return Err(ApiError::bad_request(
@@ -339,7 +343,10 @@ pub async fn push_with_request_metadata(
                 let p = path::normalize(&path)
                     .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
                 if excludes.is_excluded(&p) {
-                    return Err(ApiError::bad_request("path_excluded", format!("path '{}' is excluded by server configuration", p)));
+                    return Err(ApiError::bad_request(
+                        "path_excluded",
+                        format!("path '{}' is excluded by server configuration", p),
+                    ));
                 }
                 if size > runtime_cfg.max_file_size {
                     return Err(ApiError::bad_request(
@@ -386,7 +393,10 @@ pub async fn push_with_request_metadata(
                 let p = path::normalize(&path)
                     .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
                 if excludes.is_excluded(&p) {
-                    return Err(ApiError::bad_request("path_excluded", format!("path '{}' is excluded by server configuration", p)));
+                    return Err(ApiError::bad_request(
+                        "path_excluded",
+                        format!("path '{}' is excluded by server configuration", p),
+                    ));
                 }
                 git_changes.push(FileChange::Delete { path: p });
             }

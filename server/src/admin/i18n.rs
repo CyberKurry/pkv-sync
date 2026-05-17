@@ -264,7 +264,8 @@ impl AdminText {
             ip: "IP",
             user_agent: "User-Agent",
             extra_exclude_globs: "额外排除规则",
-            extra_exclude_globs_hint: "从同步中排除的文件模式（每行一个）。这些规则在内置硬排除之外额外生效。",
+            extra_exclude_globs_hint:
+                "从同步中排除的文件模式（每行一个）。这些规则在内置硬排除之外额外生效。",
         }
     }
 }

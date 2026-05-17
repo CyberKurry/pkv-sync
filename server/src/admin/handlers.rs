@@ -1842,13 +1842,15 @@ async fn settings_post(
             Some(&session.user.id),
         )
         .await?;
-    let extra_exclude_globs: Vec<String> = form.extra_exclude_globs
+    let extra_exclude_globs: Vec<String> = form
+        .extra_exclude_globs
         .lines()
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
         .collect();
-    crate::service::exclude::EffectiveExcludes::compile(&extra_exclude_globs)
-        .map_err(|e| ApiError::bad_request("invalid_glob", format!("invalid glob pattern: {}", e)))?;
+    crate::service::exclude::EffectiveExcludes::compile(&extra_exclude_globs).map_err(|e| {
+        ApiError::bad_request("invalid_glob", format!("invalid glob pattern: {}", e))
+    })?;
     state
         .runtime_cfg_repo
         .set_extra_exclude_globs(extra_exclude_globs, Some(&session.user.id))
