@@ -1872,6 +1872,19 @@ async fn settings_post(
         .runtime_cfg_repo
         .set_push_debounce_ms(form.push_debounce_ms, Some(&session.user.id))
         .await?;
+    // Inline payload is shipped over SSE to every subscribed device; an
+    // unbounded value lets one operator misconfiguration explode SSE frames
+    // and starve subscribers. 64 KiB is the documented ceiling in Plan J.
+    const INLINE_CONTENT_MAX_CAP: u32 = 64 * 1024;
+    if form.inline_content_max_bytes > INLINE_CONTENT_MAX_CAP {
+        return Err(ApiError::bad_request(
+            "inline_content_max_bytes_too_large",
+            format!(
+                "inline_content_max_bytes must be ≤ {} bytes",
+                INLINE_CONTENT_MAX_CAP
+            ),
+        ));
+    }
     state
         .runtime_cfg_repo
         .set_inline_content_max_bytes(form.inline_content_max_bytes, Some(&session.user.id))
