@@ -452,6 +452,22 @@
   color: var(--pkv-primary);
 }
 
+.pkv-sync-vault-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pkv-sync-vault-actions .pkv-sync-button.is-ghost {
+  border: 1px solid var(--pkv-border-subtle, rgba(120, 120, 128, 0.24));
+  color: var(--pkv-text-muted, #888);
+  font-size: 12px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 4px;
+  background: transparent;
+}
+
 .pkv-sync-create-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;

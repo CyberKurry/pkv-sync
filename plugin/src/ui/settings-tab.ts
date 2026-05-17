@@ -317,8 +317,9 @@ export class PKVSyncSettingTab extends PluginSettingTab {
           selected: ""
         })
       });
+      const actions = row.createDiv({ cls: "pkv-sync-vault-actions" });
       const button = this.renderButton(
-        row,
+        actions,
         selected ? t.selectedVaultButton : t.useVaultButton,
         selected ? "primary" : "ghost",
         async () => {
@@ -331,11 +332,11 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       );
       button.disabled = selected;
 
-      this.renderButton(row, t.deleteVaultButton, "ghost", () => {
+      this.renderButton(actions, t.deleteVaultButton, "ghost", () => {
         new DeleteVaultModal(this.app, vault, t, () =>
           this.deleteVaultAndRefresh(vault)
         ).open();
-      }).addClass("pkv-sync-vault-delete");
+      });
     }
 
     this.renderCreateVault(body);
