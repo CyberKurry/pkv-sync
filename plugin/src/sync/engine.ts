@@ -21,6 +21,18 @@ export interface IndexPersistence {
   saveIndex(index: LocalIndex): Promise<void>;
 }
 
+/**
+ * Thrown by applyInlineText when the local file has diverged from what the
+ * sync index recorded last. Signals the caller to fall back to a full pull
+ * (which generates a .conflict-* file) instead of overwriting user edits.
+ */
+export class InlineApplyDirtyError extends Error {
+  constructor(public readonly path: string) {
+    super(`local copy of ${path} has unsynced changes; refusing inline apply`);
+    this.name = "InlineApplyDirtyError";
+  }
+}
+
 export interface SyncEngineOptions {
   vaultId: string;
   deviceName: string;
@@ -370,8 +382,20 @@ export class SyncEngine {
   }
 
   private async applyInlineText(path: string, content: string, commit: string): Promise<void> {
-    await this.opts.vault.writeText(path, content);
     const index = await this.opts.index.loadIndex();
+    const indexed = index.files[path];
+    // Dirty check: if we have an indexed copy and the local file has diverged
+    // from it, the user has unsynced local edits. Refuse to silently overwrite;
+    // bubble up so the caller falls back to a full pull that will materialise
+    // the remote version as a `.conflict-*` file and preserve local content.
+    if (indexed && this.opts.vault.exists(path)) {
+      const localContent = await this.opts.vault.readText(path);
+      const localHash = await sha256Text(localContent);
+      if (localHash !== indexed.lastSyncedHash) {
+        throw new InlineApplyDirtyError(path);
+      }
+    }
+    await this.opts.vault.writeText(path, content);
     const hash = await sha256Text(content);
     const snapshot: LocalFileSnapshot = {
       path, hash, size: new TextEncoder().encode(content).byteLength, kind: "text", content
