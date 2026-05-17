@@ -72,6 +72,15 @@ impl ApiError {
             message: msg.into(),
         }
     }
+
+    /// Construct an `ApiError` with an arbitrary status code, code, and message.
+    pub fn new(status: StatusCode, code: &str, msg: impl Into<String>) -> Self {
+        Self {
+            status,
+            code: code.into(),
+            message: msg.into(),
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
