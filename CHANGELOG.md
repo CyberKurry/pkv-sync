@@ -7,6 +7,22 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-17
+
+### Added
+
+- SSE push notifications: the server broadcasts vault change events to connected plugins in real time via `GET /api/vaults/:id/events`. Small text changes (≤ 8 KB) are delivered inline, eliminating the need for a separate pull round-trip.
+- Plugin SSE subscription with inline apply: the Obsidian plugin opens an SSE stream on startup, writes inline text content and deletes directly to disk, and falls back to a full pull for blob or large-text changes. Self-originated events are filtered by device ID.
+- Git smart HTTP (read-only): clone any PKV Sync vault using `git clone` over HTTP. Auth uses the standard `Authorization: Basic` header bridged to the PKV Sync token system. Disabled by default via the `enable_git_smart_http` runtime flag; returns 503 when git is not found on the server PATH.
+- `pkvsyncd materialize` CLI subcommand: walks the bare git tree for a vault and writes a working copy to an output directory, resolving blob pointer JSONs by copying the actual binary data from the sharded blob store.
+- Admin WebUI settings for SSE heartbeat interval, push debounce window, inline content size limit, and Git smart HTTP toggle.
+- `ServerCapabilities.git_smart_http` field in the public config response so clients can discover whether Git clone is available.
+
+### Changed
+
+- Default push debounce reduced from 2000 ms to 250 ms for faster SSE event propagation.
+- SSE heartbeat (default 30 s) keeps idle connections alive through proxies and load balancers.
+
 ## [0.2.1] - 2026-05-17
 
 ### Fixed
