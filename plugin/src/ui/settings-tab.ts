@@ -1,4 +1,4 @@
-import { type App, Notice, PluginSettingTab, setIcon } from "obsidian";
+import { type App, Notice, Platform, PluginSettingTab, setIcon } from "obsidian";
 import { ApiError } from "../api/client";
 import type {
   MeResponse,
@@ -37,6 +37,8 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("pkv-sync-settings-host");
+    containerEl.toggleClass("is-mobile", this.isMobileLayout());
+    containerEl.toggleClass("is-phone", Platform.isPhone);
 
     const shell = containerEl.createDiv({ cls: "pkv-sync-app" });
     const panel = shell.createDiv({ cls: "pkv-sync-panel" });
@@ -576,6 +578,17 @@ export class PKVSyncSettingTab extends PluginSettingTab {
 
   private initialFor(value: string): string {
     return value.trim().charAt(0).toUpperCase() || "P";
+  }
+
+  private isMobileLayout(): boolean {
+    return (
+      Platform.isMobile ||
+      Platform.isMobileApp ||
+      Platform.isPhone ||
+      Platform.isTablet ||
+      Platform.isAndroidApp ||
+      Platform.isIosApp
+    );
   }
 
   private syncDetailTime(): string {

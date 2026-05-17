@@ -7,7 +7,10 @@ describe("settings mobile CSS", () => {
 
   it("adds top safe-area padding for Obsidian mobile settings chrome", () => {
     expect(css).toContain("body.is-mobile .pkv-sync-panel");
+    expect(css).toContain(".pkv-sync-settings-host.is-mobile .pkv-sync-panel");
     expect(css).toContain("env(safe-area-inset-top)");
     expect(css).toContain("--pkv-mobile-top-offset");
+    expect(css).toContain("--pkv-mobile-chrome-offset");
+    expect(css).toContain(".pkv-sync-settings-host.is-phone");
   });
 });

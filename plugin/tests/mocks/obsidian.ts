@@ -3,8 +3,13 @@ import { vi } from "vitest";
 export const requestUrl = vi.fn();
 export const notices: string[] = [];
 export const Platform = {
+  isMobile: false,
+  isMobileApp: false,
+  isPhone: false,
+  isTablet: false,
   isAndroidApp: false,
   isIosApp: false,
+  isDesktop: true,
   isDesktopApp: true
 };
 
@@ -50,6 +55,8 @@ export class PluginSettingTab {
   containerEl = {
     empty: vi.fn(),
     addClass: vi.fn(),
+    removeClass: vi.fn(),
+    toggleClass: vi.fn(),
     createDiv: vi.fn()
   };
 

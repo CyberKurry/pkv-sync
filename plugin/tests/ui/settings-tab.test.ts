@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { Platform } from "obsidian";
 import { PKVSyncSettingTab } from "../../src/ui/settings-tab";
 import { DeleteVaultModal } from "../../src/ui/delete-vault-modal";
 import { notices } from "../mocks/obsidian";
@@ -30,6 +31,67 @@ describe("PKVSyncSettingTab connection state", () => {
 
     expect(tab.cfg).toBeNull();
     expect(tab.display).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks the settings root as mobile when Obsidian reports a phone layout", () => {
+    const previous = {
+      isMobile: Platform.isMobile,
+      isMobileApp: Platform.isMobileApp,
+      isPhone: Platform.isPhone
+    };
+    Platform.isMobile = true;
+    Platform.isMobileApp = true;
+    Platform.isPhone = true;
+
+    const shell = mockElement();
+    const panel = mockElement();
+    const containerEl = mockElement();
+    containerEl.createDiv.mockReturnValueOnce(shell);
+    shell.createDiv.mockReturnValueOnce(panel);
+
+    const tab = new PKVSyncSettingTab(
+      { vault: { getFiles: () => [] } } as never,
+      {
+        settings: {
+          token: "",
+          serverUrl: "",
+          deploymentKey: "",
+          deviceName: "Phone",
+          timezone: "Asia/Shanghai",
+          language: "auto"
+        },
+        text: () => ({
+          settingsTitle: "PKV Sync",
+          language: "Language",
+          autoLanguage: "Auto",
+          englishLanguage: "English",
+          zhCnLanguage: "Simplified Chinese",
+          connection: "Connection",
+          serverUrl: "Server URL",
+          deploymentKey: "Deployment Key",
+          deviceName: "Device Name",
+          timezone: "Timezone",
+          connect: "Connect",
+          conflictFiles: "Conflict files",
+          conflictFilesSummary: "{count} conflict files",
+          deleteConflictsButton: "Delete conflicts"
+        }),
+        saveSettings: vi.fn(),
+        api: vi.fn()
+      } as never
+    );
+    tab.containerEl = containerEl as never;
+
+    try {
+      tab.display();
+
+      expect(containerEl.toggleClass).toHaveBeenCalledWith("is-mobile", true);
+      expect(containerEl.toggleClass).toHaveBeenCalledWith("is-phone", true);
+    } finally {
+      Platform.isMobile = previous.isMobile;
+      Platform.isMobileApp = previous.isMobileApp;
+      Platform.isPhone = previous.isPhone;
+    }
   });
 });
 
@@ -107,3 +169,17 @@ describe("delete vault", () => {
     expect(notices[0]).toContain("Failed");
   });
 });
+
+function mockElement(): any {
+  return {
+    empty: vi.fn(),
+    addClass: vi.fn(),
+    removeClass: vi.fn(),
+    toggleClass: vi.fn(),
+    createDiv: vi.fn(() => mockElement()),
+    createEl: vi.fn(() => mockElement()),
+    createSpan: vi.fn(() => mockElement()),
+    setText: vi.fn(),
+    addEventListener: vi.fn()
+  };
+}
