@@ -765,7 +765,7 @@ async fn settings_update_applies_live_login_limiter() {
         Method::POST,
         "/admin/settings",
         Body::from(
-            "server_name=Test&timezone=Asia%2FShanghai&registration_mode=disabled&login_failure_threshold=1&login_window_seconds=60&login_lock_seconds=60&extra_exclude_globs=",
+            "server_name=Test&timezone=Asia%2FShanghai&registration_mode=disabled&login_failure_threshold=1&login_window_seconds=60&login_lock_seconds=60&extra_exclude_globs=&sse_heartbeat_seconds=30&push_debounce_ms=250&inline_content_max_bytes=8192",
         ),
     );
     settings_req.headers_mut().insert(
