@@ -1,6 +1,6 @@
 # PKV Sync
 
-自托管 Obsidian 笔记库同步：Rust 服务端、SQLite 元数据、Git 文本历史、内容寻址附件存储，以及支持桌面端和移动端的 Obsidian 插件。
+自托管 Obsidian 笔记库同步:Rust 服务端、SQLite 元数据、Git 文本历史、内容寻址附件存储,以及桌面/移动端 Obsidian 插件。
 
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
@@ -9,60 +9,37 @@
 
 ## 状态
 
-PKV Sync 仍处于 1.0 之前阶段。API、存储布局、发布包和运维默认值仍可能变化。
+PKV Sync 是 pre-1.0 软件。API、存储布局、发布形式和默认值都可能继续变更。
 
-PKV Sync 不提供端到端加密。服务端可以读取同步的笔记库内容和附件。正式部署时应使用 HTTPS、严格的账号权限、磁盘加密、加密备份和主机加固。
+PKV Sync **不提供**端到端加密。服务端可以读取同步的笔记内容和附件。生产部署务必启用 HTTPS、严格的账号控制、加密磁盘、加密备份和主机层加固 —— 详见 [部署加固指南](./public-docs/deployment-hardening.zh-CN.md)。
 
-## 组件
+## 亮点
 
-- `pkvsyncd`：服务端守护进程和 CLI
-- `pkv-sync`：Obsidian 桌面端和移动端插件
-- SQLite 元数据数据库
-- 数据目录下的每笔记库裸 Git 仓库
-- 用于二进制附件的 SHA-256 内容寻址 blob 存储
-- Admin WebUI：用户、设备 token、笔记库、邀请码、设置、活动和清理
-- Docker、Docker Compose、Caddy、Nginx、Traefik、systemd、CI 和 release workflow 示例
+- **多用户、多笔记库** Obsidian 同步,带按笔记库 push 锁和幂等 push。
+- **实时推送** —— 通过 Server-Sent Events 投递提交事件,小文本变更(≤ 8 KiB)直接内联在事件里,插件无需再 pull。健康网络下端到端目标亚秒级,轮询作为安全兜底保留。
+- **Git 原生** —— 每个笔记库在磁盘上就是一个裸 git 仓库。每文件历史、unified diff、单文件恢复在插件和管理面板里都可见。可选启用只读 `git clone https://_:<token>@host/git/<vault>` 用于离线浏览或外部镜像。
+- **冲突安全** —— SSE 内联应用拒绝覆盖本地有未同步修改的文件;冲突落盘为 `.conflict-*` 文件,可在插件命令面板里用真 LCS 行差异预览并一键选择"保留本地"或"采纳远端"。
+- **管理面板** —— 用户、设备 token、笔记库、邀请码、运行时设置、活动日志、blob 垃圾回收。响应式,中英双语。
+- **安全** —— Argon2id 密码哈希、原子化每 IP 登录速率限制(带突发保护)、未配置 `public_host` 时 CSRF fail-closed、无效密码与禁用账号统一返回 "invalid credentials"、90 天 bearer 设备 token + 重新登录时自动轮换。
+- **刻意简单** —— 单二进制、单 SQLite 元数据、每笔记库一个 bare git 仓库、每附件一个内容寻址 blob。**不**搞集群、不依赖 MySQL/PostgreSQL、不依赖 S3。
+- 发布 Linux amd64 / arm64、Windows x64 二进制以及多架构 GHCR Docker 镜像。
 
-## 当前功能
-
-| 领域 | 当前行为 |
-| --- | --- |
-| 同步模型 | 通过认证设备支持多用户、多笔记库 Obsidian 同步 |
-| 文本历史 | 文本文件提交到每个笔记库对应的 Git 历史 |
-| 历史与差异 | Obsidian 可查看单文件历史和 unified diff；Admin WebUI 可只读浏览文件、历史和差异 |
-| 单文件恢复 | Obsidian 可把某个历史版本写回本地文件，并由正常同步流程推送 |
-| 附件 | 二进制文件保存为 SHA-256 blob，并从 Git pointer 文件引用 |
-| 冲突处理 | 本地/远端冲突保留为生成的 `.conflict-*` 文件 |
-| 冲突清理 | 插件设置页和命令面板可以列出或删除生成的冲突文件 |
-| 排除规则 | 不同步 `.obsidian/`、`.trash/` 和生成的冲突文件 |
-| 认证 | 部署密钥预认证，加用户名/密码登录和 90 天 bearer 设备 token |
-| 设备 | 插件持久化稳定设备 ID；同一设备重新登录会替换旧的活跃 token |
-| 注册 | 运行时模式：禁用注册、仅邀请码、开放注册 |
-| 管理 | 响应式仪表盘、用户、用户详情、设备 token、笔记库、只读文件/历史/diff 浏览、邀请码、设置、活动和 blob GC |
-| 活动 | push、pull、历史、diff 和提交查看活动记录，支持按用户/动作筛选，显示设备名、笔记库、IP、User-Agent 和详情 |
-| 时间显示 | 管理后台和插件时间戳使用可选 IANA 时区，默认 `Asia/Shanghai` |
-| 可读值 | 管理后台以可读单位显示时间、运行时长、持续时间、大小和笔记库统计 |
-| 可靠性 | 插件状态读写串行化、拉取部分进度、幂等 push、按笔记库 push 锁 |
-| 发布 | Linux amd64、Linux arm64、Windows x64、插件 zip、校验和、GHCR Docker 镜像 |
+完整运维和用户操作请看 [管理员手册](./public-docs/admin-manual.zh-CN.md) 和 [用户手册](./public-docs/user-manual.zh-CN.md)。
 
 ## 存储布局
-
-配置的 `[storage].data_dir` 中保存服务端管理的状态：
 
 ```text
 data_dir/
   metadata.db        SQLite 元数据
   vaults/<vault-id>/ 每个远端笔记库的裸 Git 仓库
-  blobs/<sha256>     内容寻址二进制 blob
+  blobs/<sha256>     内容寻址的二进制 blob
 ```
 
-`metadata.db` 记录用户、笔记库、设备 token、邀请码、运行时设置、同步活动、blob 引用和幂等记录。每个笔记库的 Git 历史是版本化文件状态来源；blob 文件在仍被引用时会保留，并在宽限期后由垃圾回收清理。
+`metadata.db` 存储用户、笔记库、设备 token、邀请码、运行时设置、同步活动、blob 引用和幂等记录。Git 历史是版本化文件状态的事实源;blob 文件在被引用期间会保留,过宽限期后由 GC 清理。备份时请把 `config.toml`、`metadata.db`、`vaults/`、`blobs/` 放在同一个备份集合中。
 
-备份时应把 `metadata.db`、`vaults/`、`blobs/` 和 `config.toml` 放在同一备份集合中。
+## 发布资产
 
-## 发布产物
-
-GitHub Releases 会发布：
+GitHub Release 提供:
 
 - `pkvsyncd-x86_64-unknown-linux-gnu`
 - `pkvsyncd-aarch64-unknown-linux-gnu`
@@ -70,259 +47,147 @@ GitHub Releases 会发布：
 - `pkv-sync-plugin.zip`
 - `SHA256SUMS`
 
-Docker 镜像发布到 GHCR：
+Docker 镜像发布到 GHCR(多架构 `linux/amd64`、`linux/arm64`):
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.1.12
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.3.1
 ```
 
-Release Docker 镜像支持 `linux/amd64` 和 `linux/arm64`。
+## 快速开始:Docker Compose
 
-## 快速开始：Docker Compose
+这是推荐的部署路径。`deploy/caddy/` 里的 Caddy 通过 Let's Encrypt 申请并续签 HTTPS 证书;PKV Sync 只在 Compose 网络内的 `127.0.0.1:6710` 上监听,公网永远看不到明文 HTTP。
 
-如果希望 Caddy 自动申请和续期 HTTPS 证书，使用这个部署方式。Caddy 需要公网 `80` 和 `443` 端口；`80` 用于 ACME HTTP-01 验证和重定向。
+**前置条件**:服务器有指向自己的 DNS A/AAAA 记录,公网可达 `80` 和 `443`(80 端口用于 ACME HTTP-01 验证和 HTTP→HTTPS 跳转)。
 
-1. 将 DNS 指向服务器：
+1. **DNS 指向服务器**
 
    ```text
-   sync.example.com A    <服务器 IPv4>
-   sync.example.com AAAA <服务器 IPv6，可选>
+   sync.example.com A    <server IPv4>
+   sync.example.com AAAA <server IPv6, 可选>
    ```
 
-2. 生成部署密钥：
+2. **生成部署密钥**
 
    ```bash
    docker run --rm ghcr.io/cyberkurry/pkv-sync:latest genkey
    ```
 
-3. 在 `docker-compose.yml` 同目录创建 `config.toml`：
+3. **在 `docker-compose.yml` 同目录创建 `config.toml`**
 
    ```toml
    [server]
-   bind_addr = "0.0.0.0:6710"
-   deployment_key = "k_replace_me"
-   public_host = "sync.example.com"
+   bind_addr     = "0.0.0.0:6710"
+   deployment_key = "k_replace_me_with_genkey_output"
+   public_host   = "sync.example.com"   # admin POST 必备
 
    [storage]
    data_dir = "/var/lib/pkv-sync"
-   db_path = "/var/lib/pkv-sync/metadata.db"
+   db_path  = "/var/lib/pkv-sync/metadata.db"
 
    [network]
-   trusted_proxies = ["172.16.0.0/12"]
+   trusted_proxies = ["172.16.0.0/12"]   # Docker 桥接网段
 
    [logging]
-   level = "info"
+   level  = "info"
    format = "json"
    ```
 
-4. 编辑 `deploy/caddy/Caddyfile`，把 `sync.example.com` 换成你的域名。
+   `public_host` **是关键字段**:不配置时 admin CSRF 检查会 fail-closed,所有 admin POST 都会被拒绝(详见部署加固指南)。
 
-5. 启动：
+4. **编辑 `deploy/caddy/Caddyfile`** —— 把 `sync.example.com` 改成你的域名。compose 文件已经挂载好 Caddyfile 和 `caddy_data` 卷(用于 Let's Encrypt 证书持久化)。
+
+5. **启动**
 
    ```bash
    docker compose up -d
    docker compose logs -f pkv-sync
    ```
 
-6. 保存服务端日志里打印的首次管理员密码。
-
-7. 打开：
+   首次启动会自动创建 `admin` 账号并把一次性密码打到 stderr —— **立即记下来**。日志形如:
 
    ```text
-   https://sync.example.com/admin/login
+   FIRST-RUN ADMIN CREATED
+    username: admin
+    password: <save this now>
    ```
 
-更多细节见[部署加固指南](./public-docs/deployment-hardening.zh-CN.md)。
+6. **登录**
 
-## 快速开始：本地二进制
+   打开 `https://sync.example.com/admin/login`,用 `admin` 登录、改密码,然后在 **Users → New** 创建你的第一个用户账号。
 
-从源码构建：
+**数据落在哪儿**
 
-```bash
-cargo build -p pkv-sync-server
-npm ci --prefix plugin
-npm --prefix plugin run build
-```
+- 服务端数据:`./data`(主机),挂到容器内 `/var/lib/pkv-sync`。备份时和 `config.toml` 一起。
+- Caddy 证书:命名卷 `caddy_data`。
+- 日志:`docker compose logs pkv-sync`(默认 JSON 格式)。
 
-生成部署密钥：
+**升级**
 
 ```bash
-./target/debug/pkvsyncd genkey
+docker compose pull
+docker compose up -d
 ```
 
-基于 [`config.example.toml`](./config.example.toml) 创建 `config.toml`，然后运行：
+数据库迁移是 append-only 的,启动时自动应用。回滚的方式是从备份还原数据目录。
 
-```bash
-./target/debug/pkvsyncd -c config.toml migrate up
-./target/debug/pkvsyncd -c config.toml serve
-```
-
-如果通过反向代理部署，建议让 `pkvsyncd` 只监听本机：
-
-```toml
-[server]
-bind_addr = "127.0.0.1:6710"
-```
-
-首次启动时，`pkvsyncd` 会创建 `admin` 账号并打印一次性密码。请立刻保存，然后通过 Admin WebUI 或 CLI 修改。
+**生产加固** —— 详见 [部署加固指南](./public-docs/deployment-hardening.zh-CN.md):反向代理细节(Caddy / Nginx / Traefik)、`trusted_proxies` 调优、`public_host` 语义、运行时 CSRF 行为、备份、磁盘加密、token 卫生。
 
 ## 服务端 CLI
 
 ```bash
-pkvsyncd genkey
-pkvsyncd -c /etc/pkv-sync/config.toml migrate up
-pkvsyncd -c /etc/pkv-sync/config.toml serve
-pkvsyncd -c /etc/pkv-sync/config.toml user add alice
-pkvsyncd -c /etc/pkv-sync/config.toml user add alice --admin
+pkvsyncd genkey                                      # 生成部署密钥
+pkvsyncd -c /etc/pkv-sync/config.toml migrate up     # 应用迁移
+pkvsyncd -c /etc/pkv-sync/config.toml serve          # 启动 HTTP 服务
+pkvsyncd -c /etc/pkv-sync/config.toml user add alice [--admin]
 pkvsyncd -c /etc/pkv-sync/config.toml user passwd alice
 pkvsyncd -c /etc/pkv-sync/config.toml user list
 pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
+pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
 ```
 
-默认配置路径是 `/etc/pkv-sync/config.toml`。
+默认配置路径:`/etc/pkv-sync/config.toml`。
+
+`materialize` 会遍历某个笔记库的裸 git 树,把 blob pointer 文件展开为实际二进制内容 —— 给 `git clone` 用户或离线检视用。
 
 ## Obsidian 插件
 
-从 release 手动安装：
+从 release 里下载 `pkv-sync-plugin.zip`,解压到 `<vault>/.obsidian/plugins/pkv-sync/`,在 Obsidian 设置里开启社区插件并启用 **PKV Sync**。从管理面板复制分享 URL(`https://sync.example.com/k_xxx/`),粘贴到插件、点 **Connect**,然后登录或注册并选择远端笔记库。
 
-1. 下载 `pkv-sync-plugin.zip`。
-2. 解压到 `<vault>/.obsidian/plugins/pkv-sync/`。
-3. 在 Obsidian 中启用社区插件。
-4. 启用 **PKV Sync**。
-5. 粘贴管理后台提供的服务端分享 URL：
+**本地文件就是事实源**。插件直接读写你正常的 Obsidian 笔记库目录 —— 没有不透明的存储层,没有代理文件系统。插件设置和同步索引存在 Obsidian 的 `<vault>/.obsidian/plugins/pkv-sync/data.json` 里。
 
-   ```text
-   https://sync.example.com/k_xxx/
-   ```
+设备 token 90 天过期。同一设备重新登录会替换原来的活跃 token;不会保留多个并存的 stale token。
 
-6. 点击 **连接**，然后登录或注册。
-7. 创建或选择远端笔记库。
-8. 使用自动同步或 **立即同步**。
+完整功能(命令面板、历史/diff modal、冲突解决、选择性同步规则、设备管理、语言和时区)详见 [用户手册](./public-docs/user-manual.zh-CN.md)。
 
-插件设置页包含：
+## 配置
 
-- 铺满 Obsidian 设置页的深色界面
-- 语言选择：自动、English、简体中文
-- 时区选择，默认 `Asia/Shanghai`
-- 从分享 URL 解析服务器 URL 和部署密钥
-- 登录/注册状态下可点 **修改服务器** 返回连接设置，并保留已输入内容
-- 设备名称编辑和稳定本地设备 ID
-- 登录、注册、退出登录、创建远端笔记库和选择笔记库
-- 手动同步按钮
-- 上次成功同步时间显示为相对时间，并可展开精确 `YYYY/MM/DD HH:MM:SS` 时间
-- 冲突文件数量和一键删除生成的冲突文件
-- 设备列表和当前设备标记
-- 历史与差异界面开关
+静态 `config.toml`(启动时读取):
 
-命令面板动作：
+| 字段 | 用途 |
+| --- | --- |
+| `server.bind_addr` | 监听地址。反代后用 `127.0.0.1:6710`;Docker Compose 里用 `0.0.0.0:6710`。 |
+| `server.deployment_key` | 由 `pkvsyncd genkey` 生成,客户端通过 `X-PKVSync-Deployment-Key` 头发送。 |
+| `server.public_host` | 对外可见的主机名(必要时含端口)。**admin POST 必备** —— 详见部署加固指南。 |
+| `storage.data_dir` | 数据根目录,包含 `metadata.db`、`vaults/`、`blobs/`。 |
+| `storage.db_path` | SQLite 数据库路径(通常是 `<data_dir>/metadata.db`)。 |
+| `network.trusted_proxies` | 允许设置 `X-Forwarded-For` / `X-Forwarded-Proto` 的 CIDR。 |
+| `logging.level` | tracing filter,如 `info`、`debug`。 |
+| `logging.format` | `json` 或 `pretty`。 |
 
-- 显示同步状态
-- 刷新账号信息
-- 立即手动同步
-- 查看同步状态详情
-- 查看文件历史
-- 查看仓库历史
-- 列出冲突文件
-- 删除冲突文件
-
-同步行为：
-
-- 在防抖间隔后推送本地变更
-- 定期轮询远端变更
-- 在相关笔记库文件事件和窗口失焦时触发同步
-- 连接后使用服务端返回的文本扩展名列表
-- 写入本地前校验下载的二进制 blob hash
-- 通过串行化数据存储保存插件设置和同步索引
-- 如果拉取写入中途失败，会记录已经完成的部分进度，减少重试时重复生成冲突文件
-- 恢复文件历史版本时，会先从服务端读取历史内容，写回本地笔记库，再由现有同步引擎作为普通修改推送
-
-设备 token 默认 90 天后过期。同一设备重新登录会替换该设备旧的活跃 token，而不是留下多个活跃 token。
-
-## Admin WebUI
-
-在服务器上打开 `/admin/login`。Admin WebUI 包括：
-
-- 仪表盘：CPU、内存、数据目录磁盘用量、运行时长、用户、笔记库和最近活动
-- 响应式侧边栏、移动端抽屉导航和内置 Lucide 图标
-- 用户列表、用户创建、用户详情页、密码重置、启用/禁用、管理员权限控制和用户级 token 管理
-- 全局设备 token 页面，可列出、创建和撤销 token
-- 笔记库卡片：所有者、文件数、大小、上次同步、元数据修复和删除操作
-- 只读笔记库文件浏览器，包含文件预览、单文件历史时间线和 unified diff 查看器。Admin WebUI 不提供恢复、revert 或 rollback 控制。
-- 邀请码创建、过期时间展示，以及删除未使用邀请码
-- 运行时设置分为 General、Security、Sync & Storage、Network
-- 登录限流设置
-- 最大文件大小和支持的文本扩展名设置
-- Blob 垃圾回收触发
-- 活动日志，支持按用户和动作真实筛选
-- 英文和简体中文管理后台语言选择
-
-保护措施包括最后一个管理员保护、禁止自我禁用/自我删除、用户名校验、Argon2id 密码哈希、90 天设备 token 过期、token 撤销、admin 表单 CSRF 检查，以及 API 路由的部署密钥预认证。
-
-## 配置说明
-
-静态 `config.toml` 字段：
-
-- `server.bind_addr`：服务监听地址；反向代理后通常为 `127.0.0.1:6710`，Docker Compose 中通常为 `0.0.0.0:6710`
-- `server.deployment_key`：由 `pkvsyncd genkey` 生成
-- `server.public_host`：可选，用于生成 HTTPS 分享 URL 和生产风格 admin cookie
-- `storage.data_dir`：数据根目录，包含 `metadata.db`、`vaults/` 和 `blobs/`
-- `storage.db_path`：SQLite 数据库路径
-- `network.trusted_proxies`：允许设置 `X-Forwarded-For` 的代理 CIDR
-- `logging.level`：tracing filter，例如 `info` 或 `debug`
-- `logging.format`：`json` 或 `pretty`
-
-存储在 SQLite 且可从 Admin WebUI 编辑的运行时设置：
-
-- 服务名称
-- 时区，默认 `Asia/Shanghai`
-- 注册模式：`disabled`、`invite_only`、`open`
-- 登录失败阈值、窗口和锁定时长
-- 最大文件大小，默认 `100 MiB`
-- 支持的文本扩展名，默认 `md`、`canvas`、`base`、`json`、`txt`、`css`
-- 历史界面和 diff 端点功能开关，默认均为开启
+运行时设置(注册模式、登录速率限制、最大文件大小、文本扩展名、push 去抖、SSE 内联内容上限、SSE 心跳、Git smart HTTP 开关、额外 exclude glob、历史/diff 功能开关)都在管理面板里编辑 —— 详见 [管理员手册](./public-docs/admin-manual.zh-CN.md#运行时设置)。
 
 ## HTTP API
 
-所有 `/api/*` 路由都需要部署密钥 header。认证路由还需要 bearer 设备 token。
-
-主要路由组：
-
-- `GET /api/health`
-- `GET /api/config`
-- `POST /api/auth/login`
-- `POST /api/auth/register`
-- `GET /api/me`
-- `POST /api/me/password`
-- `POST /api/me/logout`
-- `GET /api/me/tokens`
-- `DELETE /api/me/tokens/:id`
-- `GET /api/vaults`
-- `POST /api/vaults`
-- `DELETE /api/vaults/:id`
-- `POST /api/vaults/:id/upload/check`
-- `POST /api/vaults/:id/upload/blob`
-- `GET /api/vaults/:id/state`
-- `POST /api/vaults/:id/push`
-- `GET /api/vaults/:id/pull`
-- `GET /api/vaults/:id/commits`
-- `GET /api/vaults/:id/commits/:commit`
-- `GET /api/vaults/:id/history?path=`
-- `GET /api/vaults/:id/diff?from=&to=&path=`
-- `GET /api/vaults/:id/files/*path`
-- `/api/admin/*` 下的管理员 API 路由
-
-Schema 见 [OpenAPI 规范](./public-docs/openapi.yaml)。
+所有 `/api/*` 路由都要求部署密钥 header;认证路由还要求 bearer 设备 token。完整路由表、请求/响应 schema、SSE 事件 payload 格式见 [OpenAPI 规范](./public-docs/openapi.yaml)。
 
 ## 运维
 
-- 将 `config.toml`、`metadata.db`、`vaults/` 和 `blobs/` 放在同一备份集合中。
-- 通过 HTTPS 部署。仓库提供 Caddy、Nginx 和 Traefik 反向代理示例。
-- 如果使用反向代理，`trusted_proxies` 只应设置为代理网络。
-- 关注日志中重复出现的 `401`、`403`、`409` 和 `429` 响应。
-- 大量删除附件后运行 blob 垃圾回收。
-- 如果中断操作后文件数、大小或 blob 引用发生漂移，使用笔记库元数据修复。
-- 发版时保持 release 产物、Docker 镜像、插件包、更新日志和版本号一致。
+- 把 `config.toml`、`metadata.db`、`vaults/`、`blobs/` 一起备份。
+- 务必跑在 HTTPS 后;把 `[network].trusted_proxies` 限制到实际代理 CIDR。
+- 关注日志里重复出现的 `401`、`403`、`409`、`429` 响应。
+- 大量删除附件后从管理面板触发 blob 垃圾回收。
+- 同步过程中断后,如果文件数/大小/blob 引用漂移,用管理面板的元数据 reconcile 修复。
 
 ## 文档
 
@@ -330,7 +195,7 @@ Schema 见 [OpenAPI 规范](./public-docs/openapi.yaml)。
 - [管理员手册](./public-docs/admin-manual.zh-CN.md)
 - [用户手册](./public-docs/user-manual.zh-CN.md)
 - [OpenAPI 规范](./public-docs/openapi.yaml)
-- [更新日志](./CHANGELOG.md)
+- [Changelog](./CHANGELOG.md)
 
 ## 开发检查
 
@@ -346,10 +211,8 @@ cargo build --release -p pkv-sync-server
 pwsh -File scripts/ci-smoke.ps1
 ```
 
-CI 会在 Linux 和 Windows 上运行 Rust 格式检查、Clippy 和测试；插件测试/typecheck/build/package/audit；Docker build；以及 release 二进制 smoke test。
+CI 在 Linux 和 Windows 上跑 Rust 格式化、Clippy 和测试;插件做 test/typecheck/build/package/audit;Docker 构建;以及发布二进制 smoke 测试。Release CI 还会额外构建 Linux amd64/arm64、Windows x64、插件包、多架构 Docker 镜像、checksum 和 GitHub release。
 
-Release CI 还会构建 Linux amd64、Linux arm64、Windows x64、插件包、多架构 Docker 镜像、校验和和 GitHub release。
+## License
 
-## 许可证
-
-AGPL-3.0-only。见 [LICENSE](./LICENSE)。
+AGPL-3.0-only。详见 [LICENSE](./LICENSE)。

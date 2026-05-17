@@ -7,6 +7,67 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-17
+
+### Security
+
+- **CSRF**: admin CSRF check now fails closed when `[server].public_host`
+  is not configured, instead of falling back to the request `Host` header.
+  Operators who have not set `public_host` see admin POSTs rejected with a
+  log line pointing at the missing setting.
+- **Login rate limit**: new atomic `try_acquire` reservation closes the
+  race window where a burst of concurrent guesses could all pass the
+  pre-check and consume CPU on argon2 before any of them recorded a
+  failure. In-flight reservations now count toward the threshold so the
+  `(threshold+1)`th request is rejected before reaching password verify.
+- **Login enumeration**: a login attempt against a disabled account now
+  returns 401 with the same "invalid credentials" message as a wrong
+  password, removing the 401 / 403 side channel that previously leaked
+  account state. The same change routes disabled-account attempts through
+  the rate-limit budget.
+- **Register rate limit**: register failures are now classified into abuse
+  signals (invite probing, mode probing, username enumeration via
+  CONFLICT) which consume budget, vs. honest validation typos
+  (username too short, weak password) which do not. The handler
+  previously consumed budget on UNAUTHORIZED only — a status the register
+  flow never returned — so abuse was unlimited.
+
+### Fixed
+
+- SSE `source_device_id` carries the stable per-device id from the token
+  instead of the token row id, so client-side echo filtering works and a
+  device no longer receives its own pushes back as SSE events.
+- The SSE broadcast for a push now fires immediately after `git commit`
+  succeeds, before idempotency cache and activity log writes. This keeps
+  the sub-second latency budget honest.
+- Plugin `applyInlineText` refuses to silently overwrite a local file
+  that has diverged from the sync index (unsynced local edits). The
+  inline apply throws and the engine falls back to a full pull, which
+  preserves local content as a `.conflict-*` file.
+- Plugin `applyInlineText`, `applyDelete`, and `advanceIndexHead` now run
+  inside an atomic `IndexPersistence.updateIndex` transaction backed by
+  the serialized plugin data store. The SSE event handler additionally
+  serialises events through a promise chain so two fast-succession
+  events cannot interleave their reads and writes.
+- `push_debounce_ms` is now exposed on `/api/config` and mirrored into
+  plugin settings so admin tuning of the debounce window actually
+  reaches connected clients.
+- `/api/config` capabilities.git_smart_http now ANDs the runtime toggle
+  with whether the `git` binary is available on the server, so clients
+  do not advertise Git clone when the request would 503.
+- Admin form rejects `inline_content_max_bytes` values above 64 KiB.
+- `git-upload-pack` request body is capped at 10 MiB to bound memory use.
+- Glob compile failures during sync now log a `tracing::warn` instead of
+  silently falling back to "match nothing".
+
+### Changed
+
+- `AuthenticatedUser` now carries `device_id` alongside `token_id`; bearer
+  and basic-auth extractors both populate it from the token row.
+- `IndexPersistence` interface gains an `updateIndex(updater)` method for
+  atomic read-modify-write on the sync index. The plugin data store's
+  serialisation primitive is now the canonical path for index updates.
+
 ## [0.3.0] - 2026-05-17
 
 ### Added

@@ -145,6 +145,8 @@ components:
         - max_file_size
         - supported_text_extensions
         - capabilities
+        - push_debounce_ms
+        - inline_content_max_bytes
       properties:
         server_name:
           type: string
@@ -163,14 +165,41 @@ components:
             type: string
         capabilities:
           $ref: '#/components/schemas/ServerCapabilities'
+        push_debounce_ms:
+          type: integer
+          format: int32
+          minimum: 0
+          description: |
+            Server-recommended debounce in milliseconds between a settled
+            local edit and the plugin push. Plugins should mirror this into
+            their local debounce on each config refresh.
+        inline_content_max_bytes:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 65536
+          description: |
+            Maximum text content size that the server will inline in an SSE
+            event. Files above this size still trigger a `text_ref` event;
+            the plugin pulls them via the normal path.
     ServerCapabilities:
       type: object
-      required: [history, diff]
+      required: [history, diff, sse, git_smart_http]
       properties:
         history:
           type: boolean
         diff:
           type: boolean
+        sse:
+          type: boolean
+          description: Server-Sent Events stream for real-time push notifications.
+        git_smart_http:
+          type: boolean
+          description: |
+            Whether read-only `git clone` over `/git/{vault_id}/...` is
+            available. The authenticated `/api/config` endpoint reports
+            `true` only when both the admin toggle is enabled and the
+            `git` binary is present on the server.
     LoginRequest:
       type: object
       required: [username, password, device_id, device_name]
@@ -1212,6 +1241,114 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/vaults/{vault_id}/events:
+    get:
+      tags: [Vaults]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Subscribe to real-time vault events (Server-Sent Events)
+      description: |
+        Long-lived Server-Sent Events stream of commit notifications for the
+        identified vault. Each `commit` event has a JSON body containing the
+        new commit hash, parent hash, the originating device id, and an
+        array of changes. Small text changes (≤ `inline_content_max_bytes`,
+        default 8 KiB) are delivered inline as `text_inline`; larger files
+        and binaries are emitted as `text_ref` / `blob` so the client can
+        pull them. Plugins should filter out events whose
+        `source_device_id` matches their own device id to avoid acting on
+        their own pushes.
+
+        The stream also emits keep-alive comment lines (`: hb`) every
+        `sse_heartbeat_seconds` (default 30) so idle reverse proxies do
+        not close the connection. If the server's broadcast buffer fills,
+        a `lagged` event is sent — clients should respond with a full
+        pull to catch up.
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Standard SSE wire format with `event:` and `data:` lines.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /git/{vault_id}/info/refs:
+    get:
+      tags: [Git]
+      summary: Git smart HTTP — read-only refs advertisement
+      description: |
+        Standard git smart HTTP refs advertisement for `git-upload-pack`.
+        Opt-in via the `enable_git_smart_http` runtime flag and gated on
+        the `git` binary being present in the server's `PATH`. Returns 503
+        if either is unmet.
+
+        Authentication uses HTTP Basic with any username and a PKV device
+        token as the password, e.g.
+        `git clone https://_:<token>@host/git/<vault_id>`.
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - in: query
+          name: service
+          required: true
+          schema:
+            type: string
+            enum: [git-upload-pack]
+      responses:
+        '200':
+          description: Refs advertisement (`application/x-git-upload-pack-advertisement`)
+          content:
+            application/x-git-upload-pack-advertisement:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Git smart HTTP is disabled or `git` is not available
+  /git/{vault_id}/git-upload-pack:
+    post:
+      tags: [Git]
+      summary: Git smart HTTP — stateless RPC for upload-pack
+      description: |
+        Stateless-RPC body of a `git clone` / `git fetch` request. The
+        request body carries the want/have negotiation; the response is
+        the packfile. Body is capped at 10 MiB; legitimate negotiation
+        requests are far smaller.
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+      requestBody:
+        required: true
+        content:
+          application/x-git-upload-pack-request:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Pack response (`application/x-git-upload-pack-result`)
+          content:
+            application/x-git-upload-pack-result:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: Git smart HTTP is disabled or `git` is not available
   /api/admin/users:
     get:
       tags: [Admin]

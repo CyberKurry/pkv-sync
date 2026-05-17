@@ -155,6 +155,28 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
+## public_host (required for admin POST)
+
+Set `[server].public_host` to the externally-visible hostname (and port, if
+non-standard) that operators use to reach the admin panel — for example
+`sync.example.com` or `pkv.local:8443`. The admin CSRF check derives its
+expected origin from this value.
+
+If `public_host` is empty, every admin POST is rejected with `403 csrf
+validation failed` and a `tracing::warn` log line. This is intentional
+fail-closed behaviour: the alternative — falling back to the request's own
+`Host` header — couples authentication to attacker-influenceable headers and
+breaks when proxies forward an inconsistent host.
+
+`public_host` also drives:
+
+- Production-style admin cookies (`Secure`, `SameSite=Strict`) when set.
+- `https://` share URL generation for the in-admin "share server URL" link.
+- The expected proto used when `X-Forwarded-Proto` is missing.
+
+For SSE, the same setting helps reverse proxies recognise that the route is a
+keep-alive event stream rather than a normal short-lived request.
+
 ## Reverse Proxy Notes
 
 ### Caddy

@@ -146,6 +146,20 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
+## public_host(admin POST 必备)
+
+把 `[server].public_host` 设置为运维实际访问 admin 面板使用的外部主机名(必要时含端口),例如 `sync.example.com` 或 `pkv.local:8443`。admin CSRF 检查依据该值计算期望 Origin。
+
+如果 `public_host` 留空,所有 admin POST 都会被拒绝,返回 `403 csrf validation failed`,并打一条 `tracing::warn` 日志。这是**有意的 fail-closed 行为**:另一种做法(回退请求自带的 `Host` 头)会把鉴权耦合到攻击者可影响的 header,且在代理转发不一致的 Host 时会出错。
+
+`public_host` 同时驱动:
+
+- 生产风格的 admin cookie(设置后启用 `Secure`、`SameSite=Strict`)
+- admin "分享服务端 URL" 链接使用 `https://` 前缀
+- 缺少 `X-Forwarded-Proto` 时的期望协议
+
+对 SSE 来说,该设置也能帮反向代理识别长连接事件流而不是普通短请求。
+
 ## 反向代理注意事项
 
 ### Caddy

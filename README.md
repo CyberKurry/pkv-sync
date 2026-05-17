@@ -14,47 +14,43 @@ English | [简体中文](./README.zh-CN.md)
 PKV Sync is pre-1.0 software. APIs, storage layout, release packaging, and
 operational defaults may still change.
 
-PKV Sync does not provide end-to-end encryption. The server can read synced
-vault contents and attachments. Use HTTPS, strict account controls, encrypted
-disks, encrypted backups, and host-level hardening for real deployments.
+PKV Sync does **not** provide end-to-end encryption. The server can read
+synced vault contents and attachments. Use HTTPS, strict account controls,
+encrypted disks, encrypted backups, and host-level hardening for real
+deployments — see the [deployment hardening guide](./public-docs/deployment-hardening.md).
 
-## Components
+## Highlights
 
-- `pkvsyncd`: server daemon and CLI
-- `pkv-sync`: Obsidian plugin for desktop and mobile
-- SQLite metadata database
-- Per-vault bare Git repositories under the data directory
-- SHA-256 content-addressed blob storage for binary attachments
-- Admin WebUI for users, device tokens, vaults, invites, settings, activity,
-  and cleanup
-- Docker, Docker Compose, Caddy, Nginx, Traefik, systemd, CI, and release
-  workflow examples
+- **Multi-user, multi-vault** Obsidian sync through authenticated devices, with
+  per-vault push locks and idempotent pushes.
+- **Real-time push** via Server-Sent Events: small text changes (≤ 8 KiB) are
+  delivered inline in the event so the plugin applies them without a separate
+  pull. Sub-second end-to-end target on a healthy network. Polling stays as a
+  safety-net fallback.
+- **Git-native**: each vault is a bare git repository on disk. Per-file history,
+  unified diff, and single-file restore are exposed in both the Obsidian plugin
+  and the admin panel. Optional read-only `git clone https://_:<token>@host/git/<vault>`
+  for offline browsing or external mirroring.
+- **Conflict-safe**: SSE inline apply refuses to overwrite a locally-modified
+  file; conflicts surface as `.conflict-*` files and can be resolved from the
+  plugin command palette with a real LCS-based line diff and one-click
+  "keep local" / "accept remote" buttons.
+- **Admin panel** for users, device tokens, vaults, invites, runtime settings,
+  activity log, and blob garbage collection. Responsive, English + 简体中文.
+- **Security**: Argon2id password hashing, atomic per-IP login rate limiter
+  with burst protection, CSRF fail-closed when `public_host` is unset, unified
+  "invalid credentials" response across wrong-password and disabled-account
+  cases, 90-day bearer device tokens with rotation on re-login.
+- **Boring on purpose**: single binary, single SQLite metadata DB, one bare
+  git repo per vault, one content-addressed blob per attachment. No cluster,
+  no MySQL/PostgreSQL backend, no S3 dependency.
+- Linux amd64 / arm64, Windows x64 binaries plus a multi-arch GHCR Docker image.
 
-## Current Features
-
-| Area | Current behavior |
-| --- | --- |
-| Sync model | Multi-user, multi-vault Obsidian sync through authenticated devices |
-| Text history | Text files are committed into per-vault Git history |
-| History & diff | Obsidian can show per-file history and unified diffs; Admin WebUI can browse files, history, and diffs read-only |
-| Single-file restore | Obsidian can restore one historical file version by writing it back locally and letting normal sync push it |
-| Attachments | Binary files are stored as SHA-256 blobs and referenced from Git pointer files |
-| Conflict handling | Local/remote conflicts are preserved as generated `.conflict-*` files |
-| Conflict cleanup | Plugin settings and command palette can list or delete generated conflict files |
-| Exclusions | `.obsidian/`, `.trash/`, and generated conflict files are not synced |
-| Auth | Deployment-key pre-auth plus username/password login and 90-day bearer device tokens |
-| Devices | Stable plugin device IDs; repeated login replaces the old active token for that device |
-| Registration | Runtime modes: disabled, invite-only, or open |
-| Admin | Responsive dashboard, users, user details, device tokens, vaults, read-only file/history/diff browsing, invites, settings, activity, and blob GC |
-| Activity | Push, pull, history, diff, and commit-view activity rows with user/action filters, device name, vault, IP, User-Agent, and details |
-| Time display | Admin and plugin timestamps use selectable IANA timezones, defaulting to `Asia/Shanghai` |
-| Human-readable values | Admin UI renders time, uptime, durations, sizes, and vault totals in readable units |
-| Reliability | Serialized plugin state reads/writes, partial pull progress, idempotent pushes, and per-vault push locks |
-| Release | Linux amd64, Linux arm64, Windows x64, plugin zip, checksums, and GHCR Docker image |
+See the [admin manual](./public-docs/admin-manual.md) and
+[user manual](./public-docs/user-manual.md) for full operational and end-user
+walkthroughs.
 
 ## Storage Layout
-
-The configured `[storage].data_dir` contains server-managed state:
 
 ```text
 data_dir/
@@ -65,10 +61,9 @@ data_dir/
 
 `metadata.db` tracks users, vaults, device tokens, invites, runtime settings,
 sync activity, blob references, and idempotency records. Per-vault Git history
-is the source of versioned file state; blob files are retained while referenced
-and are cleaned by garbage collection after the grace period.
-
-Back up `metadata.db`, `vaults/`, `blobs/`, and `config.toml` together.
+is the source of truth for versioned file state; blob files are retained while
+referenced and cleaned by garbage collection after the grace period. Back up
+`config.toml`, `metadata.db`, `vaults/`, and `blobs/` together.
 
 ## Release Assets
 
@@ -80,285 +75,184 @@ GitHub releases publish:
 - `pkv-sync-plugin.zip`
 - `SHA256SUMS`
 
-Docker images are published to GHCR:
+Docker images are published multi-arch (`linux/amd64`, `linux/arm64`) to GHCR:
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.1.12
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.3.1
 ```
-
-Release Docker images are multi-arch for `linux/amd64` and `linux/arm64`.
 
 ## Quick Start: Docker Compose
 
-Use this path when you want Caddy to request and renew HTTPS certificates.
-Caddy needs public ports `80` and `443`; port `80` is used for ACME HTTP-01
-validation and redirects.
+This is the recommended path. Caddy in `deploy/caddy/` requests and renews
+HTTPS certificates via Let's Encrypt; PKV Sync listens on `127.0.0.1:6710`
+inside the compose network and never sees plain HTTP from the public internet.
 
-1. Point DNS at your server:
+**Requirements**: a public DNS A/AAAA record pointing at the server, ports `80`
+and `443` reachable from the internet (port 80 is needed for ACME HTTP-01
+validation and HTTP→HTTPS redirects).
+
+1. **Point DNS at the server**
 
    ```text
    sync.example.com A    <server IPv4>
    sync.example.com AAAA <server IPv6, optional>
    ```
 
-2. Create a deployment key:
+2. **Generate a deployment key**
 
    ```bash
    docker run --rm ghcr.io/cyberkurry/pkv-sync:latest genkey
    ```
 
-3. Create `config.toml` next to `docker-compose.yml`:
+3. **Create `config.toml` next to `docker-compose.yml`**
 
    ```toml
    [server]
-   bind_addr = "0.0.0.0:6710"
-   deployment_key = "k_replace_me"
-   public_host = "sync.example.com"
+   bind_addr     = "0.0.0.0:6710"
+   deployment_key = "k_replace_me_with_genkey_output"
+   public_host   = "sync.example.com"   # required for admin POST
 
    [storage]
    data_dir = "/var/lib/pkv-sync"
-   db_path = "/var/lib/pkv-sync/metadata.db"
+   db_path  = "/var/lib/pkv-sync/metadata.db"
 
    [network]
-   trusted_proxies = ["172.16.0.0/12"]
+   trusted_proxies = ["172.16.0.0/12"]   # Docker bridge network
 
    [logging]
-   level = "info"
+   level  = "info"
    format = "json"
    ```
 
-4. Edit `deploy/caddy/Caddyfile` and replace `sync.example.com` with your
-   domain.
+   `public_host` is **load-bearing**: when unset, the admin CSRF check fails
+   closed and every admin POST is rejected (see deployment hardening guide).
 
-5. Start the stack:
+4. **Edit `deploy/caddy/Caddyfile`** and replace `sync.example.com` with your
+   domain. The compose file mounts this Caddyfile and a writable
+   `caddy_data` volume for Let's Encrypt certificates.
+
+5. **Start the stack**
 
    ```bash
    docker compose up -d
    docker compose logs -f pkv-sync
    ```
 
-6. Save the first-run admin password printed in the server logs.
-
-7. Open:
+   On first start, PKV Sync creates an `admin` account and prints a one-time
+   password to stderr — **save it immediately**. The line is shaped as:
 
    ```text
-   https://sync.example.com/admin/login
+   FIRST-RUN ADMIN CREATED
+    username: admin
+    password: <save this now>
    ```
 
-More details are in the [deployment hardening guide](./public-docs/deployment-hardening.md).
+6. **Sign in**
 
-## Quick Start: Local Binary
+   Open `https://sync.example.com/admin/login`, sign in as `admin`, change the
+   password, and create your first user account from **Users → New**.
 
-Build from source:
+**Where things live**
 
-```bash
-cargo build -p pkv-sync-server
-npm ci --prefix plugin
-npm --prefix plugin run build
-```
+- Server data: `./data` on the host, bind-mounted to `/var/lib/pkv-sync` in
+  the container. Back this up along with `config.toml`.
+- Caddy certificates: `caddy_data` named volume.
+- Logs: `docker compose logs pkv-sync` (JSON formatted by default).
 
-Generate a deployment key:
-
-```bash
-./target/debug/pkvsyncd genkey
-```
-
-Create `config.toml` from [`config.example.toml`](./config.example.toml), then
-run:
+**Updating**
 
 ```bash
-./target/debug/pkvsyncd -c config.toml migrate up
-./target/debug/pkvsyncd -c config.toml serve
+docker compose pull
+docker compose up -d
 ```
 
-For reverse-proxy deployments, bind `pkvsyncd` to localhost:
+Database migrations are append-only and run automatically on start. To roll
+back, restore the data directory from a backup.
 
-```toml
-[server]
-bind_addr = "127.0.0.1:6710"
-```
-
-On first start, `pkvsyncd` creates an `admin` account and prints a one-time
-password. Store it immediately, then change it from the Admin WebUI or CLI.
+**Production hardening** — read the
+[deployment hardening guide](./public-docs/deployment-hardening.md) for:
+reverse-proxy specifics (Caddy / Nginx / Traefik), `trusted_proxies` tuning,
+`public_host` semantics, runtime CSRF behaviour, backups, disk encryption,
+and token hygiene.
 
 ## Server CLI
 
 ```bash
-pkvsyncd genkey
-pkvsyncd -c /etc/pkv-sync/config.toml migrate up
-pkvsyncd -c /etc/pkv-sync/config.toml serve
-pkvsyncd -c /etc/pkv-sync/config.toml user add alice
-pkvsyncd -c /etc/pkv-sync/config.toml user add alice --admin
+pkvsyncd genkey                                      # generate a deployment key
+pkvsyncd -c /etc/pkv-sync/config.toml migrate up     # apply database migrations
+pkvsyncd -c /etc/pkv-sync/config.toml serve          # run the HTTP server
+pkvsyncd -c /etc/pkv-sync/config.toml user add alice [--admin]
 pkvsyncd -c /etc/pkv-sync/config.toml user passwd alice
 pkvsyncd -c /etc/pkv-sync/config.toml user list
 pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
+pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
 ```
 
-The default config path is `/etc/pkv-sync/config.toml`.
+Default config path: `/etc/pkv-sync/config.toml`.
+
+`materialize` walks a vault's bare git tree and resolves blob pointer files
+into the actual binary content — useful for `git clone` users or offline
+inspection.
 
 ## Obsidian Plugin
 
-Manual install from a release:
+Install from the bundled release zip (`pkv-sync-plugin.zip`) into
+`<vault>/.obsidian/plugins/pkv-sync/`, enable community plugins, and turn on
+**PKV Sync** in Obsidian settings. Paste the server share URL
+(`https://sync.example.com/k_xxx/`) from the admin panel, click **Connect**,
+then log in or register and pick a remote vault.
 
-1. Download `pkv-sync-plugin.zip`.
-2. Extract it into `<vault>/.obsidian/plugins/pkv-sync/`.
-3. Enable community plugins in Obsidian.
-4. Enable **PKV Sync**.
-5. Paste the server share URL from the admin panel:
+**Local files are the source of truth.** The plugin reads from and writes to
+your normal Obsidian vault on disk — no opaque storage layer, no proxy
+filesystem. Plugin settings and the sync index live in Obsidian's
+`<vault>/.obsidian/plugins/pkv-sync/data.json`.
 
-   ```text
-   https://sync.example.com/k_xxx/
-   ```
+Device tokens expire after 90 days. Logging in again on the same device
+replaces the previous active token; concurrent stale tokens are not kept.
 
-6. Click **Connect**, then log in or register.
-7. Create or select a remote vault.
-8. Use automatic sync or **Sync now**.
+See the [user manual](./public-docs/user-manual.md) for the full feature
+walkthrough (command palette, history & diff modals, conflict resolution,
+selective sync rules, device management, language and timezone).
 
-Plugin settings include:
+## Configuration
 
-- Full-width dark settings UI inside Obsidian settings
-- Language selector: auto, English, Simplified Chinese
-- Timezone selector, defaulting to `Asia/Shanghai`
-- Server URL and deployment key parsing from share URLs
-- **Change server** from the login/register state without clearing saved input
-- Device name editing and stable local device ID storage
-- Login, registration, logout, remote vault creation, and vault selection
-- Manual sync button
-- Last successful sync shown as relative time, with an expandable exact
-  `YYYY/MM/DD HH:MM:SS` timestamp
-- Conflict file count and one-click deletion of generated conflict files
-- Device list with current device marker
-- History and diff UI toggle
+Static `config.toml` (read at startup):
 
-Command palette actions:
+| Field | Purpose |
+| --- | --- |
+| `server.bind_addr` | Where the daemon listens. `127.0.0.1:6710` behind a reverse proxy; `0.0.0.0:6710` in Docker Compose. |
+| `server.deployment_key` | Generated by `pkvsyncd genkey`; sent by clients in the `X-PKVSync-Deployment-Key` header. |
+| `server.public_host` | Externally-visible hostname (and port if non-standard). **Required for admin POSTs** — see deployment hardening guide. |
+| `storage.data_dir` | Data root containing `metadata.db`, `vaults/`, and `blobs/`. |
+| `storage.db_path` | SQLite database path (usually `<data_dir>/metadata.db`). |
+| `network.trusted_proxies` | CIDRs allowed to set `X-Forwarded-For` / `X-Forwarded-Proto`. |
+| `logging.level` | tracing filter such as `info`, `debug`. |
+| `logging.format` | `json` or `pretty`. |
 
-- Show sync status
-- Refresh account info
-- Manual sync now
-- View sync status details
-- Show file history
-- Show vault history
-- List conflict files
-- Delete conflict files
-
-Sync behavior:
-
-- Pushes local changes after the debounce interval
-- Polls remote changes periodically
-- Syncs after relevant vault file events and on window blur
-- Uses the server-provided text extension list after connecting
-- Verifies downloaded binary blob hashes before writing them locally
-- Stores plugin settings and sync indexes through a serialized data store
-- Records partial pull progress if a write fails midway, reducing duplicate
-  conflict files on retry
-- Restores a selected file version by reading historical content from the
-  server, writing it to the local vault, and letting the existing sync engine
-  push it as a normal change
-
-Device tokens expire after 90 days. Logging in again on the same device replaces
-the previous active token for that device instead of leaving multiple active
-tokens.
-
-## Admin WebUI
-
-Open `/admin/login` on your server. The Admin WebUI includes:
-
-- Dashboard with CPU, memory, data-directory disk usage, uptime, users, vaults,
-  and recent activity
-- Responsive sidebar with mobile drawer navigation and bundled Lucide icons
-- User list, user creation, user detail pages, password reset, active/admin
-  controls, and per-user token management
-- Global device token page for listing, creating, and revoking tokens
-- Vault cards with owner, file count, size, last sync, reconcile, and delete
-  actions
-- Read-only vault file browser with file preview, per-file history timeline, and
-  unified diff viewer. Admin WebUI does not provide restore, revert, or rollback
-  controls.
-- Invite creation, expiration display, and deletion for unused invites
-- Runtime settings grouped as General, Security, Sync & Storage, and Network
-- Login rate-limit settings
-- Max file size and supported text extension settings
-- Blob garbage collection trigger
-- Activity log with real filters for user and action
-- English and Simplified Chinese admin language selection
-
-Safeguards include last-admin protection, self-disable/self-delete protection,
-username validation, password hashing with Argon2id, 90-day device-token
-expiration, token revocation, CSRF checks for admin forms, and deployment-key
-pre-auth for API routes.
-
-## Configuration Notes
-
-Static `config.toml` fields:
-
-- `server.bind_addr`: default service listener, commonly `127.0.0.1:6710` behind
-  a reverse proxy or `0.0.0.0:6710` in Docker Compose
-- `server.deployment_key`: generated by `pkvsyncd genkey`
-- `server.public_host`: optional host used for HTTPS share URL generation and
-  production-style admin cookies
-- `storage.data_dir`: data root containing `metadata.db`, `vaults/`, and `blobs/`
-- `storage.db_path`: SQLite database path
-- `network.trusted_proxies`: CIDRs allowed to set `X-Forwarded-For`
-- `logging.level`: tracing filter such as `info` or `debug`
-- `logging.format`: `json` or `pretty`
-
-Runtime settings stored in SQLite and editable from Admin WebUI:
-
-- Server name
-- Timezone, default `Asia/Shanghai`
-- Registration mode: `disabled`, `invite_only`, or `open`
-- Login failure threshold, window, and lock duration
-- Maximum file size, default `100 MiB`
-- Supported text extensions, default `md`, `canvas`, `base`, `json`, `txt`, `css`
-- History UI and diff endpoint feature flags, both enabled by default
+Runtime settings (registration mode, login rate limits, max file size, text
+extensions, push debounce, inline SSE content cap, SSE heartbeat, Git smart
+HTTP toggle, extra exclude globs, history/diff feature flags) are edited
+from the Admin panel — see the
+[admin manual](./public-docs/admin-manual.md#runtime-settings).
 
 ## HTTP API
 
-All `/api/*` routes require the deployment key header. Authenticated routes also
-require a bearer device token.
-
-Main route groups:
-
-- `GET /api/health`
-- `GET /api/config`
-- `POST /api/auth/login`
-- `POST /api/auth/register`
-- `GET /api/me`
-- `POST /api/me/password`
-- `POST /api/me/logout`
-- `GET /api/me/tokens`
-- `DELETE /api/me/tokens/:id`
-- `GET /api/vaults`
-- `POST /api/vaults`
-- `DELETE /api/vaults/:id`
-- `POST /api/vaults/:id/upload/check`
-- `POST /api/vaults/:id/upload/blob`
-- `GET /api/vaults/:id/state`
-- `POST /api/vaults/:id/push`
-- `GET /api/vaults/:id/pull`
-- `GET /api/vaults/:id/commits`
-- `GET /api/vaults/:id/commits/:commit`
-- `GET /api/vaults/:id/history?path=`
-- `GET /api/vaults/:id/diff?from=&to=&path=`
-- `GET /api/vaults/:id/files/*path`
-- Admin API routes under `/api/admin/*`
-
-See the [OpenAPI spec](./public-docs/openapi.yaml) for schemas.
+All `/api/*` routes require the deployment key header; authenticated routes
+also require a bearer device token. See the
+[OpenAPI specification](./public-docs/openapi.yaml) for the full route table,
+request / response schemas, and the SSE event payload format.
 
 ## Operations
 
-- Keep `config.toml`, `metadata.db`, `vaults/`, and `blobs/` in the same backup
-  set.
-- Run behind HTTPS. Example reverse-proxy configs are provided for Caddy, Nginx,
-  and Traefik.
-- If using a reverse proxy, set `trusted_proxies` to only the proxy network.
+- Back up `config.toml`, `metadata.db`, `vaults/`, and `blobs/` together.
+- Run behind HTTPS; restrict `[network].trusted_proxies` to the actual proxy
+  CIDRs.
 - Watch logs for repeated `401`, `403`, `409`, and `429` responses.
-- Run blob garbage collection after large attachment deletions.
+- Run blob garbage collection from the admin panel after large attachment
+  deletions.
 - Use vault metadata reconciliation if file counts, sizes, or blob references
   drift after interrupted operations.
-- Keep release assets, Docker images, plugin package, changelog, and version
-  numbers aligned when releasing.
 
 ## Documentation
 
@@ -384,10 +278,9 @@ pwsh -File scripts/ci-smoke.ps1
 
 CI runs Rust formatting, Clippy, and tests on Linux and Windows; plugin
 tests/typecheck/build/package/audit; Docker build; and release-binary smoke
-tests.
-
-Release CI additionally builds Linux amd64, Linux arm64, Windows x64, the
-plugin package, the multi-arch Docker image, checksums, and the GitHub release.
+tests. Release CI additionally builds Linux amd64 / arm64, Windows x64, the
+plugin package, the multi-arch Docker image, checksums, and the GitHub
+release.
 
 ## License
 

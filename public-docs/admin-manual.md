@@ -144,6 +144,41 @@ deleted from the admin API; keep them for audit history.
 Use `open` only for short windows or public deployments with additional
 monitoring and rate limits.
 
+## Runtime Settings
+
+The Settings page edits values stored in SQLite. Changes take effect immediately
+for new requests; the in-memory cache is refreshed on save.
+
+**General** — server name, default timezone.
+
+**Security** — registration mode (`disabled` / `invite_only` / `open`), login
+failure threshold, failure window, and lock duration. The login rate limiter
+counts both failed attempts and in-flight password verifications, so a burst
+of concurrent guesses cannot bypass the threshold.
+
+**Sync & Storage**
+- Max file size (default `100 MiB`).
+- Supported text extensions — files outside this list are treated as binary
+  blobs.
+- Extra exclude globs — admin-tunable patterns that augment the built-in
+  `.obsidian/`, `.trash/`, `.conflict-*`, `.git/` exclusion list.
+- History UI and diff endpoint toggles.
+- **Push debounce** (`push_debounce_ms`, default `250`): how long the plugin
+  waits after a local edit settles before pushing. Lower values reduce
+  end-to-end latency; higher values batch more keystrokes per push.
+- **Inline SSE content cap** (`inline_content_max_bytes`, default `8192`,
+  max `65536`): text changes up to this size are shipped inside the SSE
+  event so receiving plugins can apply them without a separate pull.
+  Larger files always fall back to pull.
+- **SSE heartbeat** (`sse_heartbeat_seconds`, default `30`): keep-alive
+  ticks for the event stream so idle SSE connections survive reverse
+  proxies.
+- **Git smart HTTP** (`enable_git_smart_http`, default off): when on,
+  authorised devices can `git clone https://_:<token>@host/git/<vault-id>`.
+  The server also requires the `git` binary in `PATH`; the public
+  `/api/config` capability reflects both flags so clients only advertise
+  the feature when it actually works.
+
 ## Activity
 
 The activity log records sync and read-only browsing operations such as push,
