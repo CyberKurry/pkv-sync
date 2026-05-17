@@ -332,17 +332,9 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       button.disabled = selected;
 
       this.renderButton(row, t.deleteVaultButton, "ghost", () => {
-        new DeleteVaultModal(this.app, vault, t, async () => {
-          await this.plugin.api().deleteVault(vault.id);
-          if (this.plugin.settings.selectedVaultId === vault.id) {
-            this.plugin.settings.selectedVaultId = "";
-            this.plugin.settings.selectedVaultName = "";
-            this.plugin.invalidateSyncEngine();
-          }
-          await this.plugin.saveSettings();
-          new Notice(format(t.deletedVaultNotice, { name: vault.name }));
-          this.display();
-        }).open();
+        new DeleteVaultModal(this.app, vault, t, () =>
+          this.deleteVaultAndRefresh(vault)
+        ).open();
       }).addClass("pkv-sync-vault-delete");
     }
 
@@ -350,6 +342,20 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     this.renderButton(body, t.syncNowButton, "primary", () =>
       this.plugin.syncNowManual()
     ).addClass("pkv-sync-sync-now");
+  }
+
+  async deleteVaultAndRefresh(vault: VaultSummary): Promise<void> {
+    await this.plugin.api().deleteVault(vault.id);
+    if (this.plugin.settings.selectedVaultId === vault.id) {
+      this.plugin.settings.selectedVaultId = "";
+      this.plugin.settings.selectedVaultName = "";
+      this.plugin.invalidateSyncEngine();
+    }
+    await this.plugin.saveSettings();
+    new Notice(
+      format(this.plugin.text().deletedVaultNotice, { name: vault.name })
+    );
+    this.display();
   }
 
   private renderCreateVault(body: HTMLElement): void {

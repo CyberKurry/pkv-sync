@@ -96,52 +96,80 @@ describe("PKVSyncSettingTab connection state", () => {
 });
 
 describe("delete vault", () => {
-  it("deleting selected vault clears settings and invalidates engine", async () => {
-    const invalidateSyncEngine = vi.fn();
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+  function buildTab(settingsOverride: Record<string, unknown> = {}) {
     const deleteVault = vi.fn().mockResolvedValue(undefined);
+    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const invalidateSyncEngine = vi.fn();
     const settings = {
       selectedVaultId: "vault-1",
-      selectedVaultName: "Test Vault"
+      selectedVaultName: "Test Vault",
+      ...settingsOverride
+    };
+    const plugin = {
+      settings,
+      api: () => ({ deleteVault }),
+      saveSettings,
+      invalidateSyncEngine,
+      text: () => ({ deletedVaultNotice: "Deleted {name}" })
     };
 
+    const tab = Object.create(PKVSyncSettingTab.prototype) as {
+      plugin: typeof plugin;
+      display: () => void;
+      deleteVaultAndRefresh: (vault: ReturnType<typeof mockVault>) => Promise<void>;
+    };
+    tab.plugin = plugin;
+    tab.display = vi.fn();
+
+    return { tab, plugin, deleteVault, saveSettings, invalidateSyncEngine, settings };
+  }
+
+  it("deleting selected vault calls API, clears settings, invalidates engine, refreshes display", async () => {
+    const { tab, deleteVault, saveSettings, invalidateSyncEngine, settings } =
+      buildTab();
     const vault = mockVault();
-    await deleteVault(vault.id);
-    if (settings.selectedVaultId === vault.id) {
-      settings.selectedVaultId = "";
-      settings.selectedVaultName = "";
-      invalidateSyncEngine();
-    }
-    await saveSettings();
+    notices.length = 0;
+
+    await tab.deleteVaultAndRefresh(vault);
 
     expect(deleteVault).toHaveBeenCalledWith("vault-1");
     expect(settings.selectedVaultId).toBe("");
     expect(settings.selectedVaultName).toBe("");
     expect(invalidateSyncEngine).toHaveBeenCalledTimes(1);
     expect(saveSettings).toHaveBeenCalledTimes(1);
+    expect(tab.display).toHaveBeenCalledTimes(1);
+    expect(notices.at(-1)).toBe("Deleted Test Vault");
   });
 
-  it("deleting non-selected vault does not clear settings or invalidate engine", async () => {
-    const invalidateSyncEngine = vi.fn();
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
-    const deleteVault = vi.fn().mockResolvedValue(undefined);
-    const settings = {
-      selectedVaultId: "vault-other",
-      selectedVaultName: "Other Vault"
-    };
-
+  it("deleting non-selected vault preserves selection and does not invalidate engine", async () => {
+    const { tab, deleteVault, saveSettings, invalidateSyncEngine, settings } =
+      buildTab({
+        selectedVaultId: "vault-other",
+        selectedVaultName: "Other Vault"
+      });
     const vault = mockVault();
-    await deleteVault(vault.id);
-    if (settings.selectedVaultId === vault.id) {
-      settings.selectedVaultId = "";
-      settings.selectedVaultName = "";
-      invalidateSyncEngine();
-    }
-    await saveSettings();
+
+    await tab.deleteVaultAndRefresh(vault);
 
     expect(deleteVault).toHaveBeenCalledWith("vault-1");
     expect(settings.selectedVaultId).toBe("vault-other");
+    expect(settings.selectedVaultName).toBe("Other Vault");
     expect(invalidateSyncEngine).not.toHaveBeenCalled();
+    expect(saveSettings).toHaveBeenCalledTimes(1);
+    expect(tab.display).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not clear settings or refresh when API rejects", async () => {
+    const { tab, saveSettings, invalidateSyncEngine, settings } = buildTab();
+    const failingApi = vi.fn().mockRejectedValue(new Error("boom"));
+    tab.plugin.api = () => ({ deleteVault: failingApi });
+    const vault = mockVault();
+
+    await expect(tab.deleteVaultAndRefresh(vault)).rejects.toThrow("boom");
+    expect(settings.selectedVaultId).toBe("vault-1");
+    expect(invalidateSyncEngine).not.toHaveBeenCalled();
+    expect(saveSettings).not.toHaveBeenCalled();
+    expect(tab.display).not.toHaveBeenCalled();
   });
 
   it("DeleteVaultModal confirms delete and shows notice on API error", async () => {
