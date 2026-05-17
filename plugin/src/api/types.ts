@@ -89,3 +89,17 @@ export interface UnifiedDiff {
 export type HistoricalFile =
   | { kind: "text"; text: string }
   | { kind: "binary"; bytes: ArrayBuffer };
+
+export type EventChange =
+  | { kind: "text_inline"; path: string; content: string }
+  | { kind: "text_ref"; path: string; size: number }
+  | { kind: "blob"; path: string; blob_hash: string; size: number }
+  | { kind: "delete"; path: string };
+
+export interface VaultEvent {
+  commit: string;
+  parent: string | null;
+  source_device_id: string;
+  at: number;
+  changes: EventChange[];
+}

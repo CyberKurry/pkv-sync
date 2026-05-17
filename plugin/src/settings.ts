@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS: PKVSyncSettings = {
   deviceName: "",
   lastSyncSuccessAt: null,
   pollIntervalSeconds: 60,
-  debounceMs: 2000,
+  debounceMs: 250,
   textExtensions: ["md", "canvas", "base", "json", "txt", "css"],
   extraExcludeGlobs: []
 };

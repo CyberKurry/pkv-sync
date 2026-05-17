@@ -15,7 +15,7 @@ describe("settings", () => {
     expect(settings.deviceId).toMatch(/^dev_/);
     expect(settings.lastSyncSuccessAt).toBeNull();
     expect(settings.pollIntervalSeconds).toBe(60);
-    expect(settings.debounceMs).toBe(2000);
+    expect(settings.debounceMs).toBe(250);
     expect(settings.enableHistoryUi).toBe(true);
   });
 
@@ -28,7 +28,7 @@ describe("settings", () => {
     } as any);
 
     expect(settings.pollIntervalSeconds).toBe(60);
-    expect(settings.debounceMs).toBe(2000);
+    expect(settings.debounceMs).toBe(250);
     expect(settings.lastSyncSuccessAt).toBeNull();
     expect(settings.textExtensions).toEqual(DEFAULT_SETTINGS.textExtensions);
   });

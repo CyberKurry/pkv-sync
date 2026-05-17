@@ -1,6 +1,8 @@
 import { Notice } from "obsidian";
 import { ApiError } from "../api/client";
+import { subscribeVaultEvents } from "../api/events-client";
 import type { SyncApi } from "../api/sync-client";
+import type { VaultEvent } from "../api/types";
 import { isExcluded } from "./exclude";
 import { conflictPath } from "./conflict";
 import { sha256Bytes, sha256Text } from "./hash";
@@ -27,6 +29,10 @@ export interface SyncEngineOptions {
   vault: VaultAdapter;
   api: SyncApi;
   index: IndexPersistence;
+  deviceId?: string;
+  serverUrl?: string;
+  deploymentKey?: string;
+  token?: string;
   setStatus(
     status: "connected" | "syncing" | "offline" | "error",
     detail?: string
@@ -36,6 +42,7 @@ export interface SyncEngineOptions {
 
 export class SyncEngine {
   private running: Promise<void> | null = null;
+  private unsubscribeEvents: (() => void) | null = null;
 
   constructor(private opts: SyncEngineOptions) {
     if (!opts.vaultId.trim()) throw new Error("SyncEngine requires a non-empty vaultId");
@@ -57,6 +64,57 @@ export class SyncEngine {
       this.syncNow(),
       new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs))
     ]);
+  }
+
+  startEventSubscription(): void {
+    if (!this.opts.serverUrl || !this.opts.deviceId || !this.opts.deploymentKey || !this.opts.token) return;
+    this.unsubscribeEvents = subscribeVaultEvents({
+      serverUrl: this.opts.serverUrl,
+      vaultId: this.opts.vaultId,
+      deploymentKey: this.opts.deploymentKey,
+      token: this.opts.token,
+      ownDeviceId: this.opts.deviceId,
+      onEvent: async (ev: VaultEvent) => {
+        if (!ev.commit) {
+          // lagged — do a full pull
+          await this.syncNow();
+          return;
+        }
+        let needFallbackPull = false;
+        for (const change of ev.changes) {
+          try {
+            switch (change.kind) {
+              case "text_inline":
+                await this.applyInlineText(change.path, change.content, ev.commit);
+                break;
+              case "delete":
+                await this.applyDelete(change.path, ev.commit);
+                break;
+              case "text_ref":
+              case "blob":
+                needFallbackPull = true;
+                break;
+            }
+          } catch (err) {
+            console.warn("[pkv-sync] inline apply failed, falling back to pull:", err);
+            needFallbackPull = true;
+          }
+        }
+        if (needFallbackPull) {
+          await this.syncNow();
+        } else {
+          await this.advanceIndexHead(ev.commit);
+        }
+      },
+      onError: (err: Error) => {
+        console.warn("[pkv-sync] SSE subscribe failed, falling back to polling:", err);
+      },
+    });
+  }
+
+  stopEventSubscription(): void {
+    this.unsubscribeEvents?.();
+    this.unsubscribeEvents = null;
   }
 
   async scanPending(): Promise<{
@@ -309,6 +367,31 @@ export class SyncEngine {
       await this.opts.vault.writeBinary(cpath, bytes);
     }
     new Notice(`PKV Sync conflict: ${cpath}`);
+  }
+
+  private async applyInlineText(path: string, content: string, commit: string): Promise<void> {
+    await this.opts.vault.writeText(path, content);
+    const index = await this.opts.index.loadIndex();
+    const hash = await sha256Text(content);
+    const snapshot: LocalFileSnapshot = {
+      path, hash, size: new TextEncoder().encode(content).byteLength, kind: "text", content
+    };
+    const next = markSynced(index, commit, [snapshot]);
+    await this.opts.index.saveIndex(next);
+  }
+
+  private async applyDelete(path: string, commit: string): Promise<void> {
+    await this.opts.vault.delete(path);
+    const index = await this.opts.index.loadIndex();
+    const next = markDeleted(index, commit, [path]);
+    await this.opts.index.saveIndex(next);
+  }
+
+  private async advanceIndexHead(commit: string): Promise<void> {
+    const index = await this.opts.index.loadIndex();
+    if (index.lastSyncedCommit === commit) return;
+    const next: LocalIndex = { ...index, lastSyncedCommit: commit };
+    await this.opts.index.saveIndex(next);
   }
 
   private async matchingLocalSnapshot(

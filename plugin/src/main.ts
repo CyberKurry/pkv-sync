@@ -179,6 +179,7 @@ export default class PKVSyncPlugin extends Plugin {
   onunload(): void {
     this.pushDebouncer?.cancel();
     // Starting a new sync during Obsidian teardown can leave vault writes half-done.
+    this.engine?.stopEventSubscription();
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.fallbackTimer !== null) window.clearInterval(this.fallbackTimer);
     this.syncGeneration++;
@@ -340,8 +341,13 @@ export default class PKVSyncPlugin extends Plugin {
         generation === this.syncGeneration
           ? this.statusEl?.setText(statusText(status, detail, this.text()))
           : undefined,
-      onSyncSuccess: () => this.recordSyncSuccess(generation)
+      onSyncSuccess: () => this.recordSyncSuccess(generation),
+      deviceId: this.settings.deviceId,
+      serverUrl: this.settings.serverUrl,
+      deploymentKey: this.settings.deploymentKey,
+      token: this.settings.token,
     });
+    this.engine.startEventSubscription();
     this.pushDebouncer = new Debouncer(this.settings.debounceMs, () => {
       void this.engine?.syncNow();
     });
@@ -687,6 +693,7 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   invalidateSyncEngine(): void {
+    this.engine?.stopEventSubscription();
     this.pushDebouncer?.cancel();
     if (this.pollTimer !== null) {
       window.clearInterval(this.pollTimer);
