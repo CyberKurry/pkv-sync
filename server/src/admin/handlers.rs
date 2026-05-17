@@ -186,12 +186,15 @@ async fn login_post(
     Form(form): Form<LoginForm>,
 ) -> Result<Response, ApiError> {
     let t = crate::admin::i18n::detect(&headers, &cookies).text();
-    if let Err(remaining) = limiter.check(ip) {
-        return Err(ApiError::too_many(format!(
-            "locked for {}s",
-            remaining.as_secs()
-        )));
-    }
+    let reservation = match limiter.try_acquire(ip) {
+        Ok(r) => r,
+        Err(remaining) => {
+            return Err(ApiError::too_many(format!(
+                "locked for {}s",
+                remaining.as_secs()
+            )));
+        }
+    };
 
     let user = match crate::service::auth::verify_credentials(
         &state,
@@ -202,17 +205,20 @@ async fn login_post(
     {
         Ok(u) => u,
         Err(e) if e.status == StatusCode::UNAUTHORIZED || e.status == StatusCode::FORBIDDEN => {
-            limiter.record_failure(ip);
+            reservation.failure();
             return Ok(login_error(
                 t,
                 "Invalid credentials",
                 StatusCode::UNAUTHORIZED,
             ));
         }
-        Err(e) => return Err(e),
+        Err(e) => {
+            reservation.release();
+            return Err(e);
+        }
     };
     if !user.is_admin {
-        limiter.record_failure(ip);
+        reservation.failure();
         return Ok(login_error(
             t,
             "Invalid credentials",
@@ -227,7 +233,7 @@ async fn login_post(
     session::delete_sessions_for_user(&state, &user.id).await?;
     let session_id = session::create_session(&state, &user.id).await?;
     cookies.add(session::make_cookie(session_id, cookie_policy.secure));
-    limiter.record_success(ip);
+    reservation.success();
     Ok(Redirect::to("/admin").into_response())
 }
 

@@ -7,6 +7,12 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone)]
 struct Entry {
     failures: u32,
+    /// In-flight reservations from try_acquire that have not yet resolved
+    /// to success or failure. Counts toward the threshold so a burst of
+    /// concurrent requests cannot all pass check() before any of them
+    /// record_failure(). (GLM5 Ultra Review H-1: closes TOCTOU between
+    /// the read in check() and the write in record_failure().)
+    in_flight: u32,
     first_failure: Instant,
     locked_until: Option<Instant>,
 }
@@ -66,6 +72,7 @@ impl LoginRateLimiter {
         let config = *self.config.read().expect("login limiter lock poisoned");
         let mut e = self.inner.entry(ip).or_insert(Entry {
             failures: 0,
+            in_flight: 0,
             first_failure: now,
             locked_until: None,
         });
@@ -82,6 +89,104 @@ impl LoginRateLimiter {
 
     pub fn record_success(&self, ip: IpAddr) {
         self.inner.remove(&ip);
+    }
+
+    /// Atomic reservation: in a single dashmap entry lock, check that the IP
+    /// is not currently locked and that allowing one more in-flight attempt
+    /// won't cross the threshold; if both conditions hold, increment
+    /// `in_flight` and return a reservation handle. Otherwise return the
+    /// lock duration (caller maps to 429).
+    ///
+    /// Counting `in_flight` toward threshold closes the GLM5 H-1 TOCTOU:
+    /// even if N concurrent requests pass the lock check, after N=`threshold`
+    /// reservations are in flight the (N+1)th request is rejected before
+    /// argon2 runs, instead of waiting for one of them to call
+    /// `record_failure` (which historically left a wide CPU-burn window).
+    pub fn try_acquire(&self, ip: IpAddr) -> Result<AttemptReservation, Duration> {
+        let now = Instant::now();
+        let config = *self.config.read().expect("login limiter lock poisoned");
+        let mut entry = self.inner.entry(ip).or_insert(Entry {
+            failures: 0,
+            in_flight: 0,
+            first_failure: now,
+            locked_until: None,
+        });
+
+        // Honour expired lock state first so a returning attacker after the
+        // lockout window gets a fresh budget.
+        if entry_is_stale(&entry, now, config) {
+            entry.failures = 0;
+            entry.in_flight = 0;
+            entry.first_failure = now;
+            entry.locked_until = None;
+        }
+
+        if let Some(until) = entry.locked_until {
+            if until > now {
+                return Err(until - now);
+            }
+        }
+
+        // Failures + in-flight reservations together must stay strictly below
+        // the threshold. The (N=threshold)th request trips a fresh lock.
+        if entry.failures + entry.in_flight >= config.threshold {
+            entry.locked_until = Some(now + config.lock_duration);
+            return Err(config.lock_duration);
+        }
+
+        entry.in_flight += 1;
+        Ok(AttemptReservation {
+            limiter: self.clone(),
+            ip,
+            resolved: false,
+        })
+    }
+
+    /// Internal: called by AttemptReservation::success to release the slot.
+    fn release_success(&self, ip: IpAddr) {
+        // Successful auth resets the entry entirely. record_success already
+        // does this; we go through the same path to keep semantics centralised.
+        self.inner.remove(&ip);
+    }
+
+    /// Internal: called by AttemptReservation::failure to release the slot
+    /// and atomically charge a failure.
+    fn release_failure(&self, ip: IpAddr) {
+        let now = Instant::now();
+        let config = *self.config.read().expect("login limiter lock poisoned");
+        let mut entry = self.inner.entry(ip).or_insert(Entry {
+            failures: 0,
+            in_flight: 0,
+            first_failure: now,
+            locked_until: None,
+        });
+        if now.duration_since(entry.first_failure) > config.window {
+            entry.failures = 0;
+            entry.first_failure = now;
+            entry.locked_until = None;
+        }
+        if entry.in_flight > 0 {
+            entry.in_flight -= 1;
+        }
+        entry.failures += 1;
+        if entry.failures >= config.threshold {
+            entry.locked_until = Some(now + config.lock_duration);
+        }
+    }
+
+    /// Internal: called by AttemptReservation::release for non-attributable
+    /// outcomes (e.g. internal 500). Releases the slot without changing the
+    /// failure counter.
+    fn release_neutral(&self, ip: IpAddr) {
+        let now = Instant::now();
+        let _ = now;
+        let mut entry = match self.inner.get_mut(&ip) {
+            Some(e) => e,
+            None => return,
+        };
+        if entry.in_flight > 0 {
+            entry.in_flight -= 1;
+        }
     }
 
     pub fn prune_stale(&self) -> usize {
@@ -105,6 +210,51 @@ fn entry_is_stale(entry: &Entry, now: Instant, config: Config) -> bool {
         return until <= now;
     }
     now.duration_since(entry.first_failure) > config.window
+}
+
+/// Reservation handle returned by `try_acquire`. Holding this object means a
+/// slot has been reserved against the limiter; the holder MUST resolve it
+/// with `success()`, `failure()`, or `release()` before drop. If dropped
+/// without explicit resolution (e.g. due to a panic), the Drop impl treats
+/// the attempt as a failure — pessimistic by design so a panicking handler
+/// cannot silently leak a free attempt.
+pub struct AttemptReservation {
+    limiter: LoginRateLimiter,
+    ip: IpAddr,
+    resolved: bool,
+}
+
+impl AttemptReservation {
+    /// Resolve as a successful authentication. Resets the IP's failure
+    /// counter (the entry is removed entirely).
+    pub fn success(mut self) {
+        self.resolved = true;
+        self.limiter.release_success(self.ip);
+    }
+
+    /// Resolve as a failed authentication. Atomically decrements in-flight,
+    /// increments failures, and may set the lockout.
+    pub fn failure(mut self) {
+        self.resolved = true;
+        self.limiter.release_failure(self.ip);
+    }
+
+    /// Resolve as a non-attributable outcome (e.g. internal server error,
+    /// validation error pre-auth). Releases the slot without changing the
+    /// failure counter. Use sparingly — most non-success outcomes should be
+    /// treated as failures.
+    pub fn release(mut self) {
+        self.resolved = true;
+        self.limiter.release_neutral(self.ip);
+    }
+}
+
+impl Drop for AttemptReservation {
+    fn drop(&mut self) {
+        if !self.resolved {
+            self.limiter.release_failure(self.ip);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -172,5 +322,58 @@ mod tests {
         l.update_config(1, Duration::from_secs(60), Duration::from_secs(60));
         l.record_failure(ip());
         assert!(l.check(ip()).is_err());
+    }
+
+    /// GLM5 Ultra Review H-1 regression: in-flight reservations count toward
+    /// the threshold so concurrent attempts cannot all sneak through before
+    /// any of them records a failure. With threshold=3, after 3 in-flight
+    /// try_acquire calls, the 4th must be rejected even though no failures
+    /// have been recorded yet.
+    #[test]
+    fn try_acquire_blocks_concurrent_burst_before_failures_record() {
+        let l = LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
+        // Acquire 3 slots; do NOT resolve them. They represent in-flight
+        // argon2 verifications.
+        let r1 = l.try_acquire(ip()).expect("first reservation");
+        let r2 = l.try_acquire(ip()).expect("second reservation");
+        let r3 = l.try_acquire(ip()).expect("third reservation");
+        // 4th must be rejected — without H-1 fix, it would proceed because
+        // failures is still 0.
+        assert!(l.try_acquire(ip()).is_err());
+        // Drop holds without resolution → Drop impl charges them as failures.
+        drop(r1);
+        drop(r2);
+        drop(r3);
+        // After all three resolve to failure, the lock is still active.
+        assert!(l.check(ip()).is_err());
+    }
+
+    /// Reservation success resets the IP entirely so a legitimate login does
+    /// not leave residual failure counter behind.
+    #[test]
+    fn reservation_success_resets_state() {
+        let l = LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
+        l.record_failure(ip());
+        l.record_failure(ip());
+        let r = l.try_acquire(ip()).unwrap();
+        r.success();
+        // Fresh: full budget available again.
+        assert!(l.try_acquire(ip()).is_ok());
+    }
+
+    /// Reservation::release decrements in_flight without changing failures,
+    /// for non-attributable outcomes like internal errors.
+    #[test]
+    fn reservation_release_does_not_charge_failure() {
+        let l = LoginRateLimiter::new(2, Duration::from_secs(60), Duration::from_secs(60));
+        let r = l.try_acquire(ip()).unwrap();
+        r.release();
+        // No failure recorded → still have full budget.
+        let r2 = l.try_acquire(ip()).unwrap();
+        let r3 = l.try_acquire(ip()).unwrap();
+        // Two slots taken, threshold=2 → third rejected.
+        assert!(l.try_acquire(ip()).is_err());
+        r2.release();
+        r3.release();
     }
 }
