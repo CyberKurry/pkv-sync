@@ -42,14 +42,18 @@ fn expected_origins(req: &Request) -> Option<Vec<String>> {
     let policy = req
         .extensions()
         .get::<crate::admin::handlers::AdminCookiePolicy>();
-    let host = policy
-        .and_then(|p| p.public_host.as_deref())
-        .or_else(|| {
-            req.headers()
-                .get(header::HOST)
-                .and_then(|h| h.to_str().ok())
-        })
-        .or_else(|| req.uri().authority().map(|a| a.as_str()))?;
+    // Fail closed: a CSRF check that relies on the request's own Host header
+    // for its expected origin is brittle (host header injection through
+    // misconfigured proxies, ambiguous virtual-host setups). Require an
+    // explicit public_host. Operators who haven't set one see admin POSTs
+    // rejected with 403 and a clear log line telling them what to configure.
+    // (GLM5 Ultra Review C-1: fail-closed defense-in-depth.)
+    let Some(host) = policy.and_then(|p| p.public_host.as_deref()) else {
+        tracing::warn!(
+            "admin CSRF rejected: public_host is not configured; set [server].public_host in config.toml"
+        );
+        return None;
+    };
     let proto = trusted_forwarded_proto(req).unwrap_or(if policy.is_some_and(|p| p.secure) {
         "https"
     } else {
@@ -83,6 +87,15 @@ mod tests {
     use super::*;
     use axum::body::Body;
 
+    fn with_public_host(mut req: Request, public_host: &str, secure: bool) -> Request {
+        req.extensions_mut()
+            .insert(crate::admin::handlers::AdminCookiePolicy {
+                secure,
+                public_host: Some(public_host.into()),
+            });
+        req
+    }
+
     fn req(method: Method, origin: Option<&str>, referer: Option<&str>) -> Request {
         let mut builder = Request::builder()
             .method(method)
@@ -94,18 +107,19 @@ mod tests {
         if let Some(referer) = referer {
             builder = builder.header(header::REFERER, referer);
         }
-        builder.body(Body::empty()).unwrap()
+        with_public_host(builder.body(Body::empty()).unwrap(), "example.test", false)
     }
 
     fn req_with_forwarded_proto(origin: &str, proto: &str) -> Request {
-        Request::builder()
+        let req = Request::builder()
             .method(Method::POST)
             .uri("/admin/gc")
             .header(header::HOST, "example.test")
             .header(header::ORIGIN, origin)
             .header("x-forwarded-proto", proto)
             .body(Body::empty())
-            .unwrap()
+            .unwrap();
+        with_public_host(req, "example.test", false)
     }
 
     fn req_with_host(host: &str, origin: &str) -> Request {
@@ -164,6 +178,44 @@ mod tests {
         req.extensions_mut()
             .insert(crate::middleware::real_ip::ForwardedFromTrustedProxy(true));
         assert!(same_origin(&req));
+    }
+
+    /// GLM5 Ultra Review C-1 regression: when `public_host` is not configured,
+    /// CSRF must fail closed — never derive the expected origin from the
+    /// request-controlled Host header, even if Origin happens to match Host.
+    #[test]
+    fn rejects_when_public_host_unconfigured_even_if_origin_matches_host() {
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/admin/gc")
+            .header(header::HOST, "anything.test")
+            .header(header::ORIGIN, "http://anything.test")
+            .body(Body::empty())
+            .unwrap();
+        // No AdminCookiePolicy extension inserted → public_host is None.
+        assert!(
+            !same_origin(&req),
+            "must fail closed when public_host is unconfigured"
+        );
+    }
+
+    /// GLM5 Ultra Review C-1 regression: even with AdminCookiePolicy inserted
+    /// but its public_host left as None, fail closed.
+    #[test]
+    fn rejects_when_policy_has_no_public_host() {
+        let mut req = Request::builder()
+            .method(Method::POST)
+            .uri("/admin/gc")
+            .header(header::HOST, "anything.test")
+            .header(header::ORIGIN, "http://anything.test")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(crate::admin::handlers::AdminCookiePolicy {
+                secure: false,
+                public_host: None,
+            });
+        assert!(!same_origin(&req), "policy without public_host must reject");
     }
 
     #[test]

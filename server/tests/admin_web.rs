@@ -38,7 +38,11 @@ async fn app_with_state() -> (Router, AppState) {
         server: ServerConfig {
             bind_addr: "127.0.0.1:6710".parse().unwrap(),
             deployment_key: "k_test_admin_web".into(),
-            public_host: None,
+            // CSRF is fail-closed when public_host is unset (GLM5 C-1 fix),
+            // so admin POST tests must provide one. Use the same host the
+            // test requests will use so same_origin() succeeds for valid
+            // submissions.
+            public_host: Some("127.0.0.1:6710".into()),
         },
         storage: StorageConfig { data_dir, db_path },
         network: NetworkConfig {
@@ -75,8 +79,10 @@ async fn read_body(resp: Response<Body>) -> String {
 }
 
 fn set_form_origin(req: &mut Request<Body>) {
+    // Test cfg sets public_host, which forces AdminCookiePolicy.secure = true,
+    // so CSRF expects an https:// expected origin. Match it here.
     req.headers_mut()
-        .insert(header::ORIGIN, "http://127.0.0.1:6710".parse().unwrap());
+        .insert(header::ORIGIN, "https://127.0.0.1:6710".parse().unwrap());
 }
 
 async fn login_cookie(app: &Router) -> String {
