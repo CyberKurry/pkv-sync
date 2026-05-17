@@ -11,6 +11,11 @@ pub struct ConfigResponse {
     pub max_file_size: u64,
     pub supported_text_extensions: Vec<String>,
     pub capabilities: ServerCapabilities,
+    /// Push debounce that clients should use; runtime-tuned for sub-second SSE.
+    pub push_debounce_ms: u32,
+    /// Inline content cap for SSE event payload; clients use it to know whether
+    /// to expect inline content vs ref-only for a given file size.
+    pub inline_content_max_bytes: u32,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -27,6 +32,8 @@ fn response(
     max_file_size: u64,
     text_extensions: Vec<String>,
     capabilities: ServerCapabilities,
+    push_debounce_ms: u32,
+    inline_content_max_bytes: u32,
 ) -> ConfigResponse {
     ConfigResponse {
         server_name,
@@ -35,6 +42,8 @@ fn response(
         max_file_size,
         supported_text_extensions: text_extensions,
         capabilities,
+        push_debounce_ms,
+        inline_content_max_bytes,
     }
 }
 
@@ -49,8 +58,14 @@ pub async fn config(State(state): State<AppState>) -> Json<ConfigResponse> {
             history: cfg.enable_history_ui,
             diff: cfg.enable_diff_endpoint,
             sse: true,
-            git_smart_http: cfg.enable_git_smart_http,
+            // Capability flag must reflect both the admin toggle and whether
+            // the `git` binary is actually available on the server. Otherwise
+            // a client sees git_smart_http: true and then hits 503 at request
+            // time.
+            git_smart_http: cfg.enable_git_smart_http && state.git_available,
         },
+        cfg.push_debounce_ms,
+        cfg.inline_content_max_bytes,
     ))
 }
 
@@ -66,8 +81,14 @@ pub async fn public_config(
             history: cfg.enable_history_ui,
             diff: cfg.enable_diff_endpoint,
             sse: true,
+            // Unauthenticated handler has no AppState access; conservatively
+            // expose the runtime toggle. Authenticated config above gates on
+            // git_available too; clients should rely on the authenticated path
+            // for accurate capability detection.
             git_smart_http: cfg.enable_git_smart_http,
         },
+        cfg.push_debounce_ms,
+        cfg.inline_content_max_bytes,
     ))
 }
 

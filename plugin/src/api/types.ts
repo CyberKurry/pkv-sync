@@ -8,11 +8,15 @@ export interface ServerConfigResponse {
   supported_text_extensions: string[];
   capabilities?: ServerCapabilities;
   extra_exclude_globs?: string[];
+  push_debounce_ms?: number;
+  inline_content_max_bytes?: number;
 }
 
 export interface ServerCapabilities {
   history?: boolean;
   diff?: boolean;
+  sse?: boolean;
+  git_smart_http?: boolean;
 }
 
 export interface AuthResponse {

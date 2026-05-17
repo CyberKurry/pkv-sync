@@ -294,12 +294,27 @@ export default class PKVSyncPlugin extends Plugin {
       const cfg = await this.api().config();
       this.serverCapabilities = cfg.capabilities ?? { history: true, diff: true };
       const globs = cfg.extra_exclude_globs ?? [];
+      let settingsDirty = false;
       if (
         globs.length !== this.settings.extraExcludeGlobs.length ||
         !globs.every((g, i) => g === this.settings.extraExcludeGlobs[i])
       ) {
         this.settings.extraExcludeGlobs = globs;
-        await this.saveSettings({ rebuild: false });
+        settingsDirty = true;
+      }
+      // Mirror server-controlled push debounce into local settings so the
+      // engine actually honours runtime tuning (Plan J Critical fix).
+      if (
+        typeof cfg.push_debounce_ms === "number" &&
+        Number.isFinite(cfg.push_debounce_ms) &&
+        cfg.push_debounce_ms > 0 &&
+        cfg.push_debounce_ms !== this.settings.debounceMs
+      ) {
+        this.settings.debounceMs = cfg.push_debounce_ms;
+        settingsDirty = true;
+      }
+      if (settingsDirty) {
+        await this.saveSettings({ rebuild: true });
       }
     } catch {
       this.serverCapabilities = null;
