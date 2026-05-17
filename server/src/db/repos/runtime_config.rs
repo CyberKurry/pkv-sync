@@ -45,6 +45,9 @@ pub struct RuntimeConfig {
     pub enable_diff_endpoint: bool,
     pub extra_exclude_globs: Vec<String>,
     pub inline_content_max_bytes: u32,
+    pub sse_heartbeat_seconds: u64,
+    pub push_debounce_ms: u32,
+    pub enable_git_smart_http: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -69,6 +72,9 @@ impl Default for RuntimeConfig {
             enable_diff_endpoint: true,
             extra_exclude_globs: vec![],
             inline_content_max_bytes: 8192,
+            sse_heartbeat_seconds: 30,
+            push_debounce_ms: 250,
+            enable_git_smart_http: false,
         }
     }
 }
@@ -109,6 +115,17 @@ pub trait RuntimeConfigRepo: Send + Sync {
     async fn set_extra_exclude_globs(
         &self,
         globs: Vec<String>,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
+    async fn set_sse_heartbeat_seconds(
+        &self,
+        value: u64,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
+    async fn set_push_debounce_ms(&self, value: u32, by: Option<&str>) -> Result<(), sqlx::Error>;
+    async fn set_enable_git_smart_http(
+        &self,
+        value: bool,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 }
@@ -219,6 +236,21 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         if let Some(v) = read_kv(&self.pool, "inline_content_max_bytes").await? {
             if let Ok(n) = serde_json::from_str::<u32>(&v) {
                 cfg.inline_content_max_bytes = n.max(1);
+            }
+        }
+        if let Some(v) = read_kv(&self.pool, "sse_heartbeat_seconds").await? {
+            if let Ok(n) = serde_json::from_str::<u64>(&v) {
+                cfg.sse_heartbeat_seconds = n.max(10);
+            }
+        }
+        if let Some(v) = read_kv(&self.pool, "push_debounce_ms").await? {
+            if let Ok(n) = serde_json::from_str::<u32>(&v) {
+                cfg.push_debounce_ms = n.max(1);
+            }
+        }
+        if let Some(v) = read_kv(&self.pool, "enable_git_smart_http").await? {
+            if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
+                cfg.enable_git_smart_http = enabled;
             }
         }
         Ok(cfg)
@@ -355,6 +387,44 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         let json = serde_json::to_string(&globs).unwrap_or_else(|_| "[]".into());
         write_kv(&self.pool, "extra_exclude_globs", &json, by).await
     }
+
+    async fn set_sse_heartbeat_seconds(
+        &self,
+        value: u64,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        write_kv(
+            &self.pool,
+            "sse_heartbeat_seconds",
+            &serde_json::to_string(&value.max(10)).unwrap(),
+            by,
+        )
+        .await
+    }
+
+    async fn set_push_debounce_ms(&self, value: u32, by: Option<&str>) -> Result<(), sqlx::Error> {
+        write_kv(
+            &self.pool,
+            "push_debounce_ms",
+            &serde_json::to_string(&value.max(1)).unwrap(),
+            by,
+        )
+        .await
+    }
+
+    async fn set_enable_git_smart_http(
+        &self,
+        value: bool,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        write_kv(
+            &self.pool,
+            "enable_git_smart_http",
+            &serde_json::to_string(&value).unwrap(),
+            by,
+        )
+        .await
+    }
 }
 
 /// Hot-reloadable cache shared by handlers.
@@ -439,6 +509,9 @@ mod tests {
                 enable_diff_endpoint: true,
                 extra_exclude_globs: vec![],
                 inline_content_max_bytes: 8192,
+                sse_heartbeat_seconds: 30,
+                push_debounce_ms: 250,
+                enable_git_smart_http: false,
             })
             .await;
         let snap2 = cache.snapshot().await;

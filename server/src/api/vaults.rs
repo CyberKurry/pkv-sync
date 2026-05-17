@@ -1,16 +1,21 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
-use crate::db::repos::VaultRepo;
+use crate::db::repos::{NewActivity, SyncActivityRepo, VaultRepo};
 use crate::middleware::real_ip::ClientIp;
 use crate::service::sync::{self, UploadCheckReq};
 use crate::service::{vault as vault_service, AppState};
 use axum::body::Body;
 use axum::extract::{Extension, Path, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::convert::Infallible;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -27,6 +32,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/vaults/:id/history", get(file_history))
         .route("/api/vaults/:id/diff", get(diff))
         .route("/api/vaults/:id/files/*path", get(read_file))
+        .route("/api/vaults/:id/events", get(events))
 }
 
 #[derive(Deserialize)]
@@ -365,6 +371,60 @@ async fn diff(
     Ok(Json(out))
 }
 
+async fn events(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    let _vault = vault_service::ensure_user_vault(&state, &user.user_id, &id).await?;
+
+    let receiver = state.events.subscribe(&id);
+    let stream = BroadcastStream::new(receiver).filter_map(|res| match res {
+        Ok(event) => Some(Ok::<Event, Infallible>(
+            Event::default().event("commit").json_data(&event).ok()?,
+        )),
+        Err(_lagged) => Some(Ok(Event::default().event("lagged").data(""))),
+    });
+
+    let heartbeat = state
+        .runtime_cfg
+        .snapshot()
+        .await
+        .sse_heartbeat_seconds
+        .max(10);
+
+    let sse = Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(std::time::Duration::from_secs(heartbeat))
+            .text(":hb"),
+    );
+
+    let mut response = sse.into_response();
+    response.headers_mut().insert(
+        header::HeaderName::from_static("x-accel-buffering"),
+        HeaderValue::from_static("no"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+
+    let _ = state
+        .activities
+        .insert(NewActivity {
+            user_id: &user.user_id,
+            vault_id: Some(&id),
+            token_id: Some(&user.token_id),
+            action: "sse_subscribed",
+            commit_hash: None,
+            client_ip: None,
+            user_agent: None,
+            details: None,
+        })
+        .await;
+
+    Ok(response)
+}
+
 fn request_metadata_parts(
     client_ip: Option<Extension<ClientIp>>,
     headers: &HeaderMap,
@@ -394,7 +454,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into())
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into(), true)
             .await
             .unwrap();
         let h = password::hash("passw0rd!!").unwrap();

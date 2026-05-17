@@ -171,7 +171,26 @@ async fn prepare_state_and_limiter(cfg: &Config) -> crate::Result<(AppState, Log
         .public_host
         .clone()
         .unwrap_or_else(|| "PKV Sync".into());
-    let state = AppState::new(pool, cfg.storage.data_dir.clone(), default_name).await?;
+
+    let git_available = std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !git_available {
+        tracing::warn!(
+            "`git` binary not found in PATH; smart HTTP endpoints will be disabled regardless of runtime config"
+        );
+    }
+
+    let state = AppState::new(
+        pool,
+        cfg.storage.data_dir.clone(),
+        default_name,
+        git_available,
+    )
+    .await?;
     bootstrap_admin_if_needed(&state).await?;
 
     let runtime_cfg = state.runtime_cfg.snapshot().await;
@@ -332,7 +351,7 @@ mod bootstrap_tests {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into())
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into(), true)
             .await
             .unwrap();
         bootstrap_admin_if_needed(&state).await.unwrap();
@@ -344,7 +363,7 @@ mod bootstrap_tests {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into())
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into(), true)
             .await
             .unwrap();
         bootstrap_admin_if_needed(&state).await.unwrap();

@@ -17,6 +17,7 @@ pub struct ConfigResponse {
 pub struct ServerCapabilities {
     pub history: bool,
     pub diff: bool,
+    pub sse: bool,
 }
 
 fn response(
@@ -46,6 +47,7 @@ pub async fn config(State(state): State<AppState>) -> Json<ConfigResponse> {
         ServerCapabilities {
             history: cfg.enable_history_ui,
             diff: cfg.enable_diff_endpoint,
+            sse: true,
         },
     ))
 }
@@ -61,6 +63,7 @@ pub async fn public_config(
         ServerCapabilities {
             history: cfg.enable_history_ui,
             diff: cfg.enable_diff_endpoint,
+            sse: true,
         },
     ))
 }
@@ -81,7 +84,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        let state = AppState::new(pool, tmp.path().to_path_buf(), "default".into())
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "default".into(), true)
             .await
             .unwrap();
         state

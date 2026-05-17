@@ -14,7 +14,7 @@ async fn setup() -> (AppState, AuthenticatedUser, String, tempfile::TempDir) {
     let db_path = tmp.path().join("metadata.db");
     let p = pool::connect(&db_path).await.unwrap();
     sqlx::migrate!("./migrations").run(&p).await.unwrap();
-    let state = AppState::new(p, tmp.path().to_path_buf(), "t".into())
+    let state = AppState::new(p, tmp.path().to_path_buf(), "t".into(), false)
         .await
         .unwrap();
     let user = state

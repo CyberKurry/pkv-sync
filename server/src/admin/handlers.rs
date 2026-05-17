@@ -1390,7 +1390,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into())
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
             .await
             .unwrap();
         let user = state
@@ -1485,7 +1485,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into())
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
             .await
             .unwrap();
         let app = router()
@@ -1671,6 +1671,7 @@ async fn settings_page(
             text_extensions_display: cfg.text_extensions.join(", "),
             extra_exclude_globs_display: cfg.extra_exclude_globs.join("\n"),
             cfg,
+            git_available: state.git_available,
         }
         .render()
         .unwrap(),
@@ -1687,6 +1688,7 @@ struct SettingsForm {
     login_lock_seconds: u64,
     enable_history_ui: Option<String>,
     enable_diff_endpoint: Option<String>,
+    enable_git_smart_http: Option<String>,
     extra_exclude_globs: String,
 }
 
@@ -1854,6 +1856,10 @@ async fn settings_post(
     state
         .runtime_cfg_repo
         .set_extra_exclude_globs(extra_exclude_globs, Some(&session.user.id))
+        .await?;
+    state
+        .runtime_cfg_repo
+        .set_enable_git_smart_http(form.enable_git_smart_http.is_some(), Some(&session.user.id))
         .await?;
     let cfg = state.runtime_cfg_repo.load().await?;
     limiter.update_config(

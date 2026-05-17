@@ -57,6 +57,7 @@
       <label>Text File Extensions <input value="{{ text_extensions_display }}" disabled></label>
       <label class="check-row"><input name="enable_history_ui" type="checkbox" {% if cfg.enable_history_ui %}checked{% endif %}> Enable file history UI and API</label>
       <label class="check-row"><input name="enable_diff_endpoint" type="checkbox" {% if cfg.enable_diff_endpoint %}checked{% endif %}> Enable unified diff endpoint</label>
+      <label class="check-row"><input name="enable_git_smart_http" type="checkbox" {% if cfg.enable_git_smart_http %}checked{% endif %} {% if !git_available %}disabled{% endif %}> Enable Git smart HTTP{% if !git_available %} <small class="hint">(git binary not found)</small>{% endif %}</label>
       <label>{{ t.extra_exclude_globs }}
         <textarea name="extra_exclude_globs" rows="4" placeholder="*.tmp&#10;build/**&#10;**/__pycache__/**">{{ extra_exclude_globs_display }}</textarea>
         <small>{{ t.extra_exclude_globs_hint }}</small>

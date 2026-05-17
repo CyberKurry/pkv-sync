@@ -80,7 +80,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into())
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
             .await
             .unwrap();
         state

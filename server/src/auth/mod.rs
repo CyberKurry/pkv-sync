@@ -1,4 +1,5 @@
 pub mod extractor;
+pub mod git_basic;
 pub mod password;
 pub mod rate_limit;
 pub mod token;

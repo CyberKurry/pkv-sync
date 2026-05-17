@@ -237,7 +237,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let p = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&p).await.unwrap();
-        let state = AppState::new(p, tmp.path().to_path_buf(), "t".into())
+        let state = AppState::new(p, tmp.path().to_path_buf(), "t".into(), true)
             .await
             .unwrap();
         let user = state

@@ -28,6 +28,7 @@ pub struct AppState {
     /// Default server name override from config.toml, used as fallback.
     pub default_server_name: String,
     pub events: VaultEventBus,
+    pub git_available: bool,
     push_locks: VaultPushLocks,
 }
 
@@ -36,6 +37,7 @@ impl AppState {
         pool: SqlitePool,
         data_dir: std::path::PathBuf,
         default_server_name: String,
+        git_available: bool,
     ) -> Result<Self, sqlx::Error> {
         let users = Arc::new(SqliteUserRepo::new(pool.clone()));
         let tokens = Arc::new(SqliteTokenRepo::new(pool.clone()));
@@ -64,6 +66,7 @@ impl AppState {
             runtime_cfg,
             default_server_name,
             events: VaultEventBus::new(64),
+            git_available,
             push_locks: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -105,7 +108,7 @@ mod tests {
         let p = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&p).await.unwrap();
         let tmp = tempfile::tempdir().unwrap();
-        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into())
+        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
             .await
             .unwrap();
 

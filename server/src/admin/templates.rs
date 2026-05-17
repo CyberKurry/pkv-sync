@@ -228,6 +228,7 @@ pub struct SettingsTemplate {
     pub max_file_size_display: String,
     pub text_extensions_display: String,
     pub extra_exclude_globs_display: String,
+    pub git_available: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -622,10 +623,14 @@ mod tests {
                 enable_diff_endpoint: true,
                 extra_exclude_globs: vec![],
                 inline_content_max_bytes: 8192,
+                sse_heartbeat_seconds: 30,
+                push_debounce_ms: 250,
+                enable_git_smart_http: false,
             },
             max_file_size_display: "100 MB".into(),
             text_extensions_display: "md, txt".into(),
             extra_exclude_globs_display: String::new(),
+            git_available: true,
         }
         .render()
         .unwrap();
@@ -654,10 +659,14 @@ mod tests {
                 enable_diff_endpoint: true,
                 extra_exclude_globs: vec![],
                 inline_content_max_bytes: 8192,
+                sse_heartbeat_seconds: 30,
+                push_debounce_ms: 250,
+                enable_git_smart_http: false,
             },
             max_file_size_display: "100 MB".into(),
             text_extensions_display: "md, txt".into(),
             extra_exclude_globs_display: String::new(),
+            git_available: true,
         }
         .render()
         .unwrap();

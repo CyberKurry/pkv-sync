@@ -54,7 +54,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into())
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into(), true)
             .await
             .unwrap();
         let h = password::hash("passw0rd!!").unwrap();
