@@ -1,6 +1,7 @@
 import { Notice } from "obsidian";
 import { ApiError } from "../api/client";
 import type { SyncApi } from "../api/sync-client";
+import { isExcluded } from "./exclude";
 import { conflictPath } from "./conflict";
 import { sha256Bytes, sha256Text } from "./hash";
 import {
@@ -22,6 +23,7 @@ export interface SyncEngineOptions {
   vaultId: string;
   deviceName: string;
   textExtensions: Set<string>;
+  extraExcludeGlobs?: string[];
   vault: VaultAdapter;
   api: SyncApi;
   index: IndexPersistence;
@@ -64,9 +66,13 @@ export class SyncEngine {
   }> {
     const index = await this.opts.index.loadIndex();
     const current = await this.opts.vault.scan(this.opts.textExtensions);
+    const globs = this.opts.extraExcludeGlobs ?? [];
+    const filtered = current.filter((f) => !isExcluded(f.path, globs));
+    const currentPaths = new Set(filtered.map((f) => f.path));
+    const deletedFromIndex = Object.keys(index.files).filter((p) => !currentPaths.has(p));
     return {
-      pending: pendingFiles(index, current),
-      deleted: deletedFiles(index, current),
+      pending: pendingFiles(index, filtered),
+      deleted: deletedFromIndex.filter((p) => !isExcluded(p, globs)),
       index
     };
   }

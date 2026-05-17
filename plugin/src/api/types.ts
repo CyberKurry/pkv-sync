@@ -7,6 +7,7 @@ export interface ServerConfigResponse {
   max_file_size: number;
   supported_text_extensions: string[];
   capabilities?: ServerCapabilities;
+  extra_exclude_globs?: string[];
 }
 
 export interface ServerCapabilities {

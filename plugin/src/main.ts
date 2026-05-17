@@ -281,6 +281,14 @@ export default class PKVSyncPlugin extends Plugin {
     try {
       const cfg = await this.api().config();
       this.serverCapabilities = cfg.capabilities ?? { history: true, diff: true };
+      const globs = cfg.extra_exclude_globs ?? [];
+      if (
+        globs.length !== this.settings.extraExcludeGlobs.length ||
+        !globs.every((g, i) => g === this.settings.extraExcludeGlobs[i])
+      ) {
+        this.settings.extraExcludeGlobs = globs;
+        await this.saveSettings({ rebuild: false });
+      }
     } catch {
       this.serverCapabilities = null;
     }
@@ -307,6 +315,7 @@ export default class PKVSyncPlugin extends Plugin {
       vaultId: this.settings.selectedVaultId,
       deviceName: this.settings.deviceName,
       textExtensions,
+      extraExcludeGlobs: this.settings.extraExcludeGlobs,
       vault: new ObsidianVaultAdapter(this.app.vault),
       api: new SyncApi(this.api()),
       index: {

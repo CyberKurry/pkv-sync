@@ -17,6 +17,7 @@ export interface PKVSyncSettings {
   pollIntervalSeconds: number;
   debounceMs: number;
   textExtensions: string[];
+  extraExcludeGlobs: string[];
 }
 
 export const DEFAULT_SETTINGS: PKVSyncSettings = {
@@ -35,7 +36,8 @@ export const DEFAULT_SETTINGS: PKVSyncSettings = {
   lastSyncSuccessAt: null,
   pollIntervalSeconds: 60,
   debounceMs: 2000,
-  textExtensions: ["md", "canvas", "base", "json", "txt", "css"]
+  textExtensions: ["md", "canvas", "base", "json", "txt", "css"],
+  extraExcludeGlobs: []
 };
 
 export function normalizeSettings(
@@ -73,6 +75,9 @@ export function normalizeSettings(
     if (settings.textExtensions.length === 0) {
       settings.textExtensions = [...DEFAULT_SETTINGS.textExtensions];
     }
+  }
+  if (!Array.isArray(settings.extraExcludeGlobs)) {
+    settings.extraExcludeGlobs = [];
   }
   return settings;
 }
