@@ -18,6 +18,7 @@ pub struct ServerCapabilities {
     pub history: bool,
     pub diff: bool,
     pub sse: bool,
+    pub git_smart_http: bool,
 }
 
 fn response(
@@ -48,6 +49,7 @@ pub async fn config(State(state): State<AppState>) -> Json<ConfigResponse> {
             history: cfg.enable_history_ui,
             diff: cfg.enable_diff_endpoint,
             sse: true,
+            git_smart_http: cfg.enable_git_smart_http,
         },
     ))
 }
@@ -64,6 +66,7 @@ pub async fn public_config(
             history: cfg.enable_history_ui,
             diff: cfg.enable_diff_endpoint,
             sse: true,
+            git_smart_http: cfg.enable_git_smart_http,
         },
     ))
 }

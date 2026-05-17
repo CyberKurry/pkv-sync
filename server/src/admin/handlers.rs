@@ -1690,6 +1690,9 @@ struct SettingsForm {
     enable_diff_endpoint: Option<String>,
     enable_git_smart_http: Option<String>,
     extra_exclude_globs: String,
+    sse_heartbeat_seconds: u64,
+    push_debounce_ms: u32,
+    inline_content_max_bytes: u32,
 }
 
 type ActivityRow = (
@@ -1860,6 +1863,18 @@ async fn settings_post(
     state
         .runtime_cfg_repo
         .set_enable_git_smart_http(form.enable_git_smart_http.is_some(), Some(&session.user.id))
+        .await?;
+    state
+        .runtime_cfg_repo
+        .set_sse_heartbeat_seconds(form.sse_heartbeat_seconds, Some(&session.user.id))
+        .await?;
+    state
+        .runtime_cfg_repo
+        .set_push_debounce_ms(form.push_debounce_ms, Some(&session.user.id))
+        .await?;
+    state
+        .runtime_cfg_repo
+        .set_inline_content_max_bytes(form.inline_content_max_bytes, Some(&session.user.id))
         .await?;
     let cfg = state.runtime_cfg_repo.load().await?;
     limiter.update_config(

@@ -128,6 +128,11 @@ pub trait RuntimeConfigRepo: Send + Sync {
         value: bool,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
+    async fn set_inline_content_max_bytes(
+        &self,
+        value: u32,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
 }
 
 pub struct SqliteRuntimeConfigRepo {
@@ -421,6 +426,20 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
             &self.pool,
             "enable_git_smart_http",
             &serde_json::to_string(&value).unwrap(),
+            by,
+        )
+        .await
+    }
+
+    async fn set_inline_content_max_bytes(
+        &self,
+        value: u32,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        write_kv(
+            &self.pool,
+            "inline_content_max_bytes",
+            &serde_json::to_string(&value.max(1)).unwrap(),
             by,
         )
         .await
