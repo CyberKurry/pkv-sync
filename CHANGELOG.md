@@ -7,6 +7,17 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-17
+
+### Fixed
+
+- Add CSS for `DeleteVaultModal`, `ConflictsListModal`, and `ConflictResolveModal`; previous v0.2.0 ship rendered these modals unstyled.
+- Conflict resolution list now reopens automatically after each resolve so multiple conflicts can be cleared without re-invoking the command.
+- Conflict resolve modal now renders an actual LCS-based line diff with add/del/modify highlighting instead of two raw side-by-side text columns.
+- Binary file detection in the conflict resolve modal: extension-based check plus NUL-byte scan, fixing the prior reliance on `vault.read` throwing.
+- Server now emits `tracing::warn` instead of silently falling back when `extra_exclude_globs` fails to compile (previously a malformed admin glob would disable all filtering with no log).
+- Added end-to-end server tests for `extra_exclude_globs` push rejection (text + nested paths) and non-matching path acceptance.
+
 ## [0.2.0] - 2026-05-17
 
 ### Added
