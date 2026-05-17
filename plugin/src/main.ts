@@ -148,7 +148,10 @@ export default class PKVSyncPlugin extends Plugin {
       id: "pkv-sync-resolve-conflicts",
       name: t.resolveConflictsCommand,
       callback: () => {
-        new ConflictsListModal(this.app, this.text(), () => {}).open();
+        const openList = (): void => {
+          new ConflictsListModal(this.app, this.text(), openList).open();
+        };
+        openList();
       }
     });
     this.addCommand({

@@ -150,3 +150,109 @@ function parseHunkHeader(
 function stripDiffPrefix(line: string): string {
   return /^[ +\-]/.test(line) ? line.slice(1) : line;
 }
+
+const LINE_DIFF_MAX_LINES = 1000;
+
+export function lineDiffSideBySide(
+  leftText: string,
+  rightText: string
+): { rows: SideBySideDiffRow[]; truncated: boolean } {
+  const leftLines = leftText.split(/\r?\n/);
+  const rightLines = rightText.split(/\r?\n/);
+  const truncated =
+    leftLines.length > LINE_DIFF_MAX_LINES ||
+    rightLines.length > LINE_DIFF_MAX_LINES;
+  const a = leftLines.slice(0, LINE_DIFF_MAX_LINES);
+  const b = rightLines.slice(0, LINE_DIFF_MAX_LINES);
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = [];
+  for (let i = 0; i <= m; i += 1) {
+    dp.push(new Array(n + 1).fill(0));
+  }
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  type Op =
+    | { kind: "eq"; left: string; right: string }
+    | { kind: "del"; left: string }
+    | { kind: "add"; right: string };
+  const ops: Op[] = [];
+  let i = m;
+  let j = n;
+  while (i > 0 && j > 0) {
+    if (a[i - 1] === b[j - 1]) {
+      ops.unshift({ kind: "eq", left: a[i - 1], right: b[j - 1] });
+      i -= 1;
+      j -= 1;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      ops.unshift({ kind: "del", left: a[i - 1] });
+      i -= 1;
+    } else {
+      ops.unshift({ kind: "add", right: b[j - 1] });
+      j -= 1;
+    }
+  }
+  while (i > 0) {
+    ops.unshift({ kind: "del", left: a[i - 1] });
+    i -= 1;
+  }
+  while (j > 0) {
+    ops.unshift({ kind: "add", right: b[j - 1] });
+    j -= 1;
+  }
+
+  const rows: SideBySideDiffRow[] = [];
+  let leftNum = 1;
+  let rightNum = 1;
+  for (let k = 0; k < ops.length; k += 1) {
+    const op = ops[k];
+    if (op.kind === "eq") {
+      rows.push({
+        kind: "context",
+        leftLine: leftNum,
+        rightLine: rightNum,
+        leftText: op.left,
+        rightText: op.right
+      });
+      leftNum += 1;
+      rightNum += 1;
+    } else if (op.kind === "del") {
+      const next = ops[k + 1];
+      if (next && next.kind === "add") {
+        rows.push({
+          kind: "modify",
+          leftLine: leftNum,
+          rightLine: rightNum,
+          leftText: op.left,
+          rightText: next.right
+        });
+        leftNum += 1;
+        rightNum += 1;
+        k += 1;
+      } else {
+        rows.push({
+          kind: "del",
+          leftLine: leftNum,
+          leftText: op.left
+        });
+        leftNum += 1;
+      }
+    } else {
+      rows.push({
+        kind: "add",
+        rightLine: rightNum,
+        rightText: op.right
+      });
+      rightNum += 1;
+    }
+  }
+
+  return { rows, truncated };
+}

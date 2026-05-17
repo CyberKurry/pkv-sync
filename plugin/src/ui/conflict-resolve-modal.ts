@@ -1,8 +1,50 @@
-import { type App, Modal, Notice } from "obsidian";
+import { type App, Modal, Notice, TFile } from "obsidian";
 import type { ConflictPair } from "../sync/conflict-files";
 import { acceptLocal, acceptRemote } from "../sync/resolve";
+import {
+  lineDiffSideBySide,
+  type SideBySideDiffRow
+} from "../sync/unified-diff";
 import type { Strings } from "../i18n";
 import { format } from "../i18n";
+
+const TEXT_DETECT_EXTENSIONS = new Set([
+  "md",
+  "canvas",
+  "base",
+  "json",
+  "txt",
+  "css",
+  "html",
+  "xml",
+  "yaml",
+  "yml",
+  "toml",
+  "ini",
+  "csv",
+  "tsv",
+  "log",
+  "tex",
+  "rst"
+]);
+
+function isLikelyText(path: string): boolean {
+  const idx = path.lastIndexOf(".");
+  if (idx === -1) return false;
+  const ext = path.slice(idx + 1).toLowerCase();
+  return TEXT_DETECT_EXTENSIONS.has(ext);
+}
+
+function looksBinary(sample: string): boolean {
+  const limit = Math.min(sample.length, 8000);
+  for (let i = 0; i < limit; i += 1) {
+    const code = sample.charCodeAt(i);
+    if (code === 0) return true;
+    // Replacement character (U+FFFD) signals decode failure
+    if (code === 0xfffd) return true;
+  }
+  return false;
+}
 
 export class ConflictResolveModal extends Modal {
   constructor(
@@ -35,25 +77,45 @@ export class ConflictResolveModal extends Modal {
   }
 
   private async loadContent(): Promise<void> {
+    const treatAsBinary =
+      !isLikelyText(this.pair.originalPath) &&
+      !isLikelyText(this.pair.conflictPath);
+
+    if (treatAsBinary) {
+      this.renderBinaryNotice();
+      this.renderActions();
+      return;
+    }
+
     try {
-      const originalContent = await this.app.vault.read(
-        this.app.vault.getAbstractFileByPath(
-          this.pair.originalPath
-        ) as any
+      const originalFile = this.app.vault.getAbstractFileByPath(
+        this.pair.originalPath
       );
+      const originalContent =
+        originalFile instanceof TFile
+          ? await this.app.vault.read(originalFile)
+          : "";
       const conflictContent = await this.app.vault.read(
         this.pair.conflictFile
       );
 
-      this.renderDiff(originalContent, conflictContent);
+      if (looksBinary(originalContent) || looksBinary(conflictContent)) {
+        this.renderBinaryNotice();
+      } else {
+        this.renderDiff(originalContent, conflictContent);
+      }
     } catch {
-      this.contentEl.createDiv({
-        cls: "pkvsync-conflict-binary",
-        text: this.labels.conflictBinaryNotice
-      });
+      this.renderBinaryNotice();
     }
 
     this.renderActions();
+  }
+
+  private renderBinaryNotice(): void {
+    this.contentEl.createDiv({
+      cls: "pkvsync-conflict-binary",
+      text: this.labels.conflictBinaryNotice
+    });
   }
 
   private renderDiff(original: string, conflict: string): void {
@@ -61,42 +123,73 @@ export class ConflictResolveModal extends Modal {
       cls: "pkvsync-conflict-diff"
     });
 
-    const originalSection = container.createDiv({
-      cls: "pkvsync-diff-split"
-    });
-    const header = originalSection.createDiv({
-      cls: "pkvsync-diff-split-header"
-    });
+    const table = container.createDiv({ cls: "pkvsync-diff-split" });
+
+    const header = table.createDiv({ cls: "pkvsync-diff-split-header" });
+    header.createDiv({ cls: "pkvsync-diff-line-no" });
     header.createDiv({
       cls: "pkvsync-diff-header-cell",
       text: this.labels.acceptLocalButton
     });
+    header.createDiv({ cls: "pkvsync-diff-line-no" });
     header.createDiv({
       cls: "pkvsync-diff-header-cell",
       text: this.labels.acceptRemoteButton
     });
 
-    const maxLines = Math.max(
-      original.split("\n").length,
-      conflict.split("\n").length
-    );
-    const lines = Math.min(maxLines, 200);
-    const origLines = original.split("\n").slice(0, lines);
-    const confLines = conflict.split("\n").slice(0, lines);
+    const { rows, truncated } = lineDiffSideBySide(original, conflict);
+    for (const row of rows) {
+      this.renderRow(table, row);
+    }
 
-    for (let i = 0; i < lines; i++) {
-      const row = originalSection.createDiv({
-        cls: "pkvsync-diff-split-row"
-      });
-      row.createDiv({
-        cls: "pkvsync-diff-cell pkvsync-diff-context",
-        text: origLines[i] ?? ""
-      });
-      row.createDiv({
-        cls: "pkvsync-diff-cell pkvsync-diff-context",
-        text: confLines[i] ?? ""
+    if (truncated) {
+      container.createDiv({
+        cls: "pkvsync-diff-meta",
+        text: "..."
       });
     }
+  }
+
+  private renderRow(parent: HTMLElement, row: SideBySideDiffRow): void {
+    if (row.kind === "meta" || row.kind === "hunk") {
+      parent.createDiv({
+        cls: `pkvsync-diff-split-row is-${row.kind} is-full`,
+        text: row.text ?? ""
+      });
+      return;
+    }
+
+    const item = parent.createDiv({
+      cls: `pkvsync-diff-split-row is-${row.kind}`
+    });
+    item.createDiv({
+      cls: "pkvsync-diff-line-no",
+      text: row.leftLine ? String(row.leftLine) : ""
+    });
+    item.createDiv({
+      cls: `pkvsync-diff-cell ${this.leftCellClass(row.kind)}`,
+      text: row.leftText ?? ""
+    });
+    item.createDiv({
+      cls: "pkvsync-diff-line-no",
+      text: row.rightLine ? String(row.rightLine) : ""
+    });
+    item.createDiv({
+      cls: `pkvsync-diff-cell ${this.rightCellClass(row.kind)}`,
+      text: row.rightText ?? ""
+    });
+  }
+
+  private leftCellClass(kind: SideBySideDiffRow["kind"]): string {
+    if (kind === "del" || kind === "modify") return "pkvsync-diff-del";
+    if (kind === "add") return "pkvsync-diff-empty";
+    return "pkvsync-diff-context";
+  }
+
+  private rightCellClass(kind: SideBySideDiffRow["kind"]): string {
+    if (kind === "add" || kind === "modify") return "pkvsync-diff-add";
+    if (kind === "del") return "pkvsync-diff-empty";
+    return "pkvsync-diff-context";
   }
 
   private renderActions(): void {
