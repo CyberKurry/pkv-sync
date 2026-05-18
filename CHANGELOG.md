@@ -7,6 +7,16 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-05-18
+
+### Fixed
+
+- SSE CORS preflight now includes `User-Agent` in `Access-Control-Allow-Headers`.
+  When the plugin sets a custom `User-Agent` header on the SSE `fetch()` call
+  (added in v0.3.4), browsers include it in the CORS preflight
+  `Access-Control-Request-Headers`. The server's SSE CorsLayer must whitelist
+  it, or the preflight is rejected and the plugin falls back to polling.
+
 ## [0.3.4] - 2026-05-18
 
 ### Fixed

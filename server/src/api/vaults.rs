@@ -34,6 +34,7 @@ fn sse_cors_layer() -> CorsLayer {
             header::AUTHORIZATION,
             header::ACCEPT,
             header::CACHE_CONTROL,
+            header::USER_AGENT,
             header::HeaderName::from_static("x-pkvsync-deployment-key"),
             header::HeaderName::from_static("last-event-id"),
         ])

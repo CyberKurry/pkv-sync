@@ -67,7 +67,7 @@ async fn sse_preflight_returns_cors_headers_without_deployment_key_or_plugin_ua(
         .header("access-control-request-method", "GET")
         .header(
             "access-control-request-headers",
-            "authorization, x-pkvsync-deployment-key, accept",
+            "authorization, x-pkvsync-deployment-key, accept, user-agent",
         )
         .body(axum::body::Body::empty())
         .unwrap();
@@ -113,7 +113,12 @@ async fn sse_preflight_returns_cors_headers_without_deployment_key_or_plugin_ua(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_ascii_lowercase();
-    for required in ["authorization", "x-pkvsync-deployment-key", "accept"] {
+    for required in [
+        "authorization",
+        "x-pkvsync-deployment-key",
+        "accept",
+        "user-agent",
+    ] {
         assert!(
             allow_headers.contains(required),
             "preflight must allow header {required} (got {allow_headers})"
