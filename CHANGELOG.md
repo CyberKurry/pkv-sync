@@ -7,6 +7,26 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-05-18
+
+### Fixed
+
+- SSE subscription failed with `TypeError: Failed to fetch` in the Obsidian
+  plugin behind any reverse proxy. The browser sends a CORS preflight
+  OPTIONS for the cross-origin `fetch` with `Authorization` and
+  `X-PKVSync-Deployment-Key` headers; the previous build rejected the
+  preflight at the deployment-key and UA-filter middlewares (both returned
+  404 for any request lacking those values), and there was no CORS layer
+  on the SSE route to answer the preflight. Result: every plugin client
+  silently fell back to polling, and end-to-end sync took 20-30 s even on
+  LAN instead of the sub-second target.
+- Both middlewares now pass OPTIONS requests through; the SSE route gets
+  a `tower_http::cors::CorsLayer` that whitelists `Authorization`,
+  `Accept`, `Cache-Control`, `Last-Event-ID`, and the deployment-key
+  custom header. Authentication for the actual request is unchanged —
+  bearer token and deployment key are still required for the GET that
+  follows the preflight.
+
 ## [0.3.2] - 2026-05-18
 
 ### Fixed
