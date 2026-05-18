@@ -1,9 +1,11 @@
 use axum::extract::{Request, State};
-use axum::http::{Method, StatusCode};
+use axum::http::{header, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
+
+use super::SSE_CORS_ALLOW_HEADERS;
 
 pub const HEADER: &str = "x-pkvsync-deployment-key";
 
@@ -14,6 +16,27 @@ impl DeploymentKey {
     pub fn new(key: String) -> Self {
         Self(Arc::new(key))
     }
+}
+
+/// If the request targets the SSE events endpoint and carries a cross-origin
+/// `Origin` header, the rejection response must include CORS headers;
+/// otherwise the browser blocks it and the Obsidian plugin reports a
+/// generic "Failed to fetch" / CORS error instead of a useful status.
+fn cors_aware_reject(req: &Request, status: StatusCode) -> Response {
+    let mut resp = status.into_response();
+    if req.uri().path().ends_with("/events") && req.headers().get(header::ORIGIN).is_some() {
+        let h = resp.headers_mut();
+        h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            "GET, OPTIONS".parse().unwrap(),
+        );
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            SSE_CORS_ALLOW_HEADERS.parse().unwrap(),
+        );
+    }
+    resp
 }
 
 pub async fn middleware(
@@ -40,7 +63,7 @@ pub async fn middleware(
     if a.len() == b.len() && bool::from(a.ct_eq(b)) {
         return next.run(req).await;
     }
-    StatusCode::NOT_FOUND.into_response()
+    cors_aware_reject(&req, StatusCode::NOT_FOUND)
 }
 
 #[cfg(test)]

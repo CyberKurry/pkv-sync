@@ -7,6 +7,19 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-05-18
+
+### Fixed
+
+- SSE CORS error "No 'Access-Control-Allow-Origin' header is present" when
+  the UA-filter or deployment-key middleware rejects the request. Both
+  middlewares sit outside the SSE route's CorsLayer, so their 404 rejection
+  responses carried no CORS headers, causing the browser to block the
+  response. Now, when a request to `/events` carries a cross-origin `Origin`
+  header, rejection responses include `Access-Control-Allow-Origin: *` and
+  the full set of `Access-Control-Allow-Headers`, so the browser surfaces
+  the actual error status instead of a generic CORS failure.
+
 ## [0.3.5] - 2026-05-18
 
 ### Fixed

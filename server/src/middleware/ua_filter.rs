@@ -1,13 +1,36 @@
 use axum::extract::Request;
-use axum::http::{Method, StatusCode};
+use axum::http::{header, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+use super::SSE_CORS_ALLOW_HEADERS;
+
 /// Pattern PKV Sync plugin UAs must match.
 static PATTERN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^PKVSync-Plugin/\d+\.\d+\.\d+\b").expect("valid UA regex"));
+
+/// If the request targets the SSE events endpoint and carries a cross-origin
+/// `Origin` header, the rejection response must include CORS headers;
+/// otherwise the browser blocks it and the Obsidian plugin reports a
+/// generic "Failed to fetch" / CORS error instead of a useful status.
+fn cors_aware_reject(req: &Request, status: StatusCode) -> Response {
+    let mut resp = status.into_response();
+    if req.uri().path().ends_with("/events") && req.headers().get(header::ORIGIN).is_some() {
+        let h = resp.headers_mut();
+        h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            "GET, OPTIONS".parse().unwrap(),
+        );
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            SSE_CORS_ALLOW_HEADERS.parse().unwrap(),
+        );
+    }
+    resp
+}
 
 pub async fn middleware(req: Request, next: Next) -> Response {
     // Browser CORS preflight requests carry the browser's own User-Agent
@@ -25,7 +48,7 @@ pub async fn middleware(req: Request, next: Next) -> Response {
         .map(|ua| PATTERN.is_match(ua))
         .unwrap_or(false);
     if !ok {
-        return StatusCode::NOT_FOUND.into_response();
+        return cors_aware_reject(&req, StatusCode::NOT_FOUND);
     }
     next.run(req).await
 }
