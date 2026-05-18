@@ -56,6 +56,7 @@ export interface SyncEngineOptions {
   serverUrl?: string;
   deploymentKey?: string;
   token?: string;
+  pluginVersion?: string;
   setStatus(
     status: "connected" | "syncing" | "offline" | "error",
     detail?: string
@@ -104,6 +105,7 @@ export class SyncEngine {
       deploymentKey: this.opts.deploymentKey,
       token: this.opts.token,
       ownDeviceId: this.opts.deviceId,
+      pluginVersion: this.opts.pluginVersion ?? "0.0.0",
       onEvent: (ev: VaultEvent) => {
         // Serialise all SSE event handling through eventChain so that two
         // quick-succession events cannot interleave their applyInlineText /

@@ -6,6 +6,7 @@ export interface SubscribeOptions {
   deploymentKey: string;
   token: string;
   ownDeviceId: string;
+  pluginVersion: string;
   onEvent: (e: VaultEvent) => void;
   onError: (err: Error) => void;
 }
@@ -19,6 +20,7 @@ export function subscribeVaultEvents(opts: SubscribeOptions): () => void {
       const resp = await fetch(url, {
         method: "GET",
         headers: {
+          "User-Agent": `PKVSync-Plugin/${opts.pluginVersion}`,
           "X-PKVSync-Deployment-Key": opts.deploymentKey,
           Authorization: `Bearer ${opts.token}`,
           Accept: "text/event-stream",

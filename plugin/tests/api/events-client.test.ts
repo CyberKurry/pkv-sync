@@ -24,6 +24,7 @@ const baseOpts: Omit<SubscribeOptions, "onEvent" | "onError"> = {
   deploymentKey: "k_abc",
   token: "tok",
   ownDeviceId: "dev_self",
+  pluginVersion: "0.3.3",
 };
 
 describe("subscribeVaultEvents", () => {

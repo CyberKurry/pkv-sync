@@ -121,6 +121,48 @@ async fn sse_preflight_returns_cors_headers_without_deployment_key_or_plugin_ua(
     }
 }
 
+/// GLM5 / production-bug regression: it's not enough for the preflight to
+/// return Access-Control-Allow-Origin. The actual GET response (and any
+/// error response from the route — 401 from a bad token, 404 from missing
+/// vault) must ALSO carry Access-Control-Allow-Origin, or the browser
+/// blocks the response body and the plugin logs "No 'Access-Control-Allow-
+/// Origin' header is present on the requested resource". Without this
+/// test we previously shipped a CORS layer that worked for preflight but
+/// silently dropped CORS on the actual response.
+#[tokio::test]
+async fn sse_get_unauthorized_response_still_carries_cors_allow_origin() {
+    let app = app().await;
+
+    // GET without bearer → expect 401 from AuthenticatedUser extractor.
+    // Critically, the 401 response must still have Access-Control-Allow-Origin
+    // so the browser surfaces it to the plugin instead of nuking it as a
+    // CORS violation.
+    let mut req = axum::http::Request::builder()
+        .method(axum::http::Method::GET)
+        .uri("/api/vaults/some-vault-id/events")
+        .header(axum::http::header::ORIGIN, "app://obsidian.md")
+        .header("user-agent", "PKVSync-Plugin/0.3.3")
+        .header("x-pkvsync-deployment-key", "k_test_sse_cors")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(
+        "127.0.0.1:50000".parse::<SocketAddr>().unwrap(),
+    ));
+
+    let resp = app.oneshot(req).await.unwrap();
+    let status = resp.status();
+    let allow_origin = resp
+        .headers()
+        .get("access-control-allow-origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        !allow_origin.is_empty(),
+        "actual GET response must carry Access-Control-Allow-Origin (status={status}); without it the browser blocks the body"
+    );
+}
+
 #[tokio::test]
 async fn non_sse_routes_still_reject_options_without_cors_when_no_route_layer() {
     // Sanity check: OPTIONS on a non-SSE route is allowed past the

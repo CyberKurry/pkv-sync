@@ -7,6 +7,19 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-05-18
+
+### Fixed
+
+- SSE subscription `fetch()` now sends `User-Agent: PKVSync-Plugin/X.Y.Z`
+  instead of the browser's default UA. Electron 32 (Chromium 128+) supports
+  setting `User-Agent` in `fetch()`, so the server-side UA filter validates
+  SSE requests normally — no special `/events` bypass needed.
+- Removed the `/events` path bypass in the UA filter middleware. All
+  non-OPTIONS requests must carry a valid plugin User-Agent; the previous
+  workaround that let any UA through on SSE GET requests is no longer
+  necessary.
+
 ## [0.3.3] - 2026-05-18
 
 ### Fixed

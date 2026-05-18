@@ -79,4 +79,32 @@ mod tests {
         let resp = app().oneshot(req(Some("PKVSync-Plugin"))).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
+
+    #[tokio::test]
+    async fn sse_events_requires_plugin_ua() {
+        let app = Router::new()
+            .route("/api/vaults/:id/events", get(|| async { "ok" }))
+            .layer(axum::middleware::from_fn(middleware));
+        let req_no_ua = HttpRequest::builder()
+            .uri("/api/vaults/abc/events")
+            .header("user-agent", "Mozilla/5.0")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req_no_ua).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn sse_events_allows_plugin_ua() {
+        let app = Router::new()
+            .route("/api/vaults/:id/events", get(|| async { "ok" }))
+            .layer(axum::middleware::from_fn(middleware));
+        let req_with_ua = HttpRequest::builder()
+            .uri("/api/vaults/abc/events")
+            .header("user-agent", "PKVSync-Plugin/0.3.3")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req_with_ua).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
 }

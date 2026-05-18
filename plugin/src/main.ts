@@ -381,6 +381,7 @@ export default class PKVSyncPlugin extends Plugin {
       serverUrl: this.settings.serverUrl,
       deploymentKey: this.settings.deploymentKey,
       token: this.settings.token,
+      pluginVersion: this.manifest.version,
     });
     this.engine.startEventSubscription();
     this.pushDebouncer = new Debouncer(this.settings.debounceMs, () => {
