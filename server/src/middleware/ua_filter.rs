@@ -1,5 +1,5 @@
 use axum::extract::Request;
-use axum::http::StatusCode;
+use axum::http::{Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use once_cell::sync::Lazy;
@@ -10,6 +10,14 @@ static PATTERN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^PKVSync-Plugin/\d+\.\d+\.\d+\b").expect("valid UA regex"));
 
 pub async fn middleware(req: Request, next: Next) -> Response {
+    // Browser CORS preflight requests carry the browser's own User-Agent
+    // (e.g. "Mozilla/..."), not the plugin's "PKVSync-Plugin/X.Y.Z". Let
+    // them through so the downstream CorsLayer on the SSE route can answer
+    // the preflight; the actual request that follows is re-issued with
+    // the plugin UA and is still validated here.
+    if req.method() == Method::OPTIONS {
+        return next.run(req).await;
+    }
     let ok = req
         .headers()
         .get("user-agent")

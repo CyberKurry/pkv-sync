@@ -1,5 +1,5 @@
 use axum::extract::{Request, State};
-use axum::http::StatusCode;
+use axum::http::{Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
@@ -21,6 +21,15 @@ pub async fn middleware(
     req: Request,
     next: Next,
 ) -> Response {
+    // CORS preflight requests never carry custom headers (the browser sends
+    // them as OPTIONS with Origin and Access-Control-Request-* only), so
+    // they cannot supply the deployment key. Let them pass so the
+    // downstream CorsLayer on the SSE route can respond with the correct
+    // Access-Control-Allow-* headers. The real request that follows the
+    // preflight is still checked here.
+    if req.method() == Method::OPTIONS {
+        return next.run(req).await;
+    }
     let supplied = req
         .headers()
         .get(HEADER)

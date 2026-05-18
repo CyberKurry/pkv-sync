@@ -6,7 +6,7 @@ use crate::service::sync::{self, UploadCheckReq};
 use crate::service::{vault as vault_service, AppState};
 use axum::body::Body;
 use axum::extract::{Extension, Path, Query, State};
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
@@ -16,8 +16,38 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
+use tower_http::cors::{AllowOrigin, CorsLayer};
+
+/// CORS layer applied only to the SSE event endpoint. The Obsidian plugin
+/// has to use the native `fetch()` for SSE (Obsidian's `requestUrl` shim
+/// doesn't expose a ReadableStream), and `fetch()` is subject to standard
+/// browser CORS rules. Without this layer, the plugin's cross-origin
+/// preflight OPTIONS request gets 405 from the router and the entire SSE
+/// path falls back to polling (~30s latency). Auth still hangs on the
+/// bearer device token and deployment key in headers, which CORS does not
+/// weaken — so opening Origin to `*` here is safe.
+fn sse_cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::any())
+        .allow_methods([Method::GET, Method::OPTIONS])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::ACCEPT,
+            header::CACHE_CONTROL,
+            header::HeaderName::from_static("x-pkvsync-deployment-key"),
+            header::HeaderName::from_static("last-event-id"),
+        ])
+        .max_age(std::time::Duration::from_secs(86400))
+}
 
 pub fn router() -> Router<AppState> {
+    // SSE endpoint gets its own sub-router so the CorsLayer wraps the entire
+    // routing decision (including OPTIONS preflight). Applying CORS only via
+    // .route_layer on a `get()` method router does not work because axum's
+    // method router rejects OPTIONS with 405 before delegating to the layer.
+    let sse_router = Router::new()
+        .route("/api/vaults/:id/events", get(events))
+        .layer(sse_cors_layer());
     Router::new()
         .route("/api/vaults", get(list).post(create))
         .route("/api/vaults/:id", delete(remove))
@@ -32,7 +62,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/vaults/:id/history", get(file_history))
         .route("/api/vaults/:id/diff", get(diff))
         .route("/api/vaults/:id/files/*path", get(read_file))
-        .route("/api/vaults/:id/events", get(events))
+        .merge(sse_router)
 }
 
 #[derive(Deserialize)]
