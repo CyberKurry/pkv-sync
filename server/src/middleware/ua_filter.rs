@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-use super::SSE_CORS_ALLOW_HEADERS;
+use super::{SSE_CORS_ALLOW_HEADERS, SSE_PLUGIN_HEADER};
 
 /// Pattern PKV Sync plugin UAs must match.
 static PATTERN: Lazy<Regex> =
@@ -36,17 +36,25 @@ pub async fn middleware(req: Request, next: Next) -> Response {
     // Browser CORS preflight requests carry the browser's own User-Agent
     // (e.g. "Mozilla/..."), not the plugin's "PKVSync-Plugin/X.Y.Z". Let
     // them through so the downstream CorsLayer on the SSE route can answer
-    // the preflight; the actual request that follows is re-issued with
-    // the plugin UA and is still validated here.
+    // the preflight. The actual request is validated below by plugin UA or
+    // by the SSE-only plugin identity header.
     if req.method() == Method::OPTIONS {
         return next.run(req).await;
     }
-    let ok = req
+    let ua_ok = req
         .headers()
         .get("user-agent")
         .and_then(|h| h.to_str().ok())
         .map(|ua| PATTERN.is_match(ua))
         .unwrap_or(false);
+    let plugin_header_ok = req.uri().path().ends_with("/events")
+        && req
+            .headers()
+            .get(SSE_PLUGIN_HEADER)
+            .and_then(|h| h.to_str().ok())
+            .map(|ua| PATTERN.is_match(ua))
+            .unwrap_or(false);
+    let ok = ua_ok || plugin_header_ok;
     if !ok {
         return cors_aware_reject(&req, StatusCode::NOT_FOUND);
     }

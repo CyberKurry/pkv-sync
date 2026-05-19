@@ -47,7 +47,6 @@ fn expected_origins(req: &Request) -> Option<Vec<String>> {
     // misconfigured proxies, ambiguous virtual-host setups). Require an
     // explicit public_host. Operators who haven't set one see admin POSTs
     // rejected with 403 and a clear log line telling them what to configure.
-    // (GLM5 Ultra Review C-1: fail-closed defense-in-depth.)
     let Some(host) = policy.and_then(|p| p.public_host.as_deref()) else {
         tracing::warn!(
             "admin CSRF rejected: public_host is not configured; set [server].public_host in config.toml"
@@ -180,7 +179,7 @@ mod tests {
         assert!(same_origin(&req));
     }
 
-    /// GLM5 Ultra Review C-1 regression: when `public_host` is not configured,
+    /// Regression: when `public_host` is not configured,
     /// CSRF must fail closed — never derive the expected origin from the
     /// request-controlled Host header, even if Origin happens to match Host.
     #[test]
@@ -199,7 +198,7 @@ mod tests {
         );
     }
 
-    /// GLM5 Ultra Review C-1 regression: even with AdminCookiePolicy inserted
+    /// Regression: even with AdminCookiePolicy inserted
     /// but its public_host left as None, fail closed.
     #[test]
     fn rejects_when_policy_has_no_public_host() {

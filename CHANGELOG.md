@@ -7,6 +7,20 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-05-19
+
+### Fixed
+
+- SSE subscriptions from Obsidian now send `X-PKVSync-Plugin` in addition to
+  `User-Agent`, and the server accepts that header only on `/events`. This
+  fixes browsers that do not reliably apply a custom `User-Agent` on `fetch()`
+  while keeping the normal plugin identity check for the SSE request.
+- SSE CORS allow-headers now include `x-pkvsync-plugin` from the shared SSE
+  header list, so preflight and middleware rejection responses stay in sync.
+- Conflict resolution now recognizes generated conflict filenames that preserve
+  the original extension, so the resolver can show both the local file and the
+  conflict file instead of only one side.
+
 ## [0.3.6] - 2026-05-18
 
 ### Fixed

@@ -1,7 +1,7 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
 use crate::db::repos::{NewActivity, SyncActivityRepo, VaultRepo};
-use crate::middleware::real_ip::ClientIp;
+use crate::middleware::{real_ip::ClientIp, sse_cors_allow_header_names};
 use crate::service::sync::{self, UploadCheckReq};
 use crate::service::{vault as vault_service, AppState};
 use axum::body::Body;
@@ -30,14 +30,7 @@ fn sse_cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(AllowOrigin::any())
         .allow_methods([Method::GET, Method::OPTIONS])
-        .allow_headers([
-            header::AUTHORIZATION,
-            header::ACCEPT,
-            header::CACHE_CONTROL,
-            header::USER_AGENT,
-            header::HeaderName::from_static("x-pkvsync-deployment-key"),
-            header::HeaderName::from_static("last-event-id"),
-        ])
+        .allow_headers(sse_cors_allow_header_names())
         .max_age(std::time::Duration::from_secs(86400))
 }
 

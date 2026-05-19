@@ -182,6 +182,34 @@ async fn sse_endpoint_returns_event_stream_headers() {
 }
 
 #[tokio::test]
+async fn sse_endpoint_returns_cors_header_on_successful_subscription() {
+    let (ts, _state, raw, vid) = start_test_server().await;
+
+    let resp = auth_headers(
+        client()
+            .get(format!("http://{}/api/vaults/{}/events", ts.addr, vid))
+            .header("origin", "app://obsidian.md")
+            .bearer_auth(&raw),
+        &ts.key,
+    )
+    .timeout(Duration::from_secs(2))
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let allow_origin = resp
+        .headers()
+        .get("access-control-allow-origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        !allow_origin.is_empty(),
+        "successful SSE subscription must carry Access-Control-Allow-Origin"
+    );
+}
+
+#[tokio::test]
 async fn sse_receives_commit_event_after_push() {
     let (ts, _state, raw, vid) = start_test_server().await;
 

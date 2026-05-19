@@ -21,6 +21,7 @@ export function subscribeVaultEvents(opts: SubscribeOptions): () => void {
         method: "GET",
         headers: {
           "User-Agent": `PKVSync-Plugin/${opts.pluginVersion}`,
+          "X-PKVSync-Plugin": `PKVSync-Plugin/${opts.pluginVersion}`,
           "X-PKVSync-Deployment-Key": opts.deploymentKey,
           Authorization: `Bearer ${opts.token}`,
           Accept: "text/event-stream",

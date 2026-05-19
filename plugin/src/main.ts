@@ -223,7 +223,7 @@ export default class PKVSyncPlugin extends Plugin {
   /**
    * Atomic read-modify-write of the sync index. The updater runs inside the
    * SerializedPluginDataStore.update transaction, so concurrent callers
-   * cannot observe a stale load between each other's writes (GLM5 H-5).
+   * cannot observe a stale load between each other's writes.
    */
   async updateSyncIndex(
     updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>,

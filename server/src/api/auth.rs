@@ -23,7 +23,6 @@ async fn login_handler(
     // Reserve an attempt slot atomically. try_acquire counts in-flight
     // reservations toward the threshold, so a burst of concurrent guesses
     // is rejected before any of them reaches argon2 verification.
-    // (GLM5 Ultra Review H-1.)
     let reservation = match limiter.try_acquire(ip) {
         Ok(r) => r,
         Err(remaining) => {
@@ -84,7 +83,7 @@ async fn register_handler(
 /// budget. We distinguish abuse signals from honest client-side typos so a
 /// user mistyping a username does not get locked out (preserving the v0.1.12
 /// fix), while attackers cannot freely probe invite codes or registration
-/// mode (closing GLM5 Ultra Review H-3).
+/// mode.
 fn register_failure_consumes_budget(err: &ApiError) -> bool {
     use axum::http::StatusCode;
     // Server-side mode probing or username enumeration → always counts.
@@ -224,7 +223,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::CREATED);
     }
 
-    /// GLM5 Ultra Review H-3 regression: invite-required failures and
+    /// Regression: invite-required failures and
     /// registration-disabled failures are abuse signals (invite enumeration,
     /// mode probing) and must consume rate-limit budget so the endpoint can
     /// be locked under sustained attack.
@@ -260,7 +259,7 @@ mod tests {
         );
     }
 
-    /// GLM5 Ultra Review H-3 regression: registration-disabled mode is also
+    /// Regression: registration-disabled mode is also
     /// an abuse-probing signal and must consume rate-limit budget.
     #[tokio::test]
     async fn register_disabled_mode_failures_consume_limiter() {
@@ -341,7 +340,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
-    /// GLM5 Ultra Review H-4 regression: a disabled account hitting login
+    /// Regression: a disabled account hitting login
     /// must return UNAUTHORIZED (NOT FORBIDDEN) — same status as wrong
     /// password — so the HTTP status cannot be used to enumerate which
     /// usernames correspond to disabled accounts. Login handler's existing

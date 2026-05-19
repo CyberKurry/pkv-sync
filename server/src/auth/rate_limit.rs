@@ -10,8 +10,8 @@ struct Entry {
     /// In-flight reservations from try_acquire that have not yet resolved
     /// to success or failure. Counts toward the threshold so a burst of
     /// concurrent requests cannot all pass check() before any of them
-    /// record_failure(). (GLM5 Ultra Review H-1: closes TOCTOU between
-    /// the read in check() and the write in record_failure().)
+    /// record_failure(), closing the window between check() and
+    /// record_failure().
     in_flight: u32,
     first_failure: Instant,
     locked_until: Option<Instant>,
@@ -97,7 +97,7 @@ impl LoginRateLimiter {
     /// `in_flight` and return a reservation handle. Otherwise return the
     /// lock duration (caller maps to 429).
     ///
-    /// Counting `in_flight` toward threshold closes the GLM5 H-1 TOCTOU:
+    /// Counting `in_flight` toward threshold closes the concurrent-attempt window:
     /// even if N concurrent requests pass the lock check, after N=`threshold`
     /// reservations are in flight the (N+1)th request is rejected before
     /// argon2 runs, instead of waiting for one of them to call
@@ -324,7 +324,7 @@ mod tests {
         assert!(l.check(ip()).is_err());
     }
 
-    /// GLM5 Ultra Review H-1 regression: in-flight reservations count toward
+    /// Regression: in-flight reservations count toward
     /// the threshold so concurrent attempts cannot all sneak through before
     /// any of them records a failure. With threshold=3, after 3 in-flight
     /// try_acquire calls, the 4th must be rejected even though no failures

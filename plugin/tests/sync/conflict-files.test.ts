@@ -65,15 +65,21 @@ describe("conflict file helpers", () => {
 });
 
 describe("originalPathFor", () => {
+  it("restores extension from generated conflict path", () => {
+    expect(originalPathFor("SKILL.conflict-2026-05-19-143000-remote.md")).toBe(
+      "SKILL.md"
+    );
+  });
+
   it("extracts original path from conflict markdown file", () => {
     expect(
-      originalPathFor("note.md.conflict-2026-05-16-143000-abc.md")
+      originalPathFor("note.conflict-2026-05-16-143000-abc.md")
     ).toBe("note.md");
   });
 
   it("extracts original path from conflict image file", () => {
     expect(
-      originalPathFor("image.png.conflict-2026-05-16-143000-abc")
+      originalPathFor("image.conflict-2026-05-16-143000-abc.png")
     ).toBe("image.png");
   });
 
@@ -84,7 +90,7 @@ describe("originalPathFor", () => {
   it("extracts original from nested path", () => {
     expect(
       originalPathFor(
-        "folder/note.md.conflict-2026-05-16-143000-xyz.md"
+        "folder/note.conflict-2026-05-16-143000-xyz.md"
       )
     ).toBe("folder/note.md");
   });
@@ -94,19 +100,19 @@ describe("pairConflicts", () => {
   it("pairs conflict files with their original paths", () => {
     const vault = new FakeVault([
       tfile("note.md"),
-      tfile("note.md.conflict-2026-05-16-143000-abc.md"),
+      tfile("note.conflict-2026-05-16-143000-abc.md"),
       tfile("folder/image.png"),
-      tfile("folder/image.png.conflict-2026-05-16-143000-phone")
+      tfile("folder/image.conflict-2026-05-16-143000-phone.png")
     ]);
     const pairs = pairConflicts(vault);
     expect(pairs).toHaveLength(2);
     expect(pairs[0].originalPath).toBe("note.md");
     expect(pairs[0].conflictPath).toBe(
-      "note.md.conflict-2026-05-16-143000-abc.md"
+      "note.conflict-2026-05-16-143000-abc.md"
     );
     expect(pairs[1].originalPath).toBe("folder/image.png");
     expect(pairs[1].conflictPath).toBe(
-      "folder/image.png.conflict-2026-05-16-143000-phone"
+      "folder/image.conflict-2026-05-16-143000-phone.png"
     );
   });
 

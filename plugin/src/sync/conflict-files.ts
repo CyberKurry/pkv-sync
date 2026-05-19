@@ -30,10 +30,10 @@ export async function deleteConflictFiles(
 
 export function originalPathFor(conflictPath: string): string | null {
   const m = conflictPath.match(
-    /^(.+)\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-[^/]+(?:\.[^/.]+)?$/
+    /^(.+)\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-[A-Za-z0-9_-]+(\.[^/.]+)?$/
   );
   if (!m) return null;
-  return m[1];
+  return `${m[1]}${m[2] ?? ""}`;
 }
 
 export interface ConflictPair {

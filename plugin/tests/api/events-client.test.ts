@@ -41,12 +41,28 @@ describe("subscribeVaultEvents", () => {
     status: number
   ): void {
     const response = { ok, status, body } as Response;
-    globalThis.fetch = ((() => Promise.resolve(response)) as unknown) as typeof fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue(response) as unknown as typeof fetch;
   }
 
   function setFetchError(err: Error): void {
-    globalThis.fetch = ((() => Promise.reject(err)) as unknown) as typeof fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(err) as unknown as typeof fetch;
   }
+
+  it("sends a plugin identity header for browser fetch SSE requests", async () => {
+    setFetchResponse(null, false, 403);
+
+    subscribeVaultEvents({ ...baseOpts, onEvent: vi.fn(), onError: vi.fn() });
+
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-PKVSync-Plugin": "PKVSync-Plugin/0.3.3",
+        }),
+      })
+    );
+  });
 
   it("receives text_inline commit event and calls onEvent", async () => {
     const ssePayload =

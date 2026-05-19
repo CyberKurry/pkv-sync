@@ -85,7 +85,7 @@ pub async fn verify_credentials(
         // code (account state enumeration), and so that the login handler's
         // 401-only record_failure path consumes rate-limit budget for these
         // attempts too. The error message is also identical to a wrong
-        // password to avoid any leak. (GLM5 Ultra Review H-4.)
+        // password to avoid any leak.
         return Err(ApiError::unauthorized("invalid credentials"));
     }
     Ok(user)

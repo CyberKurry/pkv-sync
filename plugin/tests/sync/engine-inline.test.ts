@@ -149,7 +149,7 @@ describe("SyncEngine inline apply dirty detection", () => {
     );
   });
 
-  /// GLM5 Ultra Review H-5 regression: two concurrent applyInlineText calls
+  /// Regression: two concurrent applyInlineText calls
   /// must end with BOTH files reflected in the index. With the pre-fix
   /// load-modify-save pattern, the second call's loadIndex read the same
   /// stale state as the first, so its saveIndex overwrote the first's

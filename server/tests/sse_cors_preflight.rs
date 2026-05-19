@@ -67,7 +67,7 @@ async fn sse_preflight_returns_cors_headers_without_deployment_key_or_plugin_ua(
         .header("access-control-request-method", "GET")
         .header(
             "access-control-request-headers",
-            "authorization, x-pkvsync-deployment-key, accept, user-agent",
+            "authorization, x-pkvsync-plugin, x-pkvsync-deployment-key, accept, user-agent",
         )
         .body(axum::body::Body::empty())
         .unwrap();
@@ -115,6 +115,7 @@ async fn sse_preflight_returns_cors_headers_without_deployment_key_or_plugin_ua(
         .to_ascii_lowercase();
     for required in [
         "authorization",
+        "x-pkvsync-plugin",
         "x-pkvsync-deployment-key",
         "accept",
         "user-agent",
@@ -126,7 +127,6 @@ async fn sse_preflight_returns_cors_headers_without_deployment_key_or_plugin_ua(
     }
 }
 
-/// GLM5 / production-bug regression: it's not enough for the preflight to
 /// return Access-Control-Allow-Origin. The actual GET response (and any
 /// error response from the route — 401 from a bad token, 404 from missing
 /// vault) must ALSO carry Access-Control-Allow-Origin, or the browser
@@ -165,6 +165,97 @@ async fn sse_get_unauthorized_response_still_carries_cors_allow_origin() {
     assert!(
         !allow_origin.is_empty(),
         "actual GET response must carry Access-Control-Allow-Origin (status={status}); without it the browser blocks the body"
+    );
+}
+
+#[tokio::test]
+async fn sse_get_bad_deployment_key_still_carries_cors_allow_origin() {
+    let app = app().await;
+
+    let mut req = axum::http::Request::builder()
+        .method(axum::http::Method::GET)
+        .uri("/api/vaults/some-vault-id/events")
+        .header(axum::http::header::ORIGIN, "app://obsidian.md")
+        .header("user-agent", "PKVSync-Plugin/0.3.6")
+        .header("x-pkvsync-deployment-key", "k_wrong")
+        .header("authorization", "Bearer invalid-token")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(
+        "127.0.0.1:50000".parse::<SocketAddr>().unwrap(),
+    ));
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), axum::http::StatusCode::NOT_FOUND);
+    let allow_origin = resp
+        .headers()
+        .get("access-control-allow-origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        !allow_origin.is_empty(),
+        "deployment-key rejection must carry Access-Control-Allow-Origin"
+    );
+}
+
+#[tokio::test]
+async fn sse_get_bad_user_agent_still_carries_cors_allow_origin() {
+    let app = app().await;
+
+    let mut req = axum::http::Request::builder()
+        .method(axum::http::Method::GET)
+        .uri("/api/vaults/some-vault-id/events")
+        .header(axum::http::header::ORIGIN, "app://obsidian.md")
+        .header("user-agent", "Mozilla/5.0 Obsidian")
+        .header("x-pkvsync-deployment-key", "k_test_sse_cors")
+        .header("authorization", "Bearer invalid-token")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(
+        "127.0.0.1:50000".parse::<SocketAddr>().unwrap(),
+    ));
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), axum::http::StatusCode::NOT_FOUND);
+    let allow_origin = resp
+        .headers()
+        .get("access-control-allow-origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        !allow_origin.is_empty(),
+        "user-agent rejection must carry Access-Control-Allow-Origin"
+    );
+}
+
+#[tokio::test]
+async fn sse_get_plugin_header_with_browser_user_agent_reaches_auth_layer() {
+    let app = app().await;
+
+    let mut req = axum::http::Request::builder()
+        .method(axum::http::Method::GET)
+        .uri("/api/vaults/some-vault-id/events")
+        .header(axum::http::header::ORIGIN, "app://obsidian.md")
+        .header("user-agent", "Mozilla/5.0 Obsidian")
+        .header("x-pkvsync-plugin", "PKVSync-Plugin/0.3.6")
+        .header("x-pkvsync-deployment-key", "k_test_sse_cors")
+        .header("authorization", "Bearer invalid-token")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(
+        "127.0.0.1:50000".parse::<SocketAddr>().unwrap(),
+    ));
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), axum::http::StatusCode::UNAUTHORIZED);
+    let allow_origin = resp
+        .headers()
+        .get("access-control-allow-origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        !allow_origin.is_empty(),
+        "SSE auth rejection after plugin-header UA fallback must carry Access-Control-Allow-Origin"
     );
 }
 

@@ -32,9 +32,10 @@ deployments — see the [deployment hardening guide](./public-docs/deployment-ha
   and the admin panel. Optional read-only `git clone https://_:<token>@host/git/<vault>`
   for offline browsing or external mirroring.
 - **Conflict-safe**: SSE inline apply refuses to overwrite a locally-modified
-  file; conflicts surface as `.conflict-*` files and can be resolved from the
-  plugin command palette with a real LCS-based line diff and one-click
-  "keep local" / "accept remote" buttons.
+  file; conflicts surface as generated `.conflict-*` files that preserve the
+  original extension and can be resolved from the plugin command palette with a
+  real LCS-based line diff and one-click "keep local" / "accept remote"
+  buttons.
 - **Admin panel** for users, device tokens, vaults, invites, runtime settings,
   activity log, and blob garbage collection. Responsive, English + 简体中文.
 - **Security**: Argon2id password hashing, atomic per-IP login rate limiter
@@ -79,7 +80,7 @@ Docker images are published multi-arch (`linux/amd64`, `linux/arm64`) to GHCR:
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.3.2
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.3.7
 ```
 
 ## Quick Start: Docker Compose
@@ -266,9 +267,9 @@ request / response schemas, and the SSE event payload format.
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy -p pkv-sync-server --all-targets -- -D warnings
-cargo test -p pkv-sync-server
-npm --prefix plugin test
+cargo clippy --workspace -- -D warnings
+cargo test --workspace
+npm --prefix plugin exec vitest run
 npm --prefix plugin run typecheck
 npm --prefix plugin run build
 npm --prefix plugin run package

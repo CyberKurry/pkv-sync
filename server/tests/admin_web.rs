@@ -38,7 +38,7 @@ async fn app_with_state() -> (Router, AppState) {
         server: ServerConfig {
             bind_addr: "127.0.0.1:6710".parse().unwrap(),
             deployment_key: "k_test_admin_web".into(),
-            // CSRF is fail-closed when public_host is unset (GLM5 C-1 fix),
+            // CSRF is fail-closed when public_host is unset,
             // so admin POST tests must provide one. Use the same host the
             // test requests will use so same_origin() succeeds for valid
             // submissions.

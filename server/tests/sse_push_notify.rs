@@ -162,7 +162,7 @@ async fn push_blob_emits_blob_event() {
     }
 }
 
-/// Regression for the GLM5.1 audit finding: source_device_id in the published
+/// Regression: source_device_id in the published
 /// VaultEvent must be the token's device_id (a stable per-device identifier
 /// like "device-sse-test"), not the token row's database id. Using the row id
 /// breaks SSE self-echo filtering because the client compares against its own

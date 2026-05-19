@@ -25,7 +25,6 @@ export interface IndexPersistence {
    * observes a stale read or overwrites the other's write. This is the
    * recommended path for any change that depends on the previous index
    * state (mark a file synced after inline apply, advance HEAD, etc.).
-   * (GLM5 Ultra Review H-5.)
    */
   updateIndex(
     updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>
@@ -71,7 +70,6 @@ export class SyncEngine {
    * Chain head for serialising SSE event handlers. Each incoming event
    * appends a task that awaits the previous one before running, so events
    * never interleave between each other or with syncNow's atomic phase
-   * (GLM5 H-5).
    */
   private eventChain: Promise<void> = Promise.resolve();
 
@@ -112,7 +110,7 @@ export class SyncEngine {
         // applyDelete / advanceIndexHead steps. Without this, event B could
         // read a stale local file between event A's writeText and A's
         // index update, leading to either lost content or a same-commit
-        // echo push back to the server (GLM5 H-5).
+        // echo push back to the server.
         const task = this.eventChain.then(async () => {
           if (!ev.commit) {
             // lagged — do a full pull
@@ -414,7 +412,7 @@ export class SyncEngine {
     // Dirty check + write must look at one consistent index snapshot.
     // updateIndex serialises through the underlying data store so two
     // concurrent inline-event handlers cannot observe stale state or
-    // overwrite each other's index updates (GLM5 H-5).
+    // overwrite each other's index updates.
     const hash = await sha256Text(content);
     const size = new TextEncoder().encode(content).byteLength;
     const snapshot: LocalFileSnapshot = { path, hash, size, kind: "text", content };
