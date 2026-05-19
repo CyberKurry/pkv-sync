@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::db::repos::{Vault, VaultRepo};
-use crate::service::AppState;
+use crate::service::{vault_settings, AppState};
 
 pub fn validate_vault_name(name: &str) -> Result<(), ApiError> {
     if name.trim().is_empty() || name.len() > 64 {
@@ -32,7 +32,16 @@ pub async fn create_vault(state: &AppState, user_id: &str, name: &str) -> Result
             "vault name already exists",
         ));
     }
-    Ok(state.vaults.create(user_id, name).await?)
+    let vault = state.vaults.create(user_id, name).await?;
+    vault_settings::save(
+        state,
+        &vault.id,
+        &vault_settings::VaultSettings {
+            extra_sync_globs: vault_settings::starter_extra_sync_globs(),
+        },
+    )
+    .await?;
+    Ok(vault)
 }
 
 pub async fn delete_vault_for_user(
@@ -90,6 +99,22 @@ mod tests {
     use super::*;
     use crate::db::pool;
     use crate::db::repos::{NewUser, UserRepo};
+    use crate::service::vault_settings;
+
+    fn expected_starter_extra_sync_globs() -> Vec<String> {
+        [
+            ".obsidian/themes/**",
+            ".obsidian/snippets/**",
+            ".obsidian/hotkeys.json",
+            ".obsidian/app.json",
+            ".obsidian/appearance.json",
+            ".obsidian/community-plugins.json",
+            ".obsidian/core-plugins.json",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect()
+    }
 
     async fn state_and_user() -> (AppState, String, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
@@ -118,6 +143,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_vault_saves_starter_settings() {
+        let (s, uid, _tmp) = state_and_user().await;
+        let v = create_vault(&s, &uid, "main").await.unwrap();
+
+        let settings = vault_settings::load(&s, &v.id).await.unwrap();
+
+        assert_eq!(
+            settings.extra_sync_globs,
+            expected_starter_extra_sync_globs()
+        );
+    }
+
+    #[tokio::test]
     async fn duplicate_name_conflicts() {
         let (s, uid, _tmp) = state_and_user().await;
         create_vault(&s, &uid, "main").await.unwrap();
@@ -141,6 +179,28 @@ mod tests {
         assert!(s.vaults.find_by_id(&v.id).await.unwrap().is_none());
         assert!(!tokio::fs::try_exists(&repo_dir).await.unwrap());
         assert_eq!(s.vault_push_lock_count_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn delete_vault_for_user_cascades_settings() {
+        let (s, uid, _tmp) = state_and_user().await;
+        let v = create_vault(&s, &uid, "main").await.unwrap();
+        vault_settings::save(
+            &s,
+            &v.id,
+            &vault_settings::VaultSettings {
+                extra_sync_globs: vec!["notes/**".into()],
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(delete_vault_for_user(&s, &uid, &v.id).await.unwrap());
+
+        assert!(vault_settings::load_raw_for_tests(&s, &v.id)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

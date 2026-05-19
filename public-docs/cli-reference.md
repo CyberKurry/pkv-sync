@@ -1,26 +1,28 @@
 # CLI Reference
 
+English | [简体中文](./cli-reference.zh-CN.md)
+
 ## pkvsyncd materialize
 
 Expand a PKV Sync vault's bare git repository into a plain file tree on disk.
 
 ### Synopsis
 
-```
+```text
 pkvsyncd materialize <vault-id> -o <output-dir> [--at <commit-sha>]
 ```
 
 ### Options
 
-- `-o, --output <DIR>` — Output directory (must not exist or be empty)
-- `--at <SHA>` — Materialize at a specific commit (default: HEAD)
+- `-o, --output <DIR>`: output directory (must not exist or be empty).
+- `--at <SHA>`: materialize at a specific commit (default: HEAD).
 
 ### Description
 
 Reads the vault's bare git repository and writes each file to the output directory:
 
-- Text files are written as-is
-- Binary files (stored as `pkvsync_pointer` JSON) are resolved by copying the actual blob from the server's blob storage
+- Text files are written as-is.
+- Binary files stored as `pkvsync_pointer` JSON are resolved by copying the actual blob from the server's blob storage.
 
 The command is synchronous and does not require the server to be running. It reads directly from the on-disk git repository and blob storage under the configured `data_dir`.
 
@@ -36,41 +38,36 @@ pkvsyncd materialize abc123 -o ./my-vault-old --at def456
 
 ### Exit Codes
 
-- `0` — Success
-- `1` — Error (output dir not empty, vault not found, blob missing, invalid commit SHA, etc.)
+- `0`: success.
+- `1`: error, such as output dir not empty, vault not found, blob missing, or invalid commit SHA.
 
----
+## pkvsyncd mcp
 
-## pkvsyncd materialize (中文)
+Start the read-only MCP server for AI tools.
 
-将 PKV Sync vault 的 bare git 仓库还原为普通文件树。
+### Synopsis
 
-### 用法
-
-```
-pkvsyncd materialize <vault-id> -o <输出目录> [--at <commit-sha>]
+```text
+pkvsyncd mcp [--transport stdio|http] [--vault <vault-id>] [--token <pks-token>] [--bind <addr>]
 ```
 
-### 选项
+### Options
 
-- `-o, --output <目录>` — 输出目录（必须不存在或为空）
-- `--at <SHA>` — 还原到指定提交（默认：HEAD）
+- `--transport <stdio|http>`: transport mode (default: `stdio`).
+- `--vault <vault-id>`: required for stdio; the single vault exposed to the client.
+- `--token <pks-token>`: bearer device token for stdio; if omitted, `PKV_TOKEN` is used.
+- `--bind <addr>`: HTTP bind address (default: `127.0.0.1:6711`).
 
-### 说明
+### Description
 
-读取 vault 的 bare git 仓库，将每个文件写入输出目录：
+stdio mode reads JSON-RPC from stdin and writes JSON-RPC to stdout. HTTP mode serves a stateless Streamable HTTP MCP endpoint at `/mcp`. Both modes are read-only and expose `list_vaults`, `list_files`, `read_file`, `read_file_at_commit`, and `search`.
 
-- 文本文件原样写入
-- 二进制文件（以 `pkvsync_pointer` JSON 存储）通过从服务器的 blob 存储复制实际文件来还原
-
-该命令为同步执行，无需服务器运行。它直接从配置的 `data_dir` 下的磁盘 git 仓库和 blob 存储中读取。
-
-### 示例
+### Examples
 
 ```bash
-# 还原最新版本
-pkvsyncd materialize abc123 -o ./my-vault
+# stdio, token from environment
+PKV_TOKEN=pks_xxx pkvsyncd mcp --vault abc123
 
-# 还原到指定提交
-pkvsyncd materialize abc123 -o ./my-vault-old --at def456
+# local Streamable HTTP endpoint
+pkvsyncd mcp --transport http --bind 127.0.0.1:6711
 ```

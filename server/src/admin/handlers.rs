@@ -4,7 +4,8 @@ use crate::admin::templates::{
     DevicesTemplate, DiffRowView, InviteAdminView, InvitesTemplate, LoginTemplate,
     SettingsTemplate, TokenAdminView, UserAdminView, UserDetailTemplate, UsersTemplate,
     VaultAdminView, VaultBrowserView, VaultDiffTemplate, VaultFileEntryView, VaultFileViewTemplate,
-    VaultFilesTemplate, VaultHistoryEntryView, VaultHistoryTemplate, VaultsTemplate,
+    VaultFilesTemplate, VaultHistoryEntryView, VaultHistoryTemplate, VaultSettingsTemplate,
+    VaultsTemplate,
 };
 use crate::api::error::ApiError;
 use crate::auth::LoginRateLimiter;
@@ -78,6 +79,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/admin/devices/:tid/revoke", post(revoke_device_token_form))
         .route("/admin/vaults", get(vaults_page).post(create_vault_form))
+        .route(
+            "/admin/vaults/:id/settings",
+            get(vault_settings_page).post(vault_settings_post),
+        )
         .route("/admin/vaults/:id/files", get(vault_files_page))
         .route("/admin/vaults/:id/files/*path", get(vault_file_view_page))
         .route(
@@ -957,6 +962,53 @@ struct CreateVaultForm {
     name: String,
 }
 
+#[derive(Deserialize)]
+struct VaultSettingsForm {
+    extra_sync_globs: String,
+    apply_starter: Option<String>,
+}
+
+async fn vault_settings_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
+    _session: AdminSession,
+    Path(id): Path<String>,
+) -> Result<Html<String>, ApiError> {
+    let (_vault, vault_view) = admin_vault(&state, &id).await?;
+    let settings = crate::service::vault_settings::load(&state, &id).await?;
+    Ok(Html(
+        VaultSettingsTemplate {
+            t: admin_text(&headers, &cookies),
+            vault: vault_view,
+            extra_sync_globs_display: settings.extra_sync_globs.join("\n"),
+        }
+        .render()
+        .unwrap(),
+    ))
+}
+
+async fn vault_settings_post(
+    State(state): State<AppState>,
+    _session: AdminSession,
+    Path(id): Path<String>,
+    Form(form): Form<VaultSettingsForm>,
+) -> Result<Redirect, ApiError> {
+    let (_vault, _vault_view) = admin_vault(&state, &id).await?;
+    let extra_sync_globs = if form.apply_starter.is_some() {
+        crate::service::vault_settings::starter_extra_sync_globs()
+    } else {
+        parse_glob_lines(&form.extra_sync_globs)?
+    };
+    crate::service::vault_settings::save(
+        &state,
+        &id,
+        &crate::service::vault_settings::VaultSettings { extra_sync_globs },
+    )
+    .await?;
+    Ok(Redirect::to(&format!("/admin/vaults/{id}/settings")))
+}
+
 async fn create_vault_form(
     State(state): State<AppState>,
     _session: AdminSession,
@@ -1568,6 +1620,20 @@ fn url_path(value: &str) -> String {
 
 fn url_query(value: &str) -> String {
     utf8_percent_encode(value, URL_QUERY).to_string()
+}
+
+fn parse_glob_lines(value: &str) -> Result<Vec<String>, ApiError> {
+    let globs: Vec<String> = value
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect();
+    for glob in &globs {
+        globset::Glob::new(glob).map_err(|e| {
+            ApiError::bad_request("invalid_glob", format!("invalid glob pattern: {}", e))
+        })?;
+    }
+    Ok(globs)
 }
 
 async fn invites_page(

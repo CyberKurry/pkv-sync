@@ -169,12 +169,18 @@ function hasUnsafeDecodedShape(path: string): boolean {
     }
     if (decoded === current) return false;
     current = normalizeSeparators(decoded);
-    if (!isSafePathShape(current) || hasProtectedRoot(current)) return true;
+    if (!isSafePathShape(current) || hasProtectedRoot(current) || startsWithDotRoot(current)) {
+      return true;
+    }
   }
   return false;
 }
 
 function hasProtectedRoot(path: string): boolean {
   const firstSegment = path.split("/", 1)[0].toLowerCase();
-  return firstSegment === ".obsidian" || firstSegment === ".trash" || firstSegment === ".git";
+  return firstSegment === ".trash" || firstSegment === ".git";
+}
+
+function startsWithDotRoot(path: string): boolean {
+  return path.split("/", 1)[0].startsWith(".");
 }

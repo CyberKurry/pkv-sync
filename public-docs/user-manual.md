@@ -65,6 +65,21 @@ Keep Obsidian open while large attachments upload. The plugin reads the server
 configuration after connecting and uses the server-provided text extension list
 and maximum file size rules.
 
+## Selective `.obsidian` Sync
+
+PKV Sync can sync selected Obsidian configuration files through a per-vault
+allowlist. New remote vaults start with rules for themes, CSS snippets,
+hotkeys, app preferences, appearance preferences, and enabled plugin lists.
+
+Existing remote vaults keep an empty allowlist until you opt in. In
+**Settings -> PKV Sync**, select the current vault, edit **.obsidian sync
+rules**, then save. The recommended starter list button fills the same starter
+rules used for new vaults.
+
+Plugin code and plugin settings are not synced by default. See
+[`dot-obsidian-sync-howto.md`](./dot-obsidian-sync-howto.md) before adding
+advanced rules such as `.obsidian/plugins/**` or plugin `data.json` files.
+
 ## Last Sync Time
 
 The settings page shows the last successful sync as relative time. Use the small
@@ -130,6 +145,14 @@ device's previous active token instead of accumulating duplicates.
 - Ask an administrator to revoke tokens for lost devices.
 - Changing your password keeps the current device signed in and revokes your
   other device tokens.
+
+## MCP Read Access
+
+If your administrator enables the `pkvsyncd mcp` command, AI tools can read
+your vault through MCP using a bearer device token. MCP access is read-only and
+offers vault listing, file listing, file reads at HEAD or a commit, and simple
+text search. See [`mcp-howto.md`](./mcp-howto.md) for stdio and Streamable HTTP
+setup examples.
 
 ## Commands
 

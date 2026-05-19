@@ -27,6 +27,7 @@
       {% if enable_history_ui %}
       <a class="secondary small" href="/admin/vaults/{{ v.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg>Browse files</a>
       {% endif %}
+      <a class="secondary small" href="/admin/vaults/{{ v.id }}/settings"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#settings"></use></svg>Settings</a>
       <form method="post" action="/admin/vaults/{{ v.id }}/reconcile" class="inline"><button class="secondary small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#rotate-cw"></use></svg>{{ t.reconcile }}</button></form>
       <form method="post" action="/admin/vaults/{{ v.id }}/delete" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#trash-2"></use></svg>{{ t.delete }}</button></form>
     </div>

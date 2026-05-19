@@ -399,16 +399,47 @@ async fn events(
     State(state): State<AppState>,
     user: AuthenticatedUser,
     Path(id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let _vault = vault_service::ensure_user_vault(&state, &user.user_id, &id).await?;
 
+    let replay_events = match headers
+        .get("last-event-id")
+        .and_then(|h| h.to_str().ok())
+        .filter(|h| !h.trim().is_empty())
+    {
+        Some(last_event_id) => crate::service::events::replay_events_after(
+            state.default_vault_root(),
+            &id,
+            last_event_id,
+        )
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?,
+        None => Vec::new(),
+    };
+
     let receiver = state.events.subscribe(&id);
-    let stream = BroadcastStream::new(receiver).filter_map(|res| match res {
+    let replay_stream = tokio_stream::iter(replay_events.into_iter().filter_map(|event| {
+        let id = event.commit.clone();
+        Some(Ok::<Event, Infallible>(
+            Event::default()
+                .event("commit")
+                .id(id)
+                .json_data(&event)
+                .ok()?,
+        ))
+    }));
+    let live_stream = BroadcastStream::new(receiver).filter_map(|res| match res {
         Ok(event) => Some(Ok::<Event, Infallible>(
-            Event::default().event("commit").json_data(&event).ok()?,
+            Event::default()
+                .event("commit")
+                .id(event.commit.clone())
+                .json_data(&event)
+                .ok()?,
         )),
         Err(_lagged) => Some(Ok(Event::default().event("lagged").data(""))),
     });
+    let stream = replay_stream.chain(live_stream);
 
     let heartbeat = state
         .runtime_cfg

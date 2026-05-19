@@ -53,6 +53,14 @@ PKV Sync 在 Obsidian 内同步当前仓库：
 
 上传大附件时，请保持 Obsidian 打开。插件连接后会读取服务端配置，并使用服务端提供的文本扩展名列表和最大文件大小规则。
 
+## 选择性 `.obsidian` 同步
+
+PKV Sync 可以通过按笔记库配置的 allowlist 同步部分 Obsidian 配置文件。新远端笔记库默认包含主题、CSS snippets、快捷键、应用偏好、外观偏好和已启用插件列表的规则。
+
+已有远端笔记库会保持空 allowlist，直到你主动 opt-in。在 **设置 -> PKV Sync** 中选择当前笔记库，编辑 **.obsidian 同步规则**，然后保存。推荐起步清单按钮会填入与新笔记库相同的起步规则。
+
+插件代码和插件设置默认不会同步。添加 `.obsidian/plugins/**` 或插件 `data.json` 等进阶规则前，请先阅读 [`dot-obsidian-sync-howto.zh-CN.md`](./dot-obsidian-sync-howto.zh-CN.md)。
+
 ## 上次同步时间
 
 设置页会用相对时间显示上次成功同步时间。点击旁边的小展开控件可显示精确时间：
@@ -103,6 +111,10 @@ note.conflict-2026-04-25-143022-Desktop.md
 - 可以在插件设置中退出当前设备。
 - 设备丢失后，请让管理员撤销对应设备 token。
 - 修改密码会保留当前设备登录状态，并撤销其他设备 token。
+
+## MCP 只读访问
+
+如果管理员启用了 `pkvsyncd mcp` 命令，AI 工具可以使用 bearer 设备 token 通过 MCP 读取你的笔记库。MCP 访问是只读的，提供笔记库列表、文件列表、读取 HEAD 或指定 commit 下的文件，以及简单文本搜索。stdio 和 Streamable HTTP 配置示例见 [`mcp-howto.zh-CN.md`](./mcp-howto.zh-CN.md)。
 
 ## 命令
 

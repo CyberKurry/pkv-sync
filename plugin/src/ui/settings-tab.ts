@@ -4,6 +4,7 @@ import type {
   MeResponse,
   ServerConfigResponse,
   TokenView,
+  VaultSettings,
   VaultSummary
 } from "../api/types";
 import { formatBytes } from "../format";
@@ -20,6 +21,11 @@ import {
 import { parseServerUrl } from "../url";
 
 type ButtonVariant = "primary" | "secondary" | "ghost";
+
+const RECOMMENDED_DOT_SYNC_GLOBS = [
+  ".obsidian/themes/**",
+  ".obsidian/snippets/**"
+];
 
 export class PKVSyncSettingTab extends PluginSettingTab {
   private cfg: ServerConfigResponse | null = null;
@@ -339,10 +345,72 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       });
     }
 
+    void this.renderVaultSyncAllowlist(body);
     this.renderCreateVault(body);
     this.renderButton(body, t.syncNowButton, "primary", () =>
       this.plugin.syncNowManual()
     ).addClass("pkv-sync-sync-now");
+  }
+
+  async renderVaultSyncAllowlist(body: HTMLElement): Promise<void> {
+    const t = this.plugin.text();
+    const vaultId = this.plugin.settings.selectedVaultId;
+    if (!vaultId) return;
+
+    const section = body.createDiv({ cls: "pkv-sync-vault-settings" });
+    section.createDiv({ cls: "pkv-sync-section-label", text: t.vaultSyncAllowlist });
+    const field = section.createDiv({ cls: "pkv-sync-field" });
+    field.createEl("label", { cls: "pkv-sync-label", text: t.vaultSyncAllowlist });
+    const textarea = field.createEl("textarea", {
+      cls: "pkv-sync-input pkv-sync-textarea",
+      attr: { placeholder: t.vaultSyncAllowlistPlaceholder }
+    });
+    field.createDiv({ cls: "pkv-sync-field-hint", text: t.vaultSyncAllowlistHint });
+    const actions = section.createDiv({ cls: "pkv-sync-button-row" });
+
+    this.renderButton(
+      actions,
+      t.vaultSyncAllowlistStarterButton,
+      "secondary",
+      () => {
+        textarea.value = RECOMMENDED_DOT_SYNC_GLOBS.join("\n");
+      }
+    );
+    const saveButton = this.renderButton(
+      actions,
+      t.vaultSyncAllowlistSaveButton,
+      "primary",
+      async () => {
+        saveButton.disabled = true;
+        try {
+          await this.plugin.api().putVaultSettings(vaultId, {
+            extra_sync_globs: this.parseGlobTextarea(textarea.value)
+          });
+          new Notice(t.vaultSyncAllowlistSaved);
+        } catch (error) {
+          new Notice(
+            error instanceof Error
+              ? `${t.vaultSyncAllowlistSaveFailed}: ${error.message}`
+              : `${t.vaultSyncAllowlistSaveFailed}: ${String(error)}`
+          );
+        } finally {
+          saveButton.disabled = false;
+        }
+      }
+    );
+
+    try {
+      const settings: VaultSettings = await this.plugin
+        .api()
+        .getVaultSettings(vaultId);
+      textarea.value = this.formatGlobTextarea(settings.extra_sync_globs);
+    } catch (error) {
+      new Notice(
+        error instanceof Error
+          ? `${t.vaultSyncAllowlistLoadFailed}: ${error.message}`
+          : `${t.vaultSyncAllowlistLoadFailed}: ${String(error)}`
+      );
+    }
   }
 
   async deleteVaultAndRefresh(vault: VaultSummary): Promise<void> {
@@ -555,6 +623,17 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     }
     button.addEventListener("click", () => void onClick());
     return button;
+  }
+
+  private parseGlobTextarea(value: string): string[] {
+    return value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }
+
+  private formatGlobTextarea(globs: string[]): string {
+    return globs.join("\n");
   }
 
   private async logout(): Promise<void> {

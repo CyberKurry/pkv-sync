@@ -8,6 +8,7 @@ pub mod error;
 pub mod git_http;
 pub mod health;
 pub mod me;
+pub mod vault_settings;
 pub mod vaults;
 
 pub fn router() -> Router<AppState> {
@@ -16,6 +17,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/config", axum::routing::get(config::config))
         .merge(auth::router())
         .merge(me::router())
+        .merge(vault_settings::router())
         .merge(vaults::router())
         .merge(admin::router())
         .route(

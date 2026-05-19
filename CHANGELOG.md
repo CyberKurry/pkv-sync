@@ -7,6 +7,36 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-19
+
+### Added
+
+- `pkvsyncd mcp` starts a read-only MCP server for vault access through stdio
+  or stateless Streamable HTTP. Tools include `list_vaults`, `list_files`,
+  `read_file`, `read_file_at_commit`, and `search`.
+- MCP Streamable HTTP supports `vault_changed` SSE notifications and
+  `Last-Event-ID` replay using `<vault-id>:<commit-sha>` event ids.
+- Per-vault sync settings store `extra_sync_globs` for selective hidden-path
+  sync, including a starter `.obsidian` allowlist for new vaults.
+- `GET /api/vaults/:id/settings` and `PUT /api/vaults/:id/settings` expose
+  per-vault settings to authenticated clients.
+- Admin WebUI vault settings page for editing per-vault sync allowlists and
+  applying the recommended starter allowlist.
+- Obsidian plugin settings editor for `.obsidian` sync rules, with i18n and
+  sync-engine integration.
+- Regression coverage for `.obsidian` and hidden-path sync edge cases,
+  including nested paths, deletes, rename-style delete/upsert batches, and
+  hard excludes.
+
+### Changed
+
+- Sync path filtering now applies hard excludes first, per-vault hidden-path
+  allowlists second, and global exclude globs last.
+- `/api/vaults/:id/events` now emits commit ids and replays missed commit
+  events when clients reconnect with `Last-Event-ID`.
+- New vaults automatically receive the starter `.obsidian` sync allowlist;
+  existing vaults remain empty until users or admins opt in.
+
 ## [0.3.8] - 2026-05-19
 
 ### Added

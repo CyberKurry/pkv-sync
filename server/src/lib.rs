@@ -10,6 +10,7 @@ pub mod error;
 pub mod human;
 pub mod keygen;
 pub mod logging;
+pub mod mcp;
 pub mod middleware;
 pub mod server;
 pub mod service;

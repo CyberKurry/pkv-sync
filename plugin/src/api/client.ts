@@ -4,6 +4,7 @@ import {
   type MeResponse,
   type ServerConfigResponse,
   type TokenView,
+  type VaultSettings,
   type VaultSummary
 } from "./types";
 
@@ -79,6 +80,24 @@ export class ApiClient {
 
   async deleteVault(id: string): Promise<void> {
     await this.request<void>("DELETE", `/api/vaults/${encodeURIComponent(id)}`, undefined, true);
+  }
+
+  async getVaultSettings(id: string): Promise<VaultSettings> {
+    return this.request<VaultSettings>(
+      "GET",
+      `/api/vaults/${encodeURIComponent(id)}/settings`,
+      undefined,
+      true
+    );
+  }
+
+  async putVaultSettings(id: string, settings: VaultSettings): Promise<void> {
+    await this.request<void>(
+      "PUT",
+      `/api/vaults/${encodeURIComponent(id)}/settings`,
+      settings,
+      true
+    );
   }
 
   async logout(): Promise<void> {

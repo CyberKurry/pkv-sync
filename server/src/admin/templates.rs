@@ -138,6 +138,14 @@ pub struct VaultFilesTemplate {
 }
 
 #[derive(Template)]
+#[template(path = "vault_settings.html")]
+pub struct VaultSettingsTemplate {
+    pub t: AdminText,
+    pub vault: VaultBrowserView,
+    pub extra_sync_globs_display: String,
+}
+
+#[derive(Template)]
 #[template(path = "vault_file_view.html")]
 pub struct VaultFileViewTemplate {
     pub t: AdminText,
@@ -360,6 +368,10 @@ mod tests {
                 "vault_history",
                 include_str!("../../templates/vault_history.html"),
             ),
+            (
+                "vault_settings",
+                include_str!("../../templates/vault_settings.html"),
+            ),
         ];
         let re = regex::Regex::new(r#"lucide-icons\.svg#([A-Za-z0-9_-]+)"#).unwrap();
         for (name, template) in templates {
@@ -581,7 +593,29 @@ mod tests {
         assert!(html.contains("admin"));
         assert!(html.contains("Reconcile"));
         assert!(html.contains("/admin/static/lucide-icons.svg#folder-open"));
+        assert!(html.contains("/admin/vaults/v1/settings"));
         assert!(include_str!("../../static/lucide-icons.svg").contains("id=\"folder-open\""));
+    }
+
+    #[test]
+    fn vault_settings_template_renders_current_globs() {
+        let html = VaultSettingsTemplate {
+            t: AdminText::en(),
+            vault: VaultBrowserView {
+                id: "v1".into(),
+                name: "main".into(),
+                owner_username: "admin".into(),
+            },
+            extra_sync_globs_display: "notes/**\n.obsidian/app.json".into(),
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("Vault Settings"));
+        assert!(html.contains("main"));
+        assert!(html.contains("notes/**"));
+        assert!(html.contains(".obsidian/app.json"));
+        assert!(html.contains("name=\"apply_starter\""));
+        assert!(html.contains("/admin/static/lucide-icons.svg#save"));
     }
 
     #[test]

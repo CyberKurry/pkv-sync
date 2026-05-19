@@ -1,7 +1,7 @@
 use crate::db::repos::{
     RuntimeConfigCache, RuntimeConfigRepo, SqliteBlobRefRepo, SqliteIdempotencyRepo,
     SqliteInviteRepo, SqliteRuntimeConfigRepo, SqliteSyncActivityRepo, SqliteTokenRepo,
-    SqliteUserRepo, SqliteVaultRepo,
+    SqliteUserRepo, SqliteVaultRepo, SqliteVaultSettingsRepo,
 };
 use crate::service::events::VaultEventBus;
 use sqlx::SqlitePool;
@@ -20,6 +20,7 @@ pub struct AppState {
     pub tokens: Arc<SqliteTokenRepo>,
     pub invites: Arc<SqliteInviteRepo>,
     pub vaults: Arc<SqliteVaultRepo>,
+    pub vault_settings: Arc<SqliteVaultSettingsRepo>,
     pub blob_refs: Arc<SqliteBlobRefRepo>,
     pub idempotency: Arc<SqliteIdempotencyRepo>,
     pub activities: Arc<SqliteSyncActivityRepo>,
@@ -43,6 +44,7 @@ impl AppState {
         let tokens = Arc::new(SqliteTokenRepo::new(pool.clone()));
         let invites = Arc::new(SqliteInviteRepo::new(pool.clone()));
         let vaults = Arc::new(SqliteVaultRepo::new(pool.clone()));
+        let vault_settings = Arc::new(SqliteVaultSettingsRepo::new(pool.clone()));
         let blob_refs = Arc::new(SqliteBlobRefRepo::new(pool.clone()));
         let idempotency = Arc::new(SqliteIdempotencyRepo::new(pool.clone()));
         let activities = Arc::new(SqliteSyncActivityRepo::new(pool.clone()));
@@ -59,6 +61,7 @@ impl AppState {
             tokens,
             invites,
             vaults,
+            vault_settings,
             blob_refs,
             idempotency,
             activities,

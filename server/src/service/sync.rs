@@ -1,8 +1,8 @@
 use crate::api::error::ApiError;
 use crate::db::repos::{BlobRefRepo, IdempotencyRepo, NewActivity, SyncActivityRepo};
 use crate::service::events::{EventChange, VaultEvent};
-use crate::service::vault;
 use crate::service::AppState;
+use crate::service::{vault, vault_settings};
 use crate::storage::blob::{BlobStore, LocalFsBlobStore};
 use crate::storage::git::{FileChange, Git2VaultStore, GitStoreError, GitVaultStore, StoredFile};
 use crate::storage::path;
@@ -203,6 +203,56 @@ fn git_write_error(e: GitStoreError) -> ApiError {
     }
 }
 
+async fn sync_path_filter(
+    state: &AppState,
+    vault_id: &str,
+    runtime_exclude_globs: &[String],
+) -> Result<crate::service::exclude::SyncPathFilter, ApiError> {
+    let settings = vault_settings::load(state, vault_id).await?;
+    let user_excludes =
+        match crate::service::exclude::EffectiveExcludes::compile(runtime_exclude_globs) {
+            Ok(set) => set,
+            Err(err) => {
+                tracing::warn!(
+                    vault_id = %vault_id,
+                    error = %err,
+                    "extra_exclude_globs failed to compile; ignoring all configured exclude globs"
+                );
+                crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap()
+            }
+        };
+    let vault_allowlist =
+        match crate::service::exclude::EffectiveExcludes::compile(&settings.extra_sync_globs) {
+            Ok(set) => set,
+            Err(err) => {
+                tracing::warn!(
+                    vault_id = %vault_id,
+                    error = %err,
+                    "extra_sync_globs failed to compile; ignoring vault allowlist"
+                );
+                crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap()
+            }
+        };
+    Ok(crate::service::exclude::SyncPathFilter::new(
+        user_excludes,
+        vault_allowlist,
+    ))
+}
+
+fn reject_filtered_push_path(
+    filter: &crate::service::exclude::SyncPathFilter,
+    path: &str,
+) -> Result<(), ApiError> {
+    if filter.path_accepts(path) {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(
+            "path_excluded",
+            format!("path '{}' is excluded by server configuration", path),
+        ))
+    }
+}
+
 pub async fn push(
     state: &AppState,
     user: &crate::auth::AuthenticatedUser,
@@ -295,19 +345,7 @@ pub async fn push_with_request_metadata(
 
     let runtime_cfg = state.runtime_cfg.snapshot().await;
     let classifier = TextClassifier::new(runtime_cfg.text_extensions.iter().map(|s| s.as_str()));
-    let excludes =
-        match crate::service::exclude::EffectiveExcludes::compile(&runtime_cfg.extra_exclude_globs)
-        {
-            Ok(set) => set,
-            Err(err) => {
-                tracing::warn!(
-                    vault_id = %vault_id,
-                    error = %err,
-                    "extra_exclude_globs failed to compile on push; ignoring all configured globs"
-                );
-                crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap()
-            }
-        };
+    let path_filter = sync_path_filter(state, vault_id, &runtime_cfg.extra_exclude_globs).await?;
     let blob_store = blob_store(state);
     let mut git_changes = Vec::new();
     let mut blob_hashes = Vec::new();
@@ -319,12 +357,7 @@ pub async fn push_with_request_metadata(
             PushChange::Text { path, content } => {
                 let p = path::normalize(&path)
                     .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
-                if excludes.is_excluded(&p) {
-                    return Err(ApiError::bad_request(
-                        "path_excluded",
-                        format!("path '{}' is excluded by server configuration", p),
-                    ));
-                }
+                reject_filtered_push_path(&path_filter, &p)?;
                 if content.len() as u64 > runtime_cfg.max_file_size {
                     return Err(ApiError::bad_request(
                         "file_too_large",
@@ -367,12 +400,7 @@ pub async fn push_with_request_metadata(
             } => {
                 let p = path::normalize(&path)
                     .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
-                if excludes.is_excluded(&p) {
-                    return Err(ApiError::bad_request(
-                        "path_excluded",
-                        format!("path '{}' is excluded by server configuration", p),
-                    ));
-                }
+                reject_filtered_push_path(&path_filter, &p)?;
                 if size > runtime_cfg.max_file_size {
                     return Err(ApiError::bad_request(
                         "file_too_large",
@@ -422,12 +450,7 @@ pub async fn push_with_request_metadata(
             PushChange::Delete { path } => {
                 let p = path::normalize(&path)
                     .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
-                if excludes.is_excluded(&p) {
-                    return Err(ApiError::bad_request(
-                        "path_excluded",
-                        format!("path '{}' is excluded by server configuration", p),
-                    ));
-                }
+                reject_filtered_push_path(&path_filter, &p)?;
                 event_changes.push(EventChange::Delete { path: p.clone() });
                 git_changes.push(FileChange::Delete { path: p });
             }
@@ -846,21 +869,10 @@ async fn pull_for_user(
         }
     }
     let rc = state.runtime_cfg.snapshot().await;
-    let excludes =
-        match crate::service::exclude::EffectiveExcludes::compile(&rc.extra_exclude_globs) {
-            Ok(set) => set,
-            Err(err) => {
-                tracing::warn!(
-                    vault_id = %vault_id,
-                    error = %err,
-                    "extra_exclude_globs failed to compile on pull; ignoring all configured globs"
-                );
-                crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap()
-            }
-        };
-    added.retain(|f| !excludes.is_excluded(&f.path));
-    modified.retain(|f| !excludes.is_excluded(&f.path));
-    deleted.retain(|p| !excludes.is_excluded(p));
+    let path_filter = sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await?;
+    added.retain(|f| path_filter.path_accepts(&f.path));
+    modified.retain(|f| path_filter.path_accepts(&f.path));
+    deleted.retain(|p| path_filter.path_accepts(p));
     tracing::info!(
         user_id = %user_id,
         vault_id = %vault_id,

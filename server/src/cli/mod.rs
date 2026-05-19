@@ -46,6 +46,21 @@ pub enum Command {
         #[arg(long)]
         at: Option<String>,
     },
+    /// Start the read-only MCP server.
+    Mcp {
+        /// Transport: "stdio" or "http".
+        #[arg(long, default_value = "stdio")]
+        transport: String,
+        /// Stdio only: vault ID to expose.
+        #[arg(long)]
+        vault: Option<String>,
+        /// Stdio only: bearer token. If omitted, PKV_TOKEN is used.
+        #[arg(long)]
+        token: Option<String>,
+        /// HTTP only: bind address.
+        #[arg(long, default_value = "127.0.0.1:6711")]
+        bind: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -171,6 +186,47 @@ mod tests {
                 assert_eq!(vault_id, "vault1");
                 assert_eq!(output, PathBuf::from("/tmp/out"));
                 assert_eq!(at.as_deref(), Some("abc123"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_mcp_stdio_defaults() {
+        let cli = Cli::try_parse_from(["pkvsyncd", "mcp", "--vault", "vault1"]).unwrap();
+        match cli.command {
+            Command::Mcp {
+                transport,
+                vault,
+                token,
+                bind,
+            } => {
+                assert_eq!(transport, "stdio");
+                assert_eq!(vault.as_deref(), Some("vault1"));
+                assert!(token.is_none());
+                assert_eq!(bind, "127.0.0.1:6711");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_mcp_http_bind() {
+        let cli = Cli::try_parse_from([
+            "pkvsyncd",
+            "mcp",
+            "--transport",
+            "http",
+            "--bind",
+            "0.0.0.0:6711",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Mcp {
+                transport, bind, ..
+            } => {
+                assert_eq!(transport, "http");
+                assert_eq!(bind, "0.0.0.0:6711");
             }
             _ => panic!("wrong variant"),
         }

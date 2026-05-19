@@ -1,5 +1,7 @@
 use dashmap::DashMap;
+use git2::{Delta, Oid, Repository};
 use serde::Serialize;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -55,6 +57,118 @@ impl VaultEventBus {
             let _ = tx.send(event);
         }
     }
+}
+
+pub async fn replay_events_after(
+    vault_root: PathBuf,
+    vault_id: &str,
+    last_event_id: &str,
+) -> anyhow::Result<Vec<VaultEvent>> {
+    let vault_path = vault_root.join(vault_id);
+    let last = match Oid::from_str(last_event_id) {
+        Ok(oid) => oid,
+        Err(_) => return Ok(Vec::new()),
+    };
+    tokio::task::spawn_blocking(move || replay_events_after_blocking(vault_path, last))
+        .await
+        .map_err(|_| anyhow::anyhow!("blocking task panicked"))?
+}
+
+fn replay_events_after_blocking(vault_path: PathBuf, last: Oid) -> anyhow::Result<Vec<VaultEvent>> {
+    let repo = match Repository::open_bare(vault_path) {
+        Ok(repo) => repo,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut walk = repo.revwalk()?;
+    walk.push_head()?;
+    let mut commits = Vec::new();
+    let mut found_last = false;
+    for oid in walk {
+        let oid = oid?;
+        if oid == last {
+            found_last = true;
+            break;
+        }
+        commits.push(oid);
+    }
+    if !found_last {
+        return Ok(Vec::new());
+    }
+    commits.reverse();
+
+    let mut out = Vec::new();
+    for oid in commits {
+        let commit = repo.find_commit(oid)?;
+        let parent = if commit.parent_count() > 0 {
+            Some(commit.parent_id(0)?.to_string())
+        } else {
+            None
+        };
+        let changes = replay_changes_for_commit(&repo, &commit)?;
+        out.push(VaultEvent {
+            commit: oid.to_string(),
+            parent,
+            source_device_id: replay_source_device(commit.message().unwrap_or("")),
+            at: commit.time().seconds(),
+            changes,
+        });
+    }
+    Ok(out)
+}
+
+fn replay_changes_for_commit(
+    repo: &Repository,
+    commit: &git2::Commit<'_>,
+) -> anyhow::Result<Vec<EventChange>> {
+    let new_tree = commit.tree()?;
+    let old_commit = if commit.parent_count() > 0 {
+        Some(commit.parent(0)?)
+    } else {
+        None
+    };
+    let old_tree = old_commit
+        .as_ref()
+        .map(|commit| commit.tree())
+        .transpose()?;
+    let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)?;
+    let mut changes = Vec::new();
+    for delta in diff.deltas() {
+        match delta.status() {
+            Delta::Deleted => {
+                if let Some(path) = delta.old_file().path().and_then(display_path) {
+                    changes.push(EventChange::Delete { path });
+                }
+            }
+            Delta::Added | Delta::Modified | Delta::Typechange | Delta::Renamed | Delta::Copied => {
+                if let Some(path) = delta.new_file().path().and_then(display_path) {
+                    let size = new_tree
+                        .get_path(Path::new(&path))
+                        .ok()
+                        .and_then(|entry| repo.find_blob(entry.id()).ok())
+                        .map(|blob| blob.content().len() as u64)
+                        .unwrap_or(0);
+                    changes.push(EventChange::TextRef { path, size });
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(changes)
+}
+
+fn display_path(path: &Path) -> Option<String> {
+    Some(path.to_string_lossy().replace('\\', "/"))
+}
+
+fn replay_source_device(message: &str) -> String {
+    message
+        .lines()
+        .next()
+        .and_then(|line| line.strip_prefix("sync: "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("replay")
+        .to_string()
 }
 
 #[cfg(test)]

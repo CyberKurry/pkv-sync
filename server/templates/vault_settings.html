@@ -1,0 +1,29 @@
+{% extends "layout.html" %}
+{% block title %}Vault Settings - {{ t.admin_title }}{% endblock %}
+{% block nav_vaults %}is-active{% endblock %}
+{% block page_title %}Vault Settings{% endblock %}
+{% block header_actions %}
+<a class="secondary action-button" href="/admin/vaults"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-left"></use></svg> {{ t.vaults }}</a>
+<button class="primary success-gradient" form="vault-settings-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>Save</button>
+{% endblock %}
+{% block content %}
+<section class="panel settings-section">
+  <div class="panel-header">
+    <div>
+      <h2>{{ vault.name }}</h2>
+      <p class="section-note">{{ vault.owner_username }} - ID {{ vault.id }}</p>
+    </div>
+  </div>
+
+  <form id="vault-settings-form" method="post" action="/admin/vaults/{{ vault.id }}/settings" class="settings-form">
+    <label>Extra sync globs
+      <textarea name="extra_sync_globs" rows="8" placeholder=".obsidian/themes/**&#10;.obsidian/snippets/**&#10;.obsidian/app.json">{{ extra_sync_globs_display }}</textarea>
+      <small class="hint">One glob per line. These paths are allowed to sync in addition to the default protected paths.</small>
+    </label>
+    <div class="vault-settings-actions">
+      <button class="primary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>Save</button>
+      <button class="secondary" name="apply_starter" value="1"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#rotate-cw"></use></svg>Apply starter allowlist</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -8,5 +8,6 @@ pub mod history;
 pub mod state;
 pub mod sync;
 pub mod vault;
+pub mod vault_settings;
 
 pub use state::AppState;

@@ -1,6 +1,7 @@
 import { requestUrl } from "obsidian";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiClient, __test } from "../src/api/client";
+import type { VaultSettings } from "../src/api/types";
 
 const requestUrlMock = vi.mocked(requestUrl);
 
@@ -9,7 +10,7 @@ function mockResponse(text: string, status = 200) {
     status,
     headers: {},
     arrayBuffer: new ArrayBuffer(0),
-    json: JSON.parse(text),
+    json: text.length === 0 ? undefined : JSON.parse(text),
     text
   });
 }
@@ -120,6 +121,56 @@ describe("ApiClient helpers", () => {
         headers: expect.objectContaining({
           Authorization: "Bearer tok_abc"
         })
+      })
+    );
+  });
+
+  it("gets vault settings with auth and URL-encodes the vault id", async () => {
+    mockResponse('{"extra_sync_globs":[".obsidian/themes/**"]}');
+    const client = new ApiClient({
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_test",
+      token: "tok_abc",
+      pluginVersion: "0.2.0"
+    });
+
+    const settings: VaultSettings = await client.getVaultSettings("vault/with space");
+
+    expect(settings).toEqual({ extra_sync_globs: [".obsidian/themes/**"] });
+    expect(requestUrlMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "GET",
+        url: "https://sync.example.com/api/vaults/vault%2Fwith%20space/settings",
+        headers: expect.objectContaining({
+          Authorization: "Bearer tok_abc"
+        })
+      })
+    );
+  });
+
+  it("puts vault settings with auth and accepts no response body", async () => {
+    mockResponse("", 204);
+    const client = new ApiClient({
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_test",
+      token: "tok_abc",
+      pluginVersion: "0.2.0"
+    });
+
+    const result = await client.putVaultSettings("vault-123", {
+      extra_sync_globs: [".claude/agents/**"]
+    });
+
+    expect(result).toBeUndefined();
+    expect(requestUrlMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "PUT",
+        url: "https://sync.example.com/api/vaults/vault-123/settings",
+        headers: expect.objectContaining({
+          Authorization: "Bearer tok_abc",
+          "Content-Type": "application/json"
+        }),
+        body: JSON.stringify({ extra_sync_globs: [".claude/agents/**"] })
       })
     );
   });

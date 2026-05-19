@@ -6,6 +6,7 @@ pub mod runtime_config;
 pub mod token;
 pub mod user;
 pub mod vault;
+pub mod vault_settings;
 
 pub use activity::{NewActivity, SqliteSyncActivityRepo, SyncActivityRepo};
 pub use blob_ref::{BlobRefRepo, SqliteBlobRefRepo};
@@ -17,3 +18,4 @@ pub use runtime_config::{
 pub use token::{NewToken, SqliteTokenRepo, TokenRepo, TokenRow};
 pub use user::{NewUser, SqliteUserRepo, User, UserRepo};
 pub use vault::{SqliteVaultRepo, Vault, VaultRepo};
+pub use vault_settings::{SqliteVaultSettingsRepo, VaultSettingsRepo};

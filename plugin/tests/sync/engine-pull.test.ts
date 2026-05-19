@@ -346,6 +346,65 @@ describe("SyncEngine pull", () => {
     expect(api.push).not.toHaveBeenCalled();
   });
 
+  it("applies allowlisted .obsidian pull files and skips non-allowlisted plugin code", async () => {
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const getVaultSettings = vi.fn().mockResolvedValue({
+      extra_sync_globs: [".obsidian/themes/**"]
+    });
+    const api = {
+      api: { getVaultSettings },
+      state: vi.fn().mockResolvedValue({
+        current_head: "c1",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [
+          {
+            path: ".obsidian/themes/cyberkurry-dark/manifest.json",
+            file_type: "text",
+            size: 16,
+            content_inline: "{\"name\":\"dark\"}"
+          },
+          {
+            path: ".obsidian/plugins/example/main.js",
+            file_type: "text",
+            size: 8,
+            content_inline: "plugin()"
+          }
+        ],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md", "json", "js"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect(vault.writes.get(".obsidian/themes/cyberkurry-dark/manifest.json")).toBe(
+      "{\"name\":\"dark\"}"
+    );
+    expect(vault.writes.has(".obsidian/plugins/example/main.js")).toBe(false);
+    expect(idx.saved?.files[".obsidian/themes/cyberkurry-dark/manifest.json"]).toBeDefined();
+    expect(idx.saved?.files[".obsidian/plugins/example/main.js"]).toBeUndefined();
+    expect(api.push).not.toHaveBeenCalled();
+  });
+
   it("keeps local deletion intent when remote modifies the same file", async () => {
     const cleanHash = await sha256Text("clean");
     const idx = new FakeIndex({

@@ -31,6 +31,11 @@ deployments — see the [deployment hardening guide](./public-docs/deployment-ha
   unified diff, and single-file restore are exposed in both the Obsidian plugin
   and the admin panel. Optional read-only `git clone https://_:<token>@host/git/<vault>`
   for offline browsing or external mirroring.
+- **AI-readable vaults**: `pkvsyncd mcp` exposes read-only vault tools through
+  MCP over stdio or a stateless Streamable HTTP endpoint.
+- **Selective `.obsidian` sync**: new vaults get a starter allowlist for
+  themes, snippets, hotkeys, app preferences, appearance, and enabled plugin
+  lists. Plugin code and plugin settings stay opt-in.
 - **Conflict-safe**: SSE inline apply refuses to overwrite a locally-modified
   file; conflicts surface as generated `.conflict-*` files that preserve the
   original extension and can be resolved from the plugin command palette with a
@@ -80,7 +85,7 @@ Docker images are published multi-arch (`linux/amd64`, `linux/arm64`) to GHCR:
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.3.8
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.4.0
 ```
 
 ## Quick Start: Docker Compose

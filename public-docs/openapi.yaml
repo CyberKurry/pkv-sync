@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 0.1.10
+  version: 0.4.0
   license:
     name: AGPL-3.0-only
   contact:
@@ -360,6 +360,15 @@ components:
         file_count:
           type: integer
           format: int64
+    VaultSettings:
+      type: object
+      required: [extra_sync_globs]
+      properties:
+        extra_sync_globs:
+          type: array
+          description: Per-vault allowlist for hidden paths such as selected `.obsidian` files.
+          items:
+            type: string
     ChangePasswordRequest:
       type: object
       required: [current_password, new_password]
@@ -907,6 +916,51 @@ paths:
       responses:
         '204':
           description: Vault deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/vaults/{vault_id}/settings:
+    get:
+      tags: [Vaults]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Get per-vault sync settings
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+      responses:
+        '200':
+          description: Current per-vault settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Vaults]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Replace per-vault sync settings
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VaultSettings'
+      responses:
+        '204':
+          description: Settings saved
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':

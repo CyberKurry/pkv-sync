@@ -36,6 +36,10 @@ export interface VaultSummary {
   file_count: number;
 }
 
+export interface VaultSettings {
+  extra_sync_globs: string[];
+}
+
 export interface MeResponse {
   user_id: string;
   username: string;

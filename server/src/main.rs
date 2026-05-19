@@ -120,6 +120,60 @@ fn main() -> anyhow::Result<()> {
             pkv_sync_server::logging::init_with_config(&cfg.logging);
             pkv_sync_server::cli::materialize::run(&cfg, &vault_id, &output, at.as_deref())?;
         }
+        Command::Mcp {
+            transport,
+            vault,
+            token,
+            bind,
+        } => {
+            let cfg = Config::load(&cli.config)?;
+            pkv_sync_server::logging::init_with_config(&cfg.logging);
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                std::fs::create_dir_all(&cfg.storage.data_dir)?;
+                let pool = pkv_sync_server::db::pool::connect(&cfg.storage.db_path).await?;
+                pkv_sync_server::db::pool::migrate_up(&pool).await?;
+                let default_name = cfg
+                    .server
+                    .public_host
+                    .clone()
+                    .unwrap_or_else(|| "PKV Sync".into());
+                let git_available = std::process::Command::new("git")
+                    .arg("--version")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+                let state = pkv_sync_server::service::AppState::new(
+                    pool,
+                    cfg.storage.data_dir.clone(),
+                    default_name,
+                    git_available,
+                )
+                .await?;
+                let transport = match transport.as_str() {
+                    "stdio" => {
+                        let vault_id = vault.ok_or_else(|| {
+                            anyhow::anyhow!("--vault is required for stdio transport")
+                        })?;
+                        let token = token
+                            .or_else(|| std::env::var("PKV_TOKEN").ok())
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "--token or PKV_TOKEN is required for stdio transport"
+                                )
+                            })?;
+                        pkv_sync_server::mcp::McpTransport::Stdio { vault_id, token }
+                    }
+                    "http" => pkv_sync_server::mcp::McpTransport::Http {
+                        bind: bind.parse()?,
+                    },
+                    other => anyhow::bail!(
+                        "unsupported MCP transport '{other}', expected 'stdio' or 'http'"
+                    ),
+                };
+                pkv_sync_server::mcp::run(state, transport).await
+            })?;
+        }
     }
     Ok(())
 }

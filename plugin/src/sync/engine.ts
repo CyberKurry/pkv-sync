@@ -3,7 +3,8 @@ import { ApiError } from "../api/client";
 import { subscribeVaultEvents } from "../api/events-client";
 import type { SyncApi } from "../api/sync-client";
 import type { VaultEvent } from "../api/types";
-import { isExcluded } from "./exclude";
+import type { VaultSettings } from "../api/types";
+import { pathAccepts } from "./exclude";
 import { conflictPath } from "./conflict";
 import { sha256Bytes, sha256Text } from "./hash";
 import {
@@ -66,6 +67,7 @@ export interface SyncEngineOptions {
 export class SyncEngine {
   private running: Promise<void> | null = null;
   private unsubscribeEvents: (() => void) | null = null;
+  private vaultSettingsCache = new Map<string, VaultSettings>();
   /**
    * Chain head for serialising SSE event handlers. Each incoming event
    * appends a task that awaits the previous one before running, so events
@@ -163,20 +165,34 @@ export class SyncEngine {
   }> {
     const index = await this.opts.index.loadIndex();
     const current = await this.opts.vault.scan(this.opts.textExtensions);
-    const globs = this.opts.extraExcludeGlobs ?? [];
-    const filtered = current.filter((f) => !isExcluded(f.path, globs));
+    const userExcludes = this.opts.extraExcludeGlobs ?? [];
+    const userAllowlist =
+      this.vaultSettingsCache.get(this.opts.vaultId)?.extra_sync_globs ?? [];
+    const filtered = current.filter((f) =>
+      pathAccepts(f.path, { userExcludes, userAllowlist })
+    );
     const currentPaths = new Set(filtered.map((f) => f.path));
     const deletedFromIndex = Object.keys(index.files).filter((p) => !currentPaths.has(p));
     return {
       pending: pendingFiles(index, filtered),
-      deleted: deletedFromIndex.filter((p) => !isExcluded(p, globs)),
+      deleted: deletedFromIndex.filter((p) =>
+        pathAccepts(p, { userExcludes, userAllowlist })
+      ),
       index
     };
+  }
+
+  private pathAccepted(path: string): boolean {
+    const userExcludes = this.opts.extraExcludeGlobs ?? [];
+    const userAllowlist =
+      this.vaultSettingsCache.get(this.opts.vaultId)?.extra_sync_globs ?? [];
+    return pathAccepts(path, { userExcludes, userAllowlist });
   }
 
   private async syncInner(): Promise<void> {
     this.opts.setStatus("syncing");
     try {
+      await this.refreshVaultSettings();
       await this.pullIfChanged();
       await this.pushPendingWithHeadMismatchRetry();
       this.opts.setStatus("connected");
@@ -192,6 +208,33 @@ export class SyncEngine {
       }
       throw error;
     }
+  }
+
+  private async refreshVaultSettings(): Promise<void> {
+    const reader = this.vaultSettingsReader();
+    if (!reader) return;
+    try {
+      const settings = await reader(this.opts.vaultId);
+      this.vaultSettingsCache.set(this.opts.vaultId, {
+        extra_sync_globs: Array.isArray(settings.extra_sync_globs)
+          ? settings.extra_sync_globs.filter((glob) => typeof glob === "string")
+          : []
+      });
+    } catch (error) {
+      console.warn("[pkv-sync] failed to refresh vault settings; using cached settings:", error);
+    }
+  }
+
+  private vaultSettingsReader():
+    | ((vaultId: string) => Promise<VaultSettings>)
+    | null {
+    const api = this.opts.api as unknown as {
+      getVaultSettings?: (vaultId: string) => Promise<VaultSettings>;
+      api?: { getVaultSettings?: (vaultId: string) => Promise<VaultSettings> };
+    };
+    if (api.getVaultSettings) return api.getVaultSettings.bind(api);
+    if (api.api?.getVaultSettings) return api.api.getVaultSettings.bind(api.api);
+    return null;
   }
 
   private async pullIfChanged(): Promise<void> {
@@ -288,7 +331,7 @@ export class SyncEngine {
 
     try {
       for (const file of [...pull.added, ...pull.modified]) {
-        if (!shouldSyncPath(file.path)) continue;
+        if (!shouldSyncPath(file.path) || !this.pathAccepted(file.path)) continue;
         const local = currentByPath.get(file.path);
         const indexed = index.files[file.path];
         if (isLocalDeleted(local, indexed?.lastSyncedHash)) {
@@ -342,7 +385,7 @@ export class SyncEngine {
       }
 
       for (const path of pull.deleted) {
-        if (!shouldSyncPath(path)) continue;
+        if (!shouldSyncPath(path) || !this.pathAccepted(path)) continue;
         const local = currentByPath.get(path);
         const indexed = index.files[path];
         if (isLocalDirty(local, indexed?.lastSyncedHash)) {
@@ -357,7 +400,11 @@ export class SyncEngine {
     }
 
     index = markSynced(index, pull.to, touched);
-    index = markDeleted(index, pull.to, pull.deleted.filter(shouldSyncPath));
+    index = markDeleted(
+      index,
+      pull.to,
+      pull.deleted.filter((path) => shouldSyncPath(path) && this.pathAccepted(path))
+    );
     await this.opts.index.saveIndex(index);
   }
 

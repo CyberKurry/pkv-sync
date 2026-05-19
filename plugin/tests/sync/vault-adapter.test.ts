@@ -17,7 +17,7 @@ function tfolder(path: string): TFolder {
 class FakeVault {
   files = [
     tfile("note.md"),
-    tfile(".obsidian/workspace.json"),
+    tfile(".obsidian/themes/custom.css"),
     tfile(".trash/deleted.md")
   ];
   folders = new Map<string, TFolder>();
@@ -60,18 +60,15 @@ class FakeVault {
 }
 
 describe("ObsidianVaultAdapter", () => {
-  it("scans syncable text files and skips Obsidian/trash internals", async () => {
+  it("scans safe dot paths so sync policy can apply the allowlist", async () => {
     const adapter = new ObsidianVaultAdapter(new FakeVault() as any);
 
-    const snapshots = await adapter.scan(new Set(["md"]));
+    const snapshots = await adapter.scan(new Set(["md", "css"]));
 
-    expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]).toMatchObject({
-      path: "note.md",
-      kind: "text",
-      content: "hello",
-      size: 5
-    });
+    expect(snapshots.map((snapshot) => snapshot.path)).toEqual([
+      "note.md",
+      ".obsidian/themes/custom.css"
+    ]);
   });
 
   it("creates parent folders before writing a missing nested text file", async () => {
@@ -110,8 +107,8 @@ describe("ObsidianVaultAdapter", () => {
 });
 
 describe("shouldSyncPath", () => {
-  it("excludes .obsidian paths", () => {
-    expect(shouldSyncPath(".obsidian/workspace.json")).toBe(false);
+  it("allows .obsidian paths for the higher-level allowlist policy", () => {
+    expect(shouldSyncPath(".obsidian/themes/custom.css")).toBe(true);
   });
 
   it("excludes .trash paths", () => {

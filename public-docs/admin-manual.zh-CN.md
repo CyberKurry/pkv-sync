@@ -44,7 +44,7 @@ https://sync.example.com/admin/login
 - 用户列表，支持搜索和状态筛选
 - 用户详情页：重置密码、启用/禁用、管理员权限控制和 token 查看
 - 全局设备 token 页面，可列出、创建和撤销 token
-- 笔记库卡片：所有者、文件数、大小、上次同步、元数据修复和删除操作
+- 笔记库卡片：所有者、文件数、大小、上次同步、元数据修复、删除操作和按笔记库同步设置
 - 只读笔记库文件浏览器，支持文件预览、单文件历史时间线和 unified diff 渲染
 - 邀请码创建，可选过期时间，活跃邀请码列表，以及删除未使用邀请码
 - 运行时设置，分为 General、Security、Sync & Storage、Network
@@ -98,6 +98,12 @@ pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 Blob 文件是内容寻址的，可能会保留到垃圾回收确认其超过宽限期且不再被引用。
 
 如果中断操作后文件数、大小或 blob 引用看起来不正确，可以使用笔记库元数据修复。
+
+### 按笔记库同步设置
+
+在 **Vaults** 页面点击某个笔记库卡片上的 **Settings**，可以编辑该笔记库的 `extra_sync_globs` allowlist。它控制哪些隐藏路径，包括选定的 `.obsidian` 配置文件，可以参与同步。
+
+新笔记库会自动获得推荐起步 allowlist。已有笔记库保持空配置，直到管理员或笔记库所有者应用起步清单。**Apply starter allowlist** 会写入推荐清单，包括主题、CSS snippets、快捷键、应用偏好、外观偏好和已启用插件列表。
 
 ### 只读文件历史
 

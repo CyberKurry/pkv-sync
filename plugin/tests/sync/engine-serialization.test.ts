@@ -28,6 +28,12 @@ function deferred() {
   return { promise, resolve };
 }
 
+async function flushMicrotasks(times = 5): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await Promise.resolve();
+  }
+}
+
 describe("SyncEngine serialization", () => {
   it("coalesces concurrent syncNow calls into one sync pass", async () => {
     const gate = deferred();
@@ -54,7 +60,7 @@ describe("SyncEngine serialization", () => {
 
     const first = engine.syncNow();
     const second = engine.syncNow();
-    await Promise.resolve();
+    await flushMicrotasks();
 
     expect(api.state).toHaveBeenCalledTimes(1);
     gate.resolve();

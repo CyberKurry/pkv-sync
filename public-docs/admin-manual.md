@@ -47,7 +47,7 @@ The web panel includes:
 - User detail pages for password reset, active/admin controls, and token review
 - Global device token page for listing, creating, and revoking tokens
 - Vault cards with owner, file count, size, last sync, reconcile, and delete
-  actions
+  actions, plus per-vault sync settings
 - Read-only vault file browser with file previews, per-file history timelines,
   and unified diff rendering
 - Invite creation with optional expiration, active invite listing, and deletion
@@ -112,6 +112,18 @@ they are unreferenced beyond the grace period.
 
 Use vault metadata reconciliation if file counts, sizes, or blob references
 look wrong after an interrupted operation.
+
+### Per-Vault Sync Settings
+
+From **Vaults**, open **Settings** on a vault card to edit the per-vault
+`extra_sync_globs` allowlist. This controls which hidden paths, including
+selected `.obsidian` configuration files, are allowed to sync.
+
+New vaults receive the recommended starter allowlist automatically. Existing
+vaults stay empty until an admin or the vault owner applies the starter list.
+The **Apply starter allowlist** action writes the exact recommended list for
+themes, CSS snippets, hotkeys, app preferences, appearance preferences, and
+enabled plugin lists.
 
 ### Read-Only File History
 

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { Platform } from "obsidian";
 import { PKVSyncSettingTab } from "../../src/ui/settings-tab";
 import { DeleteVaultModal } from "../../src/ui/delete-vault-modal";
+import { en } from "../../src/i18n/en";
+import { zh } from "../../src/i18n/zh";
 import { notices } from "../mocks/obsidian";
 
 function mockVault(overrides: Record<string, unknown> = {}) {
@@ -198,6 +200,83 @@ describe("delete vault", () => {
   });
 });
 
+describe("vault sync allowlist settings", () => {
+  function buildAllowlistTab() {
+    const getVaultSettings = vi.fn().mockResolvedValue({
+      extra_sync_globs: [".obsidian/themes/**"]
+    });
+    const putVaultSettings = vi.fn().mockResolvedValue(undefined);
+    const plugin = {
+      settings: {
+        selectedVaultId: "vault-1",
+        selectedVaultName: "Test Vault"
+      },
+      api: () => ({ getVaultSettings, putVaultSettings }),
+      text: () => ({
+        vaultSyncAllowlist: "Dotfile sync allowlist",
+        vaultSyncAllowlistHint: "One glob per line.",
+        vaultSyncAllowlistPlaceholder: ".obsidian/themes/**",
+        vaultSyncAllowlistStarterButton: "Apply recommended starter list",
+        vaultSyncAllowlistSaveButton: "Save",
+        vaultSyncAllowlistSaved: "Saved dotfile sync allowlist",
+        vaultSyncAllowlistLoadFailed: "Failed to load dotfile sync allowlist",
+        vaultSyncAllowlistSaveFailed: "Failed to save dotfile sync allowlist"
+      })
+    };
+    const tab = Object.create(PKVSyncSettingTab.prototype) as {
+      plugin: typeof plugin;
+      renderVaultSyncAllowlist: (body: MockElement) => Promise<void>;
+    };
+    tab.plugin = plugin;
+    return { tab, getVaultSettings, putVaultSettings };
+  }
+
+  it("loads vault settings into a textarea, applies the starter list, and saves globs", async () => {
+    const { tab, getVaultSettings, putVaultSettings } = buildAllowlistTab();
+    const body = new MockElement("div");
+    notices.length = 0;
+
+    await tab.renderVaultSyncAllowlist(body);
+
+    const textarea = body.find("textarea");
+    expect(getVaultSettings).toHaveBeenCalledWith("vault-1");
+    expect(textarea?.value).toBe(".obsidian/themes/**");
+
+    body.clickButton("Apply recommended starter list");
+    expect(textarea?.value).toBe(
+      [".obsidian/themes/**", ".obsidian/snippets/**"].join("\n")
+    );
+
+    await body.clickButton("Save");
+
+    expect(putVaultSettings).toHaveBeenCalledWith("vault-1", {
+      extra_sync_globs: [".obsidian/themes/**", ".obsidian/snippets/**"]
+    });
+    expect(notices.at(-1)).toBe("Saved dotfile sync allowlist");
+  });
+
+  it("has localized strings for the allowlist editor", () => {
+    const keys = [
+      "vaultSyncAllowlist",
+      "vaultSyncAllowlistHint",
+      "vaultSyncAllowlistPlaceholder",
+      "vaultSyncAllowlistStarterButton",
+      "vaultSyncAllowlistSaveButton",
+      "vaultSyncAllowlistSaved",
+      "vaultSyncAllowlistLoadFailed",
+      "vaultSyncAllowlistSaveFailed"
+    ] as const;
+
+    for (const key of keys) {
+      expect(en[key]).toEqual(expect.any(String));
+      expect(en[key].length).toBeGreaterThan(0);
+      expect(zh[key]).toEqual(expect.any(String));
+      expect(zh[key].length).toBeGreaterThan(0);
+    }
+    expect(zh.vaultSyncAllowlistHint).toContain("。");
+  });
+});
+
 function mockElement(): any {
   return {
     empty: vi.fn(),
@@ -210,4 +289,90 @@ function mockElement(): any {
     setText: vi.fn(),
     addEventListener: vi.fn()
   };
+}
+
+class MockElement {
+  children: MockElement[] = [];
+  listeners = new Map<string, Array<() => void | Promise<void>>>();
+  value = "";
+  disabled = false;
+  text = "";
+  cls = "";
+
+  constructor(public tag: string) {}
+
+  empty(): void {
+    this.children = [];
+  }
+
+  addClass(): void {}
+
+  removeClass(): void {}
+
+  toggleClass(): void {}
+
+  createDiv(options: { cls?: string; text?: string } = {}): MockElement {
+    return this.createChild("div", options);
+  }
+
+  createEl(
+    tag: string,
+    options: { cls?: string; text?: string; attr?: Record<string, string> } = {}
+  ): MockElement {
+    const child = this.createChild(tag, options);
+    if (options.attr?.placeholder) child.value = "";
+    return child;
+  }
+
+  createSpan(options: { text?: string; cls?: string } = {}): MockElement {
+    return this.createChild("span", options);
+  }
+
+  setText(text: string): void {
+    this.text = text;
+  }
+
+  addEventListener(event: string, callback: () => void | Promise<void>): void {
+    const list = this.listeners.get(event) ?? [];
+    list.push(callback);
+    this.listeners.set(event, list);
+  }
+
+  find(tag: string): MockElement | undefined {
+    if (this.tag === tag) return this;
+    for (const child of this.children) {
+      const found = child.find(tag);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  async clickButton(text: string): Promise<void> {
+    const button = this.findButton(text);
+    if (!button) throw new Error(`Button not found: ${text}`);
+    for (const listener of button.listeners.get("click") ?? []) {
+      await listener();
+    }
+    await Promise.resolve();
+  }
+
+  private findButton(text: string): MockElement | undefined {
+    if (this.tag === "button" && this.text === text) return this;
+    for (const child of this.children) {
+      const found = child.findButton(text);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  private createChild(
+    tag: string,
+    options: { cls?: string; text?: string } = {}
+  ): MockElement {
+    const child = new MockElement(tag);
+    child.cls = options.cls ?? "";
+    child.text = options.text ?? "";
+    this.children.push(child);
+    return child;
+  }
 }
