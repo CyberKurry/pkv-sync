@@ -1,22 +1,67 @@
 .pkv-sync-settings-host {
-  --pkv-bg-page: #F4F4F4;
-  --pkv-bg-panel: #1E1E21;
-  --pkv-bg-control: #161619;
-  --pkv-bg-soft: #2D2D33;
-  --pkv-border: #2D2D33;
-  --pkv-primary: #22C55E;
-  --pkv-blue: #3A77F9;
-  --pkv-text: #E0E0E0;
-  --pkv-text-strong: #ECECEC;
-  --pkv-muted: #8B8B8B;
-  --pkv-faint: #6B6B6B;
-  --pkv-disabled: #59595E;
+  --pkv-bg-page: var(--background-secondary, #f6f8fc);
+  --pkv-bg-panel: var(--background-primary, #ffffff);
+  --pkv-bg-control: var(--background-secondary, rgba(15, 23, 42, 0.045));
+  --pkv-bg-soft: var(--background-modifier-border, rgba(15, 23, 42, 0.075));
+  --pkv-border: var(--background-modifier-border, rgba(15, 23, 42, 0.14));
+  --pkv-border-subtle: var(--background-modifier-border, rgba(15, 23, 42, 0.09));
+  --pkv-primary: #33bf7f;
+  --pkv-blue: #547fff;
+  --pkv-text: var(--text-normal, #121826);
+  --pkv-text-strong: var(--text-normal, #121826);
+  --pkv-label: var(--text-normal, #334155);
+  --pkv-muted: var(--text-muted, #64748b);
+  --pkv-faint: var(--text-faint, #8792a2);
+  --pkv-disabled: var(--text-faint, #8792a2);
+  --pkv-placeholder: var(--text-faint, #8792a2);
+  --pkv-text-muted: var(--text-muted, #64748b);
   --pkv-mobile-chrome-offset: 96px;
   --pkv-mobile-top-offset: 0px;
+  color-scheme: light dark;
   min-height: 100%;
   box-sizing: border-box;
   padding: 0 !important;
-  background: var(--pkv-bg-panel);
+  background: var(--pkv-bg-page);
+}
+
+body.theme-light .pkv-sync-settings-host {
+  --pkv-bg-page: #f6f8fc;
+  --pkv-bg-panel: #ffffff;
+  --pkv-bg-control: rgba(15, 23, 42, 0.045);
+  --pkv-bg-soft: rgba(15, 23, 42, 0.075);
+  --pkv-border: rgba(15, 23, 42, 0.14);
+  --pkv-border-subtle: rgba(15, 23, 42, 0.09);
+  --pkv-primary: #166534;
+  --pkv-blue: #547fff;
+  --pkv-text: #334155;
+  --pkv-text-strong: #121826;
+  --pkv-label: #334155;
+  --pkv-muted: #64748b;
+  --pkv-faint: #8792a2;
+  --pkv-disabled: #8792a2;
+  --pkv-placeholder: #8792a2;
+  --pkv-text-muted: #64748b;
+  color-scheme: light;
+}
+
+body.theme-dark .pkv-sync-settings-host {
+  --pkv-bg-page: #0f111c;
+  --pkv-bg-panel: #161928;
+  --pkv-bg-control: rgba(255, 255, 255, 0.055);
+  --pkv-bg-soft: rgba(255, 255, 255, 0.08);
+  --pkv-border: rgba(200, 203, 208, 0.17);
+  --pkv-border-subtle: rgba(200, 203, 208, 0.11);
+  --pkv-primary: #54d18c;
+  --pkv-blue: #8b9cf7;
+  --pkv-text: #c8cbd0;
+  --pkv-text-strong: #ffffff;
+  --pkv-label: #c8cbd0;
+  --pkv-muted: #8a8f9e;
+  --pkv-faint: #6b7280;
+  --pkv-disabled: #6b7280;
+  --pkv-placeholder: #6b7280;
+  --pkv-text-muted: #8a8f9e;
+  color-scheme: dark;
 }
 
 .pkv-sync-settings-host.is-phone {
@@ -172,7 +217,7 @@
 .pkv-sync-label {
   display: block;
   margin-bottom: 8px;
-  color: #CDCDCD;
+  color: var(--pkv-label);
   font-size: 14px;
   font-weight: 500;
   line-height: 1.2;
@@ -196,7 +241,7 @@
 }
 
 .pkv-sync-input::placeholder {
-  color: #5A5A5A;
+  color: var(--pkv-placeholder);
   opacity: 1;
 }
 
@@ -413,7 +458,7 @@
 }
 
 .pkv-sync-vault-row.is-active {
-  border-color: #21C45E;
+  border-color: var(--pkv-primary);
 }
 
 .pkv-sync-vault-dot {

@@ -80,6 +80,7 @@ export const en = {
   showVaultHistoryCommand: "Show vault history",
   fileHistoryMenu: "PKV Sync: File history",
   diffWithPreviousMenu: "PKV Sync: Diff with previous",
+  resolveConflictMenu: "PKV Sync: Resolve conflict",
   historyTitle: "File history",
   historyEmpty: "No history for this file yet.",
   historyRetry: "Retry",

@@ -79,6 +79,7 @@ export const zh = {
   showVaultHistoryCommand: "查看仓库历史",
   fileHistoryMenu: "PKV Sync：文件历史",
   diffWithPreviousMenu: "PKV Sync：与上一版对比",
+  resolveConflictMenu: "PKV Sync：解决冲突",
   historyTitle: "文件历史",
   historyEmpty: "这个文件还没有历史记录。",
   historyRetry: "重试",

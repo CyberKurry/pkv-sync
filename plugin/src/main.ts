@@ -20,6 +20,8 @@ import { Debouncer } from "./sync/debounce";
 import { SyncEngine } from "./sync/engine";
 import {
   deleteConflictFiles,
+  findConflictPairsForPath,
+  type ConflictPair,
   listConflictFiles
 } from "./sync/conflict-files";
 import type { LocalIndex } from "./sync/types";
@@ -31,7 +33,9 @@ import { HistoryModal, shortCommit } from "./ui/history-modal";
 import { RestoreConfirmModal } from "./ui/restore-confirm";
 import { PKVSyncSettingTab } from "./ui/settings-tab";
 import { SyncStatusModal } from "./ui/sync-modal";
+import { addConflictResolveMenuItem } from "./ui/conflict-menu";
 import { ConflictsListModal } from "./ui/conflicts-list-modal";
+import { ConflictResolveModal } from "./ui/conflict-resolve-modal";
 import { statusText } from "./ui/status";
 import { formatRelativeUnixSeconds, formatUnixSeconds } from "./time";
 import { SerializedPluginDataStore } from "./plugin-store";
@@ -147,12 +151,7 @@ export default class PKVSyncPlugin extends Plugin {
     this.addCommand({
       id: "pkv-sync-resolve-conflicts",
       name: t.resolveConflictsCommand,
-      callback: () => {
-        const openList = (): void => {
-          new ConflictsListModal(this.app, this.text(), openList).open();
-        };
-        openList();
-      }
+      callback: () => this.openConflictsList()
     });
     this.addCommand({
       id: "pkv-sync-show-file-history",
@@ -427,8 +426,15 @@ export default class PKVSyncPlugin extends Plugin {
   private registerHistoryFileMenu(): void {
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
-        if (!this.historyEnabled() || !(file instanceof TFile)) return;
         const t = this.text();
+        addConflictResolveMenuItem(
+          menu,
+          file,
+          this.app.vault,
+          t,
+          (selectedFile) => this.openConflictResolutionFor(selectedFile)
+        );
+        if (!this.historyEnabled() || !(file instanceof TFile)) return;
         menu.addItem((item) => {
           item
             .setTitle(t.fileHistoryMenu)
@@ -444,6 +450,40 @@ export default class PKVSyncPlugin extends Plugin {
         });
       })
     );
+  }
+
+  private openConflictsList(
+    pairsProvider?: () => ConflictPair[]
+  ): void {
+    const openList = (): void => {
+      new ConflictsListModal(
+        this.app,
+        this.text(),
+        openList,
+        pairsProvider
+      ).open();
+    };
+    openList();
+  }
+
+  private openConflictResolutionFor(file: TFile): void {
+    const pairsProvider = (): ConflictPair[] =>
+      findConflictPairsForPath(this.app.vault, file.path);
+    const pairs = pairsProvider();
+    if (pairs.length === 0) {
+      new Notice(this.text().conflictsListEmpty);
+      return;
+    }
+    if (pairs.length === 1) {
+      new ConflictResolveModal(
+        this.app,
+        pairs[0],
+        this.text(),
+        () => undefined
+      ).open();
+      return;
+    }
+    this.openConflictsList(pairsProvider);
   }
 
   private historyEnabled(): boolean {

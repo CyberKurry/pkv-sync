@@ -7,6 +7,18 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-05-19
+
+### Added
+
+- Conflict resolution is now available from the Obsidian file context menu
+  for both the original file and its generated `.conflict-*` file.
+
+### Changed
+
+- Obsidian plugin settings now follow Obsidian light and dark themes with
+  palettes aligned to the Admin WebUI.
+
 ## [0.3.7] - 2026-05-19
 
 ### Fixed

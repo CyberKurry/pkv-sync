@@ -12,13 +12,16 @@ export class ConflictsListModal extends Modal {
   constructor(
     app: App,
     private labels: Strings,
-    private onResolved: () => void
+    private onResolved: () => void,
+    private pairsProvider?: () => ConflictPair[]
   ) {
     super(app);
   }
 
   onOpen(): void {
-    this.pairs = pairConflicts(this.app.vault);
+    this.pairs = this.pairsProvider
+      ? this.pairsProvider()
+      : pairConflicts(this.app.vault);
     this.contentEl.empty();
     this.contentEl.addClass("pkvsync-conflicts-list-modal");
     this.contentEl.createEl("h2", { text: this.labels.conflictsListTitle });

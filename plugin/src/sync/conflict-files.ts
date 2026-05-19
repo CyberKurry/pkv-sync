@@ -54,3 +54,12 @@ export function pairConflicts(
     })
     .filter((x): x is ConflictPair => x !== null);
 }
+
+export function findConflictPairsForPath(
+  vault: Pick<ConflictFileVault, "getFiles">,
+  path: string
+): ConflictPair[] {
+  return pairConflicts(vault).filter(
+    (pair) => pair.originalPath === path || pair.conflictPath === path
+  );
+}

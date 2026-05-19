@@ -2,6 +2,7 @@ import { TFile } from "obsidian";
 import { describe, expect, it } from "vitest";
 import {
   deleteConflictFiles,
+  findConflictPairsForPath,
   isConflictPath,
   listConflictFiles,
   originalPathFor,
@@ -123,5 +124,30 @@ describe("pairConflicts", () => {
     ]);
     const pairs = pairConflicts(vault);
     expect(pairs).toHaveLength(0);
+  });
+});
+
+describe("findConflictPairsForPath", () => {
+  it("finds conflicts from either the original file or the generated conflict file", () => {
+    const conflict = "folder/note.conflict-2026-05-16-143000-phone.md";
+    const vault = new FakeVault([
+      tfile("folder/note.md"),
+      tfile(conflict),
+      tfile("other.md")
+    ]);
+
+    expect(findConflictPairsForPath(vault, "folder/note.md")).toMatchObject([
+      {
+        originalPath: "folder/note.md",
+        conflictPath: conflict
+      }
+    ]);
+    expect(findConflictPairsForPath(vault, conflict)).toMatchObject([
+      {
+        originalPath: "folder/note.md",
+        conflictPath: conflict
+      }
+    ]);
+    expect(findConflictPairsForPath(vault, "other.md")).toEqual([]);
   });
 });
