@@ -5,6 +5,8 @@
   --pkv-bg-soft: var(--background-modifier-border, rgba(15, 23, 42, 0.075));
   --pkv-border: var(--background-modifier-border, rgba(15, 23, 42, 0.14));
   --pkv-border-subtle: var(--background-modifier-border, rgba(15, 23, 42, 0.09));
+  --pkv-control-height: 40px;
+  --pkv-compact-control-height: 36px;
   --pkv-primary: #33bf7f;
   --pkv-blue: #547fff;
   --pkv-text: var(--text-normal, #121826);
@@ -227,7 +229,7 @@ body.theme-dark .pkv-sync-settings-host {
 .pkv-sync-settings-host input.pkv-sync-input,
 .pkv-sync-settings-host select.pkv-sync-input {
   width: 100%;
-  height: 40px;
+  height: var(--pkv-control-height);
   box-sizing: border-box;
   border: 1px solid var(--pkv-border);
   border-radius: 6px;
@@ -235,7 +237,7 @@ body.theme-dark .pkv-sync-settings-host {
   background-color: var(--pkv-bg-control);
   color: var(--pkv-text);
   font-size: 14px;
-  line-height: 40px;
+  line-height: var(--pkv-control-height);
   padding: 0 12px;
   box-shadow: none;
 }
@@ -282,9 +284,9 @@ body.theme-dark .pkv-sync-settings-host {
 }
 
 .pkv-sync-select-wrap.is-compact .pkv-sync-select {
-  height: 32px;
+  height: var(--pkv-compact-control-height);
   font-size: 12px;
-  line-height: 32px;
+  line-height: var(--pkv-compact-control-height);
   padding-left: 10px;
   padding-right: 20px;
 }
@@ -296,6 +298,10 @@ body.theme-dark .pkv-sync-settings-host {
   margin-top: 24px;
 }
 
+.pkv-sync-allowlist-actions {
+  grid-template-columns: minmax(0, 1fr) minmax(112px, max-content);
+}
+
 .pkv-sync-button,
 .pkv-sync-settings-host button.pkv-sync-button {
   display: inline-flex;
@@ -303,7 +309,7 @@ body.theme-dark .pkv-sync-settings-host {
   justify-content: center;
   gap: 8px;
   min-width: 0;
-  height: 40px;
+  height: var(--pkv-control-height);
   box-sizing: border-box;
   border-radius: 6px;
   border: 1px solid transparent;
@@ -487,7 +493,7 @@ body.theme-dark .pkv-sync-settings-host {
 }
 
 .pkv-sync-vault-row .pkv-sync-button {
-  height: 28px;
+  height: var(--pkv-compact-control-height);
   font-size: 12px;
 }
 
@@ -500,17 +506,55 @@ body.theme-dark .pkv-sync-settings-host {
 .pkv-sync-vault-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-end;
+  justify-self: end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pkv-sync-vault-actions .pkv-sync-button {
+  min-width: 72px;
+  height: var(--pkv-compact-control-height);
+  border-radius: 6px;
+  font-size: 13px;
+  padding: 0 12px;
 }
 
 .pkv-sync-vault-actions .pkv-sync-button.is-ghost {
   border: 1px solid var(--pkv-border-subtle, rgba(120, 120, 128, 0.24));
   color: var(--pkv-text-muted, #888);
-  font-size: 12px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 4px;
   background: transparent;
+}
+
+.pkv-sync-vault-actions .pkv-sync-button.is-primary {
+  border-color: var(--pkv-border-subtle);
+}
+
+.pkv-sync-vault-settings {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 18px;
+}
+
+.pkv-sync-vault-settings .pkv-sync-section-label,
+.pkv-sync-vault-settings .pkv-sync-field {
+  margin-bottom: 0;
+}
+
+.pkv-sync-field-hint {
+  margin-top: 8px;
+  color: var(--pkv-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pkv-sync-vault-settings .pkv-sync-allowlist-actions {
+  margin-top: 4px;
+}
+
+.pkv-sync-allowlist-actions .pkv-sync-button {
+  height: var(--pkv-compact-control-height);
+  font-size: 13px;
 }
 
 .pkv-sync-create-row {
@@ -521,12 +565,12 @@ body.theme-dark .pkv-sync-settings-host {
 }
 
 .pkv-sync-create-row .pkv-sync-input {
-  height: 36px;
-  line-height: 36px;
+  height: var(--pkv-compact-control-height);
+  line-height: var(--pkv-compact-control-height);
 }
 
 .pkv-sync-create-row .pkv-sync-button {
-  height: 36px;
+  height: var(--pkv-compact-control-height);
   font-size: 12px;
   min-width: 112px;
   padding: 0 16px;
@@ -573,6 +617,14 @@ body.theme-dark .pkv-sync-settings-host {
 .pkv-sync-conflict-row .pkv-sync-button {
   flex: 0 0 auto;
   min-width: 120px;
+}
+
+.pkv-sync-vault-settings .pkv-sync-textarea,
+.pkv-sync-textarea {
+  min-height: 76px;
+  line-height: 1.45;
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
 
 .pkv-sync-device-list {
@@ -1084,6 +1136,19 @@ body.theme-dark .pkv-sync-settings-host {
 
   .pkv-sync-create-row {
     grid-template-columns: 1fr;
+  }
+
+  .pkv-sync-vault-row {
+    grid-template-columns: 8px minmax(0, 1fr);
+  }
+
+  .pkv-sync-vault-actions {
+    grid-column: 2 / -1;
+    justify-content: stretch;
+  }
+
+  .pkv-sync-vault-actions .pkv-sync-button {
+    flex: 1 1 auto;
   }
 
   .pkv-sync-conflict-row {

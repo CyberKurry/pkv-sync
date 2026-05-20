@@ -238,6 +238,9 @@ describe("vault sync allowlist settings", () => {
 
     await tab.renderVaultSyncAllowlist(body);
 
+    const actions = body.findByClass("pkv-sync-allowlist-actions");
+    expect(actions?.cls).toContain("pkv-sync-button-row");
+
     const textarea = body.find("textarea");
     expect(getVaultSettings).toHaveBeenCalledWith("vault-1");
     expect(textarea?.value).toBe(".obsidian/themes/**");
@@ -342,6 +345,15 @@ class MockElement {
     if (this.tag === tag) return this;
     for (const child of this.children) {
       const found = child.find(tag);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  findByClass(cls: string): MockElement | undefined {
+    if (this.cls.split(/\s+/).includes(cls)) return this;
+    for (const child of this.children) {
+      const found = child.findByClass(cls);
       if (found) return found;
     }
     return undefined;

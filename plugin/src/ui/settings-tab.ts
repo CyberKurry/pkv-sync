@@ -366,7 +366,9 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       attr: { placeholder: t.vaultSyncAllowlistPlaceholder }
     });
     field.createDiv({ cls: "pkv-sync-field-hint", text: t.vaultSyncAllowlistHint });
-    const actions = section.createDiv({ cls: "pkv-sync-button-row" });
+    const actions = section.createDiv({
+      cls: "pkv-sync-button-row pkv-sync-allowlist-actions"
+    });
 
     this.renderButton(
       actions,
