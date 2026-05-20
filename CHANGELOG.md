@@ -7,6 +7,24 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-20
+
+### Fixed
+
+- Obsidian SSE subscriptions now reconnect automatically with exponential
+  backoff after network changes, restoring realtime sync without restarting
+  Obsidian or saving settings.
+- Obsidian plugin settings layout is less cramped and uses more consistent
+  control sizing.
+- Server blob pushes now require blobs to be uploaded or already referenced by
+  the same vault, preventing cross-vault blob grafting by known hash.
+- Git smart HTTP `upload-pack` responses are streamed instead of buffered in
+  memory.
+- MCP search results are capped server-side, and MCP blob reads now require
+  the blob to be referenced by the requested vault.
+- Materialize rejects malformed blob pointer hashes instead of trusting pointer
+  data.
+
 ## [0.4.0] - 2026-05-19
 
 ### Added
