@@ -67,6 +67,9 @@ export interface SyncEngineOptions {
 export class SyncEngine {
   private running: Promise<void> | null = null;
   private unsubscribeEvents: (() => void) | null = null;
+  private eventReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private eventReconnectAttempt = 0;
+  private eventSubscriptionStopped = true;
   private vaultSettingsCache = new Map<string, VaultSettings>();
   /**
    * Chain head for serialising SSE event handlers. Each incoming event
@@ -99,6 +102,9 @@ export class SyncEngine {
 
   startEventSubscription(): void {
     if (!this.opts.serverUrl || !this.opts.deviceId || !this.opts.deploymentKey || !this.opts.token) return;
+    this.eventSubscriptionStopped = false;
+    this.clearEventReconnectTimer();
+    this.unsubscribeEvents?.();
     this.unsubscribeEvents = subscribeVaultEvents({
       serverUrl: this.opts.serverUrl,
       vaultId: this.opts.vaultId,
@@ -107,6 +113,7 @@ export class SyncEngine {
       ownDeviceId: this.opts.deviceId,
       pluginVersion: this.opts.pluginVersion ?? "0.0.0",
       onEvent: (ev: VaultEvent) => {
+        this.eventReconnectAttempt = 0;
         // Serialise all SSE event handling through eventChain so that two
         // quick-succession events cannot interleave their applyInlineText /
         // applyDelete / advanceIndexHead steps. Without this, event B could
@@ -149,13 +156,34 @@ export class SyncEngine {
       },
       onError: (err: Error) => {
         console.warn("[pkv-sync] SSE subscribe failed, falling back to polling:", err);
+        this.scheduleEventReconnect();
       },
     });
   }
 
   stopEventSubscription(): void {
+    this.eventSubscriptionStopped = true;
+    this.clearEventReconnectTimer();
     this.unsubscribeEvents?.();
     this.unsubscribeEvents = null;
+  }
+
+  private scheduleEventReconnect(): void {
+    if (this.eventSubscriptionStopped || this.eventReconnectTimer !== null) return;
+    this.unsubscribeEvents?.();
+    this.unsubscribeEvents = null;
+    const delayMs = Math.min(30_000, 1_000 * 2 ** this.eventReconnectAttempt);
+    this.eventReconnectAttempt = Math.min(this.eventReconnectAttempt + 1, 5);
+    this.eventReconnectTimer = globalThis.setTimeout(() => {
+      this.eventReconnectTimer = null;
+      this.startEventSubscription();
+    }, delayMs);
+  }
+
+  private clearEventReconnectTimer(): void {
+    if (this.eventReconnectTimer === null) return;
+    globalThis.clearTimeout(this.eventReconnectTimer);
+    this.eventReconnectTimer = null;
   }
 
   async scanPending(): Promise<{

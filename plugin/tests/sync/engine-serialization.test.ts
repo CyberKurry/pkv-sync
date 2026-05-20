@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { SyncEngine, type IndexPersistence } from "../../src/sync/engine";
+import { subscribeVaultEvents, type SubscribeOptions } from "../../src/api/events-client";
+import {
+  SyncEngine,
+  type IndexPersistence,
+  type SyncEngineOptions
+} from "../../src/sync/engine";
 import type { LocalIndex } from "../../src/sync/types";
+
+vi.mock("../../src/api/events-client", () => ({
+  subscribeVaultEvents: vi.fn()
+}));
 
 class FakeIndex implements IndexPersistence {
   constructor(public idx: LocalIndex) {}
@@ -35,6 +44,59 @@ async function flushMicrotasks(times = 5): Promise<void> {
 }
 
 describe("SyncEngine serialization", () => {
+  const subscribeVaultEventsMock = vi.mocked(subscribeVaultEvents);
+
+  function baseEngineOptions(): SyncEngineOptions {
+    return {
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: { scan: vi.fn(async () => []) } as any,
+      api: {
+        state: vi.fn(async () => ({ current_head: null, changed_since: false })),
+        pull: vi.fn(),
+        uploadCheck: vi.fn(),
+        uploadBlob: vi.fn(),
+        push: vi.fn(),
+        downloadBlob: vi.fn(),
+        downloadTextFile: vi.fn()
+      } as any,
+      index: new FakeIndex({ lastSyncedCommit: null, files: {} }),
+      setStatus: vi.fn()
+    };
+  }
+
+  it("reconnects SSE after a subscription error using backoff", async () => {
+    vi.useFakeTimers();
+    subscribeVaultEventsMock.mockReturnValue(vi.fn());
+
+    const engine = new SyncEngine({
+      ...baseEngineOptions(),
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      pluginVersion: "0.4.0"
+    });
+
+    engine.startEventSubscription();
+    expect(subscribeVaultEventsMock).toHaveBeenCalledTimes(1);
+
+    const firstSubscribe = subscribeVaultEventsMock.mock.calls[0]?.[0] as
+      | SubscribeOptions
+      | undefined;
+    firstSubscribe?.onError(new Error("network down"));
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(subscribeVaultEventsMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(subscribeVaultEventsMock).toHaveBeenCalledTimes(2);
+
+    engine.stopEventSubscription();
+    vi.useRealTimers();
+  });
+
   it("coalesces concurrent syncNow calls into one sync pass", async () => {
     const gate = deferred();
     const api = {
@@ -49,13 +111,9 @@ describe("SyncEngine serialization", () => {
       downloadBlob: vi.fn()
     };
     const engine = new SyncEngine({
-      vaultId: "v",
-      deviceName: "d",
-      textExtensions: new Set(["md"]),
+      ...baseEngineOptions(),
       vault: { scan: vi.fn(async () => []) } as any,
-      api: api as any,
-      index: new FakeIndex({ lastSyncedCommit: null, files: {} }),
-      setStatus: vi.fn()
+      api: api as any
     });
 
     const first = engine.syncNow();
