@@ -10,11 +10,13 @@ use crate::auth::token;
 use crate::auth::AuthenticatedUser;
 use crate::db::repos::{TokenRepo, UserRepo};
 use crate::service::{vault, AppState};
-use axum::body::Bytes;
+use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_stream::wrappers::ReceiverStream;
 
 // ---------------------------------------------------------------------------
 // Request query structs
@@ -142,20 +144,15 @@ pub async fn upload_pack(
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .map_err(|e| {
             tracing::error!(error = %e, "failed to spawn git upload-pack");
             ApiError::internal("failed to run git")
         })?;
 
-    // Write request body to stdin
     if let Some(mut stdin) = child.stdin.take() {
-        // Use a spawn to avoid blocking the async runtime on the stdin write
-        let write_result = tokio::spawn(async move {
-            use tokio::io::AsyncWriteExt;
-            stdin.write_all(&body).await
-        })
-        .await;
+        let write_result = tokio::spawn(async move { stdin.write_all(&body).await }).await;
         match write_result {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
@@ -165,27 +162,73 @@ pub async fn upload_pack(
                 tracing::warn!(error = %e, "stdin write task panicked");
             }
         }
-        // stdin is dropped here, which closes the pipe and signals EOF to git
     }
 
-    let output = child.wait_with_output().await.map_err(|e| {
-        tracing::error!(error = %e, "failed to wait for git upload-pack");
-        ApiError::internal("git upload-pack failed")
-    })?;
-
-    if !output.status.success() {
-        tracing::warn!(
-            exit = output.status.code(),
-            stderr = %String::from_utf8_lossy(&output.stderr),
-            "git upload-pack --stateless-rpc failed"
-        );
-        return Err(ApiError::internal("git upload-pack failed"));
-    }
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| ApiError::internal("git upload-pack stdout unavailable"))?;
+    let stderr = child.stderr.take();
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(8);
+    tokio::spawn(async move {
+        let mut stdout = stdout;
+        let stderr_task = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            if let Some(mut stderr) = stderr {
+                let _ = stderr.read_to_end(&mut buf).await;
+            }
+            buf
+        });
+        let mut buf = vec![0_u8; 16 * 1024];
+        let mut should_kill = false;
+        loop {
+            tokio::select! {
+                read = stdout.read(&mut buf) => {
+                    match read {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if tx.send(Ok(Bytes::copy_from_slice(&buf[..n]))).await.is_err() {
+                                should_kill = true;
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Err(err)).await;
+                            should_kill = true;
+                            break;
+                        }
+                    }
+                }
+                _ = tx.closed() => {
+                    should_kill = true;
+                    break;
+                }
+            }
+        }
+        if should_kill {
+            let _ = child.start_kill();
+        }
+        let wait_result = child.wait().await;
+        let stderr = stderr_task.await.unwrap_or_default();
+        match wait_result {
+            Ok(status) if status.success() => {}
+            Ok(status) => {
+                tracing::warn!(
+                    exit = status.code(),
+                    stderr = %String::from_utf8_lossy(&stderr),
+                    "git upload-pack --stateless-rpc failed"
+                );
+            }
+            Err(err) => {
+                tracing::error!(error = %err, "failed to wait for git upload-pack");
+            }
+        }
+    });
 
     Ok((
         StatusCode::OK,
         [("content-type", "application/x-git-upload-pack-result")],
-        output.stdout,
+        Body::from_stream(ReceiverStream::new(rx)),
     )
         .into_response())
 }
@@ -214,7 +257,6 @@ async fn check_enabled(state: &AppState) -> Result<(), ApiError> {
     }
     Ok(())
 }
-
 /// Authenticate a request using the Basic auth header.
 ///
 /// Unlike the `AuthenticatedUser` extractor (which uses Bearer tokens), Git

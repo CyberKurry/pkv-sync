@@ -5,7 +5,7 @@ use pkv_sync_server::service::events::{EventChange, VaultEvent, VaultEventBus};
 use pkv_sync_server::service::sync::{push, PushChange, PushReq};
 use pkv_sync_server::service::vault;
 use pkv_sync_server::service::AppState;
-use pkv_sync_server::storage::blob::{BlobStore, LocalFsBlobStore};
+use pkv_sync_server::storage::blob::LocalFsBlobStore;
 use pkv_sync_server::storage::git::{Git2VaultStore, GitVaultStore};
 use tokio::sync::broadcast;
 
@@ -124,8 +124,9 @@ async fn push_blob_emits_blob_event() {
 
     let data = bytes::Bytes::from_static(b"hello");
     let hash = LocalFsBlobStore::sha256(&data);
-    let store = LocalFsBlobStore::new(state.default_blob_root());
-    store.put_verified(&hash, data).await.unwrap();
+    pkv_sync_server::service::sync::upload_blob(&state, &user.user_id, &vid, &hash, data)
+        .await
+        .unwrap();
 
     push(
         &state,

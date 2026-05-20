@@ -1,4 +1,4 @@
-use crate::db::repos::VaultRepo;
+use crate::db::repos::{BlobRefRepo, VaultRepo};
 use crate::service::vault::ensure_user_vault;
 use crate::service::AppState;
 use crate::storage::blob::{BlobStore, LocalFsBlobStore};
@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 const SEARCH_MAX_TREE_FILES: usize = 5000;
 const DEFAULT_SEARCH_LIMIT: usize = 100;
+const SEARCH_MAX_LIMIT: usize = 500;
 
 #[derive(Debug, Serialize)]
 pub struct ListVaultsOutput {
@@ -152,7 +153,10 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
 
     let classifier = TextClassifier::default();
     let needle = input.query.to_ascii_lowercase();
-    let limit = input.limit.unwrap_or(DEFAULT_SEARCH_LIMIT);
+    let limit = input
+        .limit
+        .unwrap_or(DEFAULT_SEARCH_LIMIT)
+        .min(SEARCH_MAX_LIMIT);
     let mut matches = Vec::new();
 
     for entry in entries {
@@ -250,7 +254,7 @@ pub fn tool_definitions() -> Vec<Tool> {
                     "vault_id": { "type": "string" },
                     "query": { "type": "string" },
                     "at": { "type": ["string", "null"] },
-                    "limit": { "type": ["integer", "null"], "minimum": 1 }
+                    "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": SEARCH_MAX_LIMIT }
                 },
                 "additionalProperties": false
             })),
@@ -271,13 +275,25 @@ async fn read_file_inner(
         .read_file(&vault_id, &path, at.as_deref())
         .await?
         .ok_or_else(|| anyhow!("file not found"))?;
-    render_file(state, path, file).await
+    render_file(state, &vault_id, path, file).await
 }
 
-async fn render_file(state: &AppState, path: String, file: StoredFile) -> Result<ReadFileOutput> {
+async fn render_file(
+    state: &AppState,
+    vault_id: &str,
+    path: String,
+    file: StoredFile,
+) -> Result<ReadFileOutput> {
     match file {
         StoredFile::Text { bytes } => render_bytes(path, bytes, None),
         StoredFile::BlobPointer { hash, mime, .. } => {
+            if !state
+                .blob_refs
+                .is_referenced_by_vault(vault_id, &hash)
+                .await?
+            {
+                bail!("blob not referenced by vault");
+            }
             let blob = LocalFsBlobStore::new(state.default_blob_root());
             let bytes = blob
                 .get(&hash)
@@ -348,4 +364,131 @@ async fn ensure_owned_vault(state: &AppState, user_id: &str, vault_id: &str) -> 
         .await
         .map(|_| ())
         .map_err(|e| anyhow!(e.message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::password;
+    use crate::db::pool;
+    use crate::db::repos::{BlobRefRepo, NewUser, UserRepo};
+    use crate::service::vault;
+    use crate::storage::blob::{BlobStore, LocalFsBlobStore};
+    use crate::storage::git::{FileChange, GitVaultStore};
+    use bytes::Bytes;
+
+    async fn state_user_vault() -> (AppState, String, String, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let state = AppState::new(p, tmp.path().to_path_buf(), "t".into(), true)
+            .await
+            .unwrap();
+        let user = state
+            .users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: password::hash("passw0rd!!").unwrap(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let vault = vault::create_vault(&state, &user.id, "main").await.unwrap();
+        (state, user.id, vault.id, tmp)
+    }
+
+    #[tokio::test]
+    async fn search_caps_requested_limit() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let content = (0..600)
+            .map(|i| format!("needle line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        git.commit_changes(
+            &vault_id,
+            None,
+            &[FileChange::Upsert {
+                path: "notes.md".into(),
+                file: StoredFile::Text {
+                    bytes: content.into_bytes(),
+                },
+            }],
+            "seed",
+        )
+        .await
+        .unwrap();
+
+        let result = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id,
+                query: "needle".into(),
+                at: None,
+                limit: Some(10_000),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.matches.len(), SEARCH_MAX_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn read_file_blob_requires_blob_ref_for_vault() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let data = Bytes::from_static(b"hello");
+        let hash = LocalFsBlobStore::sha256(&data);
+        let blob = LocalFsBlobStore::new(state.default_blob_root());
+        blob.put_verified(&hash, data.clone()).await.unwrap();
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let commit = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[FileChange::Upsert {
+                    path: "img.png".into(),
+                    file: StoredFile::BlobPointer {
+                        hash: hash.clone(),
+                        size: 5,
+                        mime: Some("image/png".into()),
+                    },
+                }],
+                "seed",
+            )
+            .await
+            .unwrap();
+
+        let err = read_file(
+            &state,
+            &user_id,
+            ReadFileInput {
+                vault_id: vault_id.clone(),
+                path: "img.png".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("blob not referenced by vault"));
+
+        state
+            .blob_refs
+            .add_refs(&vault_id, &commit, std::slice::from_ref(&hash))
+            .await
+            .unwrap();
+        let output = read_file(
+            &state,
+            &user_id,
+            ReadFileInput {
+                vault_id,
+                path: "img.png".into(),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(output.is_binary);
+        assert_eq!(output.encoding.as_deref(), Some("base64"));
+    }
 }

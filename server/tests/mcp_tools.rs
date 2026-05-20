@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use pkv_sync_server::db::repos::{NewUser, UserRepo, VaultRepo};
+use pkv_sync_server::db::repos::{BlobRefRepo, NewUser, UserRepo, VaultRepo};
 use pkv_sync_server::mcp::tools::{
     list_files, read_file, search, ListFilesInput, ReadFileInput, SearchInput,
 };
@@ -78,29 +78,35 @@ async fn read_file_returns_text_and_expands_text_blob_pointer() {
     blob.put_verified(&blob_hash, blob_bytes).await.unwrap();
 
     let git = Git2VaultStore::new(state.default_vault_root());
-    git.commit_changes(
-        &vault.id,
-        None,
-        &[
-            FileChange::Upsert {
-                path: "plain.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"hello utf8".to_vec(),
+    let commit = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "plain.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"hello utf8".to_vec(),
+                    },
                 },
-            },
-            FileChange::Upsert {
-                path: "blob.txt".into(),
-                file: StoredFile::BlobPointer {
-                    hash: blob_hash,
-                    size: 18,
-                    mime: Some("text/plain".into()),
+                FileChange::Upsert {
+                    path: "blob.txt".into(),
+                    file: StoredFile::BlobPointer {
+                        hash: blob_hash.clone(),
+                        size: 18,
+                        mime: Some("text/plain".into()),
+                    },
                 },
-            },
-        ],
-        "seed",
-    )
-    .await
-    .unwrap();
+            ],
+            "seed",
+        )
+        .await
+        .unwrap();
+    state
+        .blob_refs
+        .add_refs(&vault.id, &commit, std::slice::from_ref(&blob_hash))
+        .await
+        .unwrap();
 
     let plain = read_file(
         &state,

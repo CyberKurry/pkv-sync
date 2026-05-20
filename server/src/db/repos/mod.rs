@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod blob_ref;
+pub mod blob_upload;
 pub mod idempotency;
 pub mod invite;
 pub mod runtime_config;
@@ -10,6 +11,7 @@ pub mod vault_settings;
 
 pub use activity::{NewActivity, SqliteSyncActivityRepo, SyncActivityRepo};
 pub use blob_ref::{BlobRefRepo, SqliteBlobRefRepo};
+pub use blob_upload::{BlobUploadRepo, SqliteBlobUploadRepo};
 pub use idempotency::{IdempotencyRepo, SqliteIdempotencyRepo};
 pub use invite::{Invite, InviteRepo, SqliteInviteRepo};
 pub use runtime_config::{

@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::config::Config;
+use crate::storage::blob::is_sha256_hex;
 
 /// Magic key used in pointer JSON to identify a blob reference.
 const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
@@ -88,8 +89,8 @@ fn walk_tree(
                 if let Some(parent) = out_path.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                if let Some(hash) = parse_pointer(content) {
-                    let blob_path = sharded_blob_path(blobs_dir, &hash);
+                if let Some(hash) = parse_pointer(content)? {
+                    let blob_path = sharded_blob_path(blobs_dir, &hash)?;
                     if !blob_path.exists() {
                         anyhow::bail!("blob file missing: {} (for {})", hash, entry_rel.display());
                     }
@@ -108,20 +109,31 @@ fn walk_tree(
 ///
 /// Matches the layout used by `LocalFsBlobStore::path_for`:
 /// `blobs/<hash[0..2]>/<hash[2..4]>/<hash>`.
-fn sharded_blob_path(blobs_dir: &Path, hash: &str) -> PathBuf {
-    blobs_dir.join(&hash[0..2]).join(&hash[2..4]).join(hash)
+fn sharded_blob_path(blobs_dir: &Path, hash: &str) -> anyhow::Result<PathBuf> {
+    if !is_sha256_hex(hash) {
+        anyhow::bail!("invalid blob hash: {hash}");
+    }
+    Ok(blobs_dir.join(&hash[0..2]).join(&hash[2..4]).join(hash))
 }
 
 /// Parse a `pkvsync_pointer` JSON blob and extract the SHA-256 hash.
 ///
 /// Returns `Some(hash)` if the content is a valid pointer with version 1,
 /// `None` otherwise (including non-JSON content, which is treated as text).
-fn parse_pointer(content: &[u8]) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_slice(content).ok()?;
-    if v.get(POINTER_MAGIC_KEY)?.as_u64()? != POINTER_VERSION {
-        return None;
+fn parse_pointer(content: &[u8]) -> anyhow::Result<Option<String>> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(content) else {
+        return Ok(None);
+    };
+    if v.get(POINTER_MAGIC_KEY).and_then(|value| value.as_u64()) != Some(POINTER_VERSION) {
+        return Ok(None);
     }
-    v.get("blob")?.as_str().map(|s| s.to_string())
+    let Some(hash) = v.get("blob").and_then(|value| value.as_str()) else {
+        return Ok(None);
+    };
+    if !is_sha256_hex(hash) {
+        anyhow::bail!("invalid blob pointer hash: {hash}");
+    }
+    Ok(Some(hash.to_string()))
 }
 
 #[cfg(test)]
@@ -138,7 +150,7 @@ mod tests {
         })
         .to_string()
         .into_bytes();
-        let hash = parse_pointer(&json).unwrap();
+        let hash = parse_pointer(&json).unwrap().unwrap();
         assert_eq!(hash, "a".repeat(64));
     }
 
@@ -151,7 +163,7 @@ mod tests {
         })
         .to_string()
         .into_bytes();
-        assert!(parse_pointer(&json).is_none());
+        assert!(parse_pointer(&json).unwrap().is_none());
     }
 
     #[test]
@@ -162,7 +174,7 @@ mod tests {
         })
         .to_string()
         .into_bytes();
-        assert!(parse_pointer(&json).is_none());
+        assert!(parse_pointer(&json).unwrap().is_none());
     }
 
     #[test]
@@ -173,22 +185,41 @@ mod tests {
         })
         .to_string()
         .into_bytes();
-        assert!(parse_pointer(&json).is_none());
+        assert!(parse_pointer(&json).unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_pointer_invalid_hash_returns_error() {
+        let json = serde_json::json!({
+            "pkvsync_pointer": 1,
+            "blob": "abc",
+            "size": 42
+        })
+        .to_string()
+        .into_bytes();
+        let err = parse_pointer(&json).unwrap_err();
+        assert!(err.to_string().contains("invalid blob pointer hash"));
     }
 
     #[test]
     fn parse_pointer_non_json_returns_none() {
-        assert!(parse_pointer(b"hello world").is_none());
+        assert!(parse_pointer(b"hello world").unwrap().is_none());
     }
 
     #[test]
     fn sharded_blob_path_matches_layout() {
         let blobs_dir = Path::new("/data/blobs");
         let hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-        let path = sharded_blob_path(blobs_dir, hash);
+        let path = sharded_blob_path(blobs_dir, hash).unwrap();
         assert_eq!(
             path,
             PathBuf::from("/data/blobs/ab/cd/abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789")
         );
+    }
+
+    #[test]
+    fn sharded_blob_path_rejects_invalid_hash() {
+        let err = sharded_blob_path(Path::new("/data/blobs"), "abc").unwrap_err();
+        assert!(err.to_string().contains("invalid blob hash"));
     }
 }

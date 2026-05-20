@@ -1,3 +1,4 @@
+use crate::storage::blob::is_sha256_hex;
 use crate::storage::text_kind::TextClassifier;
 use async_trait::async_trait;
 use git2::{Delta, DiffFindOptions, ObjectType, Oid, Repository, Signature, Tree};
@@ -300,10 +301,6 @@ fn pointer_from_value(v: &serde_json::Value) -> Option<StoredFile> {
         .and_then(|m| m.as_str())
         .map(|s| s.to_string());
     Some(StoredFile::BlobPointer { hash, size, mime })
-}
-
-fn is_sha256_hex(s: &str) -> bool {
-    s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn decode_file(path: &str, bytes: Vec<u8>) -> StoredFile {

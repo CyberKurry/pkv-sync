@@ -38,7 +38,7 @@ impl LocalFsBlobStore {
     }
 
     fn validate_hash(hash: &str) -> BlobResult<()> {
-        if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        if !is_sha256_hex(hash) {
             return Err(BlobError::InvalidHash);
         }
         Ok(())
@@ -77,6 +77,10 @@ impl LocalFsBlobStore {
         .await
         .map_err(|e| BlobError::Io(std::io::Error::other(e)))?
     }
+}
+
+pub fn is_sha256_hex(s: &str) -> bool {
+    s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 #[async_trait]
@@ -188,5 +192,13 @@ mod tests {
         store.put_verified(&ah, a).await.unwrap();
         let set = store.list_hashes().await.unwrap();
         assert!(set.contains(&ah));
+    }
+
+    #[test]
+    fn recognizes_sha256_hex_hashes() {
+        assert!(is_sha256_hex(&"a".repeat(64)));
+        assert!(is_sha256_hex(&"A".repeat(64)));
+        assert!(!is_sha256_hex(&"a".repeat(63)));
+        assert!(!is_sha256_hex(&"g".repeat(64)));
     }
 }
