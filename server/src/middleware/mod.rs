@@ -1,4 +1,5 @@
 pub mod deployment_key;
+pub mod rate_limit;
 pub mod real_ip;
 pub mod request_id;
 pub mod ua_filter;

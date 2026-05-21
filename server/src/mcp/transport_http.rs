@@ -1,7 +1,9 @@
 use crate::service::AppState;
 use axum::body::Body;
+use axum::extract::Request;
 use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
+use axum::middleware::Next;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
@@ -16,8 +18,22 @@ use tokio_stream::StreamExt;
 use super::transport_stdio::{authenticate_token, handle_jsonrpc, jsonrpc_error};
 
 pub fn router(state: AppState) -> Router {
+    router_with_rate_limiter(
+        state,
+        crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+    )
+}
+
+fn router_with_rate_limiter(
+    state: AppState,
+    limiter: crate::middleware::rate_limit::RequestRateLimiter,
+) -> Router {
     Router::new()
         .route("/mcp", post(post_mcp).get(get_mcp_sse))
+        .route_layer(axum::middleware::from_fn_with_state(
+            limiter,
+            mcp_rate_limit,
+        ))
         .with_state(state)
 }
 
@@ -50,6 +66,22 @@ async fn post_mcp(
         }
     };
     Json(handle_jsonrpc(&state, &user_id, None, request).await).into_response()
+}
+
+async fn mcp_rate_limit(
+    State(limiter): State<crate::middleware::rate_limit::RequestRateLimiter>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let key = crate::middleware::rate_limit::request_key("mcp_http", &req);
+    if limiter.check(key).is_err() {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(jsonrpc_error(Value::Null, -32029, "too many requests")),
+        )
+            .into_response();
+    }
+    next.run(req).await
 }
 
 async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -215,4 +247,47 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::pool;
+    use axum::body::Body;
+    use axum::http::Request as HttpRequest;
+    use tower::ServiceExt;
+
+    async fn state() -> AppState {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        AppState::new(p, tmp.path().to_path_buf(), "t".into(), true)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn mcp_http_routes_are_rate_limited() {
+        let app = router_with_rate_limiter(
+            state().await,
+            crate::middleware::rate_limit::RequestRateLimiter::new(
+                1,
+                std::time::Duration::from_secs(60),
+            ),
+        );
+        let req = || {
+            HttpRequest::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap()
+        };
+
+        let first = app.clone().oneshot(req()).await.unwrap();
+        let second = app.oneshot(req()).await.unwrap();
+
+        assert_eq!(first.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
 }

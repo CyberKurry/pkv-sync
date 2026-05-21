@@ -1,7 +1,7 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
 use crate::db::repos::{NewActivity, SyncActivityRepo, VaultRepo};
-use crate::middleware::{real_ip::ClientIp, sse_cors_allow_header_names};
+use crate::middleware::{rate_limit, real_ip::ClientIp, sse_cors_allow_header_names};
 use crate::service::sync::{self, UploadCheckReq};
 use crate::service::{vault as vault_service, AppState};
 use axum::body::Body;
@@ -35,6 +35,10 @@ fn sse_cors_layer() -> CorsLayer {
 }
 
 pub fn router() -> Router<AppState> {
+    router_with_rate_limiter(rate_limit::RequestRateLimiter::sync_api())
+}
+
+fn router_with_rate_limiter(limiter: rate_limit::RequestRateLimiter) -> Router<AppState> {
     // SSE endpoint gets its own sub-router so the CorsLayer wraps the entire
     // routing decision (including OPTIONS preflight). Applying CORS only via
     // .route_layer on a `get()` method router does not work because axum's
@@ -42,7 +46,7 @@ pub fn router() -> Router<AppState> {
     let sse_router = Router::new()
         .route("/api/vaults/:id/events", get(events))
         .layer(sse_cors_layer());
-    Router::new()
+    let limited_router = Router::new()
         .route("/api/vaults", get(list).post(create))
         .route("/api/vaults/:id", delete(remove))
         .route("/api/vaults/:id/upload/check", post(upload_check))
@@ -56,7 +60,11 @@ pub fn router() -> Router<AppState> {
         .route("/api/vaults/:id/history", get(file_history))
         .route("/api/vaults/:id/diff", get(diff))
         .route("/api/vaults/:id/files/*path", get(read_file))
-        .merge(sse_router)
+        .route_layer(axum::middleware::from_fn_with_state(
+            limiter,
+            rate_limit::rest_middleware,
+        ));
+    limited_router.merge(sse_router)
 }
 
 #[derive(Deserialize)]
@@ -586,6 +594,43 @@ mod tests {
         (app, raw)
     }
 
+    async fn setup_with_limiter(
+        limiter: rate_limit::RequestRateLimiter,
+    ) -> (Router, AppState, String) {
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into(), true)
+            .await
+            .unwrap();
+        let h = password::hash("passw0rd!!").unwrap();
+        let user = state
+            .users
+            .create(NewUser {
+                username: "alice".into(),
+                password_hash: h,
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let raw = token::generate();
+        state
+            .tokens
+            .create(NewToken {
+                user_id: &user.id,
+                token_hash: &token::hash(&raw),
+                device_id: "device-vaults",
+                device_name: "d",
+            })
+            .await
+            .unwrap();
+        (
+            router_with_rate_limiter(limiter).with_state(state.clone()),
+            state,
+            raw,
+        )
+    }
+
     async fn create_vault(app: Router, raw: &str, name: &str) -> String {
         let create = app
             .oneshot(req_json(
@@ -792,6 +837,28 @@ mod tests {
         assert_eq!(create_details["vault_name"], "main");
         assert_eq!(delete_details["vault_id"], id);
         assert_eq!(delete_details["vault_name"], "main");
+    }
+
+    #[tokio::test]
+    async fn vault_api_routes_are_rate_limited() {
+        let (app, _state, raw) = setup_with_limiter(rate_limit::RequestRateLimiter::new(
+            1,
+            std::time::Duration::from_secs(60),
+        ))
+        .await;
+
+        let first = app
+            .clone()
+            .oneshot(auth_request("GET", "/api/vaults", &raw))
+            .await
+            .unwrap();
+        let second = app
+            .oneshot(auth_request("GET", "/api/vaults", &raw))
+            .await
+            .unwrap();
+
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]
