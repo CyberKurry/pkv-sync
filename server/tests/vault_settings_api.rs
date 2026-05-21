@@ -252,7 +252,7 @@ async fn put_vault_settings_rejects_invalid_glob() {
 }
 
 #[tokio::test]
-async fn vault_settings_set_get_round_trips() {
+async fn vault_settings_set_and_load_round_trips() {
     let (state, user_id, _tmp) = state_and_user().await;
     let vault = vault::create_vault(&state, &user_id, "main").await.unwrap();
 
@@ -262,13 +262,10 @@ async fn vault_settings_set_get_round_trips() {
         .await
         .unwrap();
 
+    let loaded = state.vault_settings.load_for_vault(&vault.id).await.unwrap();
     assert_eq!(
-        state
-            .vault_settings
-            .get(&vault.id, "extra_sync_globs")
-            .await
-            .unwrap(),
-        Some(r#"["notes/**"]"#.to_string())
+        loaded.get("extra_sync_globs"),
+        Some(&r#"["notes/**"]"#.to_string())
     );
 }
 
@@ -288,10 +285,10 @@ async fn vault_delete_cascades_settings_cleanup() {
 
     assert!(state
         .vault_settings
-        .get(&vault.id, "extra_sync_globs")
+        .load_for_vault(&vault.id)
         .await
         .unwrap()
-        .is_some());
+        .contains_key("extra_sync_globs"));
     assert!(vault::delete_vault_for_user(&state, &user_id, &vault.id)
         .await
         .unwrap());

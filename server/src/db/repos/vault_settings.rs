@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 #[async_trait]
 pub trait VaultSettingsRepo: Send + Sync {
-    async fn get(&self, vault_id: &str, key: &str) -> Result<Option<String>, sqlx::Error>;
     async fn set(&self, vault_id: &str, key: &str, value: &str) -> Result<(), sqlx::Error>;
     async fn load_for_vault(&self, vault_id: &str) -> Result<HashMap<String, String>, sqlx::Error>;
 }
@@ -21,16 +20,6 @@ impl SqliteVaultSettingsRepo {
 
 #[async_trait]
 impl VaultSettingsRepo for SqliteVaultSettingsRepo {
-    async fn get(&self, vault_id: &str, key: &str) -> Result<Option<String>, sqlx::Error> {
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT value FROM vault_settings WHERE vault_id = ? AND key = ?")
-                .bind(vault_id)
-                .bind(key)
-                .fetch_optional(&self.pool)
-                .await?;
-        Ok(row.map(|t| t.0))
-    }
-
     async fn set(&self, vault_id: &str, key: &str, value: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
         sqlx::query(
@@ -83,7 +72,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_get_and_load_for_vault_round_trip() {
+    async fn set_and_load_for_vault_round_trip() {
         let (settings, vaults, user_id) = setup().await;
         let vault = vaults.create(&user_id, "main").await.unwrap();
 
@@ -92,10 +81,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            settings.get(&vault.id, "extra_sync_globs").await.unwrap(),
-            Some(r#"["notes/**"]"#.to_string())
-        );
         assert_eq!(
             settings
                 .load_for_vault(&vault.id)
