@@ -19,7 +19,7 @@ export function parseServerUrl(input: string, fallbackKey = ""): ParsedServerUrl
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new ServerUrlError("Server URL must use http or https");
   }
-  if (url.protocol === "http:" && !isLoopbackHost(url.hostname)) {
+  if (!isLocalHttpAllowed(url)) {
     throw new ServerUrlError("Server URL must use https unless it points to localhost");
   }
 
@@ -36,6 +36,10 @@ export function parseServerUrl(input: string, fallbackKey = ""): ParsedServerUrl
   url.pathname = url.pathname.replace(/\/+$/, "") || "/";
   const base = `${url.protocol}//${url.host}${url.pathname === "/" ? "" : url.pathname}`;
   return { serverUrl: base, deploymentKey };
+}
+
+export function isLocalHttpAllowed(url: URL): boolean {
+  return url.protocol !== "http:" || isLoopbackHost(url.hostname);
 }
 
 function isLoopbackHost(hostname: string): boolean {

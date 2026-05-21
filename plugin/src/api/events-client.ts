@@ -1,4 +1,5 @@
 import type { VaultEvent } from "./types";
+import { isLocalHttpAllowed } from "../url";
 
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
@@ -16,7 +17,18 @@ export interface SubscribeOptions {
 
 export function subscribeVaultEvents(opts: SubscribeOptions): () => void {
   const controller = new AbortController();
-  const url = `${opts.serverUrl.replace(/\/$/, "")}/api/vaults/${encodeURIComponent(opts.vaultId)}/events`;
+  let url: string;
+  try {
+    const parsedUrl = new URL(opts.serverUrl);
+    if (!isLocalHttpAllowed(parsedUrl)) {
+      opts.onError(new Error("SSE server URL must use https unless it points to localhost"));
+      return () => controller.abort();
+    }
+    url = `${opts.serverUrl.replace(/\/$/, "")}/api/vaults/${encodeURIComponent(opts.vaultId)}/events`;
+  } catch {
+    opts.onError(new Error("Invalid SSE server URL"));
+    return () => controller.abort();
+  }
   let lastCommitId = "";
   let lastEmittedCommitId = "";
   let reconnectAttempt = 0;

@@ -162,6 +162,23 @@ describe("subscribeVaultEvents", () => {
     );
   });
 
+  it("rejects non-loopback http URLs before sending SSE credentials", () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const onError = vi.fn();
+
+    subscribe({
+      ...baseOpts,
+      serverUrl: "http://sync.example.com",
+      onEvent: vi.fn(),
+      onError,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0].message).toContain("https");
+  });
+
   it("receives text_inline commit event and calls onEvent", async () => {
     const ssePayload =
       "event: commit\n" +
