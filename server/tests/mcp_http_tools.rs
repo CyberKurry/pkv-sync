@@ -327,6 +327,62 @@ async fn http_mcp_sse_replays_after_last_event_id() {
 }
 
 #[tokio::test]
+async fn http_mcp_sse_rejects_when_subscriber_limit_is_reached() {
+    let (state, tmp) = test_state().await;
+    state.set_sse_subscriber_limit_for_tests(1);
+    let (user_id, raw) = create_user_with_token(&state, "http-sse-limit").await;
+    let _vault = vault::create_vault(&state, &user_id, "main").await.unwrap();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server_state = state.clone();
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            transport_http::router(server_state).into_make_service(),
+        )
+        .await;
+    });
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .unwrap();
+
+    let first = client
+        .get(format!("http://{addr}/mcp"))
+        .bearer_auth(&raw)
+        .header("accept", "text/event-stream")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = client
+        .get(format!("http://{addr}/mcp"))
+        .bearer_auth(&raw)
+        .header("accept", "text/event-stream")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    drop(first);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let third = client
+        .get(format!("http://{addr}/mcp"))
+        .bearer_auth(&raw)
+        .header("accept", "text/event-stream")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(third.status(), StatusCode::OK);
+
+    handle.abort();
+    drop(tmp);
+}
+
+#[tokio::test]
 async fn http_mcp_sse_too_far_behind_emits_lagged() {
     let (state, tmp) = test_state().await;
     let (user_id, raw) = create_user_with_token(&state, "http-sse-lagged").await;

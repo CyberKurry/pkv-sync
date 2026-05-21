@@ -24,6 +24,12 @@ impl Drop for TestServer {
 }
 
 async fn start_test_server() -> (TestServer, AppState, String, String) {
+    start_test_server_with_sse_limit(None).await
+}
+
+async fn start_test_server_with_sse_limit(
+    sse_limit: Option<usize>,
+) -> (TestServer, AppState, String, String) {
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");
     std::fs::create_dir_all(&data_dir).unwrap();
@@ -53,6 +59,9 @@ async fn start_test_server() -> (TestServer, AppState, String, String) {
     let state = AppState::new(db, data_dir.clone(), "t".into(), false)
         .await
         .unwrap();
+    if let Some(limit) = sse_limit {
+        state.set_sse_subscriber_limit_for_tests(limit);
+    }
 
     let user = state
         .users
@@ -207,6 +216,35 @@ async fn sse_endpoint_returns_cors_header_on_successful_subscription() {
         !allow_origin.is_empty(),
         "successful SSE subscription must carry Access-Control-Allow-Origin"
     );
+}
+
+#[tokio::test]
+async fn sse_endpoint_rejects_when_subscriber_limit_is_reached() {
+    let (ts, _state, raw, vid) = start_test_server_with_sse_limit(Some(1)).await;
+    let sse_url = format!("http://{}/api/vaults/{}/events", ts.addr, vid);
+
+    let first = auth_headers(client().get(&sse_url).bearer_auth(&raw), &ts.key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), reqwest::StatusCode::OK);
+
+    let second = auth_headers(client().get(&sse_url).bearer_auth(&raw), &ts.key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), reqwest::StatusCode::TOO_MANY_REQUESTS);
+    let body = second.text().await.unwrap();
+    assert!(body.contains("rate_limited"), "unexpected body: {body}");
+
+    drop(first);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let third = auth_headers(client().get(&sse_url).bearer_auth(&raw), &ts.key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(third.status(), reqwest::StatusCode::OK);
 }
 
 #[tokio::test]

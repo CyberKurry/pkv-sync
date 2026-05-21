@@ -429,6 +429,9 @@ async fn events(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let _vault = vault_service::ensure_user_vault(&state, &user.user_id, &id).await?;
+    let sse_guard = state
+        .try_acquire_sse_subscriber()
+        .ok_or_else(|| ApiError::too_many("too many concurrent SSE subscriptions"))?;
 
     let replay_events = match headers
         .get("last-event-id")
@@ -446,7 +449,6 @@ async fn events(
     };
 
     let receiver = state.events.subscribe(&id);
-    let sse_guard = SseSubscriberGuard::new(state.metrics.clone());
     let replay_items = match replay_events {
         crate::service::events::ReplayEvents::Events(events) => events
             .into_iter()
@@ -521,23 +523,6 @@ async fn events(
         .await;
 
     Ok(response)
-}
-
-struct SseSubscriberGuard {
-    metrics: std::sync::Arc<crate::service::metrics::Metrics>,
-}
-
-impl SseSubscriberGuard {
-    fn new(metrics: std::sync::Arc<crate::service::metrics::Metrics>) -> Self {
-        metrics.sse_subscribers.inc();
-        Self { metrics }
-    }
-}
-
-impl Drop for SseSubscriberGuard {
-    fn drop(&mut self) {
-        self.metrics.sse_subscribers.dec();
-    }
 }
 
 fn request_metadata_parts(

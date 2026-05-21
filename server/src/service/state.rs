@@ -7,10 +7,12 @@ use crate::service::events::VaultEventBus;
 use crate::service::metrics::Metrics;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 type VaultPushLocks = Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
+const DEFAULT_SSE_SUBSCRIBER_LIMIT: usize = 256;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -33,6 +35,8 @@ pub struct AppState {
     pub events: VaultEventBus,
     pub metrics: Arc<Metrics>,
     pub git_available: bool,
+    sse_subscriber_limit: Arc<AtomicUsize>,
+    sse_subscriber_count: Arc<AtomicUsize>,
     push_locks: VaultPushLocks,
 }
 
@@ -76,6 +80,8 @@ impl AppState {
             events: VaultEventBus::new(64),
             metrics: Metrics::new(),
             git_available,
+            sse_subscriber_limit: Arc::new(AtomicUsize::new(DEFAULT_SSE_SUBSCRIBER_LIMIT)),
+            sse_subscriber_count: Arc::new(AtomicUsize::new(0)),
             push_locks: Arc::new(Mutex::new(HashMap::new())),
         };
         state.spawn_metrics_refresh_task();
@@ -100,6 +106,32 @@ impl AppState {
 
     pub async fn remove_vault_push_lock(&self, vault_id: &str) {
         self.push_locks.lock().await.remove(vault_id);
+    }
+
+    pub fn set_sse_subscriber_limit_for_tests(&self, limit: usize) {
+        self.sse_subscriber_limit
+            .store(limit.max(1), Ordering::Release);
+    }
+
+    pub fn try_acquire_sse_subscriber(&self) -> Option<SseSubscriberGuard> {
+        let limit = self.sse_subscriber_limit.load(Ordering::Acquire).max(1);
+        loop {
+            let current = self.sse_subscriber_count.load(Ordering::Acquire);
+            if current >= limit {
+                return None;
+            }
+            if self
+                .sse_subscriber_count
+                .compare_exchange_weak(current, current + 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                self.metrics.sse_subscribers.inc();
+                return Some(SseSubscriberGuard {
+                    metrics: self.metrics.clone(),
+                    count: self.sse_subscriber_count.clone(),
+                });
+            }
+        }
     }
 
     pub async fn refresh_metrics_gauges(&self) -> Result<(), sqlx::Error> {
@@ -146,6 +178,18 @@ impl AppState {
     #[cfg(test)]
     pub async fn vault_push_lock_count_for_tests(&self) -> usize {
         self.push_locks.lock().await.len()
+    }
+}
+
+pub struct SseSubscriberGuard {
+    metrics: Arc<Metrics>,
+    count: Arc<AtomicUsize>,
+}
+
+impl Drop for SseSubscriberGuard {
+    fn drop(&mut self) {
+        self.count.fetch_sub(1, Ordering::AcqRel);
+        self.metrics.sse_subscribers.dec();
     }
 }
 
