@@ -85,7 +85,7 @@ Docker images are published multi-arch (`linux/amd64`, `linux/arm64`) to GHCR:
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.5.1
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.5.2
 ```
 
 ## Quick Start: Docker Compose

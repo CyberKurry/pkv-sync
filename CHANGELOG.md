@@ -7,6 +7,19 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-05-22
+
+### Changed
+
+- Reduced redundant CI work by removing duplicate plugin verification steps
+  already covered by the package and coverage jobs.
+- Reused compiled plugin path matchers across scan and pull filtering passes,
+  and reduced SHA-256 hex conversion allocation overhead.
+- Shared plugin API path segment encoding between history and sync clients.
+- Batched server blob reference and upload availability checks during sync
+  pushes.
+- Removed an unused vault settings repository lookup.
+
 ## [0.5.1] - 2026-05-21
 
 ### Fixed
