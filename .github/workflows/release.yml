@@ -167,9 +167,6 @@ jobs:
       - name: Typecheck plugin
         run: npm --prefix plugin run typecheck
 
-      - name: Build plugin
-        run: npm --prefix plugin run build
-
       - name: Package plugin
         run: npm --prefix plugin run package
 

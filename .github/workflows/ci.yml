@@ -89,9 +89,6 @@ jobs:
       - name: Install plugin dependencies
         run: npm ci --prefix plugin
 
-      - name: Test plugin
-        run: npm --prefix plugin test
-
       - name: Plugin coverage
         run: npm --prefix plugin test -- --coverage
 
@@ -103,9 +100,6 @@ jobs:
 
       - name: Typecheck plugin
         run: npm --prefix plugin run typecheck
-
-      - name: Build plugin
-        run: npm --prefix plugin run build
 
       - name: Package plugin
         run: npm --prefix plugin run package
