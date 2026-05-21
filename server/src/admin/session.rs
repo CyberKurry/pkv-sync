@@ -103,10 +103,10 @@ impl FromRequestParts<AppState> for AdminSession {
             .await?
             .ok_or_else(|| ApiError::unauthorized("user missing"))?;
         if !user.is_active {
-            return Err(ApiError::forbidden("account disabled"));
+            return Err(ApiError::unauthorized("invalid session"));
         }
         if !user.is_admin {
-            return Err(ApiError::forbidden("admin required"));
+            return Err(ApiError::unauthorized("invalid session"));
         }
 
         sqlx::query("UPDATE admin_sessions SET last_seen_at = ? WHERE id = ?")

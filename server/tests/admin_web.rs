@@ -636,6 +636,58 @@ async fn dashboard_requires_session() {
 }
 
 #[tokio::test]
+async fn dashboard_rejects_disabled_admin_session_like_missing_session() {
+    let (app, state) = app_with_state().await;
+    let admin = state
+        .users
+        .list()
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let session_id = pkv_sync_server::admin::session::create_session(&state, &admin.id)
+        .await
+        .unwrap();
+    state.users.set_active(&admin.id, false).await.unwrap();
+
+    let mut req = request(Method::GET, "/admin", Body::empty());
+    req.headers_mut().insert(
+        header::COOKIE,
+        format!("pkv_admin_session={session_id}").parse().unwrap(),
+    );
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn dashboard_rejects_non_admin_session_like_missing_session() {
+    let (app, state) = app_with_state().await;
+    let user = state
+        .users
+        .create(NewUser {
+            username: "regular".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: false,
+        })
+        .await
+        .unwrap();
+    let session_id = pkv_sync_server::admin::session::create_session(&state, &user.id)
+        .await
+        .unwrap();
+
+    let mut req = request(Method::GET, "/admin", Body::empty());
+    req.headers_mut().insert(
+        header::COOKIE,
+        format!("pkv_admin_session={session_id}").parse().unwrap(),
+    );
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn login_success_sets_cookie_and_allows_dashboard() {
     let app = app().await;
     let mut login_req = request(
