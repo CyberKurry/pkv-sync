@@ -2,6 +2,16 @@ export type PluginLanguage = "auto" | "en" | "zh-CN";
 
 export const MIN_DEBOUNCE_MS = 100;
 export const MAX_DEBOUNCE_MS = 60_000;
+export const DEFAULT_TEXT_EXTENSIONS = [
+  "md",
+  "canvas",
+  "base",
+  "json",
+  "txt",
+  "css"
+] as const;
+
+const SAFE_TEXT_EXTENSIONS = new Set<string>(DEFAULT_TEXT_EXTENSIONS);
 
 export interface PKVSyncSettings {
   language: PluginLanguage;
@@ -39,7 +49,7 @@ export const DEFAULT_SETTINGS: PKVSyncSettings = {
   lastSyncSuccessAt: null,
   pollIntervalSeconds: 60,
   debounceMs: 250,
-  textExtensions: ["md", "canvas", "base", "json", "txt", "css"],
+  textExtensions: [...DEFAULT_TEXT_EXTENSIONS],
   extraExcludeGlobs: []
 };
 
@@ -63,19 +73,7 @@ export function normalizeSettings(
     DEFAULT_SETTINGS.pollIntervalSeconds
   );
   settings.debounceMs = normalizeDebounceMs(settings.debounceMs);
-  if (
-    !Array.isArray(settings.textExtensions) ||
-    settings.textExtensions.some((ext) => typeof ext !== "string")
-  ) {
-    settings.textExtensions = [...DEFAULT_SETTINGS.textExtensions];
-  } else {
-    settings.textExtensions = settings.textExtensions
-      .map((ext) => ext.trim().toLowerCase().replace(/^\./, ""))
-      .filter((ext) => ext.length > 0);
-    if (settings.textExtensions.length === 0) {
-      settings.textExtensions = [...DEFAULT_SETTINGS.textExtensions];
-    }
-  }
+  settings.textExtensions = normalizeTextExtensions(settings.textExtensions);
   if (!Array.isArray(settings.extraExcludeGlobs)) {
     settings.extraExcludeGlobs = [];
   }
@@ -129,4 +127,17 @@ export function normalizeDebounceMs(
 
 function clampDebounceMs(value: number): number {
   return Math.min(MAX_DEBOUNCE_MS, Math.max(MIN_DEBOUNCE_MS, Math.round(value)));
+}
+
+export function normalizeTextExtensions(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((ext) => typeof ext !== "string")) {
+    return [...DEFAULT_SETTINGS.textExtensions];
+  }
+  const normalized = value
+    .map((ext) => ext.trim().toLowerCase().replace(/^\./, ""))
+    .filter(
+      (ext, index, entries) =>
+        SAFE_TEXT_EXTENSIONS.has(ext) && entries.indexOf(ext) === index
+    );
+  return normalized.length > 0 ? normalized : [...DEFAULT_SETTINGS.textExtensions];
 }

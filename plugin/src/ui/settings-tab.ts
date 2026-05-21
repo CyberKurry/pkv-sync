@@ -10,7 +10,7 @@ import type {
 import { formatBytes } from "../format";
 import { format } from "../i18n";
 import type PKVSyncPlugin from "../main";
-import type { PluginLanguage } from "../settings";
+import { normalizeTextExtensions, type PluginLanguage } from "../settings";
 import { listConflictFiles } from "../sync/conflict-files";
 import { DeleteVaultModal } from "./delete-vault-modal";
 import {
@@ -111,8 +111,9 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         this.plugin.settings.deploymentKey = parsed.deploymentKey;
         await this.plugin.saveSettings({ rebuild: false });
         this.cfg = await this.plugin.api().config();
-        this.plugin.settings.textExtensions =
-          this.cfg.supported_text_extensions;
+        this.plugin.settings.textExtensions = normalizeTextExtensions(
+          this.cfg.supported_text_extensions
+        );
         await this.plugin.saveSettings({ rebuild: false });
         new Notice(
           format(t.connectedToServer, { serverName: this.serverHost() })

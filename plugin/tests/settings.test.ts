@@ -4,6 +4,7 @@ import {
   historyUiAvailable,
   isLoggedIn,
   normalizeDebounceMs,
+  normalizeTextExtensions,
   normalizeSettings
 } from "../src/settings";
 
@@ -40,6 +41,15 @@ describe("settings", () => {
     expect(normalizeDebounceMs(250)).toBe(250);
     expect(normalizeDebounceMs(120_000)).toBe(60_000);
     expect(normalizeDebounceMs(Number.NaN, 750)).toBe(750);
+  });
+
+  it("keeps text extensions within the client safe list", () => {
+    expect(
+      normalizeTextExtensions([" .MD ", "json", ".env", "KEY", "sh", "css"])
+    ).toEqual(["md", "json", "css"]);
+    expect(normalizeTextExtensions(["env", "pem"])).toEqual(
+      DEFAULT_SETTINGS.textExtensions
+    );
   });
 
   it("isLoggedIn requires url key and token", () => {
