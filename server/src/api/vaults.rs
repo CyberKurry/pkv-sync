@@ -1271,4 +1271,36 @@ mod tests {
         assert_eq!(row.0.as_deref(), Some("203.0.113.12"));
         assert_eq!(row.1.as_deref(), Some("PKVSync-Plugin/0.1.0"));
     }
+
+    #[tokio::test]
+    async fn push_rejects_json_body_over_default_limit() {
+        let (app, raw) = setup().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        let oversized_content = "a".repeat(2_100_000);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/vaults/{id}/push"))
+                    .header("authorization", format!("Bearer {raw}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "device_name": "test",
+                            "changes": [{
+                                "kind": "text",
+                                "path": "large.md",
+                                "content": oversized_content
+                            }]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
 }
