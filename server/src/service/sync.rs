@@ -468,7 +468,7 @@ pub async fn push_with_request_metadata(
                 let (referenced_blobs, uploaded_blobs) = blob_availability
                     .as_ref()
                     .expect("blob availability is initialized above");
-                if !blob_available_to_vault(&referenced_blobs, &uploaded_blobs, &blob_hash) {
+                if !blob_available_to_vault(referenced_blobs, uploaded_blobs, &blob_hash) {
                     return Err(ApiError::bad_request(
                         "missing_blob",
                         format!("blob {blob_hash} not uploaded for this vault"),
