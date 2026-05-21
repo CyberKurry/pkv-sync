@@ -65,7 +65,7 @@ async fn register_handler(
     };
     match register(&state, req).await {
         Ok(resp) => {
-            reservation.success();
+            reservation.release();
             Ok((axum::http::StatusCode::CREATED, Json(resp)))
         }
         Err(e) if register_failure_consumes_budget(&e) => {
@@ -119,7 +119,7 @@ mod tests {
     use std::time::Duration;
     use tower::ServiceExt;
 
-    async fn make_app(mode: RegistrationMode) -> Router {
+    async fn make_app_with_threshold(mode: RegistrationMode, threshold: u32) -> Router {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
@@ -135,7 +135,7 @@ mod tests {
         state.runtime_cfg.replace(cfg).await;
         let rcfg = state.runtime_cfg.snapshot().await;
         let limiter = LoginRateLimiter::new(
-            rcfg.login_failure_threshold,
+            threshold,
             Duration::from_secs(rcfg.login_window_seconds),
             Duration::from_secs(rcfg.login_lock_seconds),
         );
@@ -143,6 +143,10 @@ mod tests {
             .with_state(state)
             .layer(Extension(limiter))
             .layer(Extension(ClientIp("127.0.0.1".parse().unwrap())))
+    }
+
+    async fn make_app(mode: RegistrationMode) -> Router {
+        make_app_with_threshold(mode, 10).await
     }
 
     fn json(uri: &str, body: serde_json::Value) -> Request<Body> {
@@ -288,6 +292,75 @@ mod tests {
             forbidden_count > 0 && too_many_count > 0,
             "expected the limiter to eventually trip; forbidden={forbidden_count} too_many={too_many_count}"
         );
+    }
+
+    #[tokio::test]
+    async fn register_success_does_not_reset_abuse_budget() {
+        let app = make_app_with_threshold(RegistrationMode::Open, 2).await;
+        let taken = serde_json::json!({
+            "username": "taken",
+            "password": "passw0rd!!",
+            "device_id": "device-taken-0",
+            "device_name": "d"
+        });
+        let success = serde_json::json!({
+            "username": "alice",
+            "password": "passw0rd!!",
+            "device_id": "device-alice",
+            "device_name": "d"
+        });
+        let conflict1 = serde_json::json!({
+            "username": "taken",
+            "password": "passw0rd!!",
+            "device_id": "device-taken-1",
+            "device_name": "d"
+        });
+        let conflict2 = serde_json::json!({
+            "username": "taken",
+            "password": "passw0rd!!",
+            "device_id": "device-taken-2",
+            "device_name": "d"
+        });
+        let conflict3 = serde_json::json!({
+            "username": "taken",
+            "password": "passw0rd!!",
+            "device_id": "device-taken-3",
+            "device_name": "d"
+        });
+
+        let created = app
+            .clone()
+            .oneshot(json("/api/auth/register", taken))
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+
+        let first_conflict = app
+            .clone()
+            .oneshot(json("/api/auth/register", conflict1))
+            .await
+            .unwrap();
+        assert_eq!(first_conflict.status(), StatusCode::CONFLICT);
+
+        let inserted_success = app
+            .clone()
+            .oneshot(json("/api/auth/register", success))
+            .await
+            .unwrap();
+        assert_eq!(inserted_success.status(), StatusCode::CREATED);
+
+        let second_conflict = app
+            .clone()
+            .oneshot(json("/api/auth/register", conflict2))
+            .await
+            .unwrap();
+        assert_eq!(second_conflict.status(), StatusCode::CONFLICT);
+
+        let third_conflict = app
+            .oneshot(json("/api/auth/register", conflict3))
+            .await
+            .unwrap();
+        assert_eq!(third_conflict.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]
