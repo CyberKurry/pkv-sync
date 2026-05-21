@@ -309,7 +309,11 @@ pub async fn push_with_request_metadata(
     };
 
     if let Some(key) = idempotency_key {
-        if let Some(cached) = state.idempotency.get(key, &user.user_id).await? {
+        if let Some(cached) = state
+            .idempotency
+            .get(key, &user.user_id, vault_id, IDEMPOTENCY_ROUTE_PUSH)
+            .await?
+        {
             if cached.vault_id != vault_id
                 || cached.route != IDEMPOTENCY_ROUTE_PUSH
                 || Some(cached.request_hash.as_str()) != request_hash.as_deref()
@@ -1537,6 +1541,49 @@ mod tests {
 
         assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
         assert_eq!(err.code, "idempotency_key_reused");
+    }
+
+    #[tokio::test]
+    async fn idempotency_keys_are_scoped_per_vault() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let other = vault::create_vault(&state, &user.user_id, "other")
+            .await
+            .unwrap();
+
+        let first = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            Some("shared-idem"),
+            PushReq {
+                device_name: Some("test".into()),
+                changes: vec![PushChange::Text {
+                    path: "one.md".into(),
+                    content: "one".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let second = push(
+            &state,
+            &user,
+            &other.id,
+            None,
+            Some("shared-idem"),
+            PushReq {
+                device_name: Some("test".into()),
+                changes: vec![PushChange::Text {
+                    path: "two.md".into(),
+                    content: "two".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_ne!(second.new_commit, first.new_commit);
     }
 
     #[tokio::test]

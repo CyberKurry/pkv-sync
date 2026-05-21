@@ -62,3 +62,23 @@ async fn sync_activity_token_fk_sets_null_on_token_delete() {
 
     assert_eq!(token_fk.get::<String, _>("on_delete"), "SET NULL");
 }
+
+#[tokio::test]
+async fn idempotency_cache_primary_key_includes_vault_and_route() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("t.db");
+    let p = pool::connect(&db_path).await.unwrap();
+    pool::migrate_up(&p).await.unwrap();
+
+    let rows = sqlx::query("PRAGMA table_info(idempotency_cache)")
+        .fetch_all(&p)
+        .await
+        .unwrap();
+    let pk_columns: Vec<String> = rows
+        .into_iter()
+        .filter(|row| row.get::<i64, _>("pk") > 0)
+        .map(|row| row.get::<String, _>("name"))
+        .collect();
+
+    assert_eq!(pk_columns, ["user_id", "key", "vault_id", "route"]);
+}

@@ -226,7 +226,7 @@ mod tests {
         let _ = state.blob_refs.all_hashes().await.unwrap();
         assert!(state
             .idempotency
-            .get("missing", "missing")
+            .get("missing", "missing", "missing", "push")
             .await
             .unwrap()
             .is_none());

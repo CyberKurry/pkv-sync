@@ -11,7 +11,13 @@ pub struct IdempotencyEntry {
 
 #[async_trait]
 pub trait IdempotencyRepo: Send + Sync {
-    async fn get(&self, key: &str, user_id: &str) -> Result<Option<IdempotencyEntry>, sqlx::Error>;
+    async fn get(
+        &self,
+        key: &str,
+        user_id: &str,
+        vault_id: &str,
+        route: &str,
+    ) -> Result<Option<IdempotencyEntry>, sqlx::Error>;
     async fn put(
         &self,
         key: &str,
@@ -36,13 +42,22 @@ impl SqliteIdempotencyRepo {
 
 #[async_trait]
 impl IdempotencyRepo for SqliteIdempotencyRepo {
-    async fn get(&self, key: &str, user_id: &str) -> Result<Option<IdempotencyEntry>, sqlx::Error> {
+    async fn get(
+        &self,
+        key: &str,
+        user_id: &str,
+        vault_id: &str,
+        route: &str,
+    ) -> Result<Option<IdempotencyEntry>, sqlx::Error> {
         let r: Option<(String, String, String, String)> = sqlx::query_as(
             "SELECT vault_id, route, request_hash, response_json
-             FROM idempotency_cache WHERE key = ? AND user_id = ?",
+             FROM idempotency_cache
+             WHERE key = ? AND user_id = ? AND vault_id = ? AND route = ?",
         )
         .bind(key)
         .bind(user_id)
+        .bind(vault_id)
+        .bind(route)
         .fetch_optional(&self.pool)
         .await?;
         Ok(r.map(|t| IdempotencyEntry {
@@ -102,7 +117,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            repo.get("k", "u").await.unwrap().unwrap().response_json,
+            repo.get("k", "u", "v", "push")
+                .await
+                .unwrap()
+                .unwrap()
+                .response_json,
             "{\"ok\":true}"
         );
         let n = repo
@@ -113,7 +132,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn same_key_is_scoped_per_user() {
+    async fn same_key_is_scoped_per_user_vault_and_route() {
         let p = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&p).await.unwrap();
         let repo = SqliteIdempotencyRepo::new(p);
@@ -124,14 +143,44 @@ mod tests {
         repo.put("k", "u2", "v2", "push", "hash2", "{\"user\":2}")
             .await
             .unwrap();
+        repo.put("k", "u1", "v2", "push", "hash3", "{\"vault\":2}")
+            .await
+            .unwrap();
+        repo.put("k", "u1", "v1", "other", "hash4", "{\"route\":\"other\"}")
+            .await
+            .unwrap();
 
         assert_eq!(
-            repo.get("k", "u1").await.unwrap().unwrap().response_json,
+            repo.get("k", "u1", "v1", "push")
+                .await
+                .unwrap()
+                .unwrap()
+                .response_json,
             "{\"user\":1}"
         );
         assert_eq!(
-            repo.get("k", "u2").await.unwrap().unwrap().response_json,
+            repo.get("k", "u2", "v2", "push")
+                .await
+                .unwrap()
+                .unwrap()
+                .response_json,
             "{\"user\":2}"
+        );
+        assert_eq!(
+            repo.get("k", "u1", "v2", "push")
+                .await
+                .unwrap()
+                .unwrap()
+                .response_json,
+            "{\"vault\":2}"
+        );
+        assert_eq!(
+            repo.get("k", "u1", "v1", "other")
+                .await
+                .unwrap()
+                .unwrap()
+                .response_json,
+            "{\"route\":\"other\"}"
         );
     }
 }
