@@ -40,7 +40,17 @@ export function parseServerUrl(input: string, fallbackKey = ""): ParsedServerUrl
 
 function isLoopbackHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host === "::1") return true;
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "::1" ||
+    host === "0.0.0.0"
+  ) {
+    return true;
+  }
+  const mapped = host.match(/^::ffff:(.+)$/);
+  if (mapped?.[1] === "7f00:1") return true;
+  if (mapped) return isLoopbackHost(mapped[1]);
   const octets = host.split(".");
   if (octets.length !== 4 || octets[0] !== "127") return false;
   return octets.every((part) => {

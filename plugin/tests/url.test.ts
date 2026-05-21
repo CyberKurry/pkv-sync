@@ -34,6 +34,17 @@ describe("parseServerUrl", () => {
     });
   });
 
+  it("allows local development http URLs on unspecified and IPv4-mapped loopback hosts", () => {
+    expect(parseServerUrl("http://0.0.0.0:6710/k_local/")).toEqual({
+      serverUrl: "http://0.0.0.0:6710",
+      deploymentKey: "k_local"
+    });
+    expect(parseServerUrl("http://[::ffff:127.0.0.1]:6710/k_local/")).toEqual({
+      serverUrl: "http://[::ffff:7f00:1]:6710",
+      deploymentKey: "k_local"
+    });
+  });
+
   it("rejects missing key", () => {
     expect(() => parseServerUrl("https://x")).toThrow(ServerUrlError);
   });
