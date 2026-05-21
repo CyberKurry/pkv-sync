@@ -53,7 +53,8 @@ The web panel includes:
 - Invite creation with optional expiration, active invite listing, and deletion
   for unused invites
 - Runtime settings grouped as General, Security, Sync & Storage, and Network
-- Activity log with real user and action filters for push and pull rows
+- Activity log with real user and action filters for sync, vault lifecycle,
+  and read-only browsing rows
 - Blob garbage collection trigger
 - English and Simplified Chinese language switch
 
@@ -168,6 +169,10 @@ failure threshold, failure window, and lock duration. The login rate limiter
 counts both failed attempts and in-flight password verifications, so a burst
 of concurrent guesses cannot bypass the threshold.
 
+Authenticated sync API routes are fixed-window rate limited at 600 requests per
+60 seconds per route, method, client IP, and bearer token. Limited requests
+return `429` with `error.code = "rate_limited"`.
+
 **Sync & Storage**
 - Max file size (default `100 MiB`).
 - Supported text extensions — files outside this list are treated as binary
@@ -190,11 +195,20 @@ of concurrent guesses cannot bypass the threshold.
   The server also requires the `git` binary in `PATH`; the public
   `/api/config` capability reflects both flags so clients only advertise
   the feature when it actually works.
+- **Prometheus metrics** (`enable_metrics`, default off): when enabled,
+  `/metrics` returns Prometheus text exposition. The route still requires the
+  deployment key middleware, plugin User-Agent guard, and an admin bearer
+  token.
 
 ## Activity
 
-The activity log records sync and read-only browsing operations such as push,
-pull, view_commit, view_history, and view_diff, including:
+The activity log records sync, vault lifecycle, and read-only browsing
+operations. Examples include `push`, `pull`, `create_vault`, `delete_vault`,
+`view_commit`, `view_history`, and `view_diff`. Vault creation and deletion
+from the Admin WebUI, Obsidian plugin, or public API are recorded with
+`create_vault` and `delete_vault` rows.
+
+Activity rows include:
 
 - user
 - vault

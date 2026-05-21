@@ -47,7 +47,9 @@ GET  http://127.0.0.1:6711/mcp
 Authorization: Bearer pks_xxx
 ```
 
-POST 承载 JSON-RPC 工具调用并返回 JSON 响应。GET 携带 `Accept: text/event-stream` 时订阅 `vault_changed` notification。事件 id 使用 `<vault-id>:<commit-sha>`，客户端重连时可作为 `Last-Event-ID` 传回，以 replay 断线期间错过的 commit。
+HTTP transport 使用固定窗口限流，每 60 秒最多 120 次请求。超限时返回 HTTP `429`，JSON-RPC error code 为 `-32029`。
+
+POST 承载 JSON-RPC 工具调用并返回 JSON 响应。GET 携带 `Accept: text/event-stream` 时订阅 `vault_changed` notification。事件 id 使用 `<vault-id>:<commit-sha>`，客户端重连时可作为 `Last-Event-ID` 传回，以 replay 断线期间错过的 commit。Replay 有上限；如果服务端无法覆盖错过的历史，会发送 `lagged`，客户端应通过同步 API 刷新。
 
 除非放在可信网络控制之后，否则请把 HTTP 绑定到 loopback。bearer token 会授予该用户所有笔记库的只读访问权限。
 

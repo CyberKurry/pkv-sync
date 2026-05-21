@@ -7,6 +7,34 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-05-21
+
+### Fixed
+
+- Added abuse protection for authenticated sync API routes and MCP Streamable
+  HTTP requests.
+- Scoped idempotency cache keys by user, vault, and route, with a migration for
+  existing deployments.
+- Cleaned up vault event subscriptions when a vault is deleted.
+- Hardened plugin glob character-class handling so regex escapes are treated as
+  literals.
+- Rejected insecure non-loopback SSE URLs before sending credentials.
+- Clamped server-provided sync debounce values and filtered server-provided text
+  extensions against the plugin allowlist.
+- Flushed pending plugin sync work during Obsidian unload.
+- Required admin authentication for metrics, capped SSE subscribers and replay
+  history, hid internal error details, preserved registration rate-limit budget,
+  validated Git HTTP vault ids, and normalized admin session and language
+  redirect behavior.
+
+### Security
+
+- Documented that the Obsidian plugin stores the active device token and
+  deployment key in vault-local plugin data and that the file should be treated
+  as sensitive.
+- Added regression coverage confirming push JSON bodies remain protected by
+  Axum's default body limit.
+
 ## [0.5.0] - 2026-05-21
 
 ### Added

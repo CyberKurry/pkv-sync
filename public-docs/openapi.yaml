@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 0.5.0
+  version: 0.5.1
   license:
     name: AGPL-3.0-only
   contact:
@@ -24,6 +24,7 @@ tags:
   - name: Me
   - name: Vaults
   - name: Admin
+  - name: Metrics
 components:
   securitySchemes:
     DeploymentKey:
@@ -108,6 +109,12 @@ components:
             $ref: '#/components/schemas/ErrorEnvelope'
     Conflict:
       description: Request conflicts with current server state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    TooManyRequests:
+      description: Request rate limit exceeded
       content:
         application/json:
           schema:
@@ -685,6 +692,32 @@ components:
           type: integer
           minimum: 0
 paths:
+  /metrics:
+    get:
+      tags: [Metrics]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Prometheus metrics for administrators
+      description: |
+        Returns Prometheus text exposition when the `enable_metrics` runtime
+        setting is enabled. Production deployments still require the deployment
+        key middleware, accepted PKV Sync plugin User-Agent, and an admin bearer
+        token. When metrics are disabled, the endpoint returns `404`.
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain; version=0.0.4; charset=utf-8:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/health:
     get:
       tags: [Health]
@@ -877,6 +910,8 @@ paths:
                   $ref: '#/components/schemas/Vault'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
     post:
       tags: [Vaults]
       security:
@@ -901,6 +936,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '409':
           $ref: '#/components/responses/Conflict'
   /api/vaults/{vault_id}:
@@ -920,6 +957,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/settings:
     get:
       tags: [Vaults]
@@ -941,6 +980,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
     put:
       tags: [Vaults]
       security:
@@ -965,6 +1006,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/upload/check:
     post:
       tags: [Vaults]
@@ -990,6 +1033,8 @@ paths:
                 $ref: '#/components/schemas/UploadCheckResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/upload/blob:
     post:
       tags: [Vaults]
@@ -1020,6 +1065,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/blobs/{hash}:
     get:
       tags: [Vaults]
@@ -1043,6 +1090,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/push:
     post:
       tags: [Vaults]
@@ -1078,6 +1127,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '409':
           $ref: '#/components/responses/Conflict'
   /api/vaults/{vault_id}/state:
@@ -1103,6 +1154,8 @@ paths:
                 $ref: '#/components/schemas/StateResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/pull:
     get:
       tags: [Vaults]
@@ -1126,6 +1179,8 @@ paths:
                 $ref: '#/components/schemas/PullResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/commits:
     get:
       tags: [Vaults]
@@ -1158,6 +1213,8 @@ paths:
                   $ref: '#/components/schemas/CommitSummary'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/history:
     get:
       tags: [Vaults]
@@ -1195,6 +1252,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/diff:
     get:
       tags: [Vaults]
@@ -1235,6 +1294,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/commits/{commit}:
     get:
       tags: [Vaults]
@@ -1259,6 +1320,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/files/{path}:
     get:
       tags: [Vaults]
@@ -1295,6 +1358,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/events:
     get:
       tags: [Vaults]
@@ -1319,6 +1384,10 @@ paths:
         not close the connection. If the server's broadcast buffer fills,
         a `lagged` event is sent — clients should respond with a full
         pull to catch up.
+
+        The server caps concurrent SSE subscriptions and limits replay after
+        `Last-Event-ID`; when replay cannot cover the requested history, a
+        `lagged` event is sent so clients can pull to catch up.
       parameters:
         - $ref: '#/components/parameters/VaultId'
       responses:
@@ -1334,6 +1403,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /git/{vault_id}/info/refs:
     get:
       tags: [Git]

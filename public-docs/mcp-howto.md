@@ -51,10 +51,15 @@ Every request must include:
 Authorization: Bearer pks_xxx
 ```
 
+MCP HTTP is fixed-window rate limited at 120 requests per 60 seconds. When the
+limit is exceeded, the server responds with HTTP `429` and a JSON-RPC error
+using code `-32029`.
+
 POST carries JSON-RPC tool calls and returns JSON responses. GET with
 `Accept: text/event-stream` subscribes to `vault_changed` notifications. Event
 ids use `<vault-id>:<commit-sha>` and can be sent back as `Last-Event-ID` to
-replay missed commits.
+replay missed commits. Replay is capped; if the server cannot cover the missed
+history, it emits `lagged` and the client should refresh from the sync API.
 
 Bind HTTP to loopback unless you put it behind trusted network controls. A
 bearer token gives read access to every vault owned by that user.

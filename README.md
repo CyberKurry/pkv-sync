@@ -85,7 +85,7 @@ Docker images are published multi-arch (`linux/amd64`, `linux/arm64`) to GHCR:
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.5.0
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.5.1
 ```
 
 ## Quick Start: Docker Compose
@@ -267,9 +267,17 @@ from the Admin panel — see the
 ## HTTP API
 
 All `/api/*` routes require the deployment key header; authenticated routes
-also require a bearer device token. See the
+also require a bearer device token. Authenticated sync API routes are
+fixed-window rate limited at 600 requests per 60 seconds per route, method,
+client IP, and bearer token. SSE clients can replay missed commits with
+`Last-Event-ID`; replay is capped and falls back to a `lagged` event when the
+client should pull to catch up.
+
+`/metrics` exposes Prometheus metrics only when the `enable_metrics` runtime
+setting is true. The route is behind the deployment key middleware and plugin
+User-Agent guard, and it requires an admin bearer token. See the
 [OpenAPI specification](./public-docs/openapi.yaml) for the full route table,
-request / response schemas, and the SSE event payload format.
+request / response schemas, metrics endpoint, and SSE event payload format.
 
 ## Operations
 

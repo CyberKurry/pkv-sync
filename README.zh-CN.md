@@ -53,7 +53,7 @@ Docker 镜像发布到 GHCR（多架构 `linux/amd64`、`linux/arm64`）：
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.5.0
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.5.1
 ```
 
 ## 快速开始：Docker Compose
@@ -193,6 +193,10 @@ pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
 ## HTTP API
 
 所有 `/api/*` 路由都要求部署密钥 header；认证路由还要求 bearer 设备 token。完整路由表、请求／响应 schema、SSE 事件 payload 格式见 [OpenAPI 规范](./public-docs/openapi.yaml)。
+
+认证同步 API 路由使用固定窗口限流：按路由、方法、客户端 IP 和 bearer 设备 token 分桶，每 60 秒最多 600 次请求。SSE 客户端可以用 `Last-Event-ID` replay 断线期间错过的 commit；replay 有上限，超出时会收到 `lagged` 事件并应主动 pull 追赶。
+
+`/metrics` 指标端点只有启用 `enable_metrics=true` 后才可用，并且仍需通过部署密钥中间件、插件 User-Agent guard 和管理员 bearer token。
 
 ## 运维
 

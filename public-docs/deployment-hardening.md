@@ -261,6 +261,21 @@ Review these from the Admin WebUI:
 Registration and login failures are rate limited. Admin-created users and CLI
 users still need strong passwords.
 
+Authenticated sync API routes are also fixed-window rate limited at 600
+requests per 60 seconds per route, method, client IP, and bearer token. Keep
+`trusted_proxies` accurate so the limiter and audit log see the real client IP.
+
+## Prometheus Metrics
+
+`/metrics` is disabled by default. When the `enable_metrics` runtime setting is
+true, the endpoint returns Prometheus text exposition and still requires every
+production gate: deployment key middleware, plugin User-Agent guard, and an
+admin bearer token.
+
+Configure scrape clients to send `X-PKVSync-Deployment-Key`, an accepted
+PKV Sync User-Agent, and `Authorization: Bearer <admin-token>`. Do not expose
+metrics to unauthenticated networks.
+
 ## Backups
 
 Back up these together:
@@ -308,9 +323,11 @@ Recommended practice:
 
 ## Activity and Logs
 
-PKV Sync records push and pull activity with user, vault, device name, file
-count, size, IP, User-Agent, details, and timestamp. Use the Admin WebUI
-activity filters to inspect users or action types.
+PKV Sync records sync, vault lifecycle, and read-only browsing activity with
+user, vault, action, device name, file count, size, IP, User-Agent, details,
+and timestamp. Vault lifecycle rows include `create_vault` and `delete_vault`
+from Admin WebUI, plugin, or API operations. Use the Admin WebUI activity
+filters to inspect users or action types.
 
 Watch application and reverse-proxy logs for repeated:
 
@@ -318,7 +335,7 @@ Watch application and reverse-proxy logs for repeated:
 - `403`: disabled account or forbidden operation
 - `404`: rejected deployment key/User-Agent in production middleware
 - `409`: sync head mismatch or duplicate resource
-- `429`: login or registration rate limit
+- `429`: login, registration, authenticated sync API, or MCP HTTP rate limit
 
 ## Release Hygiene
 
