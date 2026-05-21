@@ -1,5 +1,8 @@
 export type PluginLanguage = "auto" | "en" | "zh-CN";
 
+export const MIN_DEBOUNCE_MS = 100;
+export const MAX_DEBOUNCE_MS = 60_000;
+
 export interface PKVSyncSettings {
   language: PluginLanguage;
   timezone: string;
@@ -59,10 +62,7 @@ export function normalizeSettings(
     settings.pollIntervalSeconds,
     DEFAULT_SETTINGS.pollIntervalSeconds
   );
-  settings.debounceMs = finitePositiveNumber(
-    settings.debounceMs,
-    DEFAULT_SETTINGS.debounceMs
-  );
+  settings.debounceMs = normalizeDebounceMs(settings.debounceMs);
   if (
     !Array.isArray(settings.textExtensions) ||
     settings.textExtensions.some((ext) => typeof ext !== "string")
@@ -114,4 +114,19 @@ function finitePositiveNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? value
     : fallback;
+}
+
+export function normalizeDebounceMs(
+  value: unknown,
+  fallback = DEFAULT_SETTINGS.debounceMs
+): number {
+  const safeFallback = clampDebounceMs(
+    finitePositiveNumber(fallback, DEFAULT_SETTINGS.debounceMs)
+  );
+  if (typeof value !== "number" || !Number.isFinite(value)) return safeFallback;
+  return clampDebounceMs(value);
+}
+
+function clampDebounceMs(value: number): number {
+  return Math.min(MAX_DEBOUNCE_MS, Math.max(MIN_DEBOUNCE_MS, Math.round(value)));
 }

@@ -13,6 +13,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   historyUiAvailable,
+  normalizeDebounceMs,
   type PKVSyncSettings,
   isLoggedIn
 } from "./settings";
@@ -319,13 +320,12 @@ export default class PKVSyncPlugin extends Plugin {
       }
       // Mirror server-controlled push debounce into local settings so the
       // engine actually honours runtime tuning (Plan J Critical fix).
-      if (
-        typeof cfg.push_debounce_ms === "number" &&
-        Number.isFinite(cfg.push_debounce_ms) &&
-        cfg.push_debounce_ms > 0 &&
-        cfg.push_debounce_ms !== this.settings.debounceMs
-      ) {
-        this.settings.debounceMs = cfg.push_debounce_ms;
+      const debounceMs = normalizeDebounceMs(
+        cfg.push_debounce_ms,
+        this.settings.debounceMs
+      );
+      if (debounceMs !== this.settings.debounceMs) {
+        this.settings.debounceMs = debounceMs;
         settingsDirty = true;
       }
       if (settingsDirty) {

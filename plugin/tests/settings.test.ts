@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS,
   historyUiAvailable,
   isLoggedIn,
+  normalizeDebounceMs,
   normalizeSettings
 } from "../src/settings";
 
@@ -31,6 +32,14 @@ describe("settings", () => {
     expect(settings.debounceMs).toBe(250);
     expect(settings.lastSyncSuccessAt).toBeNull();
     expect(settings.textExtensions).toEqual(DEFAULT_SETTINGS.textExtensions);
+  });
+
+  it("clamps debounce values to a safe client range", () => {
+    expect(normalizeDebounceMs(1)).toBe(100);
+    expect(normalizeDebounceMs(99)).toBe(100);
+    expect(normalizeDebounceMs(250)).toBe(250);
+    expect(normalizeDebounceMs(120_000)).toBe(60_000);
+    expect(normalizeDebounceMs(Number.NaN, 750)).toBe(750);
   });
 
   it("isLoggedIn requires url key and token", () => {
