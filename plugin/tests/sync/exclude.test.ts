@@ -44,6 +44,11 @@ describe("isExcluded", () => {
     expect(isExcluded("file.d", ["file.[abc]"])).toBe(false);
   });
 
+  it("treats regex escapes inside char classes as literals", () => {
+    expect(isExcluded("file.d", ["file.[\\d]"])).toBe(true);
+    expect(isExcluded("file.5", ["file.[\\d]"])).toBe(false);
+  });
+
   it("skips empty glob entries", () => {
     expect(isExcluded("foo.md", ["", "  ", "\t"])).toBe(false);
   });

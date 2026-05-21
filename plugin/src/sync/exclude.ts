@@ -82,7 +82,7 @@ function globToRegex(pattern: string): string {
         result += escapeRegex(ch);
         i++;
       } else {
-        result += pattern.slice(i, end + 1);
+        result += charClassToRegex(pattern.slice(i + 1, end));
         i = end + 1;
       }
     } else {
@@ -91,6 +91,32 @@ function globToRegex(pattern: string): string {
     }
   }
   return result;
+}
+
+function charClassToRegex(content: string): string {
+  if (content.length === 0) return "\\[\\]";
+
+  let index = 0;
+  let prefix = "";
+  if ((content[0] === "!" || content[0] === "^") && content.length > 1) {
+    prefix = "^";
+    index = 1;
+  }
+
+  let body = "";
+  while (index < content.length) {
+    body += escapeCharClass(content[index], body.length === 0);
+    index++;
+  }
+
+  return `[${prefix}${body}]`;
+}
+
+function escapeCharClass(ch: string, first: boolean): string {
+  if (ch === "\\") return "\\\\";
+  if (ch === "]") return "\\]";
+  if (ch === "^" && first) return "\\^";
+  return ch;
 }
 
 function escapeRegex(ch: string): string {
