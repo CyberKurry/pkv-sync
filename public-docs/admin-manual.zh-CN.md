@@ -172,7 +172,9 @@ https://sync.example.com/k_xxx/
 
 ## 维护清单
 
-- 将 `config.toml`、`metadata.db`、`vaults/` 和 `blobs/` 放在同一备份集合中。
+- 使用 `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` 生成运维快照。输出目录必须不存在或为空；命令会用 `VACUUM INTO` 快照 SQLite，复制 `vaults/`、`blobs/` 和存在时的 `config.toml`，并写入带 pkvsyncd 版本、组件哈希、大小和数量的 `MANIFEST.json`。
+- 使用 `pkvsyncd restore --input <backup-dir> --data-dir <dir>` 恢复到不存在或为空的数据目录。只有确认目标可以先清空时才加 `--force`；恢复会先校验 manifest 哈希，复制完成后自动运行 verify。
+- 维护后或主机存储异常后运行 `pkvsyncd verify [--data-dir <dir>]`。它会检查被引用的 blob 文件，报告孤立 blob，用 `git2` 校验笔记库 git 仓库，并在缺失、损坏或 git 错误时返回失败。`--no-fail` 会保留报告但强制返回成功退出码。
 - 大量删除附件后运行 blob 垃圾回收。
 - 关注日志和活动中重复出现的 `401`、`403`、`404`、`409` 和 `429` 响应。
 - 保持服务端二进制、插件包、Docker 镜像、反向代理和主机系统及时更新。

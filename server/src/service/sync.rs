@@ -363,10 +363,14 @@ pub async fn push_with_request_metadata(
     let mut blob_hashes = Vec::new();
     let inline_max = runtime_cfg.inline_content_max_bytes as usize;
     let mut event_changes = Vec::new();
+    let mut text_changes = 0u64;
+    let mut blob_changes = 0u64;
+    let mut delete_changes = 0u64;
 
     for ch in req.changes {
         match ch {
             PushChange::Text { path, content } => {
+                text_changes += 1;
                 let p = path::normalize(&path)
                     .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
                 reject_filtered_push_path(&path_filter, &p)?;
@@ -410,6 +414,7 @@ pub async fn push_with_request_metadata(
                 size,
                 mime,
             } => {
+                blob_changes += 1;
                 let p = path::normalize(&path)
                     .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
                 reject_filtered_push_path(&path_filter, &p)?;
@@ -469,6 +474,7 @@ pub async fn push_with_request_metadata(
                 });
             }
             PushChange::Delete { path } => {
+                delete_changes += 1;
                 let p = path::normalize(&path)
                     .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
                 reject_filtered_push_path(&path_filter, &p)?;
@@ -487,6 +493,27 @@ pub async fn push_with_request_metadata(
         .commit_changes(vault_id, head.as_deref(), &git_changes, &msg)
         .await
         .map_err(git_write_error)?;
+    if text_changes > 0 {
+        state
+            .metrics
+            .push_changes_total
+            .with_label_values(&["text"])
+            .inc_by(text_changes);
+    }
+    if blob_changes > 0 {
+        state
+            .metrics
+            .push_changes_total
+            .with_label_values(&["blob"])
+            .inc_by(blob_changes);
+    }
+    if delete_changes > 0 {
+        state
+            .metrics
+            .push_changes_total
+            .with_label_values(&["delete"])
+            .inc_by(delete_changes);
+    }
     // Publish to SSE subscribers IMMEDIATELY after the commit lands in git, before
     // any of the metadata-side bookkeeping (idempotency cache write, activity log).
     // Plan J explicitly requires this ordering so subscribers do not pay for DB
@@ -914,6 +941,27 @@ async fn pull_for_user(
     added.retain(|f| path_filter.path_accepts(&f.path));
     modified.retain(|f| path_filter.path_accepts(&f.path));
     deleted.retain(|p| path_filter.path_accepts(p));
+    if !added.is_empty() {
+        state
+            .metrics
+            .pull_files_total
+            .with_label_values(&["added"])
+            .inc_by(added.len() as u64);
+    }
+    if !modified.is_empty() {
+        state
+            .metrics
+            .pull_files_total
+            .with_label_values(&["modified"])
+            .inc_by(modified.len() as u64);
+    }
+    if !deleted.is_empty() {
+        state
+            .metrics
+            .pull_files_total
+            .with_label_values(&["deleted"])
+            .inc_by(deleted.len() as u64);
+    }
     tracing::info!(
         user_id = %user_id,
         vault_id = %vault_id,

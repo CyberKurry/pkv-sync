@@ -37,7 +37,7 @@ data_dir/
   blobs/<sha256>     内容寻址的二进制 blob
 ```
 
-`metadata.db` 存储用户、笔记库、设备 token、邀请码、运行时设置、同步活动、blob 引用和幂等记录。Git 历史是版本化文件状态的事实源；blob 文件在被引用期间会保留，过宽限期后由 GC 清理。备份时请把 `config.toml`、`metadata.db`、`vaults/`、`blobs/` 放在同一个备份集合中。
+`metadata.db` 存储用户、笔记库、设备 token、邀请码、运行时设置、同步活动、blob 引用和幂等记录。Git 历史是版本化文件状态的事实源；blob 文件在被引用期间会保留，过宽限期后由 GC 清理。请用 `pkvsyncd backup` 快照数据根目录和对应的 `config.toml`。
 
 ## 发布资产
 
@@ -53,7 +53,7 @@ Docker 镜像发布到 GHCR（多架构 `linux/amd64`、`linux/arm64`）：
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.4.1
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.5.0
 ```
 
 ## 快速开始：Docker Compose
@@ -120,7 +120,7 @@ docker pull ghcr.io/cyberkurry/pkv-sync:v0.4.1
 
 **数据落在哪儿**
 
-- 服务端数据：`./data`（主机），挂到容器内 `/var/lib/pkv-sync`。备份时和 `config.toml` 一起。
+- 服务端数据：`./data`（主机），挂到容器内 `/var/lib/pkv-sync`。维护前请用 `pkvsyncd backup` 生成快照。
 - Caddy 证书：命名卷 `caddy_data`。
 - 日志：`docker compose logs pkv-sync`（默认 JSON 格式）。
 
@@ -146,11 +146,20 @@ pkvsyncd -c /etc/pkv-sync/config.toml user passwd alice
 pkvsyncd -c /etc/pkv-sync/config.toml user list
 pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
+pkvsyncd -c /etc/pkv-sync/config.toml backup --output <dir> [--data-dir <dir>] [--gzip]
+pkvsyncd -c /etc/pkv-sync/config.toml restore --input <backup-dir> --data-dir <dir> [--force]
+pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
 ```
 
 默认配置路径：`/etc/pkv-sync/config.toml`。
 
 `materialize` 会遍历某个笔记库的裸 git 树，把 blob pointer 文件展开为实际二进制内容——给 `git clone` 用户或离线检视用。
+
+`backup` 使用 `VACUUM INTO` 快照 `metadata.db`，复制 `vaults/`、`blobs/` 和存在时的 `config.toml`，并写入带 pkvsyncd 版本、组件哈希、大小和数量的 `MANIFEST.json`。对停止运行的服务数据根目录做离线检查时可用 `--data-dir`；需要单个归档文件时可用 `--gzip`。
+
+`restore` 会先检查 manifest 和组件哈希，再把数据复制回 `--data-dir` 指定的目标数据目录。目标目录非空时需要 `--force`，恢复完成后会自动运行 `verify`。
+
+`verify` 会检查被引用的 blob 文件是否存在、内容 SHA-256 是否与文件名一致，报告孤立 blob，并用 `git2` 校验笔记库 git 仓库。缺失、损坏或 git 错误会返回失败；`--no-fail` 可覆盖退出码。
 
 ## Obsidian 插件
 
@@ -185,7 +194,10 @@ pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
 
 ## 运维
 
-- 把 `config.toml`、`metadata.db`、`vaults/`、`blobs/` 一起备份。
+- 使用 `pkvsyncd backup --output /var/backups/pkv/<date>` 生成快照。
+- 定期运行 `pkvsyncd verify`，及时发现 SHA 漂移或孤立 blob。
+- 使用 `pkvsyncd restore --input /var/backups/pkv/<date> --data-dir /var/lib/pkv-sync` 从快照恢复。
+- 只有在目标数据目录可以先清空时，才对 `pkvsyncd restore` 使用 `--force`。
 - 务必跑在 HTTPS 后；把 `[network].trusted_proxies` 限制到实际代理 CIDR。
 - 关注日志里重复出现的 `401`、`403`、`409`、`429` 响应。
 - 大量删除附件后从管理面板触发 blob 垃圾回收。

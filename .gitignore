@@ -25,6 +25,7 @@ dist/
 build/
 *.tsbuildinfo
 /plugin/release/
+/plugin/coverage/
 /plugin/pkv-sync-plugin.zip
 
 *.log

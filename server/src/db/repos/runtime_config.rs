@@ -48,6 +48,7 @@ pub struct RuntimeConfig {
     pub sse_heartbeat_seconds: u64,
     pub push_debounce_ms: u32,
     pub enable_git_smart_http: bool,
+    pub enable_metrics: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -75,6 +76,7 @@ impl Default for RuntimeConfig {
             sse_heartbeat_seconds: 30,
             push_debounce_ms: 250,
             enable_git_smart_http: false,
+            enable_metrics: false,
         }
     }
 }
@@ -128,6 +130,7 @@ pub trait RuntimeConfigRepo: Send + Sync {
         value: bool,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
+    async fn set_enable_metrics(&self, value: bool, by: Option<&str>) -> Result<(), sqlx::Error>;
     async fn set_inline_content_max_bytes(
         &self,
         value: u32,
@@ -256,6 +259,11 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         if let Some(v) = read_kv(&self.pool, "enable_git_smart_http").await? {
             if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
                 cfg.enable_git_smart_http = enabled;
+            }
+        }
+        if let Some(v) = read_kv(&self.pool, "enable_metrics").await? {
+            if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
+                cfg.enable_metrics = enabled;
             }
         }
         Ok(cfg)
@@ -431,6 +439,16 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         .await
     }
 
+    async fn set_enable_metrics(&self, value: bool, by: Option<&str>) -> Result<(), sqlx::Error> {
+        write_kv(
+            &self.pool,
+            "enable_metrics",
+            &serde_json::to_string(&value).unwrap(),
+            by,
+        )
+        .await
+    }
+
     async fn set_inline_content_max_bytes(
         &self,
         value: u32,
@@ -531,6 +549,7 @@ mod tests {
                 sse_heartbeat_seconds: 30,
                 push_debounce_ms: 250,
                 enable_git_smart_http: false,
+                enable_metrics: false,
             })
             .await;
         let snap2 = cache.snapshot().await;

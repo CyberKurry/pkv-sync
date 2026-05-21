@@ -56,6 +56,21 @@ jobs:
       - name: Test
         run: cargo test -p pkv-sync-server
 
+      - name: Install cargo-tarpaulin
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Rust coverage
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo tarpaulin -p pkv-sync-server --out Json --output-dir target/tarpaulin
+
+      - name: Upload Rust coverage
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: target/tarpaulin/tarpaulin-report.json
+
   plugin:
     name: Plugin checks
     runs-on: ubuntu-latest
@@ -76,6 +91,15 @@ jobs:
 
       - name: Test plugin
         run: npm --prefix plugin test
+
+      - name: Plugin coverage
+        run: npm --prefix plugin test -- --coverage
+
+      - name: Upload plugin coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-coverage
+          path: plugin/coverage/coverage-summary.json
 
       - name: Typecheck plugin
         run: npm --prefix plugin run typecheck
@@ -99,6 +123,37 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t pkv-sync:test .
+
+  coverage:
+    name: Coverage gate
+    runs-on: ubuntu-latest
+    needs:
+      - rust
+      - plugin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Rust coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-coverage
+          path: coverage-input/rust
+
+      - name: Download plugin coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-coverage
+          path: coverage-input/plugin
+
+      - name: Check coverage
+        run: |
+          python scripts/coverage_gate.py \
+            --baseline public-docs/COVERAGE.md \
+            --tarpaulin-json coverage-input/rust/tarpaulin-report.json \
+            --plugin-summary coverage-input/plugin/coverage-summary.json \
+            --max-drop 5.0
 
   release-smoke:
     name: Release binary smoke (${{ matrix.os }})

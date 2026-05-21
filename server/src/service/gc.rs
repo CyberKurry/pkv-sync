@@ -11,6 +11,7 @@ pub struct GcReport {
     pub deleted: usize,
     pub kept_referenced: usize,
     pub candidates: usize,
+    pub freed_bytes: u64,
 }
 
 const DEFAULT_GRACE_SECONDS: u64 = 7 * 24 * 60 * 60;
@@ -33,6 +34,7 @@ pub async fn run_blob_gc_with_grace(
     let grace = Duration::from_secs(grace_seconds);
     let mut deleted = 0;
     let mut candidates = 0;
+    let mut freed_bytes = 0u64;
     for (hash, mtime) in on_disk.iter() {
         if refs.contains(hash) {
             continue;
@@ -42,18 +44,37 @@ pub async fn run_blob_gc_with_grace(
         if age < grace {
             continue;
         }
+        let file_size = store
+            .get(hash)
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?
+            .map(|bytes| bytes.len() as u64)
+            .unwrap_or(0);
         if store
             .delete(hash)
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?
         {
             deleted += 1;
+            freed_bytes = freed_bytes.saturating_add(file_size);
         }
+    }
+    state
+        .metrics
+        .blob_gc_last_run_unix_seconds
+        .set(chrono::Utc::now().timestamp());
+    if freed_bytes > 0 {
+        state
+            .metrics
+            .blob_gc_freed_bytes_total
+            .with_label_values(&["gc"])
+            .inc_by(freed_bytes);
     }
     Ok(GcReport {
         deleted,
         candidates,
         kept_referenced: refs.len(),
+        freed_bytes,
     })
 }
 
@@ -136,6 +157,7 @@ mod tests {
 
         let report = run_blob_gc_with_grace(&state, 0).await.unwrap();
         assert_eq!(report.deleted, 1);
+        assert_eq!(report.freed_bytes, b"old orphan".len() as u64);
         assert!(!store.has(&hash).await.unwrap());
     }
 }

@@ -7,6 +7,29 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-21
+
+### Added
+
+- Prometheus `/metrics` endpoint gated by the `enable_metrics` runtime setting
+  and deployment key, with counters and gauges for HTTP traffic, sync activity,
+  SSE subscribers, token/vault totals, repository size, and blob GC activity.
+- Grafana dashboard template for the PKV Sync metrics surface under
+  `deploy/grafana/`.
+- `pkvsyncd backup`, `pkvsyncd restore`, and `pkvsyncd verify` operator CLI
+  subcommands for consistent snapshots, restore validation, blob hash checks,
+  orphan blob reporting, and git repository verification.
+- Rust and plugin coverage reporting in CI, with an Ubuntu-only tarpaulin run,
+  Vitest V8 coverage, public coverage baselines, uploaded artifacts, and a
+  no-regression gate that allows at most a 5 percentage point drop.
+
+### Changed
+
+- Documentation now recommends the operational backup, restore, and verify CLI
+  flow instead of manual data-directory copies.
+- Obsidian SSE handling now keeps Last-Event-ID state inside the fetch event
+  client and reconnects automatically with exponential backoff.
+
 ## [0.4.1] - 2026-05-20
 
 ### Fixed

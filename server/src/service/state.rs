@@ -4,6 +4,7 @@ use crate::db::repos::{
     SqliteTokenRepo, SqliteUserRepo, SqliteVaultRepo, SqliteVaultSettingsRepo,
 };
 use crate::service::events::VaultEventBus;
+use crate::service::metrics::Metrics;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -30,6 +31,7 @@ pub struct AppState {
     /// Default server name override from config.toml, used as fallback.
     pub default_server_name: String,
     pub events: VaultEventBus,
+    pub metrics: Arc<Metrics>,
     pub git_available: bool,
     push_locks: VaultPushLocks,
 }
@@ -56,7 +58,7 @@ impl AppState {
             cfg.server_name = default_server_name.clone();
         }
         let runtime_cfg = RuntimeConfigCache::new(cfg);
-        Ok(Self {
+        let state = Self {
             pool,
             data_dir,
             users,
@@ -72,9 +74,12 @@ impl AppState {
             runtime_cfg,
             default_server_name,
             events: VaultEventBus::new(64),
+            metrics: Metrics::new(),
             git_available,
             push_locks: Arc::new(Mutex::new(HashMap::new())),
-        })
+        };
+        state.spawn_metrics_refresh_task();
+        Ok(state)
     }
 
     pub fn default_blob_root(&self) -> std::path::PathBuf {
@@ -97,10 +102,65 @@ impl AppState {
         self.push_locks.lock().await.remove(vault_id);
     }
 
+    pub async fn refresh_metrics_gauges(&self) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
+        let (active_tokens,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM tokens WHERE revoked_at IS NULL AND expires_at > ?",
+        )
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await?;
+        let (vaults_total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM vaults")
+            .fetch_one(&self.pool)
+            .await?;
+        let (blobs_total,): (i64,) =
+            sqlx::query_as("SELECT COUNT(DISTINCT blob_hash) FROM blob_refs")
+                .fetch_one(&self.pool)
+                .await?;
+        self.metrics.active_tokens.set(active_tokens);
+        self.metrics.vaults_total.set(vaults_total);
+        self.metrics.blobs_total.set(blobs_total);
+        let vault_root = self.default_vault_root();
+        match tokio::task::spawn_blocking(move || directory_size_bytes(&vault_root)).await {
+            Ok(Ok(bytes)) => self.metrics.git_repo_size_bytes.set(bytes as f64),
+            Ok(Err(err)) => tracing::debug!(error = %err, "failed to refresh git repo size metric"),
+            Err(err) => tracing::debug!(error = %err, "git repo size metric task failed"),
+        }
+        Ok(())
+    }
+
+    fn spawn_metrics_refresh_task(&self) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                if let Err(err) = state.refresh_metrics_gauges().await {
+                    tracing::debug!(error = %err, "failed to refresh metrics gauges");
+                }
+                interval.tick().await;
+            }
+        });
+    }
+
     #[cfg(test)]
     pub async fn vault_push_lock_count_for_tests(&self) -> usize {
         self.push_locks.lock().await.len()
     }
+}
+
+fn directory_size_bytes(root: &std::path::Path) -> std::io::Result<u64> {
+    if !root.exists() {
+        return Ok(0);
+    }
+    let mut total = 0u64;
+    for entry in walkdir::WalkDir::new(root) {
+        let entry = entry?;
+        if entry.file_type().is_file() {
+            total = total.saturating_add(entry.metadata()?.len());
+        }
+    }
+    Ok(total)
 }
 
 #[cfg(test)]

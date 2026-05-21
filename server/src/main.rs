@@ -120,6 +120,42 @@ fn main() -> anyhow::Result<()> {
             pkv_sync_server::logging::init_with_config(&cfg.logging);
             pkv_sync_server::cli::materialize::run(&cfg, &vault_id, &output, at.as_deref())?;
         }
+        Command::Backup {
+            data_dir,
+            output,
+            gzip,
+        } => {
+            let mut cfg = Config::load(&cli.config)?;
+            if let Some(data_dir) = data_dir {
+                cfg.storage.data_dir = data_dir.clone();
+                cfg.storage.db_path = data_dir.join("metadata.db");
+            }
+            pkv_sync_server::logging::init_with_config(&cfg.logging);
+            pkv_sync_server::cli::backup::run(&cfg, Some(&cli.config), &output, gzip)?;
+        }
+        Command::Restore {
+            input,
+            data_dir,
+            force,
+        } => {
+            pkv_sync_server::logging::init();
+            let target =
+                data_dir.ok_or_else(|| anyhow::anyhow!("--data-dir is required for restore"))?;
+            pkv_sync_server::cli::restore::run(&input, &target, force)?;
+        }
+        Command::Verify { data_dir, no_fail } => {
+            let mut cfg = Config::load(&cli.config)?;
+            if let Some(data_dir) = data_dir {
+                cfg.storage.data_dir = data_dir.clone();
+                cfg.storage.db_path = data_dir.join("metadata.db");
+            }
+            pkv_sync_server::logging::init_with_config(&cfg.logging);
+            let report = pkv_sync_server::cli::verify::run(&cfg, no_fail)?;
+            report.print();
+            if !report.should_exit_success(no_fail) {
+                anyhow::bail!("verification failed");
+            }
+        }
         Command::Mcp {
             transport,
             vault,

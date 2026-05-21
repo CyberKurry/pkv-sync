@@ -66,9 +66,9 @@ describe("SyncEngine serialization", () => {
     };
   }
 
-  it("reconnects SSE after a subscription error using backoff", async () => {
-    vi.useFakeTimers();
+  it("delegates SSE reconnects to the events client", async () => {
     subscribeVaultEventsMock.mockReturnValue(vi.fn());
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const engine = new SyncEngine({
       ...baseEngineOptions(),
@@ -87,14 +87,13 @@ describe("SyncEngine serialization", () => {
       | undefined;
     firstSubscribe?.onError(new Error("network down"));
 
-    await vi.advanceTimersByTimeAsync(999);
     expect(subscribeVaultEventsMock).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(1);
-    expect(subscribeVaultEventsMock).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(
+      "[pkv-sync] SSE event stream error; automatic reconnect will continue:",
+      expect.any(Error)
+    );
 
     engine.stopEventSubscription();
-    vi.useRealTimers();
   });
 
   it("coalesces concurrent syncNow calls into one sync pass", async () => {

@@ -5,7 +5,7 @@ use crate::db::repos::{NewUser, UserRepo};
 use crate::middleware::{deployment_key, real_ip, request_id, ua_filter};
 use crate::service::AppState;
 use crate::{admin, api};
-use axum::extract::Request;
+use axum::extract::{MatchedPath, Request, State};
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::Router;
@@ -47,6 +47,7 @@ pub fn format_share_url(
 pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Router {
     let trusted = real_ip::TrustedProxies::from_vec(cfg.network.trusted_proxies.clone());
     let dep_key = deployment_key::DeploymentKey::new(cfg.server.deployment_key.clone());
+    let metrics_state = state.clone();
 
     let api_routes = api::router()
         .layer(axum::middleware::from_fn_with_state(
@@ -66,7 +67,10 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
         .merge(api_routes)
         .merge(admin_routes)
         .with_state(state)
-        .layer(axum::middleware::from_fn(access_log_middleware))
+        .layer(axum::middleware::from_fn_with_state(
+            metrics_state,
+            access_log_middleware,
+        ))
         .layer(axum::extract::Extension(limiter))
         .layer(axum::middleware::from_fn_with_state(
             trusted,
@@ -75,9 +79,18 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
         .layer(axum::middleware::from_fn(request_id::middleware))
 }
 
-async fn access_log_middleware(req: Request, next: Next) -> Response {
+async fn access_log_middleware(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+    let route = req
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|matched| matched.as_str().to_string())
+        .unwrap_or_else(|| path.clone());
     let request_id = req
         .headers()
         .get(request_id::HEADER)
@@ -90,7 +103,20 @@ async fn access_log_middleware(req: Request, next: Next) -> Response {
     let started = Instant::now();
     let response = next.run(req).await;
     let status = response.status().as_u16();
-    let latency_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let latency = started.elapsed().as_secs_f64();
+    let latency_ms = latency * 1000.0;
+    let code = status.to_string();
+    let method_for_metrics = method.as_str().to_string();
+    state
+        .metrics
+        .http_requests_total
+        .with_label_values(&[&route, &method_for_metrics, &code])
+        .inc();
+    state
+        .metrics
+        .http_request_duration_seconds
+        .with_label_values(&[&route, &method_for_metrics])
+        .observe(latency);
 
     if status >= 500 {
         tracing::error!(

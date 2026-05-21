@@ -419,6 +419,7 @@ async fn events(
     };
 
     let receiver = state.events.subscribe(&id);
+    let sse_guard = SseSubscriberGuard::new(state.metrics.clone());
     let replay_stream = tokio_stream::iter(replay_events.into_iter().filter_map(|event| {
         let id = event.commit.clone();
         Some(Ok::<Event, Infallible>(
@@ -439,7 +440,13 @@ async fn events(
         )),
         Err(_lagged) => Some(Ok(Event::default().event("lagged").data(""))),
     });
-    let stream = replay_stream.chain(live_stream);
+    let stream = {
+        let guard = sse_guard;
+        replay_stream.chain(live_stream).map(move |item| {
+            let _keep_alive = &guard;
+            item
+        })
+    };
 
     let heartbeat = state
         .runtime_cfg
@@ -478,6 +485,23 @@ async fn events(
         .await;
 
     Ok(response)
+}
+
+struct SseSubscriberGuard {
+    metrics: std::sync::Arc<crate::service::metrics::Metrics>,
+}
+
+impl SseSubscriberGuard {
+    fn new(metrics: std::sync::Arc<crate::service::metrics::Metrics>) -> Self {
+        metrics.sse_subscribers.inc();
+        Self { metrics }
+    }
+}
+
+impl Drop for SseSubscriberGuard {
+    fn drop(&mut self) {
+        self.metrics.sse_subscribers.dec();
+    }
 }
 
 fn request_metadata_parts(

@@ -68,8 +68,8 @@ data_dir/
 `metadata.db` tracks users, vaults, device tokens, invites, runtime settings,
 sync activity, blob references, and idempotency records. Per-vault Git history
 is the source of truth for versioned file state; blob files are retained while
-referenced and cleaned by garbage collection after the grace period. Back up
-`config.toml`, `metadata.db`, `vaults/`, and `blobs/` together.
+referenced and cleaned by garbage collection after the grace period. Use
+`pkvsyncd backup` to snapshot the data root and matching `config.toml`.
 
 ## Release Assets
 
@@ -85,7 +85,7 @@ Docker images are published multi-arch (`linux/amd64`, `linux/arm64`) to GHCR:
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.4.1
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.5.0
 ```
 
 ## Quick Start: Docker Compose
@@ -162,7 +162,7 @@ validation and HTTP→HTTPS redirects).
 **Where things live**
 
 - Server data: `./data` on the host, bind-mounted to `/var/lib/pkv-sync` in
-  the container. Back this up along with `config.toml`.
+  the container. Snapshot it with `pkvsyncd backup` before maintenance.
 - Caddy certificates: `caddy_data` named volume.
 - Logs: `docker compose logs pkv-sync` (JSON formatted by default).
 
@@ -193,6 +193,9 @@ pkvsyncd -c /etc/pkv-sync/config.toml user passwd alice
 pkvsyncd -c /etc/pkv-sync/config.toml user list
 pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
+pkvsyncd -c /etc/pkv-sync/config.toml backup --output <dir> [--data-dir <dir>] [--gzip]
+pkvsyncd -c /etc/pkv-sync/config.toml restore --input <backup-dir> --data-dir <dir> [--force]
+pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
 ```
 
 Default config path: `/etc/pkv-sync/config.toml`.
@@ -200,6 +203,20 @@ Default config path: `/etc/pkv-sync/config.toml`.
 `materialize` walks a vault's bare git tree and resolves blob pointer files
 into the actual binary content — useful for `git clone` users or offline
 inspection.
+
+`backup` snapshots `metadata.db` with `VACUUM INTO`, copies `vaults/`,
+`blobs/`, and `config.toml` when present, and writes a `MANIFEST.json` with
+the pkvsyncd version plus component hashes, sizes, and counts. Use `--data-dir`
+for offline checks against a stopped server's data root, and `--gzip` when a
+single archive is more convenient than a directory.
+
+`restore` checks the manifest and component hashes before copying data back
+into the `--data-dir` target. Use `--force` to clear a non-empty target first,
+then it runs `verify` on the restored tree.
+
+`verify` checks referenced blob files against their SHA-256 names, reports
+orphan blobs, and validates vault git repositories with `git2`. It exits
+non-zero on missing, corrupt, or git errors unless `--no-fail` is set.
 
 ## Obsidian Plugin
 
@@ -251,7 +268,12 @@ request / response schemas, and the SSE event payload format.
 
 ## Operations
 
-- Back up `config.toml`, `metadata.db`, `vaults/`, and `blobs/` together.
+- Snapshot with `pkvsyncd backup --output /var/backups/pkv/<date>`.
+- Periodically run `pkvsyncd verify` to catch SHA drift or orphan blobs.
+- Restore with `pkvsyncd restore --input /var/backups/pkv/<date> --data-dir
+  /var/lib/pkv-sync`.
+- Use `pkvsyncd restore --force` only when the destination data directory can
+  be cleared first.
 - Run behind HTTPS; restrict `[network].trusted_proxies` to the actual proxy
   CIDRs.
 - Watch logs for repeated `401`, `403`, `409`, and `429` responses.

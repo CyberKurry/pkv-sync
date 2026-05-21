@@ -222,8 +222,19 @@ key used as the first pre-authentication gate for plugin API traffic.
 
 ## Maintenance Checklist
 
-- Keep `config.toml`, `metadata.db`, `vaults/`, and `blobs/` in the same backup
-  set.
+- Use `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` for
+  operational snapshots. The output directory must be absent or empty; the
+  command snapshots SQLite with `VACUUM INTO`, copies `vaults/`, `blobs/`, and
+  `config.toml` when present, and writes `MANIFEST.json` with the pkvsyncd
+  version plus component hashes, sizes, and counts.
+- Use `pkvsyncd restore --input <backup-dir> --data-dir <dir>` to restore into
+  an absent or empty data directory. Add `--force` only when the target may be
+  cleared first; restore checks manifest hashes before copying and runs verify
+  afterward.
+- Use `pkvsyncd verify [--data-dir <dir>]` after maintenance or host storage
+  incidents. It checks referenced blob files, reports orphan blobs, validates
+  vault git repos with `git2`, and exits non-zero for missing, corrupt, or git
+  errors. `--no-fail` keeps the report but forces a success exit code.
 - Run blob garbage collection after large attachment deletions.
 - Watch logs and activity for repeated `401`, `403`, `404`, `409`, and `429`
   responses.

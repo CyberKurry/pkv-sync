@@ -1761,6 +1761,7 @@ struct SettingsForm {
     enable_history_ui: Option<String>,
     enable_diff_endpoint: Option<String>,
     enable_git_smart_http: Option<String>,
+    enable_metrics: Option<String>,
     extra_exclude_globs: String,
     sse_heartbeat_seconds: u64,
     push_debounce_ms: u32,
@@ -1935,6 +1936,10 @@ async fn settings_post(
     state
         .runtime_cfg_repo
         .set_enable_git_smart_http(form.enable_git_smart_http.is_some(), Some(&session.user.id))
+        .await?;
+    state
+        .runtime_cfg_repo
+        .set_enable_metrics(form.enable_metrics.is_some(), Some(&session.user.id))
         .await?;
     state
         .runtime_cfg_repo

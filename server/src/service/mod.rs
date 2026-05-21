@@ -5,6 +5,7 @@ pub mod events;
 pub mod exclude;
 pub mod gc;
 pub mod history;
+pub mod metrics;
 pub mod state;
 pub mod sync;
 pub mod vault;

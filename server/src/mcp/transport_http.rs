@@ -92,27 +92,16 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
         }
     };
     let replay_events = match mcp_last_event_id(&headers) {
-        Some((vault_id, commit)) if vaults.iter().any(|vault| vault.id == vault_id) => {
-            match crate::service::events::replay_events_after(
-                state.default_vault_root(),
-                &vault_id,
-                &commit,
-            )
-            .await
-            {
-                Ok(events) => events
-                    .into_iter()
-                    .map(|event| (vault_id.clone(), event))
-                    .collect::<Vec<_>>(),
-                Err(err) => {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(jsonrpc_error(Value::Null, -32603, &err.to_string())),
-                    )
-                        .into_response();
-                }
+        Some(commit) => match mcp_replay_events_after(&state, &vaults, &commit).await {
+            Ok(events) => events,
+            Err(err) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(jsonrpc_error(Value::Null, -32603, &err.to_string())),
+                )
+                    .into_response();
             }
-        }
+        },
         _ => Vec::new(),
     };
     let mut streams = tokio_stream::StreamMap::new();
@@ -124,18 +113,18 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
         );
     }
     let replay_stream =
-        tokio_stream::iter(replay_events.into_iter().filter_map(|(vault_id, event)| {
+        tokio_stream::iter(replay_events.into_iter().filter_map(|(_vault_id, event)| {
             let commit = event.commit.clone();
             let notification = crate::mcp::notifications::vault_changed(commit.clone(), event);
             let data = serde_json::to_string(&notification).ok()?;
             Some(Ok::<Event, Infallible>(
                 Event::default()
                     .event("vault_changed")
-                    .id(format!("{vault_id}:{commit}"))
+                    .id(commit)
                     .data(data),
             ))
         }));
-    let live_stream = streams.filter_map(|(vault_id, event)| {
+    let live_stream = streams.filter_map(|(_vault_id, event)| {
         event.ok().and_then(|event| {
             let commit = event.commit.clone();
             let notification = crate::mcp::notifications::vault_changed(commit.clone(), event);
@@ -143,7 +132,7 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
             Some(Ok::<Event, Infallible>(
                 Event::default()
                     .event("vault_changed")
-                    .id(format!("{vault_id}:{commit}"))
+                    .id(commit)
                     .data(data),
             ))
         })
@@ -154,16 +143,37 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
         .into_response()
 }
 
-fn mcp_last_event_id(headers: &HeaderMap) -> Option<(String, String)> {
+async fn mcp_replay_events_after(
+    state: &AppState,
+    vaults: &[crate::db::repos::Vault],
+    commit: &str,
+) -> anyhow::Result<Vec<(String, crate::service::events::VaultEvent)>> {
+    for vault in vaults {
+        let events = crate::service::events::replay_events_after(
+            state.default_vault_root(),
+            &vault.id,
+            commit,
+        )
+        .await?;
+        if !events.is_empty() {
+            return Ok(events
+                .into_iter()
+                .map(|event| (vault.id.clone(), event))
+                .collect());
+        }
+    }
+    Ok(Vec::new())
+}
+
+fn mcp_last_event_id(headers: &HeaderMap) -> Option<String> {
     let raw = headers
         .get("last-event-id")
         .and_then(|value| value.to_str().ok())?
         .trim();
-    let (vault_id, commit) = raw.split_once(':')?;
-    if vault_id.is_empty() || commit.is_empty() {
+    if raw.is_empty() || raw.contains(':') {
         return None;
     }
-    Some((vault_id.to_string(), commit.to_string()))
+    Some(raw.to_string())
 }
 
 fn bearer(headers: &HeaderMap) -> Option<&str> {

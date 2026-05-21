@@ -1,4 +1,7 @@
+pub mod backup;
 pub mod materialize;
+pub mod restore;
+pub mod verify;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -45,6 +48,39 @@ pub enum Command {
         /// Specific commit SHA to materialize (default: HEAD)
         #[arg(long)]
         at: Option<String>,
+    },
+    /// Snapshot server data into a portable backup directory.
+    Backup {
+        /// Data directory override for offline operations
+        #[arg(long)]
+        data_dir: Option<std::path::PathBuf>,
+        /// Backup output directory (must not exist or be empty)
+        #[arg(short, long)]
+        output: std::path::PathBuf,
+        /// Also create a .tar.gz archive next to the backup directory
+        #[arg(long)]
+        gzip: bool,
+    },
+    /// Restore a backup directory into a data directory.
+    Restore {
+        /// Backup directory containing MANIFEST.json
+        #[arg(short, long)]
+        input: std::path::PathBuf,
+        /// Target data directory override
+        #[arg(long)]
+        data_dir: Option<std::path::PathBuf>,
+        /// Clear a non-empty data directory before restoring
+        #[arg(long)]
+        force: bool,
+    },
+    /// Verify vault git repositories and content-addressed blobs.
+    Verify {
+        /// Data directory override for offline operations
+        #[arg(long)]
+        data_dir: Option<std::path::PathBuf>,
+        /// Return success even when verification finds errors
+        #[arg(long)]
+        no_fail: bool,
     },
     /// Start the read-only MCP server.
     Mcp {
@@ -186,6 +222,72 @@ mod tests {
                 assert_eq!(vault_id, "vault1");
                 assert_eq!(output, PathBuf::from("/tmp/out"));
                 assert_eq!(at.as_deref(), Some("abc123"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_backup() {
+        let cli = Cli::try_parse_from([
+            "pkvsyncd",
+            "backup",
+            "--data-dir",
+            "/tmp/data",
+            "--output",
+            "/tmp/backup",
+            "--gzip",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Backup {
+                data_dir,
+                output,
+                gzip,
+            } => {
+                assert_eq!(data_dir, Some(PathBuf::from("/tmp/data")));
+                assert_eq!(output, PathBuf::from("/tmp/backup"));
+                assert!(gzip);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_restore_with_force() {
+        let cli = Cli::try_parse_from([
+            "pkvsyncd",
+            "restore",
+            "--input",
+            "/tmp/backup",
+            "--data-dir",
+            "/tmp/data",
+            "--force",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Restore {
+                input,
+                data_dir,
+                force,
+            } => {
+                assert_eq!(input, PathBuf::from("/tmp/backup"));
+                assert_eq!(data_dir, Some(PathBuf::from("/tmp/data")));
+                assert!(force);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_verify_no_fail() {
+        let cli =
+            Cli::try_parse_from(["pkvsyncd", "verify", "--data-dir", "/tmp/data", "--no-fail"])
+                .unwrap();
+        match cli.command {
+            Command::Verify { data_dir, no_fail } => {
+                assert_eq!(data_dir, Some(PathBuf::from("/tmp/data")));
+                assert!(no_fail);
             }
             _ => panic!("wrong variant"),
         }

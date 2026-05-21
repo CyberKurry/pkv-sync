@@ -1,0 +1,22 @@
+# PKV Sync 覆盖率基线
+
+[English](./COVERAGE.md) | 简体中文
+
+本页记录 Rust 服务端和 Obsidian 插件的 CI 覆盖率基线。CI 会把最新覆盖率报告与此表对比；任一组件的下降幅度超过允许阈值时，检查会失败。
+
+Rust 覆盖率只在 Ubuntu CI runner 上通过 `cargo tarpaulin` 生成。不要把 Windows 本地 tarpaulin 输出提升为该基线。门禁允许每个组件最多下降 5.0 个百分点。
+
+| 组件 | 报告来源 | 基线 |
+| --- | --- | ---: |
+| Rust 服务端 | 在 `ubuntu-latest` 上运行 `cargo tarpaulin -p pkv-sync-server --out Json` | 0.00% |
+| Obsidian 插件 | `vitest run --coverage` | 62.86% |
+
+## 策略
+
+- PR 不应让已跟踪组件相对本基线下降超过 5.0 个百分点；确需调整时，必须提交明确的基线更新。
+- 新增 Rust 或插件模块应至少有 60% 行覆盖率；主要由生成代码、UI 连接层或 CI 无法运行的平台集成组成的模块除外。
+- Rust 服务端基线是启动值，需等第一份 Ubuntu tarpaulin artifact 审阅后再提交真实基线。不要使用 Windows 本地 tarpaulin 输出更新该值。
+- 主要 release 边界应重新计算基线。大规模重构导致代码在模块间迁移时，应在同一提交中同步更新本文档和覆盖率门禁预期。
+- 豁免必须在本文档或引入该豁免的 release notes 中明确说明。
+
+覆盖率门禁以英文文档 `public-docs/COVERAGE.md` 作为跟踪的事实来源。每次修改该表时，请同步更新本中文镜像。

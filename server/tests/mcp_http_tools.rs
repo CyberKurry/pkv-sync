@@ -298,10 +298,7 @@ async fn http_mcp_sse_replays_after_last_event_id() {
         .get(format!("http://{addr}/mcp"))
         .bearer_auth(&raw)
         .header("accept", "text/event-stream")
-        .header(
-            "last-event-id",
-            format!("{}:{}", vault.id, first.new_commit),
-        )
+        .header("last-event-id", &first.new_commit)
         .send()
         .await
         .unwrap();
@@ -309,7 +306,7 @@ async fn http_mcp_sse_replays_after_last_event_id() {
     let body = read_until(
         resp,
         &[
-            &format!("id: {}:{}", vault.id, second.new_commit),
+            &format!("id: {}", second.new_commit),
             "notifications/vault_changed",
             "b.md",
         ],
@@ -319,7 +316,7 @@ async fn http_mcp_sse_replays_after_last_event_id() {
     drop(tmp);
 
     assert!(
-        body.contains(&format!("id: {}:{}", vault.id, second.new_commit)),
+        body.contains(&format!("id: {}", second.new_commit)),
         "expected replayed MCP SSE id, got: {body}"
     );
     assert!(
