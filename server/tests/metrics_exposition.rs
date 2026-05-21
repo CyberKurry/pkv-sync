@@ -1,6 +1,6 @@
 use axum::body::Body;
 use axum::extract::ConnectInfo;
-use axum::http::{header, Method, Request, StatusCode};
+use axum::http::{header, HeaderValue, Method, Request, StatusCode};
 use axum::Router;
 use ipnet::IpNet;
 use pkv_sync_server::auth::LoginRateLimiter;
@@ -50,6 +50,30 @@ async fn test_app() -> (Router, AppState, String) {
     (server::build_app(state.clone(), &cfg, limiter), state, key)
 }
 
+async fn create_token(state: &AppState, username: &str, is_admin: bool) -> String {
+    let user = state
+        .users
+        .create(NewUser {
+            username: username.into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin,
+        })
+        .await
+        .unwrap();
+    let raw = token::generate();
+    state
+        .tokens
+        .create(NewToken {
+            user_id: &user.id,
+            token_hash: &token::hash(&raw),
+            device_id: &format!("{username}-device"),
+            device_name: username,
+        })
+        .await
+        .unwrap();
+    raw
+}
+
 fn request(uri: &str, key: Option<&str>) -> Request<Body> {
     let mut builder = Request::builder()
         .method(Method::GET)
@@ -62,6 +86,15 @@ fn request(uri: &str, key: Option<&str>) -> Request<Body> {
     req.extensions_mut().insert(ConnectInfo(
         "127.0.0.1:50000".parse::<SocketAddr>().unwrap(),
     ));
+    req
+}
+
+fn authenticated_request(uri: &str, key: &str, raw: &str) -> Request<Body> {
+    let mut req = request(uri, Some(key));
+    req.headers_mut().insert(
+        header::AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {raw}")).unwrap(),
+    );
     req
 }
 
@@ -89,9 +122,13 @@ async fn metrics_registry_encodes_expected_metric_names() {
 
 #[tokio::test]
 async fn metrics_endpoint_is_disabled_by_default() {
-    let (app, _state, key) = test_app().await;
+    let (app, state, key) = test_app().await;
+    let admin_raw = create_token(&state, "metrics-disabled-admin", true).await;
 
-    let resp = app.oneshot(request("/metrics", Some(&key))).await.unwrap();
+    let resp = app
+        .oneshot(authenticated_request("/metrics", &key, &admin_raw))
+        .await
+        .unwrap();
 
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
@@ -113,6 +150,32 @@ async fn metrics_endpoint_requires_deployment_key() {
 }
 
 #[tokio::test]
+async fn metrics_endpoint_requires_admin_token_when_enabled() {
+    let (app, state, key) = test_app().await;
+    state
+        .runtime_cfg_repo
+        .set_enable_metrics(true, None)
+        .await
+        .unwrap();
+    let cfg = state.runtime_cfg_repo.load().await.unwrap();
+    state.runtime_cfg.replace(cfg).await;
+    let user_raw = create_token(&state, "metrics-user", false).await;
+
+    let missing = app
+        .clone()
+        .oneshot(request("/metrics", Some(&key)))
+        .await
+        .unwrap();
+    let forbidden = app
+        .oneshot(authenticated_request("/metrics", &key, &user_raw))
+        .await
+        .unwrap();
+
+    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn metrics_endpoint_scrapes_text_exposition_when_enabled() {
     let (app, state, key) = test_app().await;
     state
@@ -122,8 +185,12 @@ async fn metrics_endpoint_scrapes_text_exposition_when_enabled() {
         .unwrap();
     let cfg = state.runtime_cfg_repo.load().await.unwrap();
     state.runtime_cfg.replace(cfg).await;
+    let admin_raw = create_token(&state, "metrics-admin", true).await;
 
-    let resp = app.oneshot(request("/metrics", Some(&key))).await.unwrap();
+    let resp = app
+        .oneshot(authenticated_request("/metrics", &key, &admin_raw))
+        .await
+        .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
     let content_type = resp
@@ -153,6 +220,7 @@ async fn metrics_endpoint_reports_http_request_counters() {
         .unwrap();
     let cfg = state.runtime_cfg_repo.load().await.unwrap();
     state.runtime_cfg.replace(cfg).await;
+    let admin_raw = create_token(&state, "metrics-counter-admin", true).await;
 
     let health = app
         .clone()
@@ -160,7 +228,10 @@ async fn metrics_endpoint_reports_http_request_counters() {
         .await
         .unwrap();
     assert_eq!(health.status(), StatusCode::OK);
-    let resp = app.oneshot(request("/metrics", Some(&key))).await.unwrap();
+    let resp = app
+        .oneshot(authenticated_request("/metrics", &key, &admin_raw))
+        .await
+        .unwrap();
     let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
         .await
         .unwrap();
@@ -184,6 +255,7 @@ async fn metrics_endpoint_reports_nonzero_push_counters() {
         .unwrap();
     let cfg = state.runtime_cfg_repo.load().await.unwrap();
     state.runtime_cfg.replace(cfg).await;
+    let admin_raw = create_token(&state, "metrics-push-admin", true).await;
     let user = state
         .users
         .create(NewUser {
@@ -230,7 +302,10 @@ async fn metrics_endpoint_reports_nonzero_push_counters() {
     .await
     .unwrap();
 
-    let resp = app.oneshot(request("/metrics", Some(&key))).await.unwrap();
+    let resp = app
+        .oneshot(authenticated_request("/metrics", &key, &admin_raw))
+        .await
+        .unwrap();
     let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
         .await
         .unwrap();
@@ -252,6 +327,7 @@ async fn metrics_endpoint_reports_nonzero_pull_counters() {
         .unwrap();
     let cfg = state.runtime_cfg_repo.load().await.unwrap();
     state.runtime_cfg.replace(cfg).await;
+    let admin_raw = create_token(&state, "metrics-pull-admin", true).await;
     let user = state
         .users
         .create(NewUser {
@@ -300,7 +376,10 @@ async fn metrics_endpoint_reports_nonzero_pull_counters() {
     let pulled = sync::pull(&state, &user.id, &vault.id, None).await.unwrap();
     assert_eq!(pulled.added.len(), 1);
 
-    let resp = app.oneshot(request("/metrics", Some(&key))).await.unwrap();
+    let resp = app
+        .oneshot(authenticated_request("/metrics", &key, &admin_raw))
+        .await
+        .unwrap();
     let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
         .await
         .unwrap();

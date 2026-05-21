@@ -1,11 +1,15 @@
 use crate::api::error::ApiError;
+use crate::auth::AdminUser;
 use crate::service::AppState;
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::{header, HeaderValue};
 use axum::response::Response;
 
-pub async fn metrics(State(state): State<AppState>) -> Result<Response, ApiError> {
+pub async fn metrics(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<Response, ApiError> {
     if !state.runtime_cfg.snapshot().await.enable_metrics {
         return Err(ApiError::not_found("metrics disabled"));
     }
