@@ -1,5 +1,5 @@
 use crate::api::error::ApiError;
-use crate::db::repos::{Vault, VaultRepo};
+use crate::db::repos::{NewActivity, SyncActivityRepo, Vault, VaultRepo};
 use crate::service::{vault_settings, AppState};
 
 pub fn validate_vault_name(name: &str) -> Result<(), ApiError> {
@@ -68,6 +68,37 @@ pub async fn delete_vault_for_user(
     state.remove_vault_push_lock(vault_id).await;
     storage_result?;
     Ok(true)
+}
+
+pub async fn record_lifecycle_activity(
+    state: &AppState,
+    actor_user_id: &str,
+    token_id: Option<&str>,
+    action: &str,
+    vault: &Vault,
+    client_ip: Option<&str>,
+    user_agent: Option<&str>,
+) -> Result<(), ApiError> {
+    let details = serde_json::json!({
+        "vault_id": vault.id,
+        "vault_name": vault.name,
+        "owner_user_id": vault.user_id,
+    })
+    .to_string();
+    state
+        .activities
+        .insert(NewActivity {
+            user_id: actor_user_id,
+            vault_id: None,
+            token_id,
+            action,
+            commit_hash: None,
+            client_ip,
+            user_agent,
+            details: Some(&details),
+        })
+        .await?;
+    Ok(())
 }
 
 async fn remove_vault_storage(state: &AppState, vault_id: &str) -> Result<(), ApiError> {

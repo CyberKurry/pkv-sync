@@ -1011,7 +1011,7 @@ async fn vault_settings_post(
 
 async fn create_vault_form(
     State(state): State<AppState>,
-    _session: AdminSession,
+    session: AdminSession,
     Form(form): Form<CreateVaultForm>,
 ) -> Result<Redirect, ApiError> {
     state
@@ -1020,6 +1020,16 @@ async fn create_vault_form(
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
     let vault = crate::service::vault::create_vault(&state, &form.user_id, &form.name).await?;
+    crate::service::vault::record_lifecycle_activity(
+        &state,
+        &session.user.id,
+        None,
+        "create_vault",
+        &vault,
+        None,
+        None,
+    )
+    .await?;
     tracing::info!(
         vault_id = %vault.id,
         user_id = %vault.user_id,
@@ -1031,7 +1041,7 @@ async fn create_vault_form(
 
 async fn delete_vault_form(
     State(state): State<AppState>,
-    _session: AdminSession,
+    session: AdminSession,
     Path(id): Path<String>,
 ) -> Result<Redirect, ApiError> {
     let vault = state
@@ -1040,6 +1050,16 @@ async fn delete_vault_form(
         .await?
         .ok_or_else(|| ApiError::not_found("vault not found"))?;
     crate::service::vault::delete_vault_for_user(&state, &vault.user_id, &id).await?;
+    crate::service::vault::record_lifecycle_activity(
+        &state,
+        &session.user.id,
+        None,
+        "delete_vault",
+        &vault,
+        None,
+        None,
+    )
+    .await?;
     tracing::warn!(
         vault_id = %id,
         user_id = %vault.user_id,
@@ -1777,6 +1797,7 @@ type ActivityRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
 );
 
 #[derive(Default, Deserialize)]
@@ -1794,7 +1815,7 @@ async fn list_admin_activities(
     let action = filters.action.as_deref().filter(|s| !s.is_empty());
     let mut sql = String::from(
         "SELECT a.timestamp, u.username, a.action, a.vault_id, v.name, tok.device_name,
-                a.client_ip, a.user_agent
+                a.client_ip, a.user_agent, a.details
          FROM sync_activity a
          JOIN users u ON u.id = a.user_id
          LEFT JOIN vaults v ON v.id = a.vault_id
@@ -1830,18 +1851,41 @@ async fn list_admin_activities(
                 device_name,
                 client_ip,
                 user_agent,
-            )| ActivityView {
-                timestamp: fmt_ts(timestamp, &timezone),
-                username,
-                action,
-                vault_id,
-                vault_name,
-                device_name,
-                client_ip: client_ip.map(|ip| mask_client_ip(&ip)),
-                user_agent,
+                details,
+            )| {
+                let (detail_vault_id, detail_vault_name) =
+                    activity_detail_vault(details.as_deref());
+                ActivityView {
+                    timestamp: fmt_ts(timestamp, &timezone),
+                    username,
+                    action,
+                    vault_id: vault_id.or(detail_vault_id),
+                    vault_name: vault_name.or(detail_vault_name),
+                    device_name,
+                    client_ip: client_ip.map(|ip| mask_client_ip(&ip)),
+                    user_agent,
+                }
             },
         )
         .collect())
+}
+
+fn activity_detail_vault(details: Option<&str>) -> (Option<String>, Option<String>) {
+    let Some(details) = details else {
+        return (None, None);
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(details) else {
+        return (None, None);
+    };
+    let vault_id = value
+        .get("vault_id")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let vault_name = value
+        .get("vault_name")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    (vault_id, vault_name)
 }
 
 fn mask_client_ip(value: &str) -> String {

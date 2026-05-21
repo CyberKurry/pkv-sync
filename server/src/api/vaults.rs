@@ -77,9 +77,22 @@ async fn list(
 async fn create(
     State(state): State<AppState>,
     user: AuthenticatedUser,
+    client_ip: Option<Extension<ClientIp>>,
+    headers: HeaderMap,
     Json(req): Json<CreateVaultReq>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let v = vault_service::create_vault(&state, &user.user_id, &req.name).await?;
+    let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
+    vault_service::record_lifecycle_activity(
+        &state,
+        &user.user_id,
+        Some(&user.token_id),
+        "create_vault",
+        &v,
+        client_ip.as_deref(),
+        user_agent.as_deref(),
+    )
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(v).map_err(|e| ApiError::internal(e.to_string()))?),
@@ -90,11 +103,25 @@ async fn remove(
     State(state): State<AppState>,
     user: AuthenticatedUser,
     Path(id): Path<String>,
+    client_ip: Option<Extension<ClientIp>>,
+    headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
+    let vault = vault_service::ensure_user_vault(&state, &user.user_id, &id).await?;
     let ok = vault_service::delete_vault_for_user(&state, &user.user_id, &id).await?;
     if !ok {
         return Err(ApiError::not_found("vault not found"));
     }
+    let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
+    vault_service::record_lifecycle_activity(
+        &state,
+        &user.user_id,
+        Some(&user.token_id),
+        "delete_vault",
+        &vault,
+        client_ip.as_deref(),
+        user_agent.as_deref(),
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -713,7 +740,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_list_delete_vault() {
-        let (app, raw) = setup().await;
+        let (app, state, raw) = setup_with_state().await;
         let create = app
             .clone()
             .oneshot(req_json(
@@ -749,6 +776,28 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(delete.status(), StatusCode::NO_CONTENT);
+
+        let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT action, vault_id, details FROM sync_activity
+             WHERE action IN ('create_vault', 'delete_vault')
+             ORDER BY id",
+        )
+        .fetch_all(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, "create_vault");
+        assert_eq!(rows[0].1.as_deref(), None);
+        assert_eq!(rows[1].0, "delete_vault");
+        assert_eq!(rows[1].1.as_deref(), None);
+        let create_details: serde_json::Value =
+            serde_json::from_str(rows[0].2.as_deref().unwrap()).unwrap();
+        let delete_details: serde_json::Value =
+            serde_json::from_str(rows[1].2.as_deref().unwrap()).unwrap();
+        assert_eq!(create_details["vault_id"], id);
+        assert_eq!(create_details["vault_name"], "main");
+        assert_eq!(delete_details["vault_id"], id);
+        assert_eq!(delete_details["vault_name"], "main");
     }
 
     #[tokio::test]

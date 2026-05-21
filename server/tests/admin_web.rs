@@ -350,9 +350,20 @@ async fn admin_can_manage_vaults() {
     after_req
         .headers_mut()
         .insert(header::COOKIE, session_cookie.parse().unwrap());
-    let after_resp = app.oneshot(after_req).await.unwrap();
+    let after_resp = app.clone().oneshot(after_req).await.unwrap();
     let after_body = read_body(after_resp).await;
     assert!(!after_body.contains(">main<"));
+
+    let mut activity_req = request(Method::GET, "/admin/activity", Body::empty());
+    activity_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let activity_resp = app.oneshot(activity_req).await.unwrap();
+    assert_eq!(activity_resp.status(), StatusCode::OK);
+    let activity_body = read_body(activity_resp).await;
+    assert!(activity_body.contains("create_vault"));
+    assert!(activity_body.contains("delete_vault"));
+    assert!(activity_body.contains(&format!("<code>{vault_id}</code>")));
 }
 
 #[tokio::test]
