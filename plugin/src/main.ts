@@ -176,12 +176,19 @@ export default class PKVSyncPlugin extends Plugin {
     this.rebuildSyncEngine();
   }
 
-  onunload(): void {
+  async onunload(): Promise<void> {
+    const engine = this.engine;
     this.pushDebouncer?.cancel();
-    // Starting a new sync during Obsidian teardown can leave vault writes half-done.
-    this.engine?.stopEventSubscription();
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.fallbackTimer !== null) window.clearInterval(this.fallbackTimer);
+    engine?.stopEventSubscription();
+    if (engine) {
+      try {
+        await engine.flushOnUnload(3000);
+      } catch (error) {
+        console.warn("[pkv-sync] final unload sync failed:", error);
+      }
+    }
     this.syncGeneration++;
     this.engine = null;
     this.statusEl = null;
