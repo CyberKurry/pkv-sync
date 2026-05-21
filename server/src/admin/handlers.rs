@@ -2,10 +2,10 @@ use crate::admin::session::{self, AdminSession};
 use crate::admin::templates::{
     ActivityFilterUser, ActivityTemplate, ActivityView, DashboardTemplate, DeviceTokenAdminView,
     DevicesTemplate, DiffRowView, InviteAdminView, InvitesTemplate, LoginTemplate,
-    SettingsTemplate, TokenAdminView, UserAdminView, UserDetailTemplate, UsersTemplate,
-    VaultAdminView, VaultBrowserView, VaultDiffTemplate, VaultFileEntryView, VaultFileViewTemplate,
-    VaultFilesTemplate, VaultHistoryEntryView, VaultHistoryTemplate, VaultSettingsTemplate,
-    VaultsTemplate,
+    SettingsTemplate, TokenAdminView, UserAdminView, UserDetailTemplate, UserOptionView,
+    UsersTemplate, VaultAdminView, VaultBrowserView, VaultDiffTemplate, VaultFileEntryView,
+    VaultFileViewTemplate, VaultFilesTemplate, VaultHistoryEntryView, VaultHistoryTemplate,
+    VaultSettingsTemplate, VaultsTemplate,
 };
 use crate::api::error::ApiError;
 use crate::auth::LoginRateLimiter;
@@ -119,6 +119,13 @@ fn user_view(user: User, timezone: &str) -> UserAdminView {
         is_admin: user.is_admin,
         is_active: user.is_active,
         created_at: fmt_ts(user.created_at, timezone),
+    }
+}
+
+fn user_option_view(user: User) -> UserOptionView {
+    UserOptionView {
+        id: user.id,
+        username: user.username,
     }
 }
 
@@ -610,7 +617,7 @@ async fn devices_page(
     Ok(Html(
         DevicesTemplate {
             t: admin_text(&headers, &cookies),
-            users: state.users.list().await?,
+            users: list_user_options(&state).await?,
             tokens: list_admin_device_tokens(&state).await?,
             created_token: None,
         }
@@ -657,7 +664,7 @@ async fn create_device_token_form(
     Ok(Html(
         DevicesTemplate {
             t: admin_text(&headers, &cookies),
-            users: state.users.list().await?,
+            users: list_user_options(&state).await?,
             tokens: list_admin_device_tokens(&state).await?,
             created_token: Some(raw),
         }
@@ -735,7 +742,7 @@ async fn vaults_page(
             total_size_display: crate::human::format_bytes(total_size),
             synced_today,
             vaults,
-            users: state.users.list().await?,
+            users: list_user_options(&state).await?,
             message: None,
             enable_history_ui: cfg.enable_history_ui,
         }
@@ -1920,6 +1927,16 @@ async fn list_activity_filter_users(state: &AppState) -> Result<Vec<ActivityFilt
             id: user.id,
             username: user.username,
         })
+        .collect())
+}
+
+async fn list_user_options(state: &AppState) -> Result<Vec<UserOptionView>, ApiError> {
+    Ok(state
+        .users
+        .list()
+        .await?
+        .into_iter()
+        .map(user_option_view)
         .collect())
 }
 

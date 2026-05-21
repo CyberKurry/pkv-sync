@@ -1,5 +1,5 @@
 use crate::admin::i18n::AdminText;
-use crate::db::repos::{RuntimeConfig, User};
+use crate::db::repos::RuntimeConfig;
 use askama::Template;
 
 #[derive(Template)]
@@ -47,6 +47,12 @@ pub struct UserAdminView {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct UserOptionView {
+    pub id: String,
+    pub username: String,
+}
+
 #[derive(Template)]
 #[template(path = "user_detail.html")]
 pub struct UserDetailTemplate {
@@ -70,7 +76,7 @@ pub struct TokenAdminView {
 #[template(path = "devices.html")]
 pub struct DevicesTemplate {
     pub t: AdminText,
-    pub users: Vec<User>,
+    pub users: Vec<UserOptionView>,
     pub tokens: Vec<DeviceTokenAdminView>,
     pub created_token: Option<String>,
 }
@@ -105,7 +111,7 @@ pub struct VaultAdminView {
 pub struct VaultsTemplate {
     pub t: AdminText,
     pub vaults: Vec<VaultAdminView>,
-    pub users: Vec<User>,
+    pub users: Vec<UserOptionView>,
     pub message: Option<String>,
     pub total_vaults: usize,
     pub total_size_display: String,
@@ -436,15 +442,10 @@ mod tests {
         }
     }
 
-    fn db_user(id: &str, username: &str, is_admin: bool) -> User {
-        User {
+    fn user_option(id: &str, username: &str) -> UserOptionView {
+        UserOptionView {
             id: id.into(),
             username: username.into(),
-            password_hash: "h".into(),
-            is_admin,
-            is_active: true,
-            created_at: 1,
-            last_login_at: None,
         }
     }
 
@@ -544,7 +545,7 @@ mod tests {
     fn devices_template_renders_rows() {
         let html = DevicesTemplate {
             t: AdminText::en(),
-            users: vec![db_user("u1", "admin", true)],
+            users: vec![user_option("u1", "admin")],
             tokens: vec![DeviceTokenAdminView {
                 id: "t1".into(),
                 user_id: "u1".into(),
@@ -580,7 +581,7 @@ mod tests {
                 size_bytes: 0,
                 file_count: 0,
             }],
-            users: vec![db_user("u1", "admin", true)],
+            users: vec![user_option("u1", "admin")],
             message: None,
             total_vaults: 1,
             total_size_display: "0 B".into(),
