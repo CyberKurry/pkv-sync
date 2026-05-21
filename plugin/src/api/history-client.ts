@@ -62,7 +62,7 @@ export class HistoryApi {
     path: string,
     at: string
   ): Promise<HistoricalFile> {
-    const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+    const encodedPath = encodePathSegments(path);
     const result = await this.api.request<string | ArrayBuffer>(
       "GET",
       `/api/vaults/${vaultId}/files/${encodedPath}?at=${encodeURIComponent(at)}`,
@@ -77,4 +77,8 @@ export class HistoryApi {
 
 function clampLimit(limit: number): number {
   return Math.max(1, Math.min(200, Math.trunc(limit)));
+}
+
+export function encodePathSegments(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
 }

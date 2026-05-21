@@ -2,6 +2,7 @@ import { requestUrl } from "obsidian";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiClient } from "../../src/api/client";
 import { HistoryApi } from "../../src/api/history-client";
+import { SyncApi } from "../../src/api/sync-client";
 
 const requestUrlMock = vi.mocked(requestUrl);
 
@@ -85,5 +86,33 @@ describe("HistoryApi", () => {
     await expect(
       new HistoryApi(client()).readFileAt("v1", "image.png", "c1")
     ).resolves.toEqual({ kind: "binary", bytes });
+  });
+
+  it("encodes file path segments without encoding slashes", async () => {
+    requestUrlMock.mockResolvedValue({
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+      arrayBuffer: new ArrayBuffer(0),
+      json: {},
+      text: "content"
+    });
+
+    await new HistoryApi(client()).readFileAt("v1", "folder/你好 a.md", "c 1");
+    expect(requestUrlMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        url: "https://sync.example.com/api/vaults/v1/files/folder/%E4%BD%A0%E5%A5%BD%20a.md?at=c%201"
+      })
+    );
+
+    await new SyncApi(client()).downloadTextFile(
+      "v1",
+      "folder/你好 a.md",
+      "c 1"
+    );
+    expect(requestUrlMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        url: "https://sync.example.com/api/vaults/v1/files/folder/%E4%BD%A0%E5%A5%BD%20a.md?at=c%201"
+      })
+    );
   });
 });

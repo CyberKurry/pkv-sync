@@ -1,4 +1,5 @@
 import { ApiClient } from "./client";
+import { encodePathSegments } from "./history-client";
 import type {
   PullResponse,
   PushChange,
@@ -85,7 +86,7 @@ export class SyncApi {
     path: string,
     atCommit: string
   ): Promise<string> {
-    const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+    const encodedPath = encodePathSegments(path);
     const query = `?at=${encodeURIComponent(atCommit)}`;
     return this.api.request<string>(
       "GET",
