@@ -262,7 +262,11 @@ async fn vault_settings_set_and_load_round_trips() {
         .await
         .unwrap();
 
-    let loaded = state.vault_settings.load_for_vault(&vault.id).await.unwrap();
+    let loaded = state
+        .vault_settings
+        .load_for_vault(&vault.id)
+        .await
+        .unwrap();
     assert_eq!(
         loaded.get("extra_sync_globs"),
         Some(&r#"["notes/**"]"#.to_string())
