@@ -65,6 +65,15 @@ impl VaultEventBus {
             let _ = tx.send(event);
         }
     }
+
+    pub fn remove(&self, vault_id: &str) {
+        self.inner.remove(vault_id);
+    }
+
+    #[cfg(test)]
+    pub fn len_for_tests(&self) -> usize {
+        self.inner.len()
+    }
 }
 
 pub async fn replay_events_after(

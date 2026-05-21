@@ -66,6 +66,7 @@ pub async fn delete_vault_for_user(
     }
     let storage_result = remove_vault_storage(state, vault_id).await;
     state.remove_vault_push_lock(vault_id).await;
+    state.events.remove(vault_id);
     storage_result?;
     Ok(true)
 }
@@ -204,12 +205,14 @@ mod tests {
             .await
             .unwrap();
         let _ = s.vault_push_lock(&v.id).await;
+        let _ = s.events.subscribe(&v.id);
 
         assert!(delete_vault_for_user(&s, &uid, &v.id).await.unwrap());
 
         assert!(s.vaults.find_by_id(&v.id).await.unwrap().is_none());
         assert!(!tokio::fs::try_exists(&repo_dir).await.unwrap());
         assert_eq!(s.vault_push_lock_count_for_tests().await, 0);
+        assert_eq!(s.events.len_for_tests(), 0);
     }
 
     #[tokio::test]
