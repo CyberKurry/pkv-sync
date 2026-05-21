@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+pub const MAX_SSE_REPLAY_COMMITS: usize = 64;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind")]
 pub enum EventChange {
@@ -29,6 +31,12 @@ pub struct VaultEvent {
     pub source_device_id: String,
     pub at: i64,
     pub changes: Vec<EventChange>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ReplayEvents {
+    Events(Vec<VaultEvent>),
+    Lagged,
 }
 
 #[derive(Clone)]
@@ -63,22 +71,25 @@ pub async fn replay_events_after(
     vault_root: PathBuf,
     vault_id: &str,
     last_event_id: &str,
-) -> anyhow::Result<Vec<VaultEvent>> {
+) -> anyhow::Result<ReplayEvents> {
     let vault_path = vault_root.join(vault_id);
     let last = match Oid::from_str(last_event_id) {
         Ok(oid) => oid,
-        Err(_) => return Ok(Vec::new()),
+        Err(_) => return Ok(ReplayEvents::Events(Vec::new())),
     };
     tokio::task::spawn_blocking(move || replay_events_after_blocking(vault_path, last))
         .await
         .map_err(|_| anyhow::anyhow!("blocking task panicked"))?
 }
 
-fn replay_events_after_blocking(vault_path: PathBuf, last: Oid) -> anyhow::Result<Vec<VaultEvent>> {
+fn replay_events_after_blocking(vault_path: PathBuf, last: Oid) -> anyhow::Result<ReplayEvents> {
     let repo = match Repository::open_bare(vault_path) {
         Ok(repo) => repo,
-        Err(_) => return Ok(Vec::new()),
+        Err(_) => return Ok(ReplayEvents::Events(Vec::new())),
     };
+    if repo.find_commit(last).is_err() {
+        return Ok(ReplayEvents::Events(Vec::new()));
+    }
     let mut walk = repo.revwalk()?;
     walk.push_head()?;
     let mut commits = Vec::new();
@@ -89,10 +100,13 @@ fn replay_events_after_blocking(vault_path: PathBuf, last: Oid) -> anyhow::Resul
             found_last = true;
             break;
         }
+        if commits.len() >= MAX_SSE_REPLAY_COMMITS {
+            return Ok(ReplayEvents::Lagged);
+        }
         commits.push(oid);
     }
     if !found_last {
-        return Ok(Vec::new());
+        return Ok(ReplayEvents::Events(Vec::new()));
     }
     commits.reverse();
 
@@ -113,7 +127,7 @@ fn replay_events_after_blocking(vault_path: PathBuf, last: Oid) -> anyhow::Resul
             changes,
         });
     }
-    Ok(out)
+    Ok(ReplayEvents::Events(out))
 }
 
 fn replay_changes_for_commit(

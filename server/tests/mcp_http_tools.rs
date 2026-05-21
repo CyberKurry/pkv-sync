@@ -3,6 +3,7 @@ use axum::http::{HeaderMap, Request, StatusCode};
 use pkv_sync_server::auth::{password, token};
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo, VaultRepo};
 use pkv_sync_server::mcp::transport_http;
+use pkv_sync_server::service::events::MAX_SSE_REPLAY_COMMITS;
 use pkv_sync_server::service::sync::{self, PushChange, PushReq};
 use pkv_sync_server::service::{vault, AppState};
 use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
@@ -322,5 +323,80 @@ async fn http_mcp_sse_replays_after_last_event_id() {
     assert!(
         body.contains("b.md"),
         "expected replayed change, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn http_mcp_sse_too_far_behind_emits_lagged() {
+    let (state, tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&state, "http-sse-lagged").await;
+    let vault = vault::create_vault(&state, &user_id, "main").await.unwrap();
+    let auth = authenticated_user(&state, &raw, "http-sse-lagged").await;
+
+    let first = sync::push(
+        &state,
+        &auth,
+        &vault.id,
+        None,
+        None,
+        PushReq {
+            device_name: Some("first".into()),
+            changes: vec![PushChange::Text {
+                path: "a.md".into(),
+                content: "one".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut parent = first.new_commit.clone();
+    for idx in 0..=MAX_SSE_REPLAY_COMMITS {
+        let pushed = sync::push(
+            &state,
+            &auth,
+            &vault.id,
+            Some(&parent),
+            None,
+            PushReq {
+                device_name: Some(format!("overflow-{idx}")),
+                changes: vec![PushChange::Text {
+                    path: format!("overflow-{idx}.md"),
+                    content: idx.to_string(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        parent = pushed.new_commit;
+    }
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server_state = state.clone();
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            transport_http::router(server_state).into_make_service(),
+        )
+        .await;
+    });
+
+    let resp = reqwest::Client::new()
+        .get(format!("http://{addr}/mcp"))
+        .bearer_auth(&raw)
+        .header("accept", "text/event-stream")
+        .header("last-event-id", &first.new_commit)
+        .send()
+        .await
+        .unwrap();
+
+    let body = read_until(resp, &["event: lagged"]).await;
+    handle.abort();
+    drop(tmp);
+
+    assert!(
+        body.contains("event: lagged"),
+        "expected replay overflow to emit lagged, got: {body}"
     );
 }

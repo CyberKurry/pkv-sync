@@ -4,6 +4,7 @@ use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
 use pkv_sync_server::server;
+use pkv_sync_server::service::events::MAX_SSE_REPLAY_COMMITS;
 use pkv_sync_server::service::sync::{self, PushChange, PushReq};
 use pkv_sync_server::service::vault;
 use pkv_sync_server::service::AppState;
@@ -304,4 +305,65 @@ async fn reconnect_with_last_event_id_replays_missed_commits() {
         "expected replay of third commit, got: {body}"
     );
     assert!(body.find("b.md") < body.find("c.md"));
+}
+
+#[tokio::test]
+async fn reconnect_too_far_behind_emits_lagged_instead_of_replaying_unbounded_history() {
+    let (ts, state, raw, vid, first_commit) = start_test_server().await;
+    let auth = {
+        let user = state.users.find_by_username("u").await.unwrap().unwrap();
+        let (token_row, _username) = state
+            .tokens
+            .find_by_hash(&token::hash(&raw))
+            .await
+            .unwrap()
+            .unwrap();
+        pkv_sync_server::auth::AuthenticatedUser {
+            user_id: user.id,
+            username: user.username,
+            is_admin: false,
+            token_id: token_row.id,
+            device_id: token_row.device_id,
+        }
+    };
+
+    let mut parent = first_commit.clone();
+    for idx in 0..=MAX_SSE_REPLAY_COMMITS {
+        let pushed = sync::push(
+            &state,
+            &auth,
+            &vid,
+            Some(&parent),
+            None,
+            PushReq {
+                device_name: Some(format!("overflow-{idx}")),
+                changes: vec![PushChange::Text {
+                    path: format!("overflow-{idx}.md"),
+                    content: idx.to_string(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        parent = pushed.new_commit;
+    }
+
+    let sse_url = format!("http://{}/api/vaults/{}/events", ts.addr, vid);
+    let sse_resp = auth_headers(
+        reqwest::Client::new()
+            .get(&sse_url)
+            .bearer_auth(&raw)
+            .header("Last-Event-ID", &first_commit),
+        &ts.key,
+    )
+    .send()
+    .await
+    .unwrap();
+
+    let body = read_until(sse_resp, &["event: lagged"]).await;
+
+    assert!(
+        body.contains("event: lagged"),
+        "expected replay overflow to emit lagged, got: {body}"
+    );
 }

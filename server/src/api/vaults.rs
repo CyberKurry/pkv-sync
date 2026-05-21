@@ -442,21 +442,30 @@ async fn events(
         )
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?,
-        None => Vec::new(),
+        None => crate::service::events::ReplayEvents::Events(Vec::new()),
     };
 
     let receiver = state.events.subscribe(&id);
     let sse_guard = SseSubscriberGuard::new(state.metrics.clone());
-    let replay_stream = tokio_stream::iter(replay_events.into_iter().filter_map(|event| {
-        let id = event.commit.clone();
-        Some(Ok::<Event, Infallible>(
-            Event::default()
-                .event("commit")
-                .id(id)
-                .json_data(&event)
-                .ok()?,
-        ))
-    }));
+    let replay_items = match replay_events {
+        crate::service::events::ReplayEvents::Events(events) => events
+            .into_iter()
+            .filter_map(|event| {
+                let id = event.commit.clone();
+                Some(Ok::<Event, Infallible>(
+                    Event::default()
+                        .event("commit")
+                        .id(id)
+                        .json_data(&event)
+                        .ok()?,
+                ))
+            })
+            .collect(),
+        crate::service::events::ReplayEvents::Lagged => {
+            vec![Ok(Event::default().event("lagged").data(""))]
+        }
+    };
+    let replay_stream = tokio_stream::iter(replay_items);
     let live_stream = BroadcastStream::new(receiver).filter_map(|res| match res {
         Ok(event) => Some(Ok::<Event, Infallible>(
             Event::default()

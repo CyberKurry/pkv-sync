@@ -102,7 +102,7 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
                     .into_response();
             }
         },
-        _ => Vec::new(),
+        _ => McpReplayEvents::Events(Vec::new()),
     };
     let mut streams = tokio_stream::StreamMap::new();
     for vault in vaults {
@@ -112,18 +112,24 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
             BroadcastStream::new(state.events.subscribe(&vault_id)),
         );
     }
-    let replay_stream =
-        tokio_stream::iter(replay_events.into_iter().filter_map(|(_vault_id, event)| {
-            let commit = event.commit.clone();
-            let notification = crate::mcp::notifications::vault_changed(commit.clone(), event);
-            let data = serde_json::to_string(&notification).ok()?;
-            Some(Ok::<Event, Infallible>(
-                Event::default()
-                    .event("vault_changed")
-                    .id(commit)
-                    .data(data),
-            ))
-        }));
+    let replay_items = match replay_events {
+        McpReplayEvents::Events(events) => events
+            .into_iter()
+            .filter_map(|(_vault_id, event)| {
+                let commit = event.commit.clone();
+                let notification = crate::mcp::notifications::vault_changed(commit.clone(), event);
+                let data = serde_json::to_string(&notification).ok()?;
+                Some(Ok::<Event, Infallible>(
+                    Event::default()
+                        .event("vault_changed")
+                        .id(commit)
+                        .data(data),
+                ))
+            })
+            .collect(),
+        McpReplayEvents::Lagged => vec![Ok(Event::default().event("lagged").data(""))],
+    };
+    let replay_stream = tokio_stream::iter(replay_items);
     let live_stream = streams.filter_map(|(_vault_id, event)| {
         event.ok().and_then(|event| {
             let commit = event.commit.clone();
@@ -143,11 +149,16 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
         .into_response()
 }
 
+enum McpReplayEvents {
+    Events(Vec<(String, crate::service::events::VaultEvent)>),
+    Lagged,
+}
+
 async fn mcp_replay_events_after(
     state: &AppState,
     vaults: &[crate::db::repos::Vault],
     commit: &str,
-) -> anyhow::Result<Vec<(String, crate::service::events::VaultEvent)>> {
+) -> anyhow::Result<McpReplayEvents> {
     for vault in vaults {
         let events = crate::service::events::replay_events_after(
             state.default_vault_root(),
@@ -155,14 +166,20 @@ async fn mcp_replay_events_after(
             commit,
         )
         .await?;
-        if !events.is_empty() {
-            return Ok(events
-                .into_iter()
-                .map(|event| (vault.id.clone(), event))
-                .collect());
+        match events {
+            crate::service::events::ReplayEvents::Events(events) if !events.is_empty() => {
+                return Ok(McpReplayEvents::Events(
+                    events
+                        .into_iter()
+                        .map(|event| (vault.id.clone(), event))
+                        .collect(),
+                ));
+            }
+            crate::service::events::ReplayEvents::Events(_) => {}
+            crate::service::events::ReplayEvents::Lagged => return Ok(McpReplayEvents::Lagged),
         }
     }
-    Ok(Vec::new())
+    Ok(McpReplayEvents::Events(Vec::new()))
 }
 
 fn mcp_last_event_id(headers: &HeaderMap) -> Option<String> {
