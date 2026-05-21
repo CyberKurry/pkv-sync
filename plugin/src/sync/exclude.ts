@@ -15,29 +15,38 @@ export interface PathAcceptsOptions {
   userAllowlist: string[];
 }
 
+type PathMatcher = (path: string) => boolean;
+
 export function isExcluded(path: string, globs: string[]): boolean {
-  if (globs.length === 0) return false;
-  for (const glob of globs) {
-    const trimmed = glob.trim();
-    if (!trimmed) continue;
-    if (matchesGlob(path, trimmed)) return true;
-  }
-  return false;
+  return createExcludeMatcher(globs)(path);
 }
 
 export function pathAccepts(path: string, opts: PathAcceptsOptions): boolean {
-  if (isHardExcluded(path)) return false;
-
-  if (isHiddenPath(path)) {
-    const allowlist = nonEmptyGlobs(opts.userAllowlist);
-    if (allowlist.length === 0 || !isExcluded(path, allowlist)) return false;
-  }
-
-  return !isExcluded(path, opts.userExcludes);
+  return createPathMatcher(opts)(path);
 }
 
-function isHardExcluded(path: string): boolean {
-  if (isExcluded(path, HARD_EXCLUDE_GLOBS)) return true;
+export function createPathMatcher(opts: PathAcceptsOptions): PathMatcher {
+  const hardExclude = createExcludeMatcher(HARD_EXCLUDE_GLOBS);
+  const userExcludes = createExcludeMatcher(opts.userExcludes);
+  const userAllowlist = createExcludeMatcher(opts.userAllowlist);
+
+  return (path: string) => {
+    if (isHardExcluded(path, hardExclude)) return false;
+
+    if (isHiddenPath(path) && !userAllowlist(path)) return false;
+
+    return !userExcludes(path);
+  };
+}
+
+function createExcludeMatcher(globs: string[]): PathMatcher {
+  const regexes = nonEmptyGlobs(globs).map(compileGlob);
+  if (regexes.length === 0) return () => false;
+  return (path: string) => regexes.some((regex) => regex.test(path));
+}
+
+function isHardExcluded(path: string, hardExclude: PathMatcher): boolean {
+  if (hardExclude(path)) return true;
   return path.includes("/.git/")
     || path.includes("/.trash/")
     || path.includes("/.conflict-");
@@ -51,10 +60,8 @@ function nonEmptyGlobs(globs: string[]): string[] {
   return globs.filter((glob) => glob.trim().length > 0);
 }
 
-function matchesGlob(path: string, pattern: string): boolean {
-  const regexStr = globToRegex(pattern);
-  const regex = new RegExp(`^${regexStr}$`);
-  return regex.test(path);
+function compileGlob(pattern: string): RegExp {
+  return new RegExp(`^${globToRegex(pattern.trim())}$`);
 }
 
 function globToRegex(pattern: string): string {

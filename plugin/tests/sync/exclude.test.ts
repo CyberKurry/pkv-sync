@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isExcluded } from "../../src/sync/exclude";
+import { createPathMatcher, isExcluded, pathAccepts } from "../../src/sync/exclude";
 
 describe("isExcluded", () => {
   it("returns false for empty globs", () => {
@@ -177,5 +177,27 @@ describe("isExcluded", () => {
   it("handles glob pattern .DS_Store", () => {
     expect(isExcluded(".DS_Store", [".DS_Store"])).toBe(true);
     expect(isExcluded("folder/.DS_Store", [".DS_Store"])).toBe(false);
+  });
+});
+
+describe("createPathMatcher", () => {
+  it("matches pathAccepts behavior for repeated calls", () => {
+    const opts = {
+      userExcludes: ["*.tmp", "private/**"],
+      userAllowlist: [".obsidian/plugins/**"]
+    };
+    const matcher = createPathMatcher(opts);
+    const paths = [
+      "notes/today.md",
+      "notes/draft.tmp",
+      "private/secret.md",
+      ".obsidian/plugins/pkv-sync/data.json",
+      ".obsidian/workspace.json"
+    ];
+
+    for (const path of paths) {
+      expect(matcher(path)).toBe(pathAccepts(path, opts));
+      expect(matcher(path)).toBe(pathAccepts(path, opts));
+    }
   });
 });

@@ -4,11 +4,10 @@ import { subscribeVaultEvents } from "../api/events-client";
 import type { SyncApi } from "../api/sync-client";
 import type { VaultEvent } from "../api/types";
 import type { VaultSettings } from "../api/types";
-import { pathAccepts } from "./exclude";
+import { createPathMatcher } from "./exclude";
 import { conflictPath } from "./conflict";
 import { sha256Bytes, sha256Text } from "./hash";
 import {
-  deletedFiles,
   markDeleted,
   markSynced,
   pendingFiles
@@ -166,28 +165,22 @@ export class SyncEngine {
   }> {
     const index = await this.opts.index.loadIndex();
     const current = await this.opts.vault.scan(this.opts.textExtensions);
-    const userExcludes = this.opts.extraExcludeGlobs ?? [];
-    const userAllowlist =
-      this.vaultSettingsCache.get(this.opts.vaultId)?.extra_sync_globs ?? [];
-    const filtered = current.filter((f) =>
-      pathAccepts(f.path, { userExcludes, userAllowlist })
-    );
+    const pathAccepted = this.currentPathMatcher();
+    const filtered = current.filter((f) => pathAccepted(f.path));
     const currentPaths = new Set(filtered.map((f) => f.path));
     const deletedFromIndex = Object.keys(index.files).filter((p) => !currentPaths.has(p));
     return {
       pending: pendingFiles(index, filtered),
-      deleted: deletedFromIndex.filter((p) =>
-        pathAccepts(p, { userExcludes, userAllowlist })
-      ),
+      deleted: deletedFromIndex.filter((p) => pathAccepted(p)),
       index
     };
   }
 
-  private pathAccepted(path: string): boolean {
+  private currentPathMatcher(): (path: string) => boolean {
     const userExcludes = this.opts.extraExcludeGlobs ?? [];
     const userAllowlist =
       this.vaultSettingsCache.get(this.opts.vaultId)?.extra_sync_globs ?? [];
-    return pathAccepts(path, { userExcludes, userAllowlist });
+    return createPathMatcher({ userExcludes, userAllowlist });
   }
 
   private async syncInner(): Promise<void> {
@@ -327,12 +320,13 @@ export class SyncEngine {
     let index = await this.opts.index.loadIndex();
     const current = await this.opts.vault.scan(this.opts.textExtensions);
     const currentByPath = new Map(current.map((file) => [file.path, file]));
+    const pathAccepted = this.currentPathMatcher();
     const touched: LocalFileSnapshot[] = [];
     const deleted: string[] = [];
 
     try {
       for (const file of [...pull.added, ...pull.modified]) {
-        if (!shouldSyncPath(file.path) || !this.pathAccepted(file.path)) continue;
+        if (!shouldSyncPath(file.path) || !pathAccepted(file.path)) continue;
         const local = currentByPath.get(file.path);
         const indexed = index.files[file.path];
         if (isLocalDeleted(local, indexed?.lastSyncedHash)) {
@@ -386,7 +380,7 @@ export class SyncEngine {
       }
 
       for (const path of pull.deleted) {
-        if (!shouldSyncPath(path) || !this.pathAccepted(path)) continue;
+        if (!shouldSyncPath(path) || !pathAccepted(path)) continue;
         const local = currentByPath.get(path);
         const indexed = index.files[path];
         if (isLocalDirty(local, indexed?.lastSyncedHash)) {
@@ -404,7 +398,7 @@ export class SyncEngine {
     index = markDeleted(
       index,
       pull.to,
-      pull.deleted.filter((path) => shouldSyncPath(path) && this.pathAccepted(path))
+      pull.deleted.filter((path) => shouldSyncPath(path) && pathAccepted(path))
     );
     await this.opts.index.saveIndex(index);
   }
