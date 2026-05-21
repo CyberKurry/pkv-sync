@@ -42,6 +42,7 @@ pub async fn info_refs(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     check_enabled(&state).await?;
+    validate_vault_id(&vault_id)?;
     let user = authenticate_basic(&state, &headers).await?;
     let _vault = vault::ensure_user_vault(&state, &user.user_id, &vault_id).await?;
 
@@ -120,6 +121,7 @@ pub async fn upload_pack(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     check_enabled(&state).await?;
+    validate_vault_id(&vault_id)?;
     let user = authenticate_basic(&state, &headers).await?;
     let _vault = vault::ensure_user_vault(&state, &user.user_id, &vault_id).await?;
     if body.len() > MAX_UPLOAD_PACK_BODY_BYTES {
@@ -257,6 +259,19 @@ async fn check_enabled(state: &AppState) -> Result<(), ApiError> {
     }
     Ok(())
 }
+
+fn validate_vault_id(vault_id: &str) -> Result<(), ApiError> {
+    let is_simple_uuid = vault_id.len() == 32 && vault_id.chars().all(|ch| ch.is_ascii_hexdigit());
+    if is_simple_uuid {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(
+            "invalid_vault_id",
+            "invalid vault id",
+        ))
+    }
+}
+
 /// Authenticate a request using the Basic auth header.
 ///
 /// Unlike the `AuthenticatedUser` extractor (which uses Bearer tokens), Git

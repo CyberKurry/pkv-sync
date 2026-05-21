@@ -266,6 +266,46 @@ async fn info_refs_rejects_wrong_service() {
 }
 
 #[tokio::test]
+async fn info_refs_rejects_malformed_vault_id() {
+    let (ts, _state, raw, _vid) = start_test_server().await;
+
+    let resp = auth_headers(
+        client().get(format!(
+            "http://{}/git/not-a-vault-id/info/refs?service=git-upload-pack",
+            ts.addr
+        )),
+        &ts.key,
+    )
+    .header("authorization", basic_auth_header(&raw))
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(resp.status(), reqwest::StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn upload_pack_rejects_malformed_vault_id() {
+    let (ts, _state, raw, _vid) = start_test_server().await;
+
+    let resp = auth_headers(
+        client()
+            .post(format!(
+                "http://{}/git/not-a-vault-id/git-upload-pack",
+                ts.addr
+            ))
+            .body(Vec::<u8>::new()),
+        &ts.key,
+    )
+    .header("authorization", basic_auth_header(&raw))
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(resp.status(), reqwest::StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn info_refs_rejects_vault_not_owned() {
     let (ts, state, raw, vid) = start_test_server().await;
 
