@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use sqlx::SqlitePool;
+use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use std::collections::HashSet;
 
 #[async_trait]
 pub trait BlobUploadRepo: Send + Sync {
@@ -10,6 +11,11 @@ pub trait BlobUploadRepo: Send + Sync {
         uploaded_at: i64,
     ) -> Result<(), sqlx::Error>;
     async fn has_upload(&self, vault_id: &str, hash: &str) -> Result<bool, sqlx::Error>;
+    async fn uploaded_hashes_for_vault(
+        &self,
+        vault_id: &str,
+        hashes: &[String],
+    ) -> Result<HashSet<String>, sqlx::Error>;
     async fn delete_uploads(&self, vault_id: &str, hashes: &[String]) -> Result<(), sqlx::Error>;
 }
 
@@ -52,6 +58,30 @@ impl BlobUploadRepo for SqliteBlobUploadRepo {
         .fetch_one(&self.pool)
         .await?;
         Ok(n > 0)
+    }
+
+    async fn uploaded_hashes_for_vault(
+        &self,
+        vault_id: &str,
+        hashes: &[String],
+    ) -> Result<HashSet<String>, sqlx::Error> {
+        if hashes.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "SELECT DISTINCT blob_hash FROM blob_uploads WHERE vault_id = ",
+        );
+        query.push_bind(vault_id);
+        query.push(" AND blob_hash IN (");
+        let mut separated = query.separated(", ");
+        for hash in hashes {
+            separated.push_bind(hash);
+        }
+        separated.push_unseparated(")");
+
+        let rows: Vec<(String,)> = query.build_query_as().fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(|t| t.0).collect())
     }
 
     async fn delete_uploads(&self, vault_id: &str, hashes: &[String]) -> Result<(), sqlx::Error> {
@@ -98,5 +128,43 @@ mod tests {
         assert!(!repo.has_upload(&second.id, "a").await.unwrap());
         repo.delete_uploads(&first.id, &["a".into()]).await.unwrap();
         assert!(!repo.has_upload(&first.id, "a").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn batch_query_uploads_stays_scoped_to_vault() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let users = SqliteUserRepo::new(p.clone());
+        let vaults = SqliteVaultRepo::new(p.clone());
+        let user = users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let first = vaults.create(&user.id, "first").await.unwrap();
+        let second = vaults.create(&user.id, "second").await.unwrap();
+        let repo = SqliteBlobUploadRepo::new(p);
+
+        repo.record_upload(&first.id, "a", 1).await.unwrap();
+        repo.record_upload(&first.id, "b", 1).await.unwrap();
+        repo.record_upload(&second.id, "c", 1).await.unwrap();
+
+        let got = repo
+            .uploaded_hashes_for_vault(
+                &first.id,
+                &["a".into(), "b".into(), "c".into(), "missing".into()],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(got, HashSet::from(["a".to_string(), "b".to_string()]));
+        assert!(repo
+            .uploaded_hashes_for_vault(&first.id, &[])
+            .await
+            .unwrap()
+            .is_empty());
     }
 }

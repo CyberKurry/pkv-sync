@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sqlx::SqlitePool;
+use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::HashSet;
 
 #[async_trait]
@@ -14,6 +14,11 @@ pub trait BlobRefRepo: Send + Sync {
     async fn all_hashes(&self) -> Result<HashSet<String>, sqlx::Error>;
     async fn is_referenced_by_vault(&self, vault_id: &str, hash: &str)
         -> Result<bool, sqlx::Error>;
+    async fn referenced_hashes_for_vault(
+        &self,
+        vault_id: &str,
+        hashes: &[String],
+    ) -> Result<HashSet<String>, sqlx::Error>;
 }
 
 pub struct SqliteBlobRefRepo {
@@ -79,6 +84,30 @@ impl BlobRefRepo for SqliteBlobRefRepo {
                 .await?;
         Ok(n > 0)
     }
+
+    async fn referenced_hashes_for_vault(
+        &self,
+        vault_id: &str,
+        hashes: &[String],
+    ) -> Result<HashSet<String>, sqlx::Error> {
+        if hashes.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "SELECT DISTINCT blob_hash FROM blob_refs WHERE vault_id = ",
+        );
+        query.push_bind(vault_id);
+        query.push(" AND blob_hash IN (");
+        let mut separated = query.separated(", ");
+        for hash in hashes {
+            separated.push_bind(hash);
+        }
+        separated.push_unseparated(")");
+
+        let rows: Vec<(String,)> = query.build_query_as().fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(|t| t.0).collect())
+    }
 }
 
 #[cfg(test)]
@@ -109,5 +138,53 @@ mod tests {
         assert!(repo.is_referenced_by_vault(&v.id, "sha:a").await.unwrap());
         assert_eq!(repo.hashes_for_vault(&v.id).await.unwrap().len(), 2);
         assert_eq!(repo.all_hashes().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn batch_query_refs_stays_scoped_to_vault() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let users = SqliteUserRepo::new(p.clone());
+        let vaults = SqliteVaultRepo::new(p.clone());
+        let u = users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let first = vaults.create(&u.id, "first").await.unwrap();
+        let second = vaults.create(&u.id, "second").await.unwrap();
+        let repo = SqliteBlobRefRepo::new(p);
+        repo.add_refs(&first.id, "c1", &["sha:first".into(), "sha:shared".into()])
+            .await
+            .unwrap();
+        repo.add_refs(&second.id, "c2", &["sha:second".into()])
+            .await
+            .unwrap();
+
+        let got = repo
+            .referenced_hashes_for_vault(
+                &first.id,
+                &[
+                    "sha:first".into(),
+                    "sha:second".into(),
+                    "sha:missing".into(),
+                    "sha:shared".into(),
+                ],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            got,
+            HashSet::from(["sha:first".to_string(), "sha:shared".to_string()])
+        );
+        assert!(repo
+            .referenced_hashes_for_vault(&first.id, &[])
+            .await
+            .unwrap()
+            .is_empty());
     }
 }

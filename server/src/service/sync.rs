@@ -12,6 +12,7 @@ use crate::storage::text_kind::TextClassifier;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
 const MAX_PUSH_CHANGES: usize = 1000;
@@ -128,14 +129,23 @@ pub async fn upload_check(
             format!("upload check exceeds limit of {MAX_UPLOAD_CHECK_HASHES} hashes"),
         ));
     }
-    let store = blob_store(state);
-    let mut missing = Vec::new();
-    for h in hashes {
-        if !crate::storage::blob::is_sha256_hex(&h) {
+    for h in &hashes {
+        if !crate::storage::blob::is_sha256_hex(h) {
             return Err(ApiError::bad_request("invalid_hash", "invalid hash"));
         }
-        let available_to_vault = state.blob_refs.is_referenced_by_vault(vault_id, &h).await?
-            || state.blob_uploads.has_upload(vault_id, &h).await?;
+    }
+    let store = blob_store(state);
+    let refs = state
+        .blob_refs
+        .referenced_hashes_for_vault(vault_id, &hashes)
+        .await?;
+    let uploads = state
+        .blob_uploads
+        .uploaded_hashes_for_vault(vault_id, &hashes)
+        .await?;
+    let mut missing = Vec::new();
+    for h in hashes {
+        let available_to_vault = refs.contains(&h) || uploads.contains(&h);
         if !available_to_vault
             || !store
                 .has(&h)
@@ -365,6 +375,15 @@ pub async fn push_with_request_metadata(
     let blob_store = blob_store(state);
     let mut git_changes = Vec::new();
     let mut blob_hashes = Vec::new();
+    let blob_candidates: Vec<String> = req
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            PushChange::Blob { blob_hash, .. } => Some(blob_hash.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut blob_availability = None;
     let inline_max = runtime_cfg.inline_content_max_bytes as usize;
     let mut event_changes = Vec::new();
     let mut text_changes = 0u64;
@@ -434,7 +453,22 @@ pub async fn push_with_request_metadata(
                 if !crate::storage::blob::is_sha256_hex(&blob_hash) {
                     return Err(ApiError::bad_request("invalid_hash", "invalid hash"));
                 }
-                if !blob_available_to_vault(state, vault_id, &blob_hash).await? {
+                if blob_availability.is_none() {
+                    blob_availability = Some((
+                        state
+                            .blob_refs
+                            .referenced_hashes_for_vault(vault_id, &blob_candidates)
+                            .await?,
+                        state
+                            .blob_uploads
+                            .uploaded_hashes_for_vault(vault_id, &blob_candidates)
+                            .await?,
+                    ));
+                }
+                let (referenced_blobs, uploaded_blobs) = blob_availability
+                    .as_ref()
+                    .expect("blob availability is initialized above");
+                if !blob_available_to_vault(&referenced_blobs, &uploaded_blobs, &blob_hash) {
                     return Err(ApiError::bad_request(
                         "missing_blob",
                         format!("blob {blob_hash} not uploaded for this vault"),
@@ -601,16 +635,12 @@ pub async fn push_with_request_metadata(
     Ok(resp)
 }
 
-async fn blob_available_to_vault(
-    state: &AppState,
-    vault_id: &str,
+fn blob_available_to_vault(
+    referenced_blobs: &HashSet<String>,
+    uploaded_blobs: &HashSet<String>,
     hash: &str,
-) -> Result<bool, ApiError> {
-    Ok(state
-        .blob_refs
-        .is_referenced_by_vault(vault_id, hash)
-        .await?
-        || state.blob_uploads.has_upload(vault_id, hash).await?)
+) -> bool {
+    referenced_blobs.contains(hash) || uploaded_blobs.contains(hash)
 }
 
 fn push_request_hash(if_match: Option<&str>, req: &PushReq) -> Result<String, ApiError> {
@@ -1168,6 +1198,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn upload_check_reports_blob_missing_when_only_referenced_in_another_vault() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let other = vault::create_vault(&state, &user.user_id, "other")
+            .await
+            .unwrap();
+        let data = Bytes::from_static(b"hello");
+        let hash = LocalFsBlobStore::sha256(&data);
+        let store = LocalFsBlobStore::new(state.default_blob_root());
+        store.put_verified(&hash, data).await.unwrap();
+        state
+            .blob_refs
+            .add_refs(&other.id, "commit-other", std::slice::from_ref(&hash))
+            .await
+            .unwrap();
+
+        let resp = upload_check(&state, &user.user_id, &vid, vec![hash.clone()])
+            .await
+            .unwrap();
+
+        assert_eq!(resp.missing, vec![hash]);
+    }
+
+    #[tokio::test]
     async fn upload_check_rejects_too_many_hashes() {
         let (state, user, vid, _tmp) = state_user_vault().await;
         let hashes = vec!["0".repeat(64); 10_001];
@@ -1258,6 +1311,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn push_preserves_change_order_before_batch_blob_availability_check() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+
+        let err = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: None,
+                changes: vec![
+                    PushChange::Text {
+                        path: "../bad.md".into(),
+                        content: "x".into(),
+                    },
+                    PushChange::Blob {
+                        path: "img.png".into(),
+                        blob_hash: "not-a-sha".into(),
+                        size: 5,
+                        mime: None,
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "invalid_path");
+    }
+
+    #[tokio::test]
     async fn push_rejects_runtime_oversize_blob_metadata() {
         let (state, user, vid, _tmp) = state_user_vault().await;
         state
@@ -1335,6 +1420,44 @@ mod tests {
         let data = Bytes::from_static(b"hello");
         let hash = LocalFsBlobStore::sha256(&data);
         upload_blob(&state, &user.user_id, &other.id, &hash, data)
+            .await
+            .unwrap();
+
+        let err = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: None,
+                changes: vec![PushChange::Blob {
+                    path: "img.png".into(),
+                    blob_hash: hash,
+                    size: 5,
+                    mime: None,
+                }],
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "missing_blob");
+    }
+
+    #[tokio::test]
+    async fn push_rejects_blob_referenced_only_in_another_vault() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let other = vault::create_vault(&state, &user.user_id, "other")
+            .await
+            .unwrap();
+        let data = Bytes::from_static(b"hello");
+        let hash = LocalFsBlobStore::sha256(&data);
+        let store = LocalFsBlobStore::new(state.default_blob_root());
+        store.put_verified(&hash, data).await.unwrap();
+        state
+            .blob_refs
+            .add_refs(&other.id, "commit-other", std::slice::from_ref(&hash))
             .await
             .unwrap();
 
