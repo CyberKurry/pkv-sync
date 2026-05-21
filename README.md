@@ -231,6 +231,11 @@ your normal Obsidian vault on disk — no opaque storage layer, no proxy
 filesystem. Plugin settings and the sync index live in Obsidian's
 `<vault>/.obsidian/plugins/pkv-sync/data.json`.
 
+`data.json` contains the active bearer device token and deployment key. Treat
+it as sensitive: do not publish it, sync it to untrusted locations, or keep it
+in plaintext backups. If it may have leaked, revoke the device token and
+connect again.
+
 Device tokens expire after 90 days. Logging in again on the same device
 replaces the previous active token; concurrent stale tokens are not kept.
 

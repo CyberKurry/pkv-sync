@@ -264,6 +264,8 @@ restic -r sftp:user@backup.example.com:/repo backup /var/lib/pkv-sync /etc/pkv-s
 
 设备 bearer token 会在 90 天后过期，也可以由用户或管理员撤销。在过期或撤销前，请把活跃 token 当作凭据处理。
 
+Obsidian 会把插件的活跃 token 和部署密钥保存在笔记库本地插件数据文件 `<vault>/.obsidian/plugins/pkv-sync/data.json` 中。请提醒用户不要把该文件放进共享压缩包、不可信同步目标或明文备份里。如果怀疑文件已经泄露，请撤销受影响的设备 token。
+
 建议：
 
 - 从 Admin WebUI 设备页面撤销丢失设备。

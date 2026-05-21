@@ -167,6 +167,8 @@ pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
 
 **本地文件就是事实源**。插件直接读写你正常的 Obsidian 笔记库目录——没有不透明的存储层，没有代理文件系统。插件设置和同步索引存在 Obsidian 的 `<vault>/.obsidian/plugins/pkv-sync/data.json` 里。
 
+`data.json` 包含当前活跃的 bearer 设备 token 和部署密钥。请把它当作敏感文件处理：不要公开发布，不要同步到不可信位置，也不要保存在明文备份中。如果怀疑泄露，请撤销该设备 token 并重新连接。
+
 设备 token 90 天过期。同一设备重新登录会替换原来的活跃 token；不会保留多个并存的 stale token。
 
 完整功能（命令面板、历史／diff modal、冲突解决、选择性同步规则、设备管理、语言和时区）详见 [用户手册](./public-docs/user-manual.zh-CN.md)。

@@ -141,6 +141,12 @@ Logging in issues a bearer device token that is valid for 90 days. The plugin
 keeps a stable device ID, so logging in again from the same device replaces that
 device's previous active token instead of accumulating duplicates.
 
+The Obsidian plugin stores the active token and deployment key in
+`<vault>/.obsidian/plugins/pkv-sync/data.json`. Treat that file as sensitive:
+protect plaintext backups and cloud-sync targets, and do not share it. If the
+file may have leaked, log out or ask an administrator to revoke the device token,
+then connect again.
+
 - Use plugin settings to log out from the current device.
 - Ask an administrator to revoke tokens for lost devices.
 - Changing your password keeps the current device signed in and revokes your
