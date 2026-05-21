@@ -197,6 +197,21 @@ async fn language_switch_sets_cookie() {
 }
 
 #[tokio::test]
+async fn language_switch_rejects_dot_segment_next() {
+    let resp = app()
+        .await
+        .oneshot(request(
+            Method::GET,
+            "/admin/language/zh-CN?next=/admin/../api/config",
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    assert_eq!(resp.headers().get(header::LOCATION).unwrap(), "/admin");
+}
+
+#[tokio::test]
 async fn admin_can_create_device_token_and_plaintext_is_one_time() {
     let app = app().await;
     let session_cookie = login_cookie(&app).await;

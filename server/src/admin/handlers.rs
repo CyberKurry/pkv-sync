@@ -168,9 +168,14 @@ fn is_safe_admin_next(value: &str) -> bool {
     if value.starts_with("//") || value.contains('\\') {
         return false;
     }
-    match value.strip_prefix("/admin") {
+    let path_end = value.find(['?', '#']).unwrap_or(value.len());
+    let path = &value[..path_end];
+    match path.strip_prefix("/admin") {
         Some("") => true,
-        Some(rest) => rest.starts_with('/') || rest.starts_with('?') || rest.starts_with('#'),
+        Some(rest) if rest.starts_with('/') => path
+            .split('/')
+            .all(|segment| segment != "." && segment != ".."),
+        Some(rest) => rest.starts_with('?') || rest.starts_with('#'),
         None => false,
     }
 }
