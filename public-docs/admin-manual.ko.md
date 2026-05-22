@@ -27,8 +27,8 @@
    pkvsyncd -c /etc/pkv-sync/config.toml serve
    ```
 
-5. stderr 또는 컨테이너 로그에 출력되는 최초 관리자 비밀번호를 저장합니다.
-6. `/admin/login`을 열고 `admin`으로 로그인한 뒤 비밀번호를 변경합니다.
+5. 새 데이터베이스를 처음 시작한 뒤 브라우저에서 `/setup`을 열고 첫 관리자 계정을 만듭니다. PKV Sync는 임의의 관리자 비밀번호를 stderr 또는 컨테이너 로그에 출력하지 않습니다.
+6. setup이 끝난 뒤 일반 관리자 로그인에는 `/admin/login`을 사용합니다.
 
 릴리스된 migration은 의도적으로 추가 전용으로 관리합니다. 기존 배포를 위해 이미 게시된 migration 파일을 squash하거나 편집하지 마세요.
 

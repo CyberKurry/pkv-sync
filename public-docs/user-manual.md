@@ -21,6 +21,19 @@ code before you start.
 The extracted directory should contain `main.js`, `manifest.json`, and
 `styles.css`.
 
+## Plugin Updates
+
+The PKV Sync settings page includes an **Updates** section. By default the
+plugin checks the connected PKV Sync server for the bundled plugin version; this
+is the preferred source for self-hosted deployments because upgrading the server
+also publishes the matching plugin assets. You can switch the update source to
+GitHub releases when needed.
+
+When an update is available, **Update now** downloads `main.js`,
+`manifest.json`, and `styles.css` when present, verifies SHA-256 hashes, writes
+the plugin files, and prompts you to reload Obsidian. The command palette also
+includes **PKV Sync: Check for PKV Sync plugin updates**.
+
 ## Connect to a Server
 
 The server share URL usually looks like this:
@@ -169,6 +182,7 @@ PKV Sync adds these command palette actions:
 - Refresh account info
 - Manual sync now
 - View sync status details
+- Check for PKV Sync plugin updates
 - List conflict files
 - Delete conflict files
 

@@ -26,8 +26,10 @@ For network and host hardening, read the deployment hardening guide as well.
    pkvsyncd -c /etc/pkv-sync/config.toml serve
    ```
 
-5. Save the first-run admin password printed to stderr or container logs.
-6. Open `/admin/login`, sign in as `admin`, and change the password.
+5. On a fresh database, open `/setup` in a browser and create the first
+   administrator account. PKV Sync no longer prints a random admin password to
+   stderr or container logs.
+6. After setup completes, use `/admin/login` for normal administrator sign-in.
 
 Migrations are intentionally append-only after release. Do not squash or edit
 already published migration files for an existing deployment.
@@ -43,6 +45,7 @@ https://sync.example.com/admin/login
 The web panel includes:
 
 - Dashboard with system, storage, vault, user, and recent activity indicators
+  plus an update banner when a newer PKV Sync release is available
 - User list with search and status filters
 - User detail pages for password reset, active/admin controls, and token review
 - Global device token page for listing, creating, and revoking tokens
@@ -61,6 +64,22 @@ The web panel includes:
 Timestamps, durations, byte sizes, uptime, and activity data are rendered in
 human-readable form. The default timezone is `Asia/Shanghai` and can be changed
 from settings.
+
+## Update Notifications
+
+PKV Sync checks GitHub releases once every 24 hours by default. When a newer
+server release exists, the dashboard shows a banner with the current version,
+latest version, release notes link, and a short excerpt.
+
+Air-gapped deployments can disable the check in static config:
+
+```toml
+[update_check]
+enabled = false
+```
+
+The check is informational only. PKV Sync never replaces the running server
+binary or container image automatically.
 
 ## User Management
 
@@ -239,6 +258,24 @@ https://sync.example.com/k_xxx/
 Treat it as sensitive. It is not a user password, but it carries the deployment
 key used as the first pre-authentication gate for plugin API traffic.
 
+## Upgrading PKV Sync
+
+For binary installs, use `pkvsyncd upgrade --dry-run` to preview the latest
+release, target asset, and side-by-side path. Use `pkvsyncd upgrade --yes` to
+download the verified release binary next to the current executable as
+`pkvsyncd.new` (`pkvsyncd.new.exe` on Windows). The command verifies SHA-256
+from `SHA256SUMS` and prints the systemd/manual swap steps. It does not hot
+replace the running process.
+
+Use `pkvsyncd upgrade --version 0.9.1` to target a specific release. If the
+command cannot find a matching asset or checksum, follow the manual GitHub
+release download path and verify `SHA256SUMS` yourself.
+
+Docker and Kubernetes deployments should upgrade by pulling or changing the
+container image tag, then restarting the service or rollout. The upgrade CLI
+detects container environments and prints image-based guidance instead of
+writing a side-by-side binary.
+
 ## Maintenance Checklist
 
 - Use `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` for
@@ -255,6 +292,7 @@ key used as the first pre-authentication gate for plugin API traffic.
   vault git repos with `git2`, and exits non-zero for missing, corrupt, or git
   errors. `--no-fail` keeps the report but forces a success exit code.
 - Run blob garbage collection after large attachment deletions.
+- Check the dashboard update banner or GitHub releases before maintenance.
 - Watch logs and activity for repeated `401`, `403`, `404`, `409`, and `429`
   responses.
 - Keep the server binary, plugin package, Docker image, reverse proxy, and host

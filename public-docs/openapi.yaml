@@ -23,6 +23,7 @@ tags:
   - name: Auth
   - name: Me
   - name: Vaults
+  - name: Plugin
   - name: Admin
   - name: Metrics
 components:
@@ -207,6 +208,40 @@ components:
             available. The authenticated `/api/config` endpoint reports
             `true` only when both the admin toggle is enabled and the
             `git` binary is present on the server.
+    PluginManifest:
+      type: object
+      required:
+        - version
+        - main_js_url
+        - main_js_sha256
+        - manifest_json_url
+        - manifest_json_sha256
+        - styles_css_url
+        - styles_css_sha256
+      properties:
+        version:
+          type: string
+          description: Bundled Obsidian plugin version.
+        main_js_url:
+          type: string
+          format: uri
+        main_js_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        manifest_json_url:
+          type: string
+          format: uri
+        manifest_json_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        styles_css_url:
+          type: string
+          format: uri
+          nullable: true
+        styles_css_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          nullable: true
     LoginRequest:
       type: object
       required: [username, password, device_id, device_name]
@@ -762,6 +797,90 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Config'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/plugin-manifest:
+    get:
+      tags: [Plugin]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Bundled Obsidian plugin manifest for self-update
+      description: |
+        Returns the Obsidian plugin version bundled with this PKV Sync server,
+        plus authenticated download URLs and SHA-256 hashes for plugin assets.
+        Plugins use this endpoint before falling back to GitHub releases.
+      responses:
+        '200':
+          description: Bundled plugin manifest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginManifest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/plugin-assets/main.js:
+    get:
+      tags: [Plugin]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Bundled Obsidian plugin main.js
+      responses:
+        '200':
+          description: JavaScript plugin bundle
+          content:
+            application/javascript:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/plugin-assets/manifest.json:
+    get:
+      tags: [Plugin]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Bundled Obsidian plugin manifest.json
+      responses:
+        '200':
+          description: Obsidian plugin manifest
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/plugin-assets/styles.css:
+    get:
+      tags: [Plugin]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Bundled Obsidian plugin styles.css
+      responses:
+        '200':
+          description: Obsidian plugin stylesheet
+          content:
+            text/css:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
   /api/auth/login:

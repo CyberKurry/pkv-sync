@@ -7,6 +7,41 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-23
+
+### Added
+
+- **First-run setup wizard**: opening a fresh PKV Sync server in a browser now
+  shows a setup page where the operator chooses a username and password for the
+  first administrator account. No more random passwords printed to stderr or
+  container logs.
+- **Server update check**: the admin dashboard shows a banner when a newer PKV
+  Sync release is available on GitHub. Checks run every 24 hours by default;
+  air-gapped deployments can disable them with `[update_check] enabled = false`.
+- **`pkvsyncd upgrade` CLI**: downloads the latest release binary side-by-side
+  as `pkvsyncd.new`, verifies SHA-256 from `SHA256SUMS`, and prints
+  systemd/manual swap instructions. Docker and Kubernetes deployments are
+  detected and redirected to image-pull guidance.
+- **Plugin update check and self-update**: the Obsidian plugin settings panel
+  shows when a newer plugin version is available, preferring the connected PKV
+  Sync server's bundled plugin assets and falling back to GitHub releases.
+  "Update now" downloads, verifies, and writes plugin assets, then prompts for
+  an Obsidian reload.
+- **Server `/api/plugin-manifest` endpoint**: lets authenticated plugin clients
+  discover the server's bundled plugin version, SHA-256 hashes, and download
+  URLs for `main.js`, `manifest.json`, and `styles.css`.
+
+### Changed
+
+- **BREAKING for first-time deployments only**: on a fresh database, the server
+  no longer auto-creates an `admin` user with a random password. The first
+  browser request redirects the operator through the setup wizard. Existing
+  deployments with at least one admin user seal setup immediately at boot and
+  are not affected.
+- **Setup-required API state**: when the server has no admin users, `/api/*`
+  returns `503 Service Unavailable` with `error.code = "setup_required"`. The
+  plugin surfaces this as a setup-required notice.
+
 ## [0.7.0] - 2026-05-23
 
 ### Added

@@ -108,17 +108,17 @@ docker pull ghcr.io/cyberkurry/pkv-sync:v0.7.0
    docker compose logs -f pkv-sync
    ```
 
-   首次启动会自动创建 `admin` 账号并把一次性密码打到 stderr——**立即记下来**。日志形如：
+   全新数据库首次启动后，打开 setup wizard：
 
    ```text
-   FIRST-RUN ADMIN CREATED
-    username: admin
-    password: <save this now>
+   https://sync.example.com/setup
    ```
 
-6. **登录**
+   在浏览器里创建第一个管理员账号。PKV Sync 不再把随机管理员密码输出到 stderr 或容器日志。
 
-   打开 `https://sync.example.com/admin/login`，用 `admin` 登录、改密码，然后在 **Users → New** 创建你的第一个用户账号。
+6. **登录并连接 Obsidian**
+
+   打开 `https://sync.example.com/admin/login`，用管理员账号登录，创建第一个用户账号和笔记库，安装 `pkv-sync-plugin.zip`，然后把 Admin WebUI 里的分享 URL 粘贴到插件中并连接。
 
 **数据落在哪儿**
 
@@ -134,6 +134,8 @@ docker compose up -d
 ```
 
 数据库迁移是 append-only 的，启动时自动应用。回滚的方式是从备份还原数据目录。
+
+管理仪表盘每 24 小时检查一次 GitHub release；发现新版本时会显示更新提示。
 
 **生产加固**——详见 [部署加固指南](./public-docs/deployment-hardening.zh-CN.md)：反向代理细节（Caddy／Nginx／Traefik）、`trusted_proxies` 调优、`public_host` 语义、运行时 CSRF 行为、备份、磁盘加密、token 卫生。
 
@@ -151,6 +153,7 @@ pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
 pkvsyncd -c /etc/pkv-sync/config.toml backup --output <dir> [--data-dir <dir>] [--gzip]
 pkvsyncd -c /etc/pkv-sync/config.toml restore --input <backup-dir> --data-dir <dir> [--force]
 pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
+pkvsyncd upgrade [--dry-run] [--yes] [--version 0.9.1]
 ```
 
 默认配置路径：`/etc/pkv-sync/config.toml`。
@@ -163,6 +166,8 @@ pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
 
 `verify` 会检查被引用的 blob 文件是否存在、内容 SHA-256 是否与文件名一致，报告孤立 blob，并用 `git2` 校验笔记库 git 仓库。缺失、损坏或 git 错误会返回失败；`--no-fail` 可覆盖退出码。
 
+`upgrade` 会下载匹配当前平台的 GitHub release 二进制到当前可执行文件旁边的 `pkvsyncd.new`（Windows 为 `pkvsyncd.new.exe`），用 `SHA256SUMS` 校验后打印 systemd／手动替换步骤。`--dry-run` 只显示计划不下载，`--yes` 跳过交互确认，`--version 0.9.1` 可指定版本。Docker 和 Kubernetes 部署应通过拉取或修改镜像 tag 升级；CLI 检测到容器环境时会输出镜像升级指引，不写入旁路二进制。
+
 ## Obsidian 插件
 
 从 release 里下载 `pkv-sync-plugin.zip`，解压到 `<vault>/.obsidian/plugins/pkv-sync/`，在 Obsidian 设置里开启社区插件并启用 **PKV Sync**。从管理面板复制分享 URL（`https://sync.example.com/k_xxx/`），粘贴到插件、点 **Connect**，然后登录或注册并选择远端笔记库。
@@ -172,6 +177,8 @@ pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
 `data.json` 包含当前活跃的 bearer 设备 token 和部署密钥。请把它当作敏感文件处理：不要公开发布，不要同步到不可信位置，也不要保存在明文备份中。如果怀疑泄露，请撤销该设备 token 并重新连接。
 
 设备 token 会在认证请求时续期，连续 90 天未使用才会过期。同一设备重新登录会替换原来的活跃 token；不会保留多个并存的 stale token。
+
+插件设置页包含 **更新** 区段。默认优先检查已连接 PKV Sync 服务端内置的插件 manifest，也可以回退到 GitHub release。点击 **立即更新** 会下载 `main.js`、`manifest.json` 和存在时的 `styles.css`，校验 SHA-256 后写入插件文件，并提示重新加载 Obsidian。
 
 完整功能（命令面板、历史／diff modal、冲突解决、选择性同步规则、设备管理、语言和时区）详见 [用户手册](./public-docs/user-manual.zh-CN.md)。
 
@@ -189,6 +196,9 @@ pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
 | `network.trusted_proxies` | 允许设置 `X-Forwarded-For` / `X-Forwarded-Proto` 的 CIDR。 |
 | `logging.level` | tracing filter，如 `info`、`debug`。 |
 | `logging.format` | `json` 或 `pretty`。 |
+| `update_check.enabled` | 是否检查 GitHub release 并在管理仪表盘显示更新提示。离线部署可设为 `false`。 |
+| `update_check.interval_seconds` | 更新检查间隔，默认 `86400` 秒。 |
+| `update_check.repo` | 用于检查的 GitHub 仓库，默认 `cyberkurry/pkv-sync`。 |
 
 运行时设置（注册模式、登录速率限制、最大文件大小、文本扩展名、push 去抖、SSE 内联内容上限、SSE 心跳、Git smart HTTP 开关、额外 exclude glob、历史／diff 功能开关）都在管理面板里编辑——详见 [管理员手册](./public-docs/admin-manual.zh-CN.md#运行时设置)。
 
@@ -197,6 +207,8 @@ pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
 所有 `/api/*` 路由都要求部署密钥 header；认证路由还要求 bearer 设备 token。完整路由表、请求／响应 schema、SSE 事件 payload 格式见 [OpenAPI 规范](./public-docs/openapi.yaml)。
 
 认证同步 API 路由使用固定窗口限流：按路由、方法、客户端 IP 和 bearer 设备 token 分桶，每 60 秒最多 600 次请求。SSE 客户端可以用 `Last-Event-ID` replay 断线期间错过的 commit；replay 有上限，超出时会收到 `lagged` 事件并应主动 pull 追赶。并发 SSE 订阅按用户限制，并保留独立的全局上限作为最后防线。
+
+`GET /api/plugin-manifest` 需要认证，返回当前服务端内置插件版本、SHA-256 校验值和插件资源下载 URL，供插件自更新使用。
 
 `/metrics` 指标端点只有启用 `enable_metrics=true` 后才可用，并且仍需通过部署密钥中间件、插件 User-Agent guard 和管理员 bearer token。
 

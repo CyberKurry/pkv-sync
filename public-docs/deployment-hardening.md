@@ -139,11 +139,16 @@ Use this path when you want Caddy to request and renew HTTPS certificates.
    docker compose logs -f pkv-sync
    ```
 
-5. Save the first-run admin password from the logs, then open:
+5. On a fresh database, open the setup wizard and create the first
+   administrator account:
 
    ```text
-   https://sync.example.com/admin/login
+   https://sync.example.com/setup
    ```
+
+   Complete setup from a private network or a temporary reverse-proxy allowlist
+   when possible, then tighten public access immediately afterward. Normal
+   administrator sign-in uses `https://sync.example.com/admin/login`.
 
 Back up `./data`, `config.toml`, and Caddy's named volumes.
 
@@ -154,6 +159,10 @@ docker compose pull
 docker compose up -d
 docker compose logs -f pkv-sync
 ```
+
+The dashboard checks GitHub releases once every 24 hours and shows a banner
+when a newer PKV Sync release is available. Disable this for air-gapped hosts
+with `[update_check] enabled = false`.
 
 ## public_host (required for admin POST)
 
@@ -348,7 +357,13 @@ Before upgrading production:
    plugin zip, and `SHA256SUMS`.
 4. Verify the GHCR image exists for the tag and `latest`.
 5. Back up current data.
-6. Run migrations with the new binary.
+6. For binary installs, run `pkvsyncd upgrade --dry-run` to preview the release
+   asset, then `pkvsyncd upgrade --yes` to download and verify `pkvsyncd.new`
+   next to the current binary. Stop the service and swap binaries only after
+   checksum verification.
+7. For Docker or Kubernetes, pull or change the image tag and restart the
+   service or rollout instead of replacing a binary inside the container.
+8. Run migrations with the new binary or image.
 
 Migrations are append-only once released. Do not squash published migrations for
 an existing deployment.

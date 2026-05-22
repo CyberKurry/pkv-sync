@@ -156,19 +156,21 @@ validation and HTTP→HTTPS redirects).
    docker compose logs -f pkv-sync
    ```
 
-   On first start, PKV Sync creates an `admin` account and prints a one-time
-   password to stderr — **save it immediately**. The line is shaped as:
+   On a fresh database, open the setup wizard:
 
    ```text
-   FIRST-RUN ADMIN CREATED
-    username: admin
-    password: <save this now>
+   https://sync.example.com/setup
    ```
 
-6. **Sign in**
+   Create the first administrator account in the browser. PKV Sync no longer
+   prints a random admin password to stderr or container logs.
 
-   Open `https://sync.example.com/admin/login`, sign in as `admin`, change the
-   password, and create your first user account from **Users → New**.
+6. **Sign in and connect Obsidian**
+
+   Open `https://sync.example.com/admin/login`, sign in with the administrator
+   account, create your first user account and vault, install
+   `pkv-sync-plugin.zip` in Obsidian, then paste the Admin WebUI share URL into
+   the plugin and connect.
 
 **Where things live**
 
@@ -184,8 +186,10 @@ docker compose pull
 docker compose up -d
 ```
 
-Database migrations are append-only and run automatically on start. To roll
-back, restore the data directory from a backup.
+The admin dashboard checks GitHub releases once every 24 hours and shows a
+banner when a newer PKV Sync release is available. Database migrations are
+append-only and run automatically on start. To roll back, restore the data
+directory from a backup.
 
 **Production hardening** — read the
 [deployment hardening guide](./public-docs/deployment-hardening.md) for:
@@ -207,6 +211,7 @@ pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
 pkvsyncd -c /etc/pkv-sync/config.toml backup --output <dir> [--data-dir <dir>] [--gzip]
 pkvsyncd -c /etc/pkv-sync/config.toml restore --input <backup-dir> --data-dir <dir> [--force]
 pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
+pkvsyncd upgrade [--dry-run] [--yes] [--version 0.9.1]
 ```
 
 Default config path: `/etc/pkv-sync/config.toml`.
@@ -228,6 +233,15 @@ then it runs `verify` on the restored tree.
 `verify` checks referenced blob files against their SHA-256 names, reports
 orphan blobs, and validates vault git repositories with `git2`. It exits
 non-zero on missing, corrupt, or git errors unless `--no-fail` is set.
+
+`upgrade` downloads the matching GitHub release asset next to the current
+binary as `pkvsyncd.new` (or `pkvsyncd.new.exe` on Windows), verifies it
+against `SHA256SUMS`, and prints the systemd/manual swap commands. Use
+`--dry-run` to see the plan without downloading, `--yes` for non-interactive
+download, or `--version 0.9.1` to choose a specific release. Docker and
+Kubernetes deployments should upgrade by pulling or changing the image tag; the
+CLI detects container environments and prints image-based guidance instead of
+writing a binary.
 
 ## Obsidian Plugin
 
@@ -251,6 +265,12 @@ Device tokens renew on authenticated use and expire after 90 idle days.
 Logging in again on the same device replaces the previous active token;
 concurrent stale tokens are not kept.
 
+The plugin settings panel includes **Updates**. By default the plugin checks
+the connected PKV Sync server's bundled plugin manifest, then can fall back to
+GitHub releases. **Update now** downloads `main.js`, `manifest.json`, and
+`styles.css` when present, verifies SHA-256 hashes, writes the plugin files, and
+prompts you to reload Obsidian.
+
 See the [user manual](./public-docs/user-manual.md) for the full feature
 walkthrough (command palette, history & diff modals, conflict resolution,
 selective sync rules, device management, language and timezone).
@@ -269,6 +289,9 @@ Static `config.toml` (read at startup):
 | `network.trusted_proxies` | CIDRs allowed to set `X-Forwarded-For` / `X-Forwarded-Proto`. |
 | `logging.level` | tracing filter such as `info`, `debug`. |
 | `logging.format` | `json` or `pretty`. |
+| `update_check.enabled` | Whether the server checks GitHub releases and shows an admin dashboard update banner. Set `false` for air-gapped deployments. |
+| `update_check.interval_seconds` | Update-check interval, default `86400` seconds. |
+| `update_check.repo` | GitHub repository to check, default `cyberkurry/pkv-sync`. |
 
 Runtime settings (registration mode, login rate limits, max file size, text
 extensions, push debounce, inline SSE content cap, SSE heartbeat, Git smart
@@ -285,6 +308,10 @@ client IP, and bearer token. SSE clients can replay missed commits with
 `Last-Event-ID`; replay is capped and falls back to a `lagged` event when the
 client should pull to catch up. Concurrent SSE subscriptions are capped per
 user, with a separate global ceiling as a final guard.
+
+`GET /api/plugin-manifest` is authenticated and advertises the plugin version
+bundled with the connected server, plus SHA-256 hashes and download URLs for
+the bundled plugin assets used by plugin self-update.
 
 `/metrics` exposes Prometheus metrics only when the `enable_metrics` runtime
 setting is true. The route is behind the deployment key middleware and plugin

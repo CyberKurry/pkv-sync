@@ -25,8 +25,8 @@
    pkvsyncd -c /etc/pkv-sync/config.toml serve
    ```
 
-5. 保存输出到 stderr 或容器日志中的首次管理员密码。
-6. 打开 `/admin/login`，使用 `admin` 登录并修改密码。
+5. 全新数据库首次启动后，在浏览器打开 `/setup`，创建第一个管理员账号。PKV Sync 不再把随机管理员密码输出到 stderr 或容器日志。
+6. setup 完成后，日常管理员登录使用 `/admin/login`。
 
 已发布后的 migration 应保持追加式管理。对于已有部署，不要压缩或编辑已经发布的 migration 文件。
 
@@ -40,7 +40,7 @@ https://sync.example.com/admin/login
 
 管理后台包含：
 
-- 仪表盘：系统、存储、笔记库、用户和最近活动指标
+- 仪表盘：系统、存储、笔记库、用户、最近活动指标，以及有新版 PKV Sync 时的更新提示
 - 用户列表，支持搜索和状态筛选
 - 用户详情页：重置密码、启用/禁用、管理员权限控制和 token 查看
 - 全局设备 token 页面，可列出、创建和撤销 token
@@ -53,6 +53,19 @@ https://sync.example.com/admin/login
 - 英文和简体中文语言切换
 
 时间戳、持续时间、字节大小、运行时长和活动数据都会以人类可读形式显示。默认时区是 `Asia/Shanghai`，可在设置中修改。
+
+## 更新通知
+
+PKV Sync 默认每 24 小时检查一次 GitHub release。发现新的服务端版本时，仪表盘会显示提示，包含当前版本、最新版本、发行说明链接和简短摘要。
+
+离线部署可以在静态配置中关闭检查：
+
+```toml
+[update_check]
+enabled = false
+```
+
+更新检查只提供信息。PKV Sync 不会自动替换正在运行的服务端二进制或容器镜像。
 
 ## 用户管理
 
@@ -173,12 +186,21 @@ https://sync.example.com/k_xxx/
 
 请把它视为敏感信息。它不是用户密码，但包含部署密钥，是插件 API 流量的第一道预认证入口。
 
+## 升级 PKV Sync
+
+二进制部署可先运行 `pkvsyncd upgrade --dry-run` 预览最新 release、目标资产和旁路写入路径。运行 `pkvsyncd upgrade --yes` 会把校验后的 release 二进制下载到当前可执行文件旁边的 `pkvsyncd.new`（Windows 为 `pkvsyncd.new.exe`）。命令会根据 `SHA256SUMS` 校验 SHA-256，并打印 systemd／手动替换步骤；它不会热替换正在运行的进程。
+
+使用 `pkvsyncd upgrade --version 0.9.1` 可以指定 release。若命令找不到匹配资产或校验和，请手动从 GitHub release 下载，并自行校验 `SHA256SUMS`。
+
+Docker 和 Kubernetes 部署应通过拉取或修改容器镜像 tag 升级，然后重启服务或 rollout。upgrade CLI 检测到容器环境时，会输出镜像升级指引，不写入旁路二进制。
+
 ## 维护清单
 
 - 使用 `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` 生成运维快照。输出目录必须不存在或为空；命令会用 `VACUUM INTO` 快照 SQLite，复制 `vaults/`、`blobs/` 和存在时的 `config.toml`，并写入带 pkvsyncd 版本、组件哈希、大小和数量的 `MANIFEST.json`。
 - 使用 `pkvsyncd restore --input <backup-dir> --data-dir <dir>` 恢复到不存在或为空的数据目录。只有确认目标可以先清空时才加 `--force`；恢复会先校验 manifest 哈希，复制完成后自动运行 verify。
 - 维护后或主机存储异常后运行 `pkvsyncd verify [--data-dir <dir>]`。它会检查被引用的 blob 文件，报告孤立 blob，用 `git2` 校验笔记库 git 仓库，并在缺失、损坏或 git 错误时返回失败。`--no-fail` 会保留报告但强制返回成功退出码。
 - 大量删除附件后运行 blob 垃圾回收。
+- 维护前检查仪表盘更新提示或 GitHub release。
 - 关注日志和活动中重复出现的 `401`、`403`、`404`、`409` 和 `429` 响应。
 - 保持服务端二进制、插件包、Docker 镜像、反向代理和主机系统及时更新。
 - 打 tag 发版前确认 CI 通过。

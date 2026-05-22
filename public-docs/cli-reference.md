@@ -71,3 +71,46 @@ PKV_TOKEN=pks_xxx pkvsyncd mcp --vault abc123
 # local Streamable HTTP endpoint
 pkvsyncd mcp --transport http --bind 127.0.0.1:6711
 ```
+
+## pkvsyncd upgrade
+
+Download a PKV Sync release binary side-by-side with the current executable.
+
+### Synopsis
+
+```text
+pkvsyncd upgrade [--dry-run] [--yes] [--version <version>]
+```
+
+### Options
+
+- `--dry-run`: show the selected release, asset, and target path without
+  downloading anything.
+- `--yes`: skip the interactive confirmation prompt.
+- `--version <version>`: download a specific release such as `0.9.1` instead of
+  the latest release.
+
+### Description
+
+The command selects the release asset for the current platform, verifies the
+download against `SHA256SUMS`, writes `pkvsyncd.new` next to the current binary
+(`pkvsyncd.new.exe` on Windows), and prints the systemd/manual swap steps. It
+does not hot replace the running server.
+
+Docker and Kubernetes deployments should upgrade by pulling or changing the
+image tag and restarting the service or rollout. When the command detects a
+container environment, it prints image-based guidance and exits without writing
+a binary.
+
+### Examples
+
+```bash
+# Preview the upgrade plan
+pkvsyncd upgrade --dry-run
+
+# Download the latest verified binary
+pkvsyncd upgrade --yes
+
+# Download a specific release
+pkvsyncd upgrade --yes --version 0.9.1
+```

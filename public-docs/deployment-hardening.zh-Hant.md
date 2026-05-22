@@ -130,11 +130,13 @@ ports:
    docker compose logs -f pkv-sync
    ```
 
-5. 從日誌中保存首次管理員密碼，然後開啟：
+5. 全新資料庫首次啟動後，開啟 setup wizard 建立第一個管理員帳號：
 
    ```text
-   https://sync.example.com/admin/login
+   https://sync.example.com/setup
    ```
+
+   如條件允許，請把 setup 階段放在私有網路或臨時反向代理 allowlist 後完成，完成後立刻收緊公開存取。日常管理員登入使用 `https://sync.example.com/admin/login`。
 
 備份 `./data`、`config.toml` 和 Caddy 的命名卷。
 

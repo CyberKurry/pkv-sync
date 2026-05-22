@@ -25,8 +25,8 @@
    pkvsyncd -c /etc/pkv-sync/config.toml serve
    ```
 
-5. 保存輸出到 stderr 或容器日誌中的首次管理員密碼。
-6. 開啟 `/admin/login`，使用 `admin` 登入並修改密碼。
+5. 全新資料庫首次啟動後，在瀏覽器開啟 `/setup`，建立第一個管理員帳號。PKV Sync 不再把隨機管理員密碼輸出到 stderr 或容器日誌。
+6. setup 完成後，日常管理員登入使用 `/admin/login`。
 
 已發布後的 migration 應保持追加式管理。對於既有部署，不要壓縮或編輯已經發布的 migration 檔案。
 
