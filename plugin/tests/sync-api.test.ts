@@ -105,13 +105,13 @@ describe("SyncApi", () => {
       status: 200,
       headers: { "content-type": "application/json" },
       arrayBuffer: new ArrayBuffer(0),
-      json: { commit: "c2", rolled_back_to: "c1" },
-      text: '{"commit":"c2","rolled_back_to":"c1"}'
+      json: { from_commit: "c2", to_commit: "c1", rolled_back: true },
+      text: '{"from_commit":"c2","to_commit":"c1","rolled_back":true}'
     });
 
     await expect(
       new SyncApi(client()).restoreVault("v1", "c1", "Project Vault")
-    ).resolves.toEqual({ commit: "c2", rolled_back_to: "c1" });
+    ).resolves.toEqual({ from_commit: "c2", to_commit: "c1", rolled_back: true });
     expect(requestUrlMock).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://sync.example.com/api/vaults/v1/restore",

@@ -119,12 +119,14 @@ export interface RollbackVaultEvent {
   parent: string | null;
   source_device_id: string;
   at: number;
-  changes: EventChange[];
+  from_commit: string;
+  to_commit: string;
 }
 
 export type VaultEvent = CommitVaultEvent | RollbackVaultEvent;
 
 export interface RollbackResult {
-  commit: string;
-  rolled_back_to: string;
+  from_commit: string | null;
+  to_commit: string;
+  rolled_back: boolean;
 }

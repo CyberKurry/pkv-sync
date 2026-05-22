@@ -33,6 +33,7 @@ import { format, strings, type Strings } from "./i18n";
 import { DiffModal } from "./ui/diff-modal";
 import { HistoryModal, shortCommit } from "./ui/history-modal";
 import { RestoreConfirmModal } from "./ui/restore-confirm";
+import { RollbackConfirmModal } from "./ui/rollback-confirm-modal";
 import { PKVSyncSettingTab } from "./ui/settings-tab";
 import { SyncStatusModal } from "./ui/sync-modal";
 import { addConflictResolveMenuItem } from "./ui/conflict-menu";
@@ -538,6 +539,7 @@ export default class PKVSyncPlugin extends Plugin {
         historyViewDiffHead: t.historyViewDiffHead,
         historyViewContent: t.historyViewContent,
         historyRestoreVersion: t.historyRestoreVersion,
+        historyRollbackToHere: t.historyRollbackToHere,
         historyUnknownDevice: t.historyUnknownDevice
       },
       onDiffPrevious: diffAvailable
@@ -559,7 +561,8 @@ export default class PKVSyncPlugin extends Plugin {
           entry.commit,
           this.isBinaryPath(file.path),
           entry.timestamp
-        )
+        ),
+      onRollback: (entry) => this.confirmVaultRollback(entry)
     }).open();
   }
 
@@ -733,6 +736,26 @@ export default class PKVSyncPlugin extends Plugin {
             ? t.restoreDeletedAtCommit
             : result.detail ?? result.reason;
         new Notice(format(t.restoreFailed, { reason }));
+      }
+    }).open();
+  }
+
+  private confirmVaultRollback(entry: CommitSummary): void {
+    const t = this.text();
+    const vaultId = this.settings.selectedVaultId;
+    const vaultName = this.settings.selectedVaultName;
+    if (!vaultId || !vaultName) {
+      new Notice(t.noticeSyncNotReady);
+      return;
+    }
+    new RollbackConfirmModal(this.app, {
+      vaultName,
+      commit: shortCommit(entry.commit),
+      labels: t,
+      onConfirm: async (confirmName) => {
+        await new SyncApi(this.api()).restoreVault(vaultId, entry.commit, confirmName);
+        new Notice(t.rollbackSuccess);
+        await this.engine?.syncNow();
       }
     }).open();
   }

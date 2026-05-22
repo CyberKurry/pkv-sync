@@ -703,7 +703,8 @@ describe("SyncEngine pull", () => {
       parent: "c1",
       source_device_id: "other",
       at: 1_700_000_000,
-      changes: []
+      from_commit: "c1",
+      to_commit: "c2"
     });
     await vi.waitFor(() => {
       expect(api.pull).toHaveBeenCalledWith("v", "c0");

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { subscribeVaultEvents, type SubscribeOptions } from "../../src/api/events-client";
 import type { VaultEvent } from "../../src/api/types";
+import type { CommitVaultEvent } from "../../src/api/types";
 
 /** Build a ReadableStream<Uint8Array> from an array of string chunks. */
 function mockSseStream(chunks: string[]): ReadableStream<Uint8Array> {
@@ -26,6 +27,14 @@ const baseOpts: Omit<SubscribeOptions, "onEvent" | "onError"> = {
   ownDeviceId: "dev_self",
   pluginVersion: "0.3.3",
 };
+
+function expectCommitEvent(event: VaultEvent): CommitVaultEvent {
+  expect(event.kind ?? "commit").toBe("commit");
+  if (event.kind === "rollback") {
+    throw new Error("expected commit event");
+  }
+  return event;
+}
 
 describe("subscribeVaultEvents", () => {
   const originalFetch = globalThis.fetch;
@@ -193,7 +202,7 @@ describe("subscribeVaultEvents", () => {
     await vi.waitFor(() => expect(onEvent).toHaveBeenCalled());
 
     expect(onEvent).toHaveBeenCalledTimes(1);
-    const ev: VaultEvent = onEvent.mock.calls[0][0];
+    const ev = expectCommitEvent(onEvent.mock.calls[0][0] as VaultEvent);
     expect(ev.commit).toBe("c1");
     expect(ev.source_device_id).toBe("dev_other");
     expect(ev.changes).toHaveLength(1);
@@ -217,7 +226,7 @@ describe("subscribeVaultEvents", () => {
 
     await vi.waitFor(() => expect(onEvent).toHaveBeenCalled());
 
-    const ev: VaultEvent = onEvent.mock.calls[0][0];
+    const ev = expectCommitEvent(onEvent.mock.calls[0][0] as VaultEvent);
     expect(ev.changes[0].kind).toBe("blob");
     if (ev.changes[0].kind === "blob") {
       expect(ev.changes[0].path).toBe("img.png");
@@ -286,7 +295,7 @@ describe("subscribeVaultEvents", () => {
 
     await vi.waitFor(() => expect(onEvent).toHaveBeenCalled());
 
-    const ev: VaultEvent = onEvent.mock.calls[0][0];
+    const ev = expectCommitEvent(onEvent.mock.calls[0][0] as VaultEvent);
     expect(ev.commit).toBe("");
     expect(ev.changes).toEqual([]);
   });
