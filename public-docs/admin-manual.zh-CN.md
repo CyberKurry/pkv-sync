@@ -112,7 +112,7 @@ Blob 文件是内容寻址的，可能会保留到垃圾回收确认其超过宽
 
 历史页会列出该文件相关的提交，并提供“查看该提交时的文件”和对应 diff 的链接。diff 页会按行渲染 unified diff，并用颜色区分新增、删除和 hunk。二进制文件只显示元数据，不渲染二进制 diff 内容。
 
-Admin WebUI 有意不提供恢复、revert、rollback 或写回控制。浏览文件、历史和 diff 会记录 `view_commit`、`view_history` 和 `view_diff` 活动。
+浏览文件、历史和 diff 会记录 `view_commit`、`view_history` 和 `view_diff` 活动。Admin history 中提供笔记库 rollback 控制；请在确认目标提交后再使用，因为 rollback 会从选定历史点创建新的笔记库状态。
 
 ## 邀请码和注册
 

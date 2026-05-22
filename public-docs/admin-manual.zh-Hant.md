@@ -112,7 +112,7 @@ Blob 檔案是內容定址的，可能會保留到垃圾回收確認其超過寬
 
 歷史頁會列出該檔案相關的提交，並提供「查看該提交時的檔案」和對應 diff 的連結。diff 頁會按行渲染 unified diff，並用顏色區分新增、刪除和 hunk。二進位檔案只顯示元資料，不渲染二進位 diff 內容。
 
-Admin WebUI 有意不提供恢復、revert、rollback 或寫回控制。瀏覽檔案、歷史和 diff 會記錄 `view_commit`、`view_history` 和 `view_diff` 活動。
+瀏覽檔案、歷史和 diff 會記錄 `view_commit`、`view_history` 和 `view_diff` 活動。Admin history 中提供筆記庫 rollback 控制；請在確認目標提交後再使用，因為 rollback 會從選定歷史點建立新的筆記庫狀態。
 
 ## 邀請碼和註冊
 

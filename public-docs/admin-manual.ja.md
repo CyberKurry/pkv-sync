@@ -114,7 +114,7 @@ Blob ファイルは内容アドレス指定であり、ガベージコレクシ
 
 履歴ページはそのファイルの commit を一覧表示し、各 commit 時点のファイルと対応する diff へのリンクを提供します。diff ページは unified diff の行を追加/削除/hunk の色分け付きでレンダリングします。バイナリファイルはメタデータのみ表示し、バイナリ diff 内容はレンダリングしません。
 
-Admin WebUI は意図的に restore、revert、rollback、write-back の制御を提供しません。ファイル、履歴、diff の閲覧は `view_commit`、`view_history`、`view_diff` のアクティビティ行を記録します。
+ファイル、履歴、diff の閲覧は `view_commit`、`view_history`、`view_diff` のアクティビティ行を記録します。Vault rollback controls は Admin history から利用できます。対象 commit を確認してから使用してください。rollback は選択した履歴時点から新しい vault 状態を作成します。
 
 ## 招待と登録
 

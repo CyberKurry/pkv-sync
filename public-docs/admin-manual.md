@@ -141,9 +141,10 @@ commit and the corresponding diff. The diff page renders unified diff lines with
 add/delete/hunk coloring. Binary files show metadata and do not render binary
 diff content.
 
-The Admin WebUI intentionally has no restore, revert, rollback, or write-back
-controls. Browsing files, history, and diffs records `view_commit`,
-`view_history`, and `view_diff` activity rows.
+Browsing files, history, and diffs records `view_commit`, `view_history`, and
+`view_diff` activity rows. Vault rollback controls are available from Admin
+history; use them only after confirming the target commit, because rollback
+creates a new vault state from that selected history point.
 
 ## Invites and Registration
 
