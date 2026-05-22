@@ -20,6 +20,27 @@ export const ja = {
   translationNeedsReview:
     "この言語はコミュニティ翻訳です。問題があれば報告してください。",
   helpTranslate: "翻訳に協力",
+  migrateCommand: "Obsidian Sync から移行",
+  migrateModalTitle: "Obsidian Sync から移行",
+  migrateSyncDetected: "Obsidian Sync を検出しました",
+  migrateSyncNotDetected: "Obsidian Sync は検出されませんでした",
+  migrateScanSummary: "{count} ファイル - {size} - {skipped} 件をスキップ",
+  migrateHistoryNotice:
+    "Obsidian Sync の履歴はインポートされません。PKV Sync の履歴はこの移行から始まります。",
+  migrateVaultNameLabel: "新しい PKV Sync Vault",
+  migrateVaultNameRequired: "Vault 名が必要です",
+  migrateStartButton: "移行を開始",
+  migrateCancelButton: "キャンセル",
+  migrateStageScanning: "スキャン中",
+  migrateStageCreatingVault: "Vault を作成中",
+  migrateStageUploadingBlobs: "バイナリファイルをアップロード中",
+  migrateStagePushing: "ファイルをプッシュ中",
+  migrateStageComplete: "移行完了",
+  migrateProgressSummary:
+    "{processed}/{total} ファイル - batch {batch}/{batches} - blobs {blobs}/{totalBlobs}",
+  migrateCompleteSummary: "{count} ファイルを移行しました - {skipped} 件をスキップ",
+  migrateFailed: "移行に失敗しました",
+  migrateCompleteNotice: "{count} ファイルを {name} に移行しました",
   historyRollbackToHere: "ここへロールバック",
   rollbackConfirmTitle: "Vault を {commit} にロールバックしますか？",
   rollbackConfirmBody:

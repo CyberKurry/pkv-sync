@@ -20,6 +20,12 @@ import {
 import { Debouncer } from "./sync/debounce";
 import { SyncEngine } from "./sync/engine";
 import {
+  detectObsidianSync,
+  migrateToPkv,
+  scanVaultForMigration,
+  type MigrationApi
+} from "./sync/migrate-from-obsidian-sync";
+import {
   deleteConflictFiles,
   findConflictPairsForPath,
   findConflictPairsForPathWithKinds,
@@ -39,6 +45,7 @@ import { SyncStatusModal } from "./ui/sync-modal";
 import { addConflictResolveMenuItem } from "./ui/conflict-menu";
 import { ConflictsListModal } from "./ui/conflicts-list-modal";
 import { ConflictResolveModal } from "./ui/conflict-resolve-modal";
+import { MigrateModal } from "./ui/migrate-modal";
 import { statusText } from "./ui/status";
 import { formatRelativeUnixSeconds, formatUnixSeconds } from "./time";
 import { SerializedPluginDataStore } from "./plugin-store";
@@ -109,6 +116,11 @@ export default class PKVSyncPlugin extends Plugin {
       id: "pkv-sync-manual-sync",
       name: t.manualSyncCommand,
       callback: () => void this.syncNowManual()
+    });
+    this.addCommand({
+      id: "pkv-sync-migrate-from-obsidian-sync",
+      name: t.migrateCommand,
+      callback: () => void this.openMigrationModal()
     });
     this.addCommand({
       id: "pkv-sync-view-status",
@@ -801,6 +813,60 @@ export default class PKVSyncPlugin extends Plugin {
     try {
       await this.engine.syncNow();
       new Notice(t.noticeSyncComplete);
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async openMigrationModal(): Promise<void> {
+    const t = this.text();
+    if (!isLoggedIn(this.settings)) {
+      new Notice(t.noticeNotConfigured);
+      return;
+    }
+    try {
+      const detection = await detectObsidianSync(this.app.vault);
+      const scan = scanVaultForMigration(this.app.vault);
+      const initialVaultName = this.app.vault.getName?.().trim() || t.vaultName;
+      new MigrateModal(this.app, t, {
+        detection,
+        scan,
+        initialVaultName,
+        onStart: async (vaultName, onProgress) => {
+          this.invalidateSyncEngine();
+          const syncApi = new SyncApi(this.api());
+          const api: MigrationApi = {
+            createVault: (name) => this.api().createVault(name),
+            state: (vaultId, headSince) => syncApi.state(vaultId, headSince),
+            uploadCheck: (vaultId, hashes) => syncApi.uploadCheck(vaultId, hashes),
+            uploadBlob: (vaultId, hash, bytes) =>
+              syncApi.uploadBlob(vaultId, hash, bytes),
+            push: (vaultId, ifMatch, changes, deviceName) =>
+              syncApi.push(vaultId, ifMatch, changes, deviceName)
+          };
+          const result = await migrateToPkv({
+            vault: this.app.vault,
+            api,
+            vaultName,
+            deviceName: this.settings.deviceName,
+            textExtensions: new Set(this.settings.textExtensions),
+            onProgress
+          });
+          this.settings.selectedVaultId = result.vaultId;
+          this.settings.selectedVaultName = result.vaultName;
+          this.settings.lastSyncSuccessAt = Math.floor(Date.now() / 1000);
+          await this.saveSettings({ rebuild: false });
+          await this.saveSyncIndex(result.index);
+          this.rebuildSyncEngine();
+          new Notice(
+            format(t.migrateCompleteNotice, {
+              name: result.vaultName,
+              count: result.pushedFiles
+            })
+          );
+          return result;
+        }
+      }).open();
     } catch (error) {
       new Notice(error instanceof Error ? error.message : String(error));
     }

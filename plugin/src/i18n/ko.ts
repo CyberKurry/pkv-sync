@@ -20,6 +20,27 @@ export const ko = {
   translationNeedsReview:
     "이 언어는 커뮤니티 번역입니다. 문제가 있으면 알려 주세요.",
   helpTranslate: "번역 돕기",
+  migrateCommand: "Obsidian Sync에서 마이그레이션",
+  migrateModalTitle: "Obsidian Sync에서 마이그레이션",
+  migrateSyncDetected: "Obsidian Sync가 감지되었습니다",
+  migrateSyncNotDetected: "Obsidian Sync가 감지되지 않았습니다",
+  migrateScanSummary: "{count}개 파일 - {size} - {skipped}개 건너뜀",
+  migrateHistoryNotice:
+    "Obsidian Sync 기록은 가져오지 않습니다. PKV Sync 기록은 이 마이그레이션부터 시작됩니다.",
+  migrateVaultNameLabel: "새 PKV Sync Vault",
+  migrateVaultNameRequired: "Vault 이름이 필요합니다",
+  migrateStartButton: "마이그레이션 시작",
+  migrateCancelButton: "취소",
+  migrateStageScanning: "스캔 중",
+  migrateStageCreatingVault: "Vault 생성 중",
+  migrateStageUploadingBlobs: "바이너리 파일 업로드 중",
+  migrateStagePushing: "파일 푸시 중",
+  migrateStageComplete: "마이그레이션 완료",
+  migrateProgressSummary:
+    "{processed}/{total}개 파일 - batch {batch}/{batches} - blobs {blobs}/{totalBlobs}",
+  migrateCompleteSummary: "{count}개 파일 마이그레이션됨 - {skipped}개 건너뜀",
+  migrateFailed: "마이그레이션 실패",
+  migrateCompleteNotice: "{count}개 파일을 {name}(으)로 마이그레이션했습니다",
   historyRollbackToHere: "여기로 롤백",
   rollbackConfirmTitle: "Vault를 {commit}(으)로 롤백할까요?",
   rollbackConfirmBody:
