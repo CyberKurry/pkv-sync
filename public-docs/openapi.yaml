@@ -480,6 +480,26 @@ components:
         files_changed:
           type: integer
           minimum: 0
+    RestoreVaultRequest:
+      type: object
+      required: [commit, confirm_vault_name]
+      properties:
+        commit:
+          type: string
+        confirm_vault_name:
+          type: string
+          description: Must exactly match the current vault name.
+    RollbackResult:
+      type: object
+      required: [from_commit, to_commit, rolled_back]
+      properties:
+        from_commit:
+          type: string
+          nullable: true
+        to_commit:
+          type: string
+        rolled_back:
+          type: boolean
     StateResponse:
       type: object
       required: [current_head, changed_since]
@@ -1131,6 +1151,43 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/vaults/{vault_id}/restore:
+    post:
+      tags: [Vaults]
+      security:
+        - DeploymentKey: []
+          PluginUserAgent: []
+          BearerAuth: []
+      summary: Restore vault to a previous commit
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreVaultRequest'
+      responses:
+        '200':
+          description: Vault restored or already at requested commit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RollbackResult'
+        '400':
+          description: Invalid request, confirmation mismatch, or unknown commit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/vaults/{vault_id}/state:
     get:
       tags: [Vaults]

@@ -1,4 +1,5 @@
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
+use pkv_sync_server::api;
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
 use pkv_sync_server::service::events::{EventKind, VaultEvent};
@@ -6,13 +7,18 @@ use pkv_sync_server::service::sync::{push, PushChange, PushReq};
 use pkv_sync_server::service::vault::{self, rollback_to_commit, RollbackError};
 use pkv_sync_server::service::AppState;
 use pkv_sync_server::storage::git::{Git2VaultStore, GitVaultStore, StoredFile};
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use std::time::Duration;
+use tower::ServiceExt;
 
 struct TestCtx {
     state: AppState,
     owner: AuthenticatedUser,
     other: AuthenticatedUser,
     admin: AuthenticatedUser,
+    owner_token: String,
+    other_token: String,
     vault_id: String,
     _tmp: tempfile::TempDir,
 }
@@ -25,9 +31,9 @@ async fn setup() -> TestCtx {
     let state = AppState::new(p, tmp.path().to_path_buf(), "t".into(), false)
         .await
         .unwrap();
-    let owner = create_auth_user(&state, "owner", false).await;
-    let other = create_auth_user(&state, "other", false).await;
-    let admin = create_auth_user(&state, "admin", true).await;
+    let (owner, owner_token) = create_auth_user(&state, "owner", false).await;
+    let (other, other_token) = create_auth_user(&state, "other", false).await;
+    let (admin, _) = create_auth_user(&state, "admin", true).await;
     let vault = vault::create_vault(&state, &owner.user_id, "main")
         .await
         .unwrap();
@@ -37,12 +43,18 @@ async fn setup() -> TestCtx {
         owner,
         other,
         admin,
+        owner_token,
+        other_token,
         vault_id: vault.id,
         _tmp: tmp,
     }
 }
 
-async fn create_auth_user(state: &AppState, username: &str, is_admin: bool) -> AuthenticatedUser {
+async fn create_auth_user(
+    state: &AppState,
+    username: &str,
+    is_admin: bool,
+) -> (AuthenticatedUser, String) {
     let user = state
         .users
         .create(NewUser {
@@ -63,13 +75,16 @@ async fn create_auth_user(state: &AppState, username: &str, is_admin: bool) -> A
         })
         .await
         .unwrap();
-    AuthenticatedUser {
-        user_id: user.id,
-        username: user.username,
-        is_admin,
-        token_id: token_row.id,
-        device_id: token_row.device_id,
-    }
+    (
+        AuthenticatedUser {
+            user_id: user.id,
+            username: user.username,
+            is_admin,
+            token_id: token_row.id,
+            device_id: token_row.device_id,
+        },
+        raw,
+    )
 }
 
 async fn push_text(
@@ -96,6 +111,36 @@ async fn push_text(
     .await
     .unwrap()
     .new_commit
+}
+
+fn restore_request(
+    vault_id: &str,
+    raw_token: &str,
+    commit: &str,
+    confirm_vault_name: &str,
+) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri(format!("/api/vaults/{vault_id}/restore"))
+        .header("authorization", format!("Bearer {raw_token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "commit": commit,
+                "confirm_vault_name": confirm_vault_name,
+            })
+            .to_string(),
+        ))
+        .unwrap()
+}
+
+async fn response_json(resp: axum::response::Response) -> serde_json::Value {
+    serde_json::from_slice(
+        &axum::body::to_bytes(resp.into_body(), 4096)
+            .await
+            .unwrap(),
+    )
+    .unwrap()
 }
 
 #[tokio::test]
@@ -156,6 +201,85 @@ async fn rollback_success_moves_head_publishes_event_and_records_activity() {
     assert_eq!(commit_hash, first);
     assert_eq!(details["from_commit"], second);
     assert_eq!(details["to_commit"], first);
+}
+
+#[tokio::test]
+async fn restore_endpoint_returns_rollback_result_for_matching_confirm_name() {
+    let ctx = setup().await;
+    let first = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, None, "v1").await;
+    let second = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, Some(&first), "v2").await;
+    let app = api::router().with_state(ctx.state.clone());
+
+    let resp = app
+        .oneshot(restore_request(&ctx.vault_id, &ctx.owner_token, &first, "main"))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = response_json(resp).await;
+    assert_eq!(body["from_commit"], second);
+    assert_eq!(body["to_commit"], first);
+    assert_eq!(body["rolled_back"], true);
+}
+
+#[tokio::test]
+async fn restore_endpoint_rejects_wrong_confirm_name() {
+    let ctx = setup().await;
+    let first = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, None, "v1").await;
+    let app = api::router().with_state(ctx.state.clone());
+
+    let resp = app
+        .oneshot(restore_request(
+            &ctx.vault_id,
+            &ctx.owner_token,
+            &first,
+            "wrong",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = response_json(resp).await;
+    assert_eq!(body["error"]["code"], "confirm_vault_name_mismatch");
+}
+
+#[tokio::test]
+async fn restore_endpoint_rejects_unknown_commit() {
+    let ctx = setup().await;
+    let _first = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, None, "v1").await;
+    let unknown = "a".repeat(40);
+    let app = api::router().with_state(ctx.state.clone());
+
+    let resp = app
+        .oneshot(restore_request(
+            &ctx.vault_id,
+            &ctx.owner_token,
+            &unknown,
+            "main",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = response_json(resp).await;
+    assert_eq!(body["error"]["code"], "unknown_commit");
+}
+
+#[tokio::test]
+async fn restore_endpoint_rejects_non_owner_with_forbidden() {
+    let ctx = setup().await;
+    let first = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, None, "v1").await;
+    let _second = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, Some(&first), "v2").await;
+    let app = api::router().with_state(ctx.state.clone());
+
+    let resp = app
+        .oneshot(restore_request(&ctx.vault_id, &ctx.other_token, &first, "main"))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body = response_json(resp).await;
+    assert_eq!(body["error"]["code"], "forbidden");
 }
 
 #[tokio::test]

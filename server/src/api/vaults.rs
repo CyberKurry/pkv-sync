@@ -3,6 +3,7 @@ use crate::auth::AuthenticatedUser;
 use crate::db::repos::{NewActivity, SyncActivityRepo, VaultRepo};
 use crate::middleware::{rate_limit, real_ip::ClientIp, sse_cors_allow_header_names};
 use crate::service::sync::{self, UploadCheckReq};
+use crate::service::vault::RollbackError;
 use crate::service::{vault as vault_service, AppState};
 use axum::body::Body;
 use axum::extract::{Extension, Path, Query, State};
@@ -53,6 +54,7 @@ fn router_with_rate_limiter(limiter: rate_limit::RequestRateLimiter) -> Router<A
         .route("/api/vaults/:id/upload/blob", post(upload_blob))
         .route("/api/vaults/:id/blobs/:hash", get(download_blob))
         .route("/api/vaults/:id/push", post(push))
+        .route("/api/vaults/:id/restore", post(restore))
         .route("/api/vaults/:id/state", get(state))
         .route("/api/vaults/:id/pull", get(pull))
         .route("/api/vaults/:id/commits", get(commits))
@@ -70,6 +72,12 @@ fn router_with_rate_limiter(limiter: rate_limit::RequestRateLimiter) -> Router<A
 #[derive(Deserialize)]
 struct CreateVaultReq {
     name: String,
+}
+
+#[derive(Deserialize)]
+struct RestoreVaultReq {
+    commit: String,
+    confirm_vault_name: String,
 }
 
 async fn list(
@@ -217,6 +225,50 @@ async fn push(
         )
         .await?,
     ))
+}
+
+async fn restore(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Path(id): Path<String>,
+    Json(req): Json<RestoreVaultReq>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let vault = state
+        .vaults
+        .find_by_id(&id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("vault not found"))?;
+    if !user.is_admin && vault.user_id != user.user_id {
+        return Err(ApiError::forbidden("vault access denied"));
+    }
+    if vault.name != req.confirm_vault_name {
+        return Err(ApiError::bad_request(
+            "confirm_vault_name_mismatch",
+            "confirm_vault_name does not match vault name",
+        ));
+    }
+
+    vault_service::rollback_to_commit(&state, &user, &id, &req.commit)
+        .await
+        .map(|result| {
+            Json(serde_json::json!({
+                "from_commit": result.from_commit,
+                "to_commit": result.to_commit,
+                "rolled_back": result.rolled_back,
+            }))
+        })
+        .map_err(rollback_error_to_api)
+}
+
+fn rollback_error_to_api(err: RollbackError) -> ApiError {
+    match err {
+        RollbackError::NotFound => ApiError::not_found("vault not found"),
+        RollbackError::Forbidden => ApiError::forbidden("vault access denied"),
+        RollbackError::UnknownCommit { .. } => {
+            ApiError::bad_request("unknown_commit", "commit is not reachable from vault head")
+        }
+        RollbackError::Internal(message) => ApiError::internal(message),
+    }
 }
 
 async fn state(
