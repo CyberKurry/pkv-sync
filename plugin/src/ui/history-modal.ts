@@ -11,6 +11,7 @@ export interface HistoryEntryView {
   message: string;
   changeType: string;
   canRestore: boolean;
+  canRollback: boolean;
 }
 
 export interface HistoryModalLabels {
@@ -21,6 +22,7 @@ export interface HistoryModalLabels {
   historyViewDiffHead: string;
   historyViewContent: string;
   historyRestoreVersion: string;
+  historyRollbackToHere?: string;
   historyUnknownDevice: string;
 }
 
@@ -34,6 +36,7 @@ export interface HistoryModalOptions {
   onDiffHead?: (entry: CommitSummary) => void | Promise<void>;
   onViewContent?: (entry: CommitSummary) => void | Promise<void>;
   onRestore?: (entry: CommitSummary) => void | Promise<void>;
+  onRollback?: (entry: CommitSummary) => void | Promise<void>;
 }
 
 export function shortCommit(commit: string | null | undefined): string {
@@ -58,7 +61,8 @@ export function historyEntryView(
     time: formatUnixSeconds(commit.timestamp, timezone) || String(commit.timestamp),
     message,
     changeType: commit.change_type ?? "modified",
-    canRestore: commit.change_type !== "deleted"
+    canRestore: commit.change_type !== "deleted",
+    canRollback: commit.change_type !== "deleted"
   };
 }
 
@@ -156,6 +160,13 @@ export class HistoryModal extends Modal {
       if (view.canRestore && this.options.onRestore) {
         this.button(actions, this.options.labels.historyRestoreVersion, () =>
           this.options.onRestore?.(row)
+        ).addClass("is-danger");
+      }
+      if (view.canRollback && this.options.onRollback) {
+        this.button(
+          actions,
+          this.options.labels.historyRollbackToHere ?? "Rollback to here",
+          () => this.options.onRollback?.(row)
         ).addClass("is-danger");
       }
     }

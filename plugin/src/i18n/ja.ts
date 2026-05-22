@@ -19,7 +19,17 @@ export const ja = {
   needsReviewSuffix: "（レビュー募集中）",
   translationNeedsReview:
     "この言語はコミュニティ翻訳です。問題があれば報告してください。",
-  helpTranslate: "翻訳に協力"
+  helpTranslate: "翻訳に協力",
+  historyRollbackToHere: "ここへロールバック",
+  rollbackConfirmTitle: "Vault を {commit} にロールバックしますか？",
+  rollbackConfirmBody:
+    "リモート Vault \"{name}\" を選択した commit に戻します。",
+  rollbackConfirmWarning:
+    "この Vault を使うすべてのデバイスに影響します。未同期のローカル変更はロールバック後に競合する可能性があります。",
+  rollbackConfirmPrompt: "確認のため Vault 名 \"{name}\" を入力してください",
+  rollbackConfirmButton: "Vault をロールバック",
+  rollbackSuccess: "Vault をロールバックしました。PKV Sync が今すぐ取得します。",
+  rollbackFailed: "ロールバックに失敗しました"
 } satisfies typeof en;
 
 export const jaInReview = true;

@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SyncEngine, type IndexPersistence } from "../../src/sync/engine";
+import { subscribeVaultEvents, type SubscribeOptions } from "../../src/api/events-client";
+import {
+  SyncEngine,
+  type IndexPersistence,
+  type SyncEngineOptions
+} from "../../src/sync/engine";
 import { sha256Bytes, sha256Text } from "../../src/sync/hash";
 import type { LocalFileSnapshot, LocalIndex } from "../../src/sync/types";
 import { shouldSyncPath } from "../../src/sync/vault-adapter";
 import { notices } from "../mocks/obsidian";
+
+vi.mock("../../src/api/events-client", () => ({
+  subscribeVaultEvents: vi.fn()
+}));
 
 class FakeVault {
   writes = new Map<string, string>();
@@ -74,6 +83,7 @@ class FakeIndex implements IndexPersistence {
 describe("SyncEngine pull", () => {
   beforeEach(() => {
     notices.length = 0;
+    vi.mocked(subscribeVaultEvents).mockReset();
   });
 
   it("applies inline text pull and updates index without re-pushing it", async () => {
@@ -647,5 +657,58 @@ describe("SyncEngine pull", () => {
 
     expect(vault.files).toHaveLength(0);
     expect(idx.saves).toHaveLength(0);
+  });
+
+  it("falls back to a full sync for rollback SSE events without iterating changes", async () => {
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c2",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c2",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      setStatus: vi.fn()
+    });
+
+    engine.startEventSubscription();
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+    options.onEvent({
+      kind: "rollback",
+      commit: "c2",
+      parent: "c1",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: []
+    });
+    await vi.waitFor(() => {
+      expect(api.pull).toHaveBeenCalledWith("v", "c0");
+    });
+
+    expect(idx.saved?.lastSyncedCommit).toBe("c2");
   });
 });

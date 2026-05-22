@@ -104,10 +104,27 @@ export type EventChange =
   | { kind: "blob"; path: string; blob_hash: string; size: number }
   | { kind: "delete"; path: string };
 
-export interface VaultEvent {
+export interface CommitVaultEvent {
+  kind?: "commit";
   commit: string;
   parent: string | null;
   source_device_id: string;
   at: number;
   changes: EventChange[];
+}
+
+export interface RollbackVaultEvent {
+  kind: "rollback";
+  commit: string;
+  parent: string | null;
+  source_device_id: string;
+  at: number;
+  changes: EventChange[];
+}
+
+export type VaultEvent = CommitVaultEvent | RollbackVaultEvent;
+
+export interface RollbackResult {
+  commit: string;
+  rolled_back_to: string;
 }

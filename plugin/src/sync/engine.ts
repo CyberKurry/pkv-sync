@@ -123,6 +123,10 @@ export class SyncEngine {
             await this.syncNow();
             return;
           }
+          if (ev.kind === "rollback") {
+            await this.syncNow();
+            return;
+          }
           let needFallbackPull = false;
           for (const change of ev.changes) {
             try {

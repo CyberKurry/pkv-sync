@@ -21,6 +21,7 @@ describe("history modal helpers", () => {
 
   it("builds readable history row data and hides restore for deleted entries", () => {
     expect(historyEntryView(commit()).canRestore).toBe(true);
+    expect(historyEntryView(commit()).canRollback).toBe(true);
 
     const view = historyEntryView(
       commit({
@@ -33,5 +34,13 @@ describe("history modal helpers", () => {
     expect(view.title).toBe("1234567");
     expect(view.device).toBe("Unknown device");
     expect(view.canRestore).toBe(false);
+    expect(view.canRollback).toBe(false);
+  });
+
+  it("exposes rollback separately from file restore", () => {
+    const view = historyEntryView(commit());
+
+    expect(view.canRestore).toBe(true);
+    expect(view.canRollback).toBe(true);
   });
 });

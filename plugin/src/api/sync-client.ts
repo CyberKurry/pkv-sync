@@ -1,5 +1,6 @@
 import { ApiClient } from "./client";
 import { encodePathSegments } from "./history-client";
+import type { RollbackResult } from "./types";
 import type {
   PullResponse,
   PushChange,
@@ -92,6 +93,19 @@ export class SyncApi {
       "GET",
       `/api/vaults/${vaultId}/files/${encodedPath}${query}`,
       undefined,
+      true
+    );
+  }
+
+  restoreVault(
+    vaultId: string,
+    commit: string,
+    confirmName: string
+  ): Promise<RollbackResult> {
+    return this.api.request<RollbackResult>(
+      "POST",
+      `/api/vaults/${vaultId}/restore`,
+      { commit, confirm_vault_name: confirmName },
       true
     );
   }

@@ -99,4 +99,28 @@ describe("SyncApi", () => {
       })
     );
   });
+
+  it("requests a vault rollback with typed vault-name confirmation", async () => {
+    requestUrlMock.mockResolvedValue({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      arrayBuffer: new ArrayBuffer(0),
+      json: { commit: "c2", rolled_back_to: "c1" },
+      text: '{"commit":"c2","rolled_back_to":"c1"}'
+    });
+
+    await expect(
+      new SyncApi(client()).restoreVault("v1", "c1", "Project Vault")
+    ).resolves.toEqual({ commit: "c2", rolled_back_to: "c1" });
+    expect(requestUrlMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://sync.example.com/api/vaults/v1/restore",
+        method: "POST",
+        body: JSON.stringify({
+          commit: "c1",
+          confirm_vault_name: "Project Vault"
+        })
+      })
+    );
+  });
 });

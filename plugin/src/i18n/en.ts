@@ -103,6 +103,7 @@ export const en = {
   historyViewDiffHead: "Diff with current HEAD",
   historyViewContent: "View this version",
   historyRestoreVersion: "Restore this version",
+  historyRollbackToHere: "Rollback to here",
   historyUnknownDevice: "Unknown device",
   historyDisabled: "History is disabled or unavailable on this server.",
   diffTitle: "Diff",
@@ -123,6 +124,15 @@ export const en = {
   restoreSuccess: "Restored {path}. PKV Sync will push it as a normal change.",
   restoreFailed: "Restore failed: {reason}",
   restoreDeletedAtCommit: "This file did not exist at the selected commit.",
+  rollbackConfirmTitle: "Rollback vault to {commit}?",
+  rollbackConfirmBody:
+    "This will restore the remote vault \"{name}\" to the selected commit.",
+  rollbackConfirmWarning:
+    "All devices using this vault are affected. Unsynced local changes may conflict after the rollback.",
+  rollbackConfirmPrompt: "Type the vault name \"{name}\" to confirm",
+  rollbackConfirmButton: "Rollback vault",
+  rollbackSuccess: "Vault rolled back. PKV Sync will pull the rollback now.",
+  rollbackFailed: "Rollback failed",
   deleteVaultButton: "Delete",
   deleteVaultModalTitle: "Delete vault",
   deleteVaultModalBody: "This will permanently delete the vault \"{name}\" on the server, including all history. Files in your local Obsidian vault remain untouched.",
