@@ -177,6 +177,7 @@ pub struct VaultHistoryEntryView {
     pub change_type: String,
     pub view_url: String,
     pub diff_url: String,
+    pub rollback_url: String,
 }
 
 #[derive(Template)]

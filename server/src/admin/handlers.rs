@@ -9,7 +9,7 @@ use crate::admin::templates::{
 };
 use crate::api::error::ApiError;
 use crate::auth::LoginRateLimiter;
-use crate::auth::{password, token};
+use crate::auth::{password, token, AuthenticatedUser};
 use crate::db::repos::{
     InviteRepo, NewActivity, NewToken, NewUser, RegistrationMode, RuntimeConfigRepo,
     SyncActivityRepo, TokenRepo, TokenRow, User, UserRepo, Vault, VaultRepo,
@@ -90,6 +90,7 @@ pub fn router() -> Router<AppState> {
             get(vault_file_history_page),
         )
         .route("/admin/vaults/:id/diff", get(vault_diff_page))
+        .route("/admin/vaults/:id/rollback", post(rollback_vault_form))
         .route("/admin/vaults/:id/delete", post(delete_vault_form))
         .route("/admin/vaults/:id/reconcile", post(reconcile_vault_form))
         .route("/admin/invites", get(invites_page).post(create_invite_form))
@@ -980,6 +981,12 @@ struct VaultSettingsForm {
     apply_starter: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct VaultRollbackForm {
+    commit: String,
+    path: Option<String>,
+}
+
 async fn vault_settings_page(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1019,6 +1026,82 @@ async fn vault_settings_post(
     )
     .await?;
     Ok(Redirect::to(&format!("/admin/vaults/{id}/settings")))
+}
+
+async fn rollback_vault_form(
+    State(state): State<AppState>,
+    session: AdminSession,
+    Path(id): Path<String>,
+    Form(form): Form<VaultRollbackForm>,
+) -> Result<Redirect, ApiError> {
+    ensure_admin_history_enabled(&state).await?;
+    let (_vault, _vault_view) = admin_vault(&state, &id).await?;
+    let user = admin_session_auth_user(&state, &session).await?;
+    crate::service::vault::rollback_to_commit(&state, &user, &id, &form.commit)
+        .await
+        .map_err(rollback_error_to_api)?;
+
+    let next = form
+        .path
+        .as_deref()
+        .and_then(|path| crate::storage::path::normalize(path).ok())
+        .map(|path| {
+            format!(
+                "/admin/vaults/{}/history/{}",
+                url_path(&id),
+                url_path(&path)
+            )
+        })
+        .unwrap_or_else(|| format!("/admin/vaults/{}/files", url_path(&id)));
+    Ok(Redirect::to(&next))
+}
+
+async fn admin_session_auth_user(
+    state: &AppState,
+    session: &AdminSession,
+) -> Result<AuthenticatedUser, ApiError> {
+    let device_id = format!("admin-web-{}", session.user.id);
+    let token_row = state
+        .tokens
+        .list_for_user(&session.user.id)
+        .await?
+        .into_iter()
+        .find(|row| row.revoked_at.is_none() && row.device_id == device_id);
+    let token_row = match token_row {
+        Some(token_row) => token_row,
+        None => {
+            let raw = token::generate();
+            state
+                .tokens
+                .create(NewToken {
+                    user_id: &session.user.id,
+                    token_hash: &token::hash(&raw),
+                    device_id: &device_id,
+                    device_name: "Admin WebUI",
+                })
+                .await?
+        }
+    };
+    Ok(AuthenticatedUser {
+        user_id: session.user.id.clone(),
+        username: session.user.username.clone(),
+        is_admin: session.user.is_admin,
+        token_id: token_row.id,
+        device_id: token_row.device_id,
+    })
+}
+
+fn rollback_error_to_api(err: crate::service::vault::RollbackError) -> ApiError {
+    match err {
+        crate::service::vault::RollbackError::NotFound => ApiError::not_found("vault not found"),
+        crate::service::vault::RollbackError::Forbidden => {
+            ApiError::forbidden("vault access denied")
+        }
+        crate::service::vault::RollbackError::UnknownCommit { .. } => {
+            ApiError::bad_request("unknown_commit", "commit is not reachable from vault head")
+        }
+        crate::service::vault::RollbackError::Internal(message) => ApiError::internal(message),
+    }
 }
 
 async fn create_vault_form(
@@ -1230,6 +1313,7 @@ fn history_entry_view(
         diff_url.push_str("&from=");
         diff_url.push_str(&url_query(parent));
     }
+    let rollback_url = format!("/admin/vaults/{}/rollback", url_path(vault_id));
     VaultHistoryEntryView {
         commit: commit.commit,
         short_commit,
@@ -1250,6 +1334,7 @@ fn history_entry_view(
             .unwrap_or_else(|| "modified".into()),
         view_url,
         diff_url,
+        rollback_url,
     }
 }
 
