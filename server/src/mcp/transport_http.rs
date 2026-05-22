@@ -55,8 +55,8 @@ async fn post_mcp(
         )
             .into_response();
     };
-    let user_id = match authenticate_token(&state, raw).await {
-        Ok(user_id) => user_id,
+    let user = match authenticate_token(&state, raw).await {
+        Ok(user) => user,
         Err(err) => {
             return (
                 StatusCode::UNAUTHORIZED,
@@ -65,7 +65,7 @@ async fn post_mcp(
                 .into_response();
         }
     };
-    Json(handle_jsonrpc(&state, &user_id, None, request).await).into_response()
+    Json(handle_jsonrpc(&state, &user, None, request).await).into_response()
 }
 
 async fn mcp_rate_limit(
@@ -103,8 +103,8 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
         )
             .into_response();
     };
-    let user_id = match authenticate_token(&state, raw).await {
-        Ok(user_id) => user_id,
+    let user = match authenticate_token(&state, raw).await {
+        Ok(user) => user,
         Err(err) => {
             return (
                 StatusCode::UNAUTHORIZED,
@@ -113,17 +113,18 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
                 .into_response();
         }
     };
-    let vaults = match crate::db::repos::VaultRepo::list_for_user(&*state.vaults, &user_id).await {
-        Ok(vaults) => vaults,
-        Err(err) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(jsonrpc_error(Value::Null, -32603, &err.to_string())),
-            )
-                .into_response();
-        }
-    };
-    let Some(sse_guard) = state.try_acquire_sse_subscriber(&user_id) else {
+    let vaults =
+        match crate::db::repos::VaultRepo::list_for_user(&*state.vaults, &user.user_id).await {
+            Ok(vaults) => vaults,
+            Err(err) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(jsonrpc_error(Value::Null, -32603, &err.to_string())),
+                )
+                    .into_response();
+            }
+        };
+    let Some(sse_guard) = state.try_acquire_sse_subscriber(&user.user_id) else {
         return (
             StatusCode::TOO_MANY_REQUESTS,
             Json(jsonrpc_error(

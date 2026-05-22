@@ -1,4 +1,7 @@
+use crate::api::error::ApiError;
+use crate::auth::AuthenticatedUser;
 use crate::db::repos::{BlobRefRepo, VaultRepo};
+use crate::service::sync::{self, PushChange, PushReq, RequestMetadata};
 use crate::service::vault::ensure_user_vault;
 use crate::service::AppState;
 use crate::storage::blob::{BlobStore, LocalFsBlobStore};
@@ -79,6 +82,33 @@ pub struct SearchMatch {
     pub line: String,
     pub line_number: usize,
     pub snippet: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WriteFileInput {
+    pub vault_id: String,
+    pub path: String,
+    pub content: String,
+    pub parent_commit: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteFileInput {
+    pub vault_id: String,
+    pub path: String,
+    pub parent_commit: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum WriteToolOutput {
+    Success {
+        commit: String,
+    },
+    Conflict {
+        conflict: bool,
+        current_head: Option<String>,
+    },
 }
 
 pub async fn list_vaults(state: &AppState, user_id: &str) -> Result<ListVaultsOutput> {
@@ -193,6 +223,39 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     Ok(SearchOutput { matches })
 }
 
+pub async fn write_file(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    input: WriteFileInput,
+) -> Result<WriteToolOutput> {
+    apply_write_tool(
+        state,
+        user,
+        input.vault_id,
+        input.parent_commit,
+        PushChange::Text {
+            path: input.path,
+            content: input.content,
+        },
+    )
+    .await
+}
+
+pub async fn delete_file(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    input: DeleteFileInput,
+) -> Result<WriteToolOutput> {
+    apply_write_tool(
+        state,
+        user,
+        input.vault_id,
+        input.parent_commit,
+        PushChange::Delete { path: input.path },
+    )
+    .await
+}
+
 pub fn tool_definitions() -> Vec<Tool> {
     vec![
         tool(
@@ -259,7 +322,70 @@ pub fn tool_definitions() -> Vec<Tool> {
                 "additionalProperties": false
             })),
         ),
+        write_tool(
+            "write_file",
+            "Create or update a text file in a vault using optimistic concurrency.",
+            object(serde_json::json!({
+                "type": "object",
+                "required": ["vault_id", "path", "content", "parent_commit"],
+                "properties": {
+                    "vault_id": { "type": "string" },
+                    "path": { "type": "string" },
+                    "content": { "type": "string" },
+                    "parent_commit": { "type": "string" }
+                },
+                "additionalProperties": false
+            })),
+            false,
+        ),
+        write_tool(
+            "delete_file",
+            "Delete a file from a vault using optimistic concurrency.",
+            object(serde_json::json!({
+                "type": "object",
+                "required": ["vault_id", "path", "parent_commit"],
+                "properties": {
+                    "vault_id": { "type": "string" },
+                    "path": { "type": "string" },
+                    "parent_commit": { "type": "string" }
+                },
+                "additionalProperties": false
+            })),
+            true,
+        ),
     ]
+}
+
+async fn apply_write_tool(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    vault_id: String,
+    parent_commit: String,
+    change: PushChange,
+) -> Result<WriteToolOutput> {
+    let parent = (!parent_commit.is_empty()).then_some(parent_commit.as_str());
+    match sync::push_with_cas(
+        state,
+        user,
+        &vault_id,
+        parent,
+        RequestMetadata::default(),
+        PushReq {
+            changes: vec![change],
+            device_name: Some("MCP".into()),
+        },
+    )
+    .await
+    .map_err(api_error_to_anyhow)?
+    {
+        Ok(resp) => Ok(WriteToolOutput::Success {
+            commit: resp.new_commit,
+        }),
+        Err(conflict) => Ok(WriteToolOutput::Conflict {
+            conflict: true,
+            current_head: conflict.current_head,
+        }),
+    }
 }
 
 async fn read_file_inner(
@@ -359,11 +485,30 @@ fn tool(
     )
 }
 
+fn write_tool(
+    name: &'static str,
+    description: &'static str,
+    input_schema: rmcp::model::JsonObject,
+    destructive: bool,
+) -> Tool {
+    Tool::new(name, description, input_schema).annotate(
+        ToolAnnotations::new()
+            .read_only(false)
+            .destructive(destructive)
+            .idempotent(false)
+            .open_world(false),
+    )
+}
+
 async fn ensure_owned_vault(state: &AppState, user_id: &str, vault_id: &str) -> Result<()> {
     ensure_user_vault(state, user_id, vault_id)
         .await
         .map(|_| ())
         .map_err(|e| anyhow!(e.message))
+}
+
+fn api_error_to_anyhow(error: ApiError) -> anyhow::Error {
+    anyhow!("{}: {}", error.code, error.message)
 }
 
 #[cfg(test)]

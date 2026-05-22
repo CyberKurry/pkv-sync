@@ -90,6 +90,22 @@ pub struct PushResp {
     pub files_changed: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct CasConflict {
+    pub current_head: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+enum StalePushMode {
+    AllowAutoMerge,
+    StrictCas,
+}
+
+enum PushApplyOutcome {
+    Applied(PushResp),
+    Conflict(CasConflict),
+}
+
 struct PreparedPush {
     git_changes: Vec<FileChange>,
     blob_hashes: Vec<String>,
@@ -124,6 +140,17 @@ struct AutoMergePushInput<'a> {
     idempotency_key: Option<&'a str>,
     request_hash: Option<&'a str>,
     request_metadata: RequestMetadata<'a>,
+}
+
+struct PushInternalInput<'a> {
+    state: &'a AppState,
+    user: &'a crate::auth::AuthenticatedUser,
+    vault_id: &'a str,
+    if_match: Option<&'a str>,
+    idempotency_key: Option<&'a str>,
+    request_metadata: RequestMetadata<'a>,
+    req: PushReq,
+    stale_mode: StalePushMode,
 }
 
 #[derive(Debug, Serialize)]
@@ -342,6 +369,64 @@ pub async fn push_with_request_metadata(
     request_metadata: RequestMetadata<'_>,
     req: PushReq,
 ) -> Result<PushResp, ApiError> {
+    match push_with_request_metadata_internal(PushInternalInput {
+        state,
+        user,
+        vault_id,
+        if_match,
+        idempotency_key,
+        request_metadata,
+        req,
+        stale_mode: StalePushMode::AllowAutoMerge,
+    })
+    .await?
+    {
+        PushApplyOutcome::Applied(resp) => Ok(resp),
+        PushApplyOutcome::Conflict(conflict) => Err(ApiError::conflict(
+            "head_mismatch",
+            format!("current head is {:?}", conflict.current_head),
+        )),
+    }
+}
+
+pub async fn push_with_cas(
+    state: &AppState,
+    user: &crate::auth::AuthenticatedUser,
+    vault_id: &str,
+    parent_commit: Option<&str>,
+    request_metadata: RequestMetadata<'_>,
+    req: PushReq,
+) -> Result<Result<PushResp, CasConflict>, ApiError> {
+    match push_with_request_metadata_internal(PushInternalInput {
+        state,
+        user,
+        vault_id,
+        if_match: parent_commit,
+        idempotency_key: None,
+        request_metadata,
+        req,
+        stale_mode: StalePushMode::StrictCas,
+    })
+    .await?
+    {
+        PushApplyOutcome::Applied(resp) => Ok(Ok(resp)),
+        PushApplyOutcome::Conflict(conflict) => Ok(Err(conflict)),
+    }
+}
+
+async fn push_with_request_metadata_internal(
+    input: PushInternalInput<'_>,
+) -> Result<PushApplyOutcome, ApiError> {
+    let PushInternalInput {
+        state,
+        user,
+        vault_id,
+        if_match,
+        idempotency_key,
+        request_metadata,
+        req,
+        stale_mode,
+    } = input;
     let _vault = vault::ensure_user_vault(state, &user.user_id, vault_id).await?;
     if req.changes.len() > MAX_PUSH_CHANGES {
         return Err(ApiError::bad_request(
@@ -386,7 +471,7 @@ pub async fn push_with_request_metadata(
                 commit = %resp.new_commit,
                 "idempotent push replayed"
             );
-            return Ok(resp);
+            return Ok(PushApplyOutcome::Applied(resp));
         }
     }
 
@@ -397,7 +482,7 @@ pub async fn push_with_request_metadata(
     git.ensure_repo(vault_id).await.map_err(git_write_error)?;
     let head = git.head(vault_id).await.map_err(git_write_error)?;
     if head.as_deref() != if_match {
-        if runtime_cfg.enable_auto_merge {
+        if matches!(stale_mode, StalePushMode::AllowAutoMerge) && runtime_cfg.enable_auto_merge {
             if let (Some(base_commit), Some(current_head)) = (if_match, head.as_deref()) {
                 if let Some(resp) = try_auto_merge_push(AutoMergePushInput {
                     state,
@@ -415,7 +500,7 @@ pub async fn push_with_request_metadata(
                 })
                 .await?
                 {
-                    return Ok(resp);
+                    return Ok(PushApplyOutcome::Applied(resp));
                 }
             }
         }
@@ -426,10 +511,9 @@ pub async fn push_with_request_metadata(
             if_match,
             "push rejected due to head mismatch"
         );
-        return Err(ApiError::conflict(
-            "head_mismatch",
-            format!("current head is {:?}", head),
-        ));
+        return Ok(PushApplyOutcome::Conflict(CasConflict {
+            current_head: head,
+        }));
     }
 
     let blob_store = blob_store(state);
@@ -582,7 +666,7 @@ pub async fn push_with_request_metadata(
         }
     }
 
-    commit_prepared_push(CommitPushInput {
+    let resp = commit_prepared_push(CommitPushInput {
         state,
         user,
         vault_id,
@@ -600,7 +684,8 @@ pub async fn push_with_request_metadata(
         request_hash: request_hash.as_deref(),
         request_metadata,
     })
-    .await
+    .await?;
+    Ok(PushApplyOutcome::Applied(resp))
 }
 
 async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, ApiError> {

@@ -1,4 +1,4 @@
-use crate::auth::token;
+use crate::auth::{token, AuthenticatedUser};
 use crate::db::repos::{TokenRepo, UserRepo, VaultRepo};
 use crate::mcp::tools;
 use crate::service::AppState;
@@ -10,14 +10,14 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 #[derive(Clone)]
 pub struct StdioSession {
     state: AppState,
-    user_id: String,
+    user: AuthenticatedUser,
     vault_id: String,
 }
 
 impl std::fmt::Debug for StdioSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StdioSession")
-            .field("user_id", &self.user_id)
+            .field("user_id", &self.user.user_id)
             .field("vault_id", &self.vault_id)
             .finish_non_exhaustive()
     }
@@ -36,15 +36,15 @@ impl StdioSession {
         vault_id: String,
         token_raw: String,
     ) -> Result<Self> {
-        let user_id = authenticate_token(&state, &token_raw).await?;
+        let user = authenticate_token(&state, &token_raw).await?;
         state
             .vaults
-            .find_for_user(&user_id, &vault_id)
+            .find_for_user(&user.user_id, &vault_id)
             .await?
             .ok_or_else(|| anyhow!("vault not found"))?;
         Ok(Self {
             state,
-            user_id,
+            user,
             vault_id,
         })
     }
@@ -52,7 +52,7 @@ impl StdioSession {
     pub async fn handle_jsonrpc(&self, request: Value) -> Value {
         handle_jsonrpc(
             &self.state,
-            &self.user_id,
+            &self.user,
             Some(self.vault_id.as_str()),
             request,
         )
@@ -81,7 +81,10 @@ pub async fn run(state: AppState, vault_id: String, token_raw: String) -> Result
     Ok(())
 }
 
-pub(crate) async fn authenticate_token(state: &AppState, token_raw: &str) -> Result<String> {
+pub(crate) async fn authenticate_token(
+    state: &AppState,
+    token_raw: &str,
+) -> Result<AuthenticatedUser> {
     if !token::looks_valid(token_raw) {
         return Err(anyhow!("invalid token format"));
     }
@@ -103,12 +106,18 @@ pub(crate) async fn authenticate_token(state: &AppState, token_raw: &str) -> Res
         .tokens
         .touch_used(&row.id, chrono::Utc::now().timestamp())
         .await;
-    Ok(user.id)
+    Ok(AuthenticatedUser {
+        user_id: user.id,
+        username: user.username,
+        is_admin: user.is_admin,
+        token_id: row.id,
+        device_id: row.device_id,
+    })
 }
 
 pub(crate) async fn handle_jsonrpc(
     state: &AppState,
-    user_id: &str,
+    user: &AuthenticatedUser,
     vault_scope: Option<&str>,
     request: Value,
 ) -> Value {
@@ -142,7 +151,7 @@ pub(crate) async fn handle_jsonrpc(
         "tools/call" => {
             let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
             match serde_json::from_value::<ToolCallParams>(params) {
-                Ok(params) => match call_tool(state, user_id, vault_scope, params).await {
+                Ok(params) => match call_tool(state, user, vault_scope, params).await {
                     Ok(result) => json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -159,7 +168,7 @@ pub(crate) async fn handle_jsonrpc(
 
 async fn call_tool(
     state: &AppState,
-    user_id: &str,
+    user: &AuthenticatedUser,
     vault_scope: Option<&str>,
     params: ToolCallParams,
 ) -> Result<Value> {
@@ -177,23 +186,30 @@ async fn call_tool(
 
     let structured = match params.name.as_str() {
         "list_vaults" => {
-            let mut output = tools::list_vaults(state, user_id).await?;
+            let mut output = tools::list_vaults(state, &user.user_id).await?;
             if let Some(scope) = vault_scope {
                 output.vaults.retain(|vault| vault.id == scope);
             }
             serde_json::to_value(output)?
         }
         "list_files" => serde_json::to_value(
-            tools::list_files(state, user_id, serde_json::from_value(arguments)?).await?,
+            tools::list_files(state, &user.user_id, serde_json::from_value(arguments)?).await?,
         )?,
         "read_file" => serde_json::to_value(
-            tools::read_file(state, user_id, serde_json::from_value(arguments)?).await?,
+            tools::read_file(state, &user.user_id, serde_json::from_value(arguments)?).await?,
         )?,
         "read_file_at_commit" => serde_json::to_value(
-            tools::read_file_at_commit(state, user_id, serde_json::from_value(arguments)?).await?,
+            tools::read_file_at_commit(state, &user.user_id, serde_json::from_value(arguments)?)
+                .await?,
         )?,
         "search" => serde_json::to_value(
-            tools::search(state, user_id, serde_json::from_value(arguments)?).await?,
+            tools::search(state, &user.user_id, serde_json::from_value(arguments)?).await?,
+        )?,
+        "write_file" => serde_json::to_value(
+            tools::write_file(state, user, serde_json::from_value(arguments)?).await?,
+        )?,
+        "delete_file" => serde_json::to_value(
+            tools::delete_file(state, user, serde_json::from_value(arguments)?).await?,
         )?,
         _ => return Err(anyhow!("unknown tool: {}", params.name)),
     };
