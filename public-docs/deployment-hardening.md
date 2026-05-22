@@ -1,6 +1,6 @@
 # PKV Sync Deployment Hardening Guide
 
-English | [简体中文](./deployment-hardening.zh-CN.md)
+English | [简体中文](./deployment-hardening.zh-CN.md) | [繁體中文](./deployment-hardening.zh-Hant.md) | [日本語](./deployment-hardening.ja.md) | [한국어](./deployment-hardening.ko.md)
 
 This guide assumes a small self-hosted deployment for yourself, family, a team,
 or a trusted group of friends. PKV Sync is operationally simple, but it stores

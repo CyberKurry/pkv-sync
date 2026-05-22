@@ -1,6 +1,6 @@
 # PKV Sync User Manual
 
-English | [简体中文](./user-manual.zh-CN.md)
+English | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
 This manual is for Obsidian users who connect to an existing PKV Sync server.
 Ask your server administrator for the server share URL and an account or invite

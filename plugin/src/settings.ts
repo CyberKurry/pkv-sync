@@ -1,4 +1,12 @@
-export type PluginLanguage = "auto" | "en" | "zh-CN";
+export type PluginLanguage = "auto" | "en" | "zh-CN" | "zh-Hant" | "ja" | "ko";
+const PLUGIN_LANGUAGES = new Set<PluginLanguage>([
+  "auto",
+  "en",
+  "zh-CN",
+  "zh-Hant",
+  "ja",
+  "ko"
+]);
 
 export const MIN_DEBOUNCE_MS = 100;
 export const MAX_DEBOUNCE_MS = 60_000;
@@ -57,6 +65,9 @@ export function normalizeSettings(
   raw: Partial<PKVSyncSettings> | null | undefined
 ): PKVSyncSettings {
   const settings = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
+  if (!PLUGIN_LANGUAGES.has(settings.language)) {
+    settings.language = DEFAULT_SETTINGS.language;
+  }
   if (!settings.deviceId) settings.deviceId = generateDeviceId();
   if (!settings.timezone) settings.timezone = DEFAULT_SETTINGS.timezone;
   if (typeof settings.enableHistoryUi !== "boolean") {

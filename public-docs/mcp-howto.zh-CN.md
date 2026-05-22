@@ -1,6 +1,6 @@
 # AI 工具的 MCP 接入
 
-[English](./mcp-howto.md) | 简体中文
+[English](./mcp-howto.md) | 简体中文 | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
 PKV Sync 可以通过 MCP server 暴露笔记库内容。服务端返回文件内容前会解析 blob pointer，也可以通过显式读写工具写入文件，并且必须使用普通 PKV Sync bearer 设备 token。
 

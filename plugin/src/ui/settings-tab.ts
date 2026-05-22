@@ -8,7 +8,7 @@ import type {
   VaultSummary
 } from "../api/types";
 import { formatBytes } from "../format";
-import { format } from "../i18n";
+import { format, languageInReview } from "../i18n";
 import type PKVSyncPlugin from "../main";
 import { normalizeTextExtensions, type PluginLanguage } from "../settings";
 import { listConflictFiles } from "../sync/conflict-files";
@@ -137,16 +137,38 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     const options: Array<{ value: PluginLanguage; label: string }> = [
       { value: "auto", label: t.autoLanguage },
       { value: "en", label: t.englishLanguage },
-      { value: "zh-CN", label: t.zhCnLanguage }
+      { value: "zh-CN", label: t.zhCnLanguage },
+      { value: "zh-Hant", label: t.zhHantLanguage },
+      {
+        value: "ja",
+        label: `${t.japaneseLanguage} ${t.needsReviewSuffix}`
+      },
+      {
+        value: "ko",
+        label: `${t.koreanLanguage} ${t.needsReviewSuffix}`
+      }
     ];
     for (const option of options) {
       select.createEl("option", { value: option.value, text: option.label });
     }
     select.value = this.plugin.settings.language;
     select.addEventListener("change", () => {
-      this.plugin.settings.language = select.value as PluginLanguage;
+      const nextLanguage = select.value as PluginLanguage;
+      this.plugin.settings.language = nextLanguage;
+      if (languageInReview(nextLanguage)) {
+        new Notice(t.translationNeedsReview);
+      }
       void this.plugin.saveSettings({ rebuild: false }).then(() => this.display());
     });
+    if (languageInReview(this.plugin.settings.language)) {
+      const help = row.createEl("a", {
+        cls: "pkv-sync-help-link",
+        text: t.helpTranslate,
+        href: "https://github.com/cyberkurry/pkv-sync/issues"
+      });
+      help.setAttr("target", "_blank");
+      help.setAttr("rel", "noopener");
+    }
   }
 
   private renderLogin(panel: HTMLElement): void {

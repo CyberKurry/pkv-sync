@@ -1,6 +1,6 @@
 # PKV Sync 管理员手册
 
-[English](./admin-manual.md) | 简体中文
+[English](./admin-manual.md) | 简体中文 | [繁體中文](./admin-manual.zh-Hant.md) | [日本語](./admin-manual.ja.md) | [한국어](./admin-manual.ko.md)
 
 本文覆盖自托管 PKV Sync 服务端的日常管理。网络和主机加固请同时阅读部署加固指南。
 

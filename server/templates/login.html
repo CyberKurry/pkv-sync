@@ -14,7 +14,7 @@
       </span>
       <h1>PKV Sync</h1>
       <p class="login-subtitle">Sign in to your admin panel</p>
-      <p class="login-language"><a href="/admin/language/en?next=/admin/login">English</a> | <a href="/admin/language/zh-CN?next=/admin/login">简体中文</a></p>
+      <p class="login-language"><a href="/admin/language/en?next=/admin/login">English</a> | <a href="/admin/language/zh-CN?next=/admin/login">简体中文</a> | <a href="/admin/language/zh-Hant?next=/admin/login">繁體中文</a> | <a href="/admin/language/ja?next=/admin/login">日本語</a> | <a href="/admin/language/ko?next=/admin/login">한국어</a></p>
       {% if let Some(e) = error %}<p class="error">{{ e }}</p>{% endif %}
       <form method="post" action="/admin/login" class="login-form">
         <label>{{ t.username }} <input name="username" autocomplete="username" placeholder="Enter your username"></label>

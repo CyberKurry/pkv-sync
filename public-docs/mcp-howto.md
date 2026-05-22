@@ -1,6 +1,6 @@
 # MCP access for AI tools
 
-English | [简体中文](./mcp-howto.zh-CN.md)
+English | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
 PKV Sync can expose vault contents through an MCP server. The server resolves
 blob pointers before returning file content, can write through explicit

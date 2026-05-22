@@ -4,6 +4,13 @@ export const en = {
   autoLanguage: "Auto",
   englishLanguage: "English",
   zhCnLanguage: "Simplified Chinese",
+  zhHantLanguage: "Traditional Chinese",
+  japaneseLanguage: "Japanese",
+  koreanLanguage: "Korean",
+  needsReviewSuffix: "(needs review)",
+  translationNeedsReview:
+    "This language is community-translated; please report issues.",
+  helpTranslate: "Help translate",
   timezone: "Timezone",
   connection: "Connection",
   serverUrl: "Server URL",

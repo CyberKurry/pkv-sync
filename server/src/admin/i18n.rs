@@ -8,6 +8,9 @@ pub const COOKIE_NAME: &str = "pkv_admin_lang";
 pub enum AdminLang {
     En,
     ZhCn,
+    ZhHant,
+    Ja,
+    Ko,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -89,9 +92,20 @@ pub struct AdminText {
 
 impl AdminLang {
     pub fn parse(value: &str) -> Option<Self> {
-        match value {
+        let normalized = value.to_ascii_lowercase();
+        match normalized.as_str() {
             "en" => Some(Self::En),
-            "zh-CN" | "zh-cn" | "zh" => Some(Self::ZhCn),
+            value
+                if value.starts_with("zh-hant")
+                    || value.starts_with("zh-tw")
+                    || value.starts_with("zh-hk")
+                    || value.starts_with("zh-mo") =>
+            {
+                Some(Self::ZhHant)
+            }
+            "zh-cn" | "zh" => Some(Self::ZhCn),
+            value if value.starts_with("ja") => Some(Self::Ja),
+            value if value.starts_with("ko") => Some(Self::Ko),
             _ => None,
         }
     }
@@ -100,6 +114,9 @@ impl AdminLang {
         match self {
             Self::En => "en",
             Self::ZhCn => "zh-CN",
+            Self::ZhHant => "zh-Hant",
+            Self::Ja => "ja",
+            Self::Ko => "ko",
         }
     }
 
@@ -107,6 +124,9 @@ impl AdminLang {
         match self {
             Self::En => AdminText::en(),
             Self::ZhCn => AdminText::zh_cn(),
+            Self::ZhHant => AdminText::zh_hant(),
+            Self::Ja => AdminText::ja(),
+            Self::Ko => AdminText::ko(),
         }
     }
 }
@@ -268,6 +288,123 @@ impl AdminText {
                 "从同步中排除的文件模式（每行一个）。这些规则在内置硬排除之外额外生效。",
         }
     }
+
+    pub fn zh_hant() -> Self {
+        Self {
+            html_lang: "zh-Hant",
+            language_label: "English | 简体中文 | 繁體中文 | 日本語 | 한국어",
+            admin_title: "PKV Sync 管理後台",
+            login_title: "PKV Sync 管理後台登入",
+            username: "使用者名稱",
+            password: "密碼",
+            login: "登入",
+            logout: "登出",
+            dashboard: "儀表板",
+            signed_in_as: "目前登入",
+            users: "使用者",
+            vaults: "筆記庫",
+            invites: "邀請碼",
+            settings: "設定",
+            activity: "活動",
+            create_user: "建立使用者",
+            active: "啟用",
+            created: "建立時間",
+            details: "詳情",
+            user: "使用者",
+            reset_password: "重設密碼",
+            new_password: "新密碼",
+            reset: "重設",
+            disable: "停用",
+            enable: "啟用",
+            tokens: "裝置 Token",
+            new_device_token: "新的裝置 Token",
+            create_device_token: "建立裝置 Token",
+            device_name: "裝置名稱",
+            create_token: "建立 Token",
+            device: "裝置",
+            devices: "裝置",
+            last_used: "上次使用",
+            revoked: "已撤銷",
+            revoke: "撤銷",
+            create_vault: "建立筆記庫",
+            owner: "擁有者",
+            name: "名稱",
+            files: "檔案數",
+            size: "大小",
+            last_sync: "上次同步",
+            reconcile: "修復中繼資料",
+            delete: "刪除",
+            create_invite: "建立邀請碼",
+            expires_at: "過期時間（留空表示永不過期）",
+            code: "代碼",
+            expires: "過期",
+            used: "已使用",
+            runtime_settings: "執行階段設定",
+            server_name: "伺服器名稱",
+            timezone: "時區",
+            registration_mode: "註冊模式",
+            login_failure_threshold: "登入失敗閾值",
+            login_window_seconds: "登入視窗秒數",
+            login_lock_seconds: "登入鎖定秒數",
+            save: "儲存",
+            time: "時間",
+            action: "操作",
+            extra_exclude_globs: "額外排除規則",
+            extra_exclude_globs_hint:
+                "從同步中排除的檔案模式（每行一個）。這些規則會在內建硬排除之外額外生效。",
+            ..Self::zh_cn()
+        }
+    }
+
+    pub fn ja() -> Self {
+        Self {
+            html_lang: "ja",
+            language_label: "English | 简体中文 | 繁體中文 | 日本語 | 한국어",
+            admin_title: "PKV Sync 管理",
+            login_title: "PKV Sync 管理ログイン",
+            username: "ユーザー名",
+            password: "パスワード",
+            login: "ログイン",
+            logout: "ログアウト",
+            dashboard: "ダッシュボード",
+            users: "ユーザー",
+            vaults: "Vault",
+            invites: "招待コード",
+            settings: "設定",
+            activity: "アクティビティ",
+            device_name: "デバイス名",
+            devices: "デバイス",
+            save: "保存",
+            time: "時刻",
+            action: "操作",
+            ..Self::en()
+        }
+    }
+
+    pub fn ko() -> Self {
+        Self {
+            html_lang: "ko",
+            language_label: "English | 简体中文 | 繁體中文 | 日本語 | 한국어",
+            admin_title: "PKV Sync 관리자",
+            login_title: "PKV Sync 관리자 로그인",
+            username: "사용자 이름",
+            password: "비밀번호",
+            login: "로그인",
+            logout: "로그아웃",
+            dashboard: "대시보드",
+            users: "사용자",
+            vaults: "Vault",
+            invites: "초대 코드",
+            settings: "설정",
+            activity: "활동",
+            device_name: "장치 이름",
+            devices: "장치",
+            save: "저장",
+            time: "시간",
+            action: "작업",
+            ..Self::en()
+        }
+    }
 }
 
 pub fn detect(headers: &HeaderMap, cookies: &Cookies) -> AdminLang {
@@ -305,6 +442,10 @@ mod tests {
         assert_eq!(AdminLang::parse("en"), Some(AdminLang::En));
         assert_eq!(AdminLang::parse("zh-CN"), Some(AdminLang::ZhCn));
         assert_eq!(AdminLang::parse("zh"), Some(AdminLang::ZhCn));
+        assert_eq!(AdminLang::parse("zh-Hant"), Some(AdminLang::ZhHant));
+        assert_eq!(AdminLang::parse("zh-TW"), Some(AdminLang::ZhHant));
+        assert_eq!(AdminLang::parse("ja-JP"), Some(AdminLang::Ja));
+        assert_eq!(AdminLang::parse("ko-KR"), Some(AdminLang::Ko));
         assert_eq!(AdminLang::parse("fr"), None);
     }
 }

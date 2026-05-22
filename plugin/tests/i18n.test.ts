@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { en } from "../src/i18n/en";
+import { ja } from "../src/i18n/ja";
+import { ko } from "../src/i18n/ko";
 import { zh } from "../src/i18n/zh";
+import { zhHant } from "../src/i18n/zh-Hant";
 import { format, strings } from "../src/i18n";
 import { statusText } from "../src/ui/status";
 
@@ -13,13 +16,22 @@ describe("strings", () => {
     expect(strings("auto", "zh-CN").connect).toBe("连接");
   });
 
+  it("detects Traditional Chinese before Simplified Chinese", () => {
+    expect(strings("auto", "zh-TW").zhHantLanguage).toBe("繁體中文");
+  });
+
   it("uses explicit plugin language before locale", () => {
     expect(strings("zh-CN", "en-US").connect).toBe("连接");
+    expect(strings("zh-Hant", "en-US").zhHantLanguage).toBe("繁體中文");
+    expect(strings("ja", "en-US").language).toBe("言語");
+    expect(strings("ko", "en-US").language).toBe("언어");
     expect(strings("en", "zh-CN").connect).toBe("Connect");
   });
 
-  it("keeps English and Chinese bundles in sync", () => {
-    expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort());
+  it("keeps language bundles in sync", () => {
+    for (const bundle of [zh, zhHant, ja, ko]) {
+      expect(Object.keys(bundle).sort()).toEqual(Object.keys(en).sort());
+    }
   });
 
   it("formats localized templates", () => {

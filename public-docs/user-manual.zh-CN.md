@@ -1,6 +1,6 @@
 # PKV Sync 用户手册
 
-[English](./user-manual.md) | 简体中文
+[English](./user-manual.md) | 简体中文 | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
 本文面向连接已有 PKV Sync 服务端的 Obsidian 用户。开始前，请向服务端管理员获取服务端分享 URL，以及账号或邀请码。
 

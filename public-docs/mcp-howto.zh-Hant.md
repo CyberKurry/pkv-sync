@@ -1,0 +1,85 @@
+# AI 工具的 MCP 接入
+
+[English](./mcp-howto.md) | [简体中文](./mcp-howto.zh-CN.md) | 繁體中文 | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
+
+PKV Sync 可以透過 MCP server 暴露筆記庫內容。服務端返回檔案內容前會解析 blob pointer，也可以透過顯式讀寫工具寫入檔案，並且必須使用普通 PKV Sync bearer 裝置 token。
+
+## 工具
+
+- `list_vaults`：列出目前使用者可存取的筆記庫。
+- `list_files`：列出 HEAD 或指定 commit 下的路徑。
+- `read_file`：讀取 HEAD 下的檔案。
+- `read_file_at_commit`：讀取指定 commit 下的檔案。
+- `search`：在文字檔案中執行大小寫不敏感的子字串搜尋。
+- `write_file`：透過樂觀並發控制建立或更新文字檔案。
+- `delete_file`：透過樂觀並發控制刪除檔案。
+
+## stdio transport
+
+本機 AI 工具需要啟動命令時，使用 stdio。stdio 模式只暴露一個筆記庫。
+
+```bash
+PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
+```
+
+也可以直接傳入 token：
+
+```bash
+pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
+```
+
+## Streamable HTTP transport
+
+當用戶端連接一個已經執行的本機或內部 MCP 端點時，使用 HTTP。
+
+```bash
+pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
+```
+
+端點為：
+
+```text
+POST http://127.0.0.1:6711/mcp
+GET  http://127.0.0.1:6711/mcp
+```
+
+每個請求都必須包含：
+
+```text
+Authorization: Bearer pks_xxx
+```
+
+MCP HTTP 使用固定視窗限流，每 60 秒最多 120 次請求。超限時，伺服器會返回 HTTP `429`，JSON-RPC error code 為 `-32029`。
+
+POST 承載 JSON-RPC 工具呼叫並返回 JSON 回應。GET 攜帶 `Accept: text/event-stream` 時訂閱 `vault_changed` notification。事件 id 使用 `<vault-id>:<commit-sha>`，用戶端重連時可作為 `Last-Event-ID` 傳回，以 replay 斷線期間錯過的 commit。Replay 有上限；如果服務端無法覆蓋錯過的歷史，會發送 `lagged`，用戶端應透過同步 API 重新整理。
+
+除非放在可信網路控制之後，否則請把 HTTP 綁定到 loopback。bearer token 會授予該使用者所有筆記庫的讀寫存取權限。
+
+## 寫入工具
+
+PKV Sync 在讀取工具之外提供兩個 MCP 寫入工具：
+
+- `write_file(vault_id, path, content, parent_commit)`：建立或更新文字檔案。
+- `delete_file(vault_id, path, parent_commit)`：刪除檔案。
+
+### 樂觀並發控制
+
+每次寫入都必須提供 `parent_commit`，也就是用戶端認為目前筆記庫 HEAD 所在的 commit hash。如果用戶端上次讀取後筆記庫已經前進，服務端會返回 `{ "conflict": true, "current_head": "..." }`，並且不會寫入。用戶端需要重新讀取、必要時合併，再用新的 `parent_commit` 重試。
+
+### 限流
+
+寫入工具按 `(token, vault)` 組合限流，每分鐘最多 60 次寫入。讀取工具和 SSE 訂閱不受這個寫入配額影響。
+
+### 稽核記錄
+
+每次成功寫入或刪除都會在活動日誌中記錄為 `mcp_write` 或 `mcp_delete`，details 中包含 path、commit 和 size。管理員可以在活動頁查看 AI 驅動的改動。
+
+### 注意：寫入會進入 git 歷史
+
+AI 驅動的寫入會成為筆記庫 git 歷史中的 commit。你可以透過普通 git 操作回滾，但無法讓已經提交的改動「從未發生」；這種可稽核性是有意設計。
+
+## 用戶端提示
+
+- Claude Code、Codex CLI、Cherry Studio、OpenCode，以及透過橋接使用 MCP 的用戶端，都可以透過啟動 `pkvsyncd mcp` 使用 stdio 模式。
+- 支援 Streamable HTTP 的用戶端可以指向 `/mcp`，並在每個請求上發送 bearer auth。
+- 服務端是無狀態的，不要求也不返回 `Mcp-Session-Id`。

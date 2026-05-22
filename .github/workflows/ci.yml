@@ -89,6 +89,9 @@ jobs:
       - name: Install plugin dependencies
         run: npm ci --prefix plugin
 
+      - name: Check i18n coverage
+        run: python scripts/i18n_check.py
+
       - name: Plugin coverage
         run: npm --prefix plugin test -- --coverage
 
