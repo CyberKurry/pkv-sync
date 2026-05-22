@@ -126,11 +126,15 @@ export const zh = {
   conflictsListEmpty: "没有需要解决的冲突",
   conflictResolveTitle: "解决冲突",
   conflictResolveBody: "{path} 与远端版本冲突",
+  conflictKindMergeMarkers: "自动合并后仍有冲突（需要手动解决）",
   acceptLocalButton: "保留本地",
   acceptRemoteButton: "采纳远端",
+  openInEditor: "在编辑器中打开",
+  markResolved: "标记为已解决",
   dismissConflictButton: "稍后",
   conflictBinaryNotice: "二进制文件，无法显示差异",
   conflictAcceptedLocalNotice: "已保留本地版本并删除冲突文件",
   conflictAcceptedRemoteNotice: "已采纳远端版本，将在下次同步推送",
+  markersStillPresent: "文件中仍有冲突标记。请先在编辑器中解决。",
   conflictResolveFailed: "解决冲突失败"
 };

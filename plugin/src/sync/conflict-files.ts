@@ -5,6 +5,12 @@ export interface ConflictFileVault {
   delete(file: TFile): Promise<void>;
 }
 
+export interface ConflictFileReader {
+  read(file: TFile): Promise<string>;
+}
+
+export type ConflictPairKind = "remote_copy" | "merge_markers";
+
 export function isConflictPath(path: string): boolean {
   const name = path.split("/").pop() ?? path;
   return /\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-[^/]+(?:\.[^/.]+)?$/.test(
@@ -39,20 +45,59 @@ export function originalPathFor(conflictPath: string): string | null {
 export interface ConflictPair {
   originalPath: string;
   conflictPath: string;
+  kind: ConflictPairKind;
   conflictFile: TFile;
+}
+
+export function hasMergeMarkers(content: string): boolean {
+  return (
+    content.includes("<<<<<<< local") &&
+    content.includes("=======") &&
+    content.includes(">>>>>>> remote")
+  );
 }
 
 export function pairConflicts(
   vault: Pick<ConflictFileVault, "getFiles">
 ): ConflictPair[] {
   return listConflictFiles(vault)
-    .map((f) => {
+    .map<ConflictPair | null>((f) => {
       const orig = originalPathFor(f.path);
       return orig
-        ? { originalPath: orig, conflictPath: f.path, conflictFile: f }
+        ? {
+            originalPath: orig,
+            conflictPath: f.path,
+            kind: "remote_copy" as const,
+            conflictFile: f
+          }
         : null;
     })
     .filter((x): x is ConflictPair => x !== null);
+}
+
+export async function pairConflictsWithKinds(
+  vault: Pick<ConflictFileVault, "getFiles"> & ConflictFileReader
+): Promise<ConflictPair[]> {
+  const pairs = pairConflicts(vault);
+  return Promise.all(
+    pairs.map(async (pair) => {
+      const content = await vault.read(pair.conflictFile);
+      return {
+        ...pair,
+        kind: hasMergeMarkers(content) ? "merge_markers" : "remote_copy"
+      };
+    })
+  );
+}
+
+export async function findConflictPairsForPathWithKinds(
+  vault: Pick<ConflictFileVault, "getFiles"> & ConflictFileReader,
+  path: string
+): Promise<ConflictPair[]> {
+  const pairs = await pairConflictsWithKinds(vault);
+  return pairs.filter(
+    (pair) => pair.originalPath === path || pair.conflictPath === path
+  );
 }
 
 export function findConflictPairsForPath(

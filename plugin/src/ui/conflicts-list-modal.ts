@@ -1,6 +1,6 @@
 import { type App, Modal } from "obsidian";
 import {
-  pairConflicts,
+  pairConflictsWithKinds,
   type ConflictPair
 } from "../sync/conflict-files";
 import type { Strings } from "../i18n";
@@ -13,18 +13,22 @@ export class ConflictsListModal extends Modal {
     app: App,
     private labels: Strings,
     private onResolved: () => void,
-    private pairsProvider?: () => ConflictPair[]
+    private pairsProvider?: () => ConflictPair[] | Promise<ConflictPair[]>
   ) {
     super(app);
   }
 
   onOpen(): void {
-    this.pairs = this.pairsProvider
-      ? this.pairsProvider()
-      : pairConflicts(this.app.vault);
     this.contentEl.empty();
     this.contentEl.addClass("pkvsync-conflicts-list-modal");
     this.contentEl.createEl("h2", { text: this.labels.conflictsListTitle });
+    void this.loadPairs();
+  }
+
+  private async loadPairs(): Promise<void> {
+    this.pairs = this.pairsProvider
+      ? await this.pairsProvider()
+      : await pairConflictsWithKinds(this.app.vault);
 
     if (this.pairs.length === 0) {
       this.contentEl.createDiv({

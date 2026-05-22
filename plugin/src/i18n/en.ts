@@ -129,11 +129,17 @@ export const en = {
   conflictsListEmpty: "No conflicts to resolve",
   conflictResolveTitle: "Resolve conflict",
   conflictResolveBody: "{path} has a conflict with a remote version",
+  conflictKindMergeMarkers:
+    "Auto-merge with conflicts (manual resolve needed)",
   acceptLocalButton: "Keep local",
   acceptRemoteButton: "Accept remote",
+  openInEditor: "Open in editor",
+  markResolved: "Mark resolved",
   dismissConflictButton: "Later",
   conflictBinaryNotice: "Binary file, diff preview not available",
   conflictAcceptedLocalNotice: "Kept local version and deleted conflict file",
   conflictAcceptedRemoteNotice: "Accepted remote version, will push on next sync",
+  markersStillPresent:
+    "Conflict markers still present in file. Resolve them in your editor first.",
   conflictResolveFailed: "Failed to resolve conflict"
 };

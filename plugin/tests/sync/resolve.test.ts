@@ -1,102 +1,136 @@
-import { describe, expect, it, vi } from "vitest";
-import { acceptLocal, acceptRemote } from "../../src/sync/resolve";
+import { TFile } from "obsidian";
+import { describe, expect, it } from "vitest";
+import {
+  acceptLocal,
+  acceptRemote,
+  type ConflictResolveVault,
+  markMergeMarkersResolved
+} from "../../src/sync/resolve";
 import type { ConflictPair } from "../../src/sync/conflict-files";
 
-function mockVault(overrides: {
-  originalExists?: boolean;
-  originalContent?: string;
-  conflictContent?: string;
-} = {}) {
-  const deleted: string[] = [];
-  const modified: Array<{ path: string; content: string }> = [];
-  const created: Array<{ path: string; content: string }> = [];
+function tfile(path: string): TFile {
+  const file = Object.create(TFile.prototype) as TFile;
+  Object.assign(file, { path });
+  return file;
+}
 
-  const originalFile = { path: "note.md" };
-  const conflictFile = {
-    path: "note.md.conflict-2026-05-16-143000-abc.md"
-  };
+class FakeVault implements ConflictResolveVault {
+  deleted: string[] = [];
+  modified: Array<{ path: string; content: string }> = [];
+  created: Array<{ path: string; content: string }> = [];
+  conflictFile = tfile("note.md.conflict-2026-05-16-143000-abc.md");
+  private originalFile = tfile("note.md");
 
+  constructor(
+    private options: {
+      originalExists?: boolean;
+      conflictContent?: string;
+    } = {}
+  ) {}
+
+  async read(_file: TFile): Promise<string> {
+    return this.options.conflictContent ?? "remote content";
+  }
+
+  async delete(file: TFile): Promise<void> {
+    this.deleted.push(file.path);
+  }
+
+  async modify(file: TFile, content: string): Promise<void> {
+    this.modified.push({ path: file.path, content });
+  }
+
+  async create(path: string, content: string): Promise<TFile> {
+    this.created.push({ path, content });
+    return tfile(path);
+  }
+
+  getAbstractFileByPath(_path: string): TFile | null {
+    return this.options.originalExists === false ? null : this.originalFile;
+  }
+}
+
+function conflictPair(kind: ConflictPair["kind"]): ConflictPair {
+  const conflictPath = "note.md.conflict-2026-05-16-143000-abc.md";
   return {
-    vault: {
-      read: vi
-        .fn()
-        .mockResolvedValue(overrides.conflictContent ?? "remote content"),
-      delete: vi.fn().mockImplementation((f: any) => {
-        deleted.push(f.path);
-      }),
-      modify: vi.fn().mockImplementation((f: any, content: string) => {
-        modified.push({ path: f.path, content });
-      }),
-      create: vi.fn().mockImplementation((path: string, content: string) => {
-        created.push({ path, content });
-      }),
-      getAbstractFileByPath: vi
-        .fn()
-        .mockImplementation((path: string) =>
-          overrides.originalExists !== false ? originalFile : null
-        )
-    },
-    deleted,
-    modified,
-    created,
-    conflictFile
+    originalPath: "note.md",
+    conflictPath,
+    kind,
+    conflictFile: tfile(conflictPath)
   };
 }
 
 describe("acceptLocal", () => {
   it("only deletes the conflict file, original stays", async () => {
-    const pair: ConflictPair = {
-      originalPath: "note.md",
-      conflictPath: "note.md.conflict-2026-05-16-143000-abc.md",
-      conflictFile: {
-        path: "note.md.conflict-2026-05-16-143000-abc.md"
-      } as any
-    };
-    const { vault, deleted } = mockVault();
-    await acceptLocal(vault as any, pair);
-    expect(deleted).toContain(
+    const pair = conflictPair("remote_copy");
+    const vault = new FakeVault();
+    await acceptLocal(vault, pair);
+    expect(vault.deleted).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
-    expect(deleted).toHaveLength(1);
+    expect(vault.deleted).toHaveLength(1);
   });
 });
 
 describe("acceptRemote", () => {
   it("overwrites original with conflict content and deletes conflict file", async () => {
-    const pair: ConflictPair = {
-      originalPath: "note.md",
-      conflictPath: "note.md.conflict-2026-05-16-143000-abc.md",
-      conflictFile: {
-        path: "note.md.conflict-2026-05-16-143000-abc.md"
-      } as any
-    };
-    const { vault, deleted, modified } = mockVault({
+    const pair = conflictPair("remote_copy");
+    const vault = new FakeVault({
       originalExists: true,
       conflictContent: "remote content"
     });
-    await acceptRemote(vault as any, pair);
-    expect(modified).toHaveLength(1);
-    expect(deleted).toContain(
+    await acceptRemote(vault, pair);
+    expect(vault.modified).toHaveLength(1);
+    expect(vault.deleted).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
   });
 
   it("creates original file when it does not exist", async () => {
-    const pair: ConflictPair = {
-      originalPath: "note.md",
-      conflictPath: "note.md.conflict-2026-05-16-143000-abc.md",
-      conflictFile: {
-        path: "note.md.conflict-2026-05-16-143000-abc.md"
-      } as any
-    };
-    const { vault, deleted, created } = mockVault({
+    const pair = conflictPair("remote_copy");
+    const vault = new FakeVault({
       originalExists: false,
       conflictContent: "remote content"
     });
-    await acceptRemote(vault as any, pair);
-    expect(created).toHaveLength(1);
-    expect(created[0].path).toBe("note.md");
-    expect(deleted).toContain(
+    await acceptRemote(vault, pair);
+    expect(vault.created).toHaveLength(1);
+    expect(vault.created[0].path).toBe("note.md");
+    expect(vault.deleted).toContain(
+      "note.md.conflict-2026-05-16-143000-abc.md"
+    );
+  });
+});
+
+describe("markMergeMarkersResolved", () => {
+  it("refuses to resolve while merge markers remain", async () => {
+    const pair = conflictPair("merge_markers");
+    const vault = new FakeVault({
+      conflictContent: [
+        "<<<<<<< local",
+        "local",
+        "=======",
+        "remote",
+        ">>>>>>> remote"
+      ].join("\n")
+    });
+
+    await expect(markMergeMarkersResolved(vault, pair)).resolves.toBe(false);
+    expect(vault.modified).toHaveLength(0);
+    expect(vault.deleted).toHaveLength(0);
+  });
+
+  it("copies resolved conflict content to original and deletes conflict file", async () => {
+    const pair = conflictPair("merge_markers");
+    const vault = new FakeVault({
+      originalExists: true,
+      conflictContent: "resolved content"
+    });
+
+    await expect(markMergeMarkersResolved(vault, pair)).resolves.toBe(true);
+    expect(vault.modified).toEqual([
+      { path: "note.md", content: "resolved content" }
+    ]);
+    expect(vault.deleted).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
   });

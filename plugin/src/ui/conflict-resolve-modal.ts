@@ -1,6 +1,10 @@
 import { type App, Modal, Notice, TFile } from "obsidian";
 import type { ConflictPair } from "../sync/conflict-files";
-import { acceptLocal, acceptRemote } from "../sync/resolve";
+import {
+  acceptLocal,
+  acceptRemote,
+  markMergeMarkersResolved
+} from "../sync/resolve";
 import {
   lineDiffSideBySide,
   type SideBySideDiffRow
@@ -27,6 +31,13 @@ const TEXT_DETECT_EXTENSIONS = new Set([
   "tex",
   "rst"
 ]);
+
+export function mergeMarkerLineClass(line: string): string {
+  if (line.startsWith("<<<<<<<")) return "pkvsync-merge-marker-local";
+  if (line === "=======") return "pkvsync-merge-marker-separator";
+  if (line.startsWith(">>>>>>>")) return "pkvsync-merge-marker-remote";
+  return "pkvsync-merge-marker-content";
+}
 
 function isLikelyText(path: string): boolean {
   const idx = path.lastIndexOf(".");
@@ -77,6 +88,12 @@ export class ConflictResolveModal extends Modal {
   }
 
   private async loadContent(): Promise<void> {
+    if (this.pair.kind === "merge_markers") {
+      await this.renderMergeMarkerFlow();
+      this.renderMergeMarkerActions();
+      return;
+    }
+
     const treatAsBinary =
       !isLikelyText(this.pair.originalPath) &&
       !isLikelyText(this.pair.conflictPath);
@@ -109,6 +126,54 @@ export class ConflictResolveModal extends Modal {
     }
 
     this.renderActions();
+  }
+
+  private async renderMergeMarkerFlow(): Promise<void> {
+    this.contentEl.createDiv({
+      cls: "pkvsync-conflict-kind",
+      text: this.labels.conflictKindMergeMarkers
+    });
+
+    try {
+      const conflictContent = await this.app.vault.read(
+        this.pair.conflictFile
+      );
+      if (looksBinary(conflictContent)) {
+        this.renderBinaryNotice();
+      } else {
+        this.renderMergeMarkerPreview(conflictContent);
+      }
+    } catch {
+      this.renderBinaryNotice();
+    }
+  }
+
+  private renderMergeMarkerPreview(content: string): void {
+    const container = this.contentEl.createDiv({
+      cls: "pkvsync-merge-marker-preview"
+    });
+    const lines = content.split(/\r?\n/);
+    const visibleLines = lines.slice(0, 1000);
+    visibleLines.forEach((line, index) => {
+      const row = container.createDiv({
+        cls: `pkvsync-merge-marker-row ${mergeMarkerLineClass(line)}`
+      });
+      row.createDiv({
+        cls: "pkvsync-merge-marker-line-no",
+        text: String(index + 1)
+      });
+      row.createDiv({
+        cls: "pkvsync-merge-marker-text",
+        text: line
+      });
+    });
+
+    if (lines.length > visibleLines.length) {
+      container.createDiv({
+        cls: "pkvsync-diff-meta",
+        text: "..."
+      });
+    }
   }
 
   private renderBinaryNotice(): void {
@@ -216,6 +281,38 @@ export class ConflictResolveModal extends Modal {
     dismissBtn.addEventListener("click", () => this.close());
   }
 
+  private renderMergeMarkerActions(): void {
+    const actions = this.contentEl.createDiv({
+      cls: "pkvsync-conflict-actions"
+    });
+
+    const openBtn = actions.createEl("button", {
+      cls: "pkvsync-button is-secondary",
+      text: this.labels.openInEditor
+    });
+    openBtn.addEventListener("click", () => void this.handleOpenInEditor());
+
+    const markResolvedBtn = actions.createEl("button", {
+      cls: "pkvsync-button is-danger",
+      text: this.labels.markResolved
+    });
+    markResolvedBtn.addEventListener(
+      "click",
+      () => void this.handleMarkResolved()
+    );
+
+    const dismissBtn = actions.createEl("button", {
+      cls: "pkvsync-button is-ghost",
+      text: this.labels.dismissConflictButton
+    });
+    dismissBtn.addEventListener("click", () => this.close());
+  }
+
+  private async handleOpenInEditor(): Promise<void> {
+    const leaf = this.app.workspace.getLeaf(false);
+    await leaf.openFile(this.pair.conflictFile);
+  }
+
   private async handleAcceptLocal(): Promise<void> {
     try {
       await acceptLocal(this.app.vault, this.pair);
@@ -230,6 +327,21 @@ export class ConflictResolveModal extends Modal {
   private async handleAcceptRemote(): Promise<void> {
     try {
       await acceptRemote(this.app.vault, this.pair);
+      new Notice(this.labels.conflictAcceptedRemoteNotice);
+      this.close();
+      this.onResolved();
+    } catch (error) {
+      new Notice(this.labels.conflictResolveFailed);
+    }
+  }
+
+  private async handleMarkResolved(): Promise<void> {
+    try {
+      const resolved = await markMergeMarkersResolved(this.app.vault, this.pair);
+      if (!resolved) {
+        new Notice(this.labels.markersStillPresent);
+        return;
+      }
       new Notice(this.labels.conflictAcceptedRemoteNotice);
       this.close();
       this.onResolved();

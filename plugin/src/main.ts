@@ -22,6 +22,7 @@ import { SyncEngine } from "./sync/engine";
 import {
   deleteConflictFiles,
   findConflictPairsForPath,
+  findConflictPairsForPathWithKinds,
   type ConflictPair,
   listConflictFiles
 } from "./sync/conflict-files";
@@ -460,7 +461,7 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   private openConflictsList(
-    pairsProvider?: () => ConflictPair[]
+    pairsProvider?: () => ConflictPair[] | Promise<ConflictPair[]>
   ): void {
     const openList = (): void => {
       new ConflictsListModal(
@@ -474,20 +475,27 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   private openConflictResolutionFor(file: TFile): void {
-    const pairsProvider = (): ConflictPair[] =>
-      findConflictPairsForPath(this.app.vault, file.path);
-    const pairs = pairsProvider();
+    const pairsProvider = (): Promise<ConflictPair[]> =>
+      findConflictPairsForPathWithKinds(this.app.vault, file.path);
+    const pairs = findConflictPairsForPath(this.app.vault, file.path);
     if (pairs.length === 0) {
       new Notice(this.text().conflictsListEmpty);
       return;
     }
     if (pairs.length === 1) {
-      new ConflictResolveModal(
-        this.app,
-        pairs[0],
-        this.text(),
-        () => undefined
-      ).open();
+      void pairsProvider().then((pairsWithKinds) => {
+        const pair = pairsWithKinds[0];
+        if (!pair) {
+          new Notice(this.text().conflictsListEmpty);
+          return;
+        }
+        new ConflictResolveModal(
+          this.app,
+          pair,
+          this.text(),
+          () => undefined
+        ).open();
+      });
       return;
     }
     this.openConflictsList(pairsProvider);

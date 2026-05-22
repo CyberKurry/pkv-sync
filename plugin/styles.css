@@ -1100,6 +1100,67 @@ body.theme-dark .pkv-sync-settings-host {
   background: var(--background-primary);
 }
 
+.pkvsync-conflict-kind {
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.pkvsync-merge-marker-preview {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--background-primary);
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.pkvsync-merge-marker-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  min-height: 22px;
+}
+
+.pkvsync-merge-marker-line-no {
+  padding: 2px 8px;
+  border-right: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-faint);
+  text-align: right;
+  user-select: none;
+}
+
+.pkvsync-merge-marker-text {
+  padding: 2px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pkvsync-merge-marker-local,
+.pkvsync-merge-marker-remote,
+.pkvsync-merge-marker-separator {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.pkvsync-merge-marker-local {
+  background: rgba(var(--color-red-rgb), 0.14);
+}
+
+.pkvsync-merge-marker-remote {
+  background: rgba(var(--color-green-rgb), 0.14);
+}
+
+.pkvsync-merge-marker-separator {
+  background: rgba(var(--color-yellow-rgb), 0.16);
+}
+
 .pkvsync-conflict-binary {
   padding: 14px;
   border: 1px solid var(--background-modifier-border);

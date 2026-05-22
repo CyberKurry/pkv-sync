@@ -6,7 +6,8 @@ import {
   isConflictPath,
   listConflictFiles,
   originalPathFor,
-  pairConflicts
+  pairConflicts,
+  pairConflictsWithKinds
 } from "../../src/sync/conflict-files";
 
 function tfile(path: string): TFile {
@@ -18,7 +19,10 @@ function tfile(path: string): TFile {
 class FakeVault {
   deleted: string[] = [];
 
-  constructor(private files: TFile[]) {}
+  constructor(
+    private files: TFile[],
+    private contentByPath: Record<string, string> = {}
+  ) {}
 
   getFiles(): TFile[] {
     return this.files;
@@ -29,6 +33,10 @@ class FakeVault {
     this.files = this.files.filter(
       (candidate) => candidate.path !== file.path
     );
+  }
+
+  async read(file: TFile): Promise<string> {
+    return this.contentByPath[file.path] ?? "";
   }
 }
 
@@ -111,10 +119,52 @@ describe("pairConflicts", () => {
     expect(pairs[0].conflictPath).toBe(
       "note.conflict-2026-05-16-143000-abc.md"
     );
+    expect(pairs[0].kind).toBe("remote_copy");
     expect(pairs[1].originalPath).toBe("folder/image.png");
     expect(pairs[1].conflictPath).toBe(
       "folder/image.conflict-2026-05-16-143000-phone.png"
     );
+    expect(pairs[1].kind).toBe("remote_copy");
+  });
+
+  it("detects conflict files with git-style merge markers", async () => {
+    const conflict = "note.conflict-2026-05-16-143000-abc.md";
+    const vault = new FakeVault(
+      [tfile("note.md"), tfile(conflict)],
+      {
+        [conflict]: [
+          "<<<<<<< local",
+          "local text",
+          "=======",
+          "remote text",
+          ">>>>>>> remote"
+        ].join("\n")
+      }
+    );
+
+    await expect(pairConflictsWithKinds(vault)).resolves.toMatchObject([
+      {
+        originalPath: "note.md",
+        conflictPath: conflict,
+        kind: "merge_markers"
+      }
+    ]);
+  });
+
+  it("keeps remote copy kind when conflict content has no merge markers", async () => {
+    const conflict = "note.conflict-2026-05-16-143000-abc.md";
+    const vault = new FakeVault(
+      [tfile("note.md"), tfile(conflict)],
+      { [conflict]: "remote content" }
+    );
+
+    await expect(pairConflictsWithKinds(vault)).resolves.toMatchObject([
+      {
+        originalPath: "note.md",
+        conflictPath: conflict,
+        kind: "remote_copy"
+      }
+    ]);
   });
 
   it("skips conflict files that do not match the pattern", () => {
