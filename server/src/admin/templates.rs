@@ -7,6 +7,18 @@ use askama::Template;
 pub struct LoginTemplate<'a> {
     pub t: AdminText,
     pub error: Option<&'a str>,
+    pub success: Option<&'a str>,
+    pub setup_required: bool,
+    pub username_value: String,
+    pub version: &'static str,
+}
+
+#[derive(Template)]
+#[template(path = "setup.html")]
+pub struct SetupTemplate<'a> {
+    pub t: AdminText,
+    pub error: Option<&'a str>,
+    pub username_value: String,
     pub version: &'static str,
 }
 
@@ -285,6 +297,9 @@ mod tests {
         let html = LoginTemplate {
             t: AdminText::en(),
             error: Some("bad"),
+            success: None,
+            setup_required: false,
+            username_value: String::new(),
             version,
         }
         .render()
@@ -756,6 +771,9 @@ mod tests {
         let html = LoginTemplate {
             t: AdminText::en(),
             error: None,
+            success: None,
+            setup_required: false,
+            username_value: String::new(),
             version: env!("CARGO_PKG_VERSION"),
         }
         .render()

@@ -20,6 +20,8 @@ export const ko = {
   translationNeedsReview:
     "이 언어는 커뮤니티 번역입니다. 문제가 있으면 알려 주세요.",
   helpTranslate: "번역 돕기",
+  setupRequiredNotice:
+    "브라우저에서 서버 URL을 열어 초기 설정을 완료한 뒤 다시 연결하세요.",
   migrateCommand: "현재 Vault를 PKV Sync로 가져오기",
   migrateModalTitle: "Obsidian Sync에서 마이그레이션",
   migrateSyncDetected: "Obsidian Sync가 감지되었습니다",

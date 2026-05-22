@@ -1,6 +1,9 @@
 use ipnet::IpNet;
+use pkv_sync_server::auth::password;
 use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
-use pkv_sync_server::db::repos::{RegistrationMode, RuntimeConfigRepo, SqliteRuntimeConfigRepo};
+use pkv_sync_server::db::repos::{
+    NewUser, RegistrationMode, RuntimeConfigRepo, SqliteRuntimeConfigRepo, SqliteUserRepo, UserRepo,
+};
 use pkv_sync_server::{db::pool, server};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -27,13 +30,23 @@ async fn start_server(mode: Option<RegistrationMode>) -> TestServer {
     let data_dir = tmp.path().join("data");
     let db_path = data_dir.join("metadata.db");
 
-    if let Some(mode) = mode {
+    {
         let pool = pool::connect(&db_path).await.unwrap();
         pool::migrate_up(&pool).await.unwrap();
-        SqliteRuntimeConfigRepo::new(pool)
-            .set_registration_mode(mode, None)
+        SqliteUserRepo::new(pool.clone())
+            .create(NewUser {
+                username: "admin".into(),
+                password_hash: password::hash("passw0rd!!").unwrap(),
+                is_admin: true,
+            })
             .await
             .unwrap();
+        if let Some(mode) = mode {
+            SqliteRuntimeConfigRepo::new(pool)
+                .set_registration_mode(mode, None)
+                .await
+                .unwrap();
+        }
     }
 
     let cfg = Arc::new(Config {

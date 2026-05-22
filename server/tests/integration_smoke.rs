@@ -1,7 +1,10 @@
 //! End-to-end smoke test for the full middleware chain.
 
 use ipnet::IpNet;
+use pkv_sync_server::auth::password;
 use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
+use pkv_sync_server::db::pool;
+use pkv_sync_server::db::repos::{NewUser, SqliteUserRepo, UserRepo};
 use pkv_sync_server::server;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -24,6 +27,8 @@ async fn start_test_server() -> TestServer {
     let tmp = tempfile::tempdir().unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let actual_bind = listener.local_addr().unwrap();
+    let data_dir = tmp.path().join("data");
+    let db_path = data_dir.join("metadata.db");
 
     let key = "k_testkey1234567890abcdef".to_string();
     let cfg = Arc::new(Config {
@@ -33,14 +38,24 @@ async fn start_test_server() -> TestServer {
             public_host: None,
         },
         storage: StorageConfig {
-            data_dir: tmp.path().join("data"),
-            db_path: tmp.path().join("data").join("metadata.db"),
+            data_dir,
+            db_path: db_path.clone(),
         },
         network: NetworkConfig {
             trusted_proxies: vec!["127.0.0.1/32".parse::<IpNet>().unwrap()],
         },
         logging: LoggingConfig::default(),
     });
+    let pool = pool::connect(&db_path).await.unwrap();
+    pool::migrate_up(&pool).await.unwrap();
+    SqliteUserRepo::new(pool)
+        .create(NewUser {
+            username: "admin".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
 
     let cfg2 = cfg.clone();
     let handle = tokio::spawn(async move {

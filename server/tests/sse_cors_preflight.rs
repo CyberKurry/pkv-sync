@@ -9,9 +9,10 @@
 
 use axum::extract::ConnectInfo;
 use ipnet::IpNet;
-use pkv_sync_server::auth::LoginRateLimiter;
+use pkv_sync_server::auth::{password, LoginRateLimiter};
 use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
 use pkv_sync_server::db::pool;
+use pkv_sync_server::db::repos::{NewUser, UserRepo};
 use pkv_sync_server::server;
 use pkv_sync_server::service::AppState;
 use std::net::SocketAddr;
@@ -26,6 +27,15 @@ async fn app() -> axum::Router {
     let pool = pool::connect(&db_path).await.unwrap();
     sqlx::migrate!("./migrations").run(&pool).await.unwrap();
     let state = AppState::new(pool, data_dir.clone(), "test".into(), false)
+        .await
+        .unwrap();
+    state
+        .users
+        .create(NewUser {
+            username: "admin".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
         .await
         .unwrap();
     let cfg = Config {

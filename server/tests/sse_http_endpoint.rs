@@ -63,6 +63,15 @@ async fn start_test_server_with_sse_limit(
         state.set_sse_per_user_limit_for_tests(limit);
     }
 
+    state
+        .users
+        .create(NewUser {
+            username: "admin".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
     let user = state
         .users
         .create(NewUser {

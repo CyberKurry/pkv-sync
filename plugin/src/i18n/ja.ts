@@ -20,6 +20,8 @@ export const ja = {
   translationNeedsReview:
     "この言語はコミュニティ翻訳です。問題があれば報告してください。",
   helpTranslate: "翻訳に協力",
+  setupRequiredNotice:
+    "サーバー URL をブラウザで開いて初期設定を完了してから、もう一度接続してください。",
   migrateCommand: "現在の Vault を PKV Sync にインポート",
   migrateModalTitle: "Obsidian Sync から移行",
   migrateSyncDetected: "Obsidian Sync を検出しました",

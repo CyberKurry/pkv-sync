@@ -19,6 +19,8 @@ export const en = {
   deploymentKey: "Deployment Key",
   deploymentKeyDescription: "Optional when the key is embedded in the URL",
   connect: "Connect",
+  setupRequiredNotice:
+    "Open the server URL in a browser to complete first-run setup, then connect again.",
   account: "Account",
   username: "Username",
   password: "Password",

@@ -66,6 +66,15 @@ async fn start_test_server() -> (TestServer, AppState, String, String) {
     let cfg_snapshot = state.runtime_cfg_repo.load().await.unwrap();
     state.runtime_cfg.replace(cfg_snapshot).await;
 
+    state
+        .users
+        .create(NewUser {
+            username: "admin".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
     let user = state
         .users
         .create(NewUser {

@@ -18,6 +18,8 @@ export const zh = {
   deploymentKey: "部署密钥",
   deploymentKeyDescription: "密钥已包含在 URL 中时可留空",
   connect: "连接",
+  setupRequiredNotice:
+    "请在浏览器中打开服务器 URL 完成首次设置，然后重新连接。",
   account: "账号",
   username: "用户名",
   password: "密码",

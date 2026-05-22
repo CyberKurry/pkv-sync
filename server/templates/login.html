@@ -15,15 +15,20 @@
       <h1>PKV Sync</h1>
       <p class="login-subtitle">Sign in to your admin panel</p>
       <p class="login-language"><a href="/admin/language/en?next=/admin/login">English</a> | <a href="/admin/language/zh-CN?next=/admin/login">简体中文</a> | <a href="/admin/language/zh-Hant?next=/admin/login">繁體中文</a> | <a href="/admin/language/ja?next=/admin/login">日本語</a> | <a href="/admin/language/ko?next=/admin/login">한국어</a></p>
+      {% if let Some(m) = success %}<p class="success">{{ m }}</p>{% endif %}
       {% if let Some(e) = error %}<p class="error">{{ e }}</p>{% endif %}
+      {% if setup_required %}
+      <p class="error">{{ t.setup_required }}</p>
+      <a class="primary full-width" href="/setup"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-right"></use></svg>{{ t.setup_begin }}</a>
+      {% else %}
       <form method="post" action="/admin/login" class="login-form">
-        <label>{{ t.username }} <input name="username" autocomplete="username" placeholder="Enter your username"></label>
-        <label>{{ t.password }} <input name="password" type="password" autocomplete="current-password" placeholder="••••••••"></label>
+        <label>{{ t.username }} <input name="username" autocomplete="username" value="{{ username_value }}" placeholder="Enter your username"></label>
+        <label>{{ t.password }} <input name="password" type="password" autocomplete="current-password" placeholder="Password"></label>
         <button type="submit" class="primary full-width"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#log-in"></use></svg>{{ t.login }}</button>
       </form>
-      <p class="login-footnote">Deployment key required for first setup</p>
+      {% endif %}
+      <p class="login-footnote">PKV Sync v{{ version }}</p>
     </section>
-    <p class="login-version">PKV Sync v{{ version }}</p>
   </main>
 </body>
 </html>

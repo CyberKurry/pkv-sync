@@ -2,10 +2,10 @@ use crate::admin::session::{self, AdminSession};
 use crate::admin::templates::{
     ActivityFilterUser, ActivityTemplate, ActivityView, DashboardTemplate, DeviceTokenAdminView,
     DevicesTemplate, DiffRowView, InviteAdminView, InvitesTemplate, LoginTemplate,
-    SettingsTemplate, TokenAdminView, UserAdminView, UserDetailTemplate, UserOptionView,
-    UsersTemplate, VaultAdminView, VaultBrowserView, VaultDiffTemplate, VaultFileEntryView,
-    VaultFileViewTemplate, VaultFilesTemplate, VaultHistoryEntryView, VaultHistoryTemplate,
-    VaultSettingsTemplate, VaultsTemplate,
+    SettingsTemplate, SetupTemplate, TokenAdminView, UserAdminView, UserDetailTemplate,
+    UserOptionView, UsersTemplate, VaultAdminView, VaultBrowserView, VaultDiffTemplate,
+    VaultFileEntryView, VaultFileViewTemplate, VaultFilesTemplate, VaultHistoryEntryView,
+    VaultHistoryTemplate, VaultSettingsTemplate, VaultsTemplate,
 };
 use crate::api::error::ApiError;
 use crate::auth::LoginRateLimiter;
@@ -20,7 +20,8 @@ use crate::service::AppState;
 use crate::storage::git::{Git2VaultStore, GitVaultStore, StoredFile, TreeEntry};
 use askama::Template;
 use axum::extract::{Extension, Form, Path, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, Method, StatusCode};
+use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
@@ -61,6 +62,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/admin/language/:lang", get(set_language))
         .route("/admin/login", get(login_page).post(login_post))
+        .route("/setup", get(setup_get).post(setup_post))
         .route("/admin/logout", post(logout))
         .route("/admin", get(dashboard))
         .route("/admin/users", get(users_page).post(create_user_form))
@@ -140,16 +142,42 @@ fn token_view(token: TokenRow, timezone: &str) -> TokenAdminView {
     }
 }
 
-async fn login_page(headers: HeaderMap, cookies: Cookies) -> Html<String> {
+async fn login_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
+    Query(params): Query<HashMap<String, String>>,
+) -> Html<String> {
+    let t = admin_text(&headers, &cookies);
+    let success = params
+        .get("setup")
+        .filter(|value| value.as_str() == "complete")
+        .map(|_| t.setup_success);
+    let username_value = params.get("u").cloned().unwrap_or_default();
     Html(
         LoginTemplate {
-            t: admin_text(&headers, &cookies),
+            t,
             error: None,
+            success,
+            setup_required: state.is_setup_pending().await,
+            username_value,
             version: env!("CARGO_PKG_VERSION"),
         }
         .render()
         .unwrap(),
     )
+}
+
+pub async fn setup_redirect_middleware(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: Next,
+) -> Response {
+    if req.method() == Method::GET && req.uri().path() == "/admin" && state.is_setup_pending().await
+    {
+        return Redirect::to("/setup").into_response();
+    }
+    next.run(req).await
 }
 
 async fn set_language(
@@ -194,6 +222,156 @@ struct LoginForm {
     password: String,
 }
 
+#[derive(Deserialize)]
+struct SetupForm {
+    username: String,
+    password: String,
+    confirm: String,
+}
+
+async fn setup_get(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
+) -> Response {
+    if !state.is_setup_pending().await {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    Html(
+        SetupTemplate {
+            t: admin_text(&headers, &cookies),
+            error: None,
+            username_value: String::new(),
+            version: env!("CARGO_PKG_VERSION"),
+        }
+        .render()
+        .unwrap(),
+    )
+    .into_response()
+}
+
+async fn setup_post(
+    State(state): State<AppState>,
+    Extension(ClientIp(ip)): Extension<ClientIp>,
+    headers: HeaderMap,
+    cookies: Cookies,
+    Form(form): Form<SetupForm>,
+) -> Result<Response, ApiError> {
+    let t = admin_text(&headers, &cookies);
+    if !state.is_setup_pending().await {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
+    if state.setup_limiter.check(format!("setup:{ip}")).is_err() {
+        return Err(ApiError::too_many("too many setup attempts"));
+    }
+
+    let username = match validate_setup_username(&form.username) {
+        Ok(username) => username,
+        Err(SetupUsernameValidationError::Invalid) => {
+            return Ok(setup_error(
+                t,
+                t.setup_username_invalid,
+                form.username,
+                StatusCode::BAD_REQUEST,
+            ));
+        }
+    };
+    if let Err(err) = validate_setup_password(&form.password, &form.confirm) {
+        let message = match err {
+            SetupPasswordValidationError::Mismatch => t.setup_password_mismatch,
+            SetupPasswordValidationError::TooWeak => t.setup_password_too_weak,
+        };
+        return Ok(setup_error(t, message, username, StatusCode::BAD_REQUEST));
+    }
+    if state.users.count_admins().await? > 0 {
+        state.mark_setup_complete().await;
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
+
+    let password_hash = password::hash(&form.password).map_err(|e| match e {
+        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
+            ApiError::bad_request("weak_password", e.to_string())
+        }
+        _ => ApiError::internal(e.to_string()),
+    })?;
+    state
+        .users
+        .create(NewUser {
+            username: username.clone(),
+            password_hash,
+            is_admin: true,
+        })
+        .await?;
+    state.mark_setup_complete().await;
+    tracing::info!(username = %username, "first admin created via setup wizard");
+    Ok(Redirect::to(&format!(
+        "/admin/login?setup=complete&u={}",
+        url_query(&username)
+    ))
+    .into_response())
+}
+
+fn setup_error(
+    t: crate::admin::i18n::AdminText,
+    message: &'static str,
+    username_value: String,
+    status: StatusCode,
+) -> Response {
+    (
+        status,
+        Html(
+            SetupTemplate {
+                t,
+                error: Some(message),
+                username_value,
+                version: env!("CARGO_PKG_VERSION"),
+            }
+            .render()
+            .unwrap(),
+        ),
+    )
+        .into_response()
+}
+
+enum SetupUsernameValidationError {
+    Invalid,
+}
+
+enum SetupPasswordValidationError {
+    TooWeak,
+    Mismatch,
+}
+
+fn validate_setup_username(value: &str) -> Result<String, SetupUsernameValidationError> {
+    let trimmed = value.trim();
+    if trimmed.len() < 3 || trimmed.len() > 32 {
+        return Err(SetupUsernameValidationError::Invalid);
+    }
+    if !trimmed
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(SetupUsernameValidationError::Invalid);
+    }
+    Ok(trimmed.to_ascii_lowercase())
+}
+
+fn validate_setup_password(
+    password: &str,
+    confirm: &str,
+) -> Result<(), SetupPasswordValidationError> {
+    if password != confirm {
+        return Err(SetupPasswordValidationError::Mismatch);
+    }
+    let has_lower = password.chars().any(|c| c.is_ascii_lowercase());
+    let has_upper = password.chars().any(|c| c.is_ascii_uppercase());
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
+    if password.chars().count() < 12 || !has_lower || !has_upper || !has_digit {
+        return Err(SetupPasswordValidationError::TooWeak);
+    }
+    Ok(())
+}
+
 async fn login_post(
     State(state): State<AppState>,
     Extension(ClientIp(ip)): Extension<ClientIp>,
@@ -204,6 +382,9 @@ async fn login_post(
     Form(form): Form<LoginForm>,
 ) -> Result<Response, ApiError> {
     let t = crate::admin::i18n::detect(&headers, &cookies).text();
+    if state.is_setup_pending().await {
+        return Ok(setup_required_login(t, StatusCode::SERVICE_UNAVAILABLE));
+    }
     let reservation = match limiter.try_acquire(ip) {
         Ok(r) => r,
         Err(remaining) => {
@@ -266,6 +447,28 @@ fn login_error(
             LoginTemplate {
                 t,
                 error: Some(message),
+                success: None,
+                setup_required: false,
+                username_value: String::new(),
+                version: env!("CARGO_PKG_VERSION"),
+            }
+            .render()
+            .unwrap(),
+        ),
+    )
+        .into_response()
+}
+
+fn setup_required_login(t: crate::admin::i18n::AdminText, status: StatusCode) -> Response {
+    (
+        status,
+        Html(
+            LoginTemplate {
+                t,
+                error: None,
+                success: None,
+                setup_required: true,
+                username_value: String::new(),
                 version: env!("CARGO_PKG_VERSION"),
             }
             .render()

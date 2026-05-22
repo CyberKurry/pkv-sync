@@ -10,6 +10,8 @@ export const zhHant = {
   needsReviewSuffix: "（待校對）",
   translationNeedsReview: "此語言由社群翻譯；如發現問題，請回報。",
   helpTranslate: "協助翻譯",
+  setupRequiredNotice:
+    "請在瀏覽器中開啟伺服器 URL 完成首次設定，然後重新連線。",
   migrateCommand: "匯入目前筆記庫到 PKV Sync",
   migrateModalTitle: "從 Obsidian Sync 遷移",
   migrateSyncDetected: "已偵測到 Obsidian Sync",

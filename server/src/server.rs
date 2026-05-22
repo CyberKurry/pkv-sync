@@ -1,16 +1,16 @@
-use crate::auth::{password, LoginRateLimiter};
+use crate::auth::LoginRateLimiter;
 use crate::config::Config;
 use crate::db::pool;
-use crate::db::repos::{NewUser, UserRepo};
 use crate::middleware::{deployment_key, real_ip, request_id, ua_filter};
 use crate::service::AppState;
 use crate::{admin, api};
 use axum::extract::{MatchedPath, Request, State};
+use axum::http::{Method, StatusCode};
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
 use axum::Router;
 use once_cell::sync::Lazy;
-use rand::RngCore;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -54,14 +54,22 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
             dep_key,
             deployment_key::middleware,
         ))
-        .layer(axum::middleware::from_fn(ua_filter::middleware));
+        .layer(axum::middleware::from_fn(ua_filter::middleware))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            setup_gate,
+        ));
     let admin_cookie_policy = admin::handlers::AdminCookiePolicy {
         secure: cfg.server.public_host.is_some(),
         public_host: cfg.server.public_host.clone(),
     };
     let admin_routes = admin::handlers::router()
         .layer(tower_cookies::CookieManagerLayer::new())
-        .layer(axum::extract::Extension(admin_cookie_policy));
+        .layer(axum::extract::Extension(admin_cookie_policy))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            admin::handlers::setup_redirect_middleware,
+        ));
 
     Router::new()
         .merge(api_routes)
@@ -153,37 +161,39 @@ async fn access_log_middleware(
     response
 }
 
-/// If no admin exists, create one with a random password and print it once.
-pub async fn bootstrap_admin_if_needed(state: &AppState) -> crate::Result<()> {
-    if state.users.count_admins().await? > 0 {
-        return Ok(());
+async fn setup_gate(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if req.uri().path().starts_with("/api/")
+        && req.method() != Method::OPTIONS
+        && state.is_setup_pending().await
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": {
+                    "code": "setup_required",
+                    "message": "PKV server requires first-run setup; see /setup"
+                }
+            })),
+        )
+            .into_response();
     }
+    next.run(req).await
+}
 
-    let mut buf = [0u8; 16];
-    rand::rngs::OsRng.fill_bytes(&mut buf);
-    let password_plaintext: String = buf.iter().map(|b| format!("{b:02x}")).collect();
-    let password_hash =
-        password::hash(&password_plaintext).map_err(|e| crate::Error::Internal(e.to_string()))?;
-    state
-        .users
-        .create(NewUser {
-            username: "admin".into(),
-            password_hash,
-            is_admin: true,
-        })
-        .await?;
-
+pub async fn log_setup_state(state: &AppState, public_host: Option<&str>) {
+    if !state.is_setup_pending().await {
+        return;
+    }
+    let url = public_host
+        .map(|host| format!("https://{host}/setup"))
+        .unwrap_or_else(|| "<your-server-url>/setup".into());
     eprintln!();
     eprintln!("============================================================");
-    eprintln!(" FIRST-RUN ADMIN CREATED");
-    eprintln!(" username: admin");
-    eprintln!(" password: {password_plaintext}");
-    eprintln!();
-    eprintln!(" Save this now. It will not be displayed again.");
-    eprintln!(" Change it with: pkvsyncd user passwd admin");
+    eprintln!(" PKV SYNC FIRST-RUN SETUP REQUIRED");
+    eprintln!(" Open this URL in a browser to create the admin account:");
+    eprintln!("   {url}");
     eprintln!("============================================================");
     eprintln!();
-    Ok(())
 }
 
 async fn prepare_state_and_limiter(cfg: &Config) -> crate::Result<(AppState, LoginRateLimiter)> {
@@ -217,7 +227,7 @@ async fn prepare_state_and_limiter(cfg: &Config) -> crate::Result<(AppState, Log
         git_available,
     )
     .await?;
-    bootstrap_admin_if_needed(&state).await?;
+    log_setup_state(&state, cfg.server.public_host.as_deref()).await;
 
     let runtime_cfg = state.runtime_cfg.snapshot().await;
     let limiter = LoginRateLimiter::new(
@@ -367,7 +377,6 @@ mod url_tests {
 
 #[cfg(test)]
 mod bootstrap_tests {
-    use super::*;
     use crate::db::pool;
     use crate::db::repos::UserRepo;
     use crate::service::AppState;
@@ -380,20 +389,28 @@ mod bootstrap_tests {
         let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into(), true)
             .await
             .unwrap();
-        bootstrap_admin_if_needed(&state).await.unwrap();
-        assert_eq!(state.users.count_admins().await.unwrap(), 1);
+        assert!(state.is_setup_pending().await);
+        assert_eq!(state.users.count_admins().await.unwrap(), 0);
     }
 
     #[tokio::test]
-    async fn noop_when_admin_exists() {
+    async fn setup_completed_when_admin_exists_before_state_initializes() {
         let tmp = tempfile::tempdir().unwrap();
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let users = crate::db::repos::SqliteUserRepo::new(pool.clone());
+        users
+            .create(crate::db::repos::NewUser {
+                username: "admin".into(),
+                password_hash: crate::auth::password::hash("passw0rd!!").unwrap(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
         let state = AppState::new(pool, tmp.path().to_path_buf(), "t".into(), true)
             .await
             .unwrap();
-        bootstrap_admin_if_needed(&state).await.unwrap();
-        bootstrap_admin_if_needed(&state).await.unwrap();
         assert_eq!(state.users.count_admins().await.unwrap(), 1);
+        assert!(!state.is_setup_pending().await);
     }
 }

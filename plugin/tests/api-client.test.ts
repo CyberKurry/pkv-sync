@@ -1,6 +1,6 @@
 import { requestUrl } from "obsidian";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiClient, __test } from "../src/api/client";
+import { ApiClient, ApiError, __test } from "../src/api/client";
 import type { VaultSettings } from "../src/api/types";
 
 const requestUrlMock = vi.mocked(requestUrl);
@@ -68,6 +68,24 @@ describe("ApiClient helpers", () => {
     expect(
       __test.tryParseError('{"error":{"code":"bad","message":"No"}}', 400)
     ).toEqual({ code: "bad", message: "No" });
+  });
+
+  it("preserves setup_required server errors as ApiError code", async () => {
+    mockResponse(
+      '{"error":{"code":"setup_required","message":"Initial setup required"}}',
+      403
+    );
+    const client = new ApiClient({
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      pluginVersion: "0.1.0"
+    });
+
+    await expect(client.config()).rejects.toMatchObject({
+      status: 403,
+      code: "setup_required",
+      message: "Initial setup required"
+    } satisfies Partial<ApiError>);
   });
 
   it("creates vaults with auth", async () => {

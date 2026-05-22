@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { Platform } from "obsidian";
+import { ApiError } from "../../src/api/client";
 import { PKVSyncSettingTab } from "../../src/ui/settings-tab";
 import { DeleteVaultModal } from "../../src/ui/delete-vault-modal";
 import { en } from "../../src/i18n/en";
+import { ja } from "../../src/i18n/ja";
+import { ko } from "../../src/i18n/ko";
 import { zh } from "../../src/i18n/zh";
+import { zhHant } from "../../src/i18n/zh-Hant";
 import { notices } from "../mocks/obsidian";
 
 function mockVault(overrides: Record<string, unknown> = {}) {
@@ -94,6 +98,46 @@ describe("PKVSyncSettingTab connection state", () => {
       Platform.isMobileApp = previous.isMobileApp;
       Platform.isPhone = previous.isPhone;
     }
+  });
+
+  it("shows localized first-run setup guidance when connect receives setup_required", async () => {
+    const config = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(403, "setup_required", "Initial setup required")
+      );
+    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const containerEl = new MockElement("div");
+    const setupRequiredNotice =
+      "Open the server URL in a browser to complete first-run setup, then connect again.";
+    const plugin = {
+      settings: {
+        token: "",
+        serverUrl: "https://sync.example.com",
+        deploymentKey: "k_abc",
+        deviceName: "Laptop",
+        timezone: "Asia/Shanghai",
+        language: "auto"
+      },
+      text: () => ({
+        ...en,
+        setupRequiredNotice
+      }),
+      saveSettings,
+      api: () => ({ config })
+    };
+    const tab = new PKVSyncSettingTab(
+      { vault: { getFiles: () => [] } } as never,
+      plugin as never
+    );
+    tab.containerEl = containerEl as never;
+    notices.length = 0;
+
+    tab.display();
+    await containerEl.clickButton("Connect");
+
+    expect(config).toHaveBeenCalledTimes(1);
+    expect(notices.at(-1)).toBe(setupRequiredNotice);
   });
 });
 
@@ -277,6 +321,12 @@ describe("vault sync allowlist settings", () => {
       expect(zh[key].length).toBeGreaterThan(0);
     }
     expect(zh.vaultSyncAllowlistHint).toContain("。");
+  });
+  it("has localized first-run setup guidance in every plugin locale", () => {
+    for (const bundle of [en, zh, zhHant, ja, ko]) {
+      expect(bundle.setupRequiredNotice).toEqual(expect.any(String));
+      expect(bundle.setupRequiredNotice.length).toBeGreaterThan(0);
+    }
   });
 });
 

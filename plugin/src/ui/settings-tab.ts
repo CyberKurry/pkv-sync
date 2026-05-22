@@ -120,6 +120,10 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         );
         this.display();
       } catch (error) {
+        if (error instanceof ApiError && error.code === "setup_required") {
+          new Notice(t.setupRequiredNotice);
+          return;
+        }
         new Notice(error instanceof Error ? error.message : String(error));
       }
     });

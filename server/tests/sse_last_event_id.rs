@@ -56,6 +56,15 @@ async fn start_test_server() -> (TestServer, AppState, String, String, String) {
         .await
         .unwrap();
 
+    state
+        .users
+        .create(NewUser {
+            username: "admin".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
     let user = state
         .users
         .create(NewUser {

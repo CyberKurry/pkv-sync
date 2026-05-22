@@ -1,7 +1,7 @@
 use crate::db::repos::{
     RuntimeConfigCache, RuntimeConfigRepo, SqliteBlobRefRepo, SqliteBlobUploadRepo,
     SqliteIdempotencyRepo, SqliteInviteRepo, SqliteRuntimeConfigRepo, SqliteSyncActivityRepo,
-    SqliteTokenRepo, SqliteUserRepo, SqliteVaultRepo, SqliteVaultSettingsRepo,
+    SqliteTokenRepo, SqliteUserRepo, SqliteVaultRepo, SqliteVaultSettingsRepo, UserRepo,
 };
 use crate::service::events::VaultEventBus;
 use crate::service::metrics::Metrics;
@@ -10,11 +10,31 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 type VaultPushLocks = Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
 const DEFAULT_SSE_PER_USER_LIMIT: usize = 16;
 const DEFAULT_SSE_GLOBAL_CEILING: usize = 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupState {
+    Pending,
+    Completed,
+}
+
+impl SetupState {
+    pub fn from_admin_count(admin_count: i64) -> Self {
+        if admin_count > 0 {
+            Self::Completed
+        } else {
+            Self::Pending
+        }
+    }
+
+    pub fn is_pending(self) -> bool {
+        self == Self::Pending
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -37,6 +57,8 @@ pub struct AppState {
     pub events: VaultEventBus,
     pub metrics: Arc<Metrics>,
     pub mcp_write_limiter: crate::auth::McpWriteRateLimiter,
+    pub setup_limiter: crate::middleware::rate_limit::RequestRateLimiter,
+    setup_state: Arc<RwLock<SetupState>>,
     pub git_available: bool,
     sse_per_user_limit: Arc<AtomicUsize>,
     sse_global_ceiling: Arc<AtomicUsize>,
@@ -62,6 +84,7 @@ impl AppState {
         let idempotency = Arc::new(SqliteIdempotencyRepo::new(pool.clone()));
         let activities = Arc::new(SqliteSyncActivityRepo::new(pool.clone()));
         let runtime_cfg_repo = Arc::new(SqliteRuntimeConfigRepo::new(pool.clone()));
+        let setup_state = SetupState::from_admin_count(users.count_admins().await?);
         let mut cfg = runtime_cfg_repo.load().await?;
         if cfg.server_name == "PKV Sync" && !default_server_name.is_empty() {
             cfg.server_name = default_server_name.clone();
@@ -88,6 +111,11 @@ impl AppState {
                 60,
                 std::time::Duration::from_secs(60),
             ),
+            setup_limiter: crate::middleware::rate_limit::RequestRateLimiter::new(
+                3,
+                std::time::Duration::from_secs(60),
+            ),
+            setup_state: Arc::new(RwLock::new(setup_state)),
             git_available,
             sse_per_user_limit: Arc::new(AtomicUsize::new(DEFAULT_SSE_PER_USER_LIMIT)),
             sse_global_ceiling: Arc::new(AtomicUsize::new(DEFAULT_SSE_GLOBAL_CEILING)),
@@ -97,6 +125,27 @@ impl AppState {
         };
         state.spawn_metrics_refresh_task();
         Ok(state)
+    }
+
+    pub async fn is_setup_pending(&self) -> bool {
+        if !self.setup_state.read().await.is_pending() {
+            return false;
+        }
+        match self.users.count_admins().await {
+            Ok(count) if count > 0 => {
+                self.mark_setup_complete().await;
+                false
+            }
+            Ok(_) => true,
+            Err(err) => {
+                tracing::debug!(error = %err, "failed to refresh setup state");
+                true
+            }
+        }
+    }
+
+    pub async fn mark_setup_complete(&self) {
+        *self.setup_state.write().await = SetupState::Completed;
     }
 
     pub fn default_blob_root(&self) -> std::path::PathBuf {

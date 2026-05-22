@@ -53,6 +53,15 @@ async fn start_server_with_seeded_user() -> TestServer {
     let state = AppState::new(db, data_dir, "test".into(), false)
         .await
         .unwrap();
+    state
+        .users
+        .create(NewUser {
+            username: "admin".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
     let user = state
         .users
         .create(NewUser {
