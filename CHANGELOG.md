@@ -7,6 +7,40 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-23
+
+### Added
+
+- Text three-way auto-merge for stale text pushes. When two devices edit the
+  same text file from different baselines, PKV Sync now tries a git-style line
+  merge before falling back to conflict files. Clean disjoint edits are merged
+  automatically, while overlapping edits create `.conflict-*` files containing
+  `<<<<<<< local`, `=======`, and `>>>>>>> remote` markers for manual
+  resolution.
+- Admin runtime setting `enable_auto_merge` defaults on and can disable the
+  auto-merge path when operators need the previous conflict behavior.
+- Obsidian conflict resolution now recognizes conflict files with merge markers,
+  previews marker blocks, opens them in the editor, and lets users mark them
+  resolved after the markers are removed.
+- MCP write tools `write_file` and `delete_file` create, update, or delete vault
+  files through the normal sync pipeline with optimistic `parent_commit` checks.
+  Stale MCP writes return the current head instead of overwriting newer data.
+- MCP writes are rate-limited per token and vault at 60 writes per minute and
+  successful writes are recorded as `mcp_write` or `mcp_delete` activity.
+- Traditional Chinese, Japanese, and Korean coverage for the Obsidian plugin,
+  admin WebUI, and public documentation. Japanese and Korean are marked as
+  review-needed community translations.
+- CI now runs `scripts/i18n_check.py` to keep plugin language key coverage
+  aligned, and the Grafana dashboard includes an auto-merge success-rate panel.
+
+### Changed
+
+- MCP documentation now describes write tools, optimistic concurrency, write
+  rate limiting, audit logging, and the fact that AI-driven writes enter git
+  history.
+- Public documentation language switchers now include English, Simplified
+  Chinese, Traditional Chinese, Japanese, and Korean variants.
+
 ## [0.5.3] - 2026-05-22
 
 ### Fixed
