@@ -438,7 +438,7 @@ async fn events(
 ) -> Result<Response, ApiError> {
     let _vault = vault_service::ensure_user_vault(&state, &user.user_id, &id).await?;
     let sse_guard = state
-        .try_acquire_sse_subscriber()
+        .try_acquire_sse_subscriber(&user.user_id)
         .ok_or_else(|| ApiError::too_many("too many concurrent SSE subscriptions"))?;
 
     let replay_events = match headers

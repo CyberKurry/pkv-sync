@@ -5,6 +5,7 @@ use crate::db::repos::{
 };
 use crate::service::events::VaultEventBus;
 use crate::service::metrics::Metrics;
+use dashmap::DashMap;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -12,7 +13,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 type VaultPushLocks = Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
-const DEFAULT_SSE_SUBSCRIBER_LIMIT: usize = 256;
+const DEFAULT_SSE_PER_USER_LIMIT: usize = 16;
+const DEFAULT_SSE_GLOBAL_CEILING: usize = 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -35,8 +37,10 @@ pub struct AppState {
     pub events: VaultEventBus,
     pub metrics: Arc<Metrics>,
     pub git_available: bool,
-    sse_subscriber_limit: Arc<AtomicUsize>,
-    sse_subscriber_count: Arc<AtomicUsize>,
+    sse_per_user_limit: Arc<AtomicUsize>,
+    sse_global_ceiling: Arc<AtomicUsize>,
+    sse_per_user_counts: Arc<DashMap<String, AtomicUsize>>,
+    sse_global_count: Arc<AtomicUsize>,
     push_locks: VaultPushLocks,
 }
 
@@ -80,8 +84,10 @@ impl AppState {
             events: VaultEventBus::new(64),
             metrics: Metrics::new(),
             git_available,
-            sse_subscriber_limit: Arc::new(AtomicUsize::new(DEFAULT_SSE_SUBSCRIBER_LIMIT)),
-            sse_subscriber_count: Arc::new(AtomicUsize::new(0)),
+            sse_per_user_limit: Arc::new(AtomicUsize::new(DEFAULT_SSE_PER_USER_LIMIT)),
+            sse_global_ceiling: Arc::new(AtomicUsize::new(DEFAULT_SSE_GLOBAL_CEILING)),
+            sse_per_user_counts: Arc::new(DashMap::new()),
+            sse_global_count: Arc::new(AtomicUsize::new(0)),
             push_locks: Arc::new(Mutex::new(HashMap::new())),
         };
         state.spawn_metrics_refresh_task();
@@ -108,30 +114,61 @@ impl AppState {
         self.push_locks.lock().await.remove(vault_id);
     }
 
-    pub fn set_sse_subscriber_limit_for_tests(&self, limit: usize) {
-        self.sse_subscriber_limit
+    pub fn set_sse_per_user_limit_for_tests(&self, limit: usize) {
+        self.sse_per_user_limit
             .store(limit.max(1), Ordering::Release);
     }
 
-    pub fn try_acquire_sse_subscriber(&self) -> Option<SseSubscriberGuard> {
-        let limit = self.sse_subscriber_limit.load(Ordering::Acquire).max(1);
+    pub fn try_acquire_sse_subscriber(&self, user_id: &str) -> Option<SseSubscriberGuard> {
+        let user_id = user_id.to_string();
+        let per_user_limit = self.sse_per_user_limit.load(Ordering::Acquire).max(1);
+        let global_ceiling = self.sse_global_ceiling.load(Ordering::Acquire).max(1);
+        {
+            let entry = self
+                .sse_per_user_counts
+                .entry(user_id.clone())
+                .or_insert_with(|| AtomicUsize::new(0));
+            loop {
+                let current = entry.load(Ordering::Acquire);
+                if current >= per_user_limit {
+                    return None;
+                }
+                if entry
+                    .compare_exchange_weak(
+                        current,
+                        current + 1,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    break;
+                }
+            }
+        }
         loop {
-            let current = self.sse_subscriber_count.load(Ordering::Acquire);
-            if current >= limit {
+            let current = self.sse_global_count.load(Ordering::Acquire);
+            if current >= global_ceiling {
+                if let Some(count) = self.sse_per_user_counts.get(&user_id) {
+                    count.fetch_sub(1, Ordering::AcqRel);
+                }
                 return None;
             }
             if self
-                .sse_subscriber_count
+                .sse_global_count
                 .compare_exchange_weak(current, current + 1, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
-                self.metrics.sse_subscribers.inc();
-                return Some(SseSubscriberGuard {
-                    metrics: self.metrics.clone(),
-                    count: self.sse_subscriber_count.clone(),
-                });
+                break;
             }
         }
+        self.metrics.sse_subscribers.inc();
+        Some(SseSubscriberGuard {
+            user_id,
+            per_user_counts: self.sse_per_user_counts.clone(),
+            global_count: self.sse_global_count.clone(),
+            metrics: self.metrics.clone(),
+        })
     }
 
     pub async fn refresh_metrics_gauges(&self) -> Result<(), sqlx::Error> {
@@ -182,13 +219,18 @@ impl AppState {
 }
 
 pub struct SseSubscriberGuard {
+    user_id: String,
+    per_user_counts: Arc<DashMap<String, AtomicUsize>>,
+    global_count: Arc<AtomicUsize>,
     metrics: Arc<Metrics>,
-    count: Arc<AtomicUsize>,
 }
 
 impl Drop for SseSubscriberGuard {
     fn drop(&mut self) {
-        self.count.fetch_sub(1, Ordering::AcqRel);
+        if let Some(count) = self.per_user_counts.get(&self.user_id) {
+            count.fetch_sub(1, Ordering::AcqRel);
+        }
+        self.global_count.fetch_sub(1, Ordering::AcqRel);
         self.metrics.sse_subscribers.dec();
     }
 }

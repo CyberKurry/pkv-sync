@@ -123,7 +123,7 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
                 .into_response();
         }
     };
-    let Some(sse_guard) = state.try_acquire_sse_subscriber() else {
+    let Some(sse_guard) = state.try_acquire_sse_subscriber(&user_id) else {
         return (
             StatusCode::TOO_MANY_REQUESTS,
             Json(jsonrpc_error(

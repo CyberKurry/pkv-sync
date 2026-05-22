@@ -329,7 +329,7 @@ async fn http_mcp_sse_replays_after_last_event_id() {
 #[tokio::test]
 async fn http_mcp_sse_rejects_when_subscriber_limit_is_reached() {
     let (state, tmp) = test_state().await;
-    state.set_sse_subscriber_limit_for_tests(1);
+    state.set_sse_per_user_limit_for_tests(1);
     let (user_id, raw) = create_user_with_token(&state, "http-sse-limit").await;
     let _vault = vault::create_vault(&state, &user_id, "main").await.unwrap();
 

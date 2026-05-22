@@ -60,7 +60,7 @@ async fn start_test_server_with_sse_limit(
         .await
         .unwrap();
     if let Some(limit) = sse_limit {
-        state.set_sse_subscriber_limit_for_tests(limit);
+        state.set_sse_per_user_limit_for_tests(limit);
     }
 
     let user = state
