@@ -2,9 +2,9 @@
 
 English | [简体中文](./mcp-howto.zh-CN.md)
 
-PKV Sync can expose vault contents through a read-only MCP server. The MCP
-server never writes files, resolves blob pointers before returning file
-content, and requires a normal PKV Sync bearer device token.
+PKV Sync can expose vault contents through an MCP server. The server resolves
+blob pointers before returning file content, can write through explicit
+read-write tools, and requires a normal PKV Sync bearer device token.
 
 ## Tools
 
@@ -13,6 +13,8 @@ content, and requires a normal PKV Sync bearer device token.
 - `read_file`: read a file at HEAD.
 - `read_file_at_commit`: read a file at a specific commit.
 - `search`: case-insensitive substring search over text files.
+- `write_file`: create or update a text file with optimistic concurrency.
+- `delete_file`: delete a file with optimistic concurrency.
 
 ## stdio transport
 
@@ -62,7 +64,39 @@ replay missed commits. Replay is capped; if the server cannot cover the missed
 history, it emits `lagged` and the client should refresh from the sync API.
 
 Bind HTTP to loopback unless you put it behind trusted network controls. A
-bearer token gives read access to every vault owned by that user.
+bearer token gives read and write access to every vault owned by that user.
+
+## Write tools
+
+PKV Sync exposes two MCP write tools alongside the read tools:
+
+- `write_file(vault_id, path, content, parent_commit)`: create or update a text file.
+- `delete_file(vault_id, path, parent_commit)`: delete a file.
+
+### Optimistic concurrency control
+
+Every write requires `parent_commit`: the commit hash the client believes is
+the current vault head. If the vault has advanced since the client last read,
+the server returns `{ "conflict": true, "current_head": "..." }` without
+writing. The client must re-read, merge if needed, and retry with the new
+`parent_commit`.
+
+### Rate limit
+
+Write tools are rate-limited per `(token, vault)` pair at 60 writes per minute.
+Read tools and SSE subscriptions are unaffected by this write quota.
+
+### Audit trail
+
+Every successful write or delete is recorded in the activity log as
+`mcp_write` or `mcp_delete`, with the path, commit, and size in the details.
+Admins can review AI-driven changes from the activity page.
+
+### Caveat: writes enter git history
+
+AI-driven writes are commits in the vault git history. You can roll back with
+normal git operations, but there is no way to make a committed change "never
+have happened"; that audit trail is intentional.
 
 ## Client notes
 

@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
-use crate::db::repos::{BlobRefRepo, VaultRepo};
+use crate::db::repos::{BlobRefRepo, NewActivity, SyncActivityRepo, VaultRepo};
 use crate::service::sync::{self, PushChange, PushReq, RequestMetadata};
 use crate::service::vault::ensure_user_vault;
 use crate::service::AppState;
@@ -109,6 +109,15 @@ pub enum WriteToolOutput {
         conflict: bool,
         current_head: Option<String>,
     },
+}
+
+struct WriteToolRequest {
+    vault_id: String,
+    parent_commit: String,
+    activity_action: &'static str,
+    activity_path: String,
+    activity_size_bytes: usize,
+    change: PushChange,
 }
 
 pub async fn list_vaults(state: &AppState, user_id: &str) -> Result<ListVaultsOutput> {
@@ -228,14 +237,21 @@ pub async fn write_file(
     user: &AuthenticatedUser,
     input: WriteFileInput,
 ) -> Result<WriteToolOutput> {
+    let path = input.path.clone();
+    let size_bytes = input.content.len();
     apply_write_tool(
         state,
         user,
-        input.vault_id,
-        input.parent_commit,
-        PushChange::Text {
-            path: input.path,
-            content: input.content,
+        WriteToolRequest {
+            vault_id: input.vault_id,
+            parent_commit: input.parent_commit,
+            activity_action: "mcp_write",
+            activity_path: path,
+            activity_size_bytes: size_bytes,
+            change: PushChange::Text {
+                path: input.path,
+                content: input.content,
+            },
         },
     )
     .await
@@ -246,12 +262,18 @@ pub async fn delete_file(
     user: &AuthenticatedUser,
     input: DeleteFileInput,
 ) -> Result<WriteToolOutput> {
+    let path = input.path.clone();
     apply_write_tool(
         state,
         user,
-        input.vault_id,
-        input.parent_commit,
-        PushChange::Delete { path: input.path },
+        WriteToolRequest {
+            vault_id: input.vault_id,
+            parent_commit: input.parent_commit,
+            activity_action: "mcp_delete",
+            activity_path: path,
+            activity_size_bytes: 0,
+            change: PushChange::Delete { path: input.path },
+        },
     )
     .await
 }
@@ -359,42 +381,83 @@ pub fn tool_definitions() -> Vec<Tool> {
 async fn apply_write_tool(
     state: &AppState,
     user: &AuthenticatedUser,
-    vault_id: String,
-    parent_commit: String,
-    change: PushChange,
+    input: WriteToolRequest,
 ) -> Result<WriteToolOutput> {
     state
         .mcp_write_limiter
-        .try_record(&user.token_id, &vault_id)
+        .try_record(&user.token_id, &input.vault_id)
         .map_err(|retry_after| {
             anyhow!(
                 "rate_limited: mcp write rate limit (60/min) exceeded for this token+vault; retry in {}s",
                 retry_after.as_secs().max(1)
             )
         })?;
-    let parent = (!parent_commit.is_empty()).then_some(parent_commit.as_str());
+    let parent = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
     match sync::push_with_cas(
         state,
         user,
-        &vault_id,
+        &input.vault_id,
         parent,
         RequestMetadata::default(),
         PushReq {
-            changes: vec![change],
+            changes: vec![input.change],
             device_name: Some("MCP".into()),
         },
     )
     .await
     .map_err(api_error_to_anyhow)?
     {
-        Ok(resp) => Ok(WriteToolOutput::Success {
-            commit: resp.new_commit,
-        }),
+        Ok(resp) => {
+            record_mcp_write_activity(
+                state,
+                user,
+                &input.vault_id,
+                input.activity_action,
+                &input.activity_path,
+                input.activity_size_bytes,
+                &resp.new_commit,
+            )
+            .await?;
+            Ok(WriteToolOutput::Success {
+                commit: resp.new_commit,
+            })
+        }
         Err(conflict) => Ok(WriteToolOutput::Conflict {
             conflict: true,
             current_head: conflict.current_head,
         }),
     }
+}
+
+async fn record_mcp_write_activity(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    vault_id: &str,
+    action: &'static str,
+    path: &str,
+    size_bytes: usize,
+    commit: &str,
+) -> Result<()> {
+    let details = serde_json::json!({
+        "path": path,
+        "commit": commit,
+        "size_bytes": size_bytes,
+    })
+    .to_string();
+    state
+        .activities
+        .insert(NewActivity {
+            user_id: &user.user_id,
+            vault_id: Some(vault_id),
+            token_id: Some(&user.token_id),
+            action,
+            commit_hash: Some(commit),
+            client_ip: None,
+            user_agent: None,
+            details: Some(&details),
+        })
+        .await?;
+    Ok(())
 }
 
 async fn read_file_inner(

@@ -395,3 +395,58 @@ async fn different_token_or_different_vault_has_independent_quota() {
     .await;
     assert!(structured(&different_vault)["commit"].is_string());
 }
+
+#[tokio::test]
+async fn write_and_delete_record_mcp_activity_actions() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-activity").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "note.md", "old").await;
+
+    let write_body = post_tool(
+        state.clone(),
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "note.md",
+            "content": "new content",
+            "parent_commit": head
+        }),
+    )
+    .await;
+    let write_commit = structured(&write_body)["commit"].as_str().unwrap();
+
+    let delete_body = post_tool(
+        state.clone(),
+        &raw,
+        "delete_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "note.md",
+            "parent_commit": write_commit
+        }),
+    )
+    .await;
+    let delete_commit = structured(&delete_body)["commit"].as_str().unwrap();
+
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT action, commit_hash, details
+         FROM sync_activity
+         WHERE vault_id = ? AND action LIKE 'mcp_%'
+         ORDER BY id",
+    )
+    .bind(&vault.id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, "mcp_write");
+    assert_eq!(rows[0].1, write_commit);
+    assert!(rows[0].2.contains("\"path\":\"note.md\""));
+    assert!(rows[0].2.contains("\"size_bytes\":11"));
+    assert_eq!(rows[1].0, "mcp_delete");
+    assert_eq!(rows[1].1, delete_commit);
+    assert!(rows[1].2.contains("\"path\":\"note.md\""));
+}
