@@ -46,7 +46,7 @@ deployments — see the [deployment hardening guide](./public-docs/deployment-ha
 - **Security**: Argon2id password hashing, atomic per-IP login rate limiter
   with burst protection, CSRF fail-closed when `public_host` is unset, unified
   "invalid credentials" response across wrong-password and disabled-account
-  cases, 90-day bearer device tokens with rotation on re-login.
+  cases, bearer device tokens that renew on use, and rotation on re-login.
 - **Boring on purpose**: single binary, single SQLite metadata DB, one bare
   git repo per vault, one content-addressed blob per attachment. No cluster,
   no MySQL/PostgreSQL backend, no S3 dependency.
@@ -85,7 +85,7 @@ Docker images are published multi-arch (`linux/amd64`, `linux/arm64`) to GHCR:
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.5.2
+docker pull ghcr.io/cyberkurry/pkv-sync:v0.5.3
 ```
 
 ## Quick Start: Docker Compose
@@ -236,8 +236,9 @@ it as sensitive: do not publish it, sync it to untrusted locations, or keep it
 in plaintext backups. If it may have leaked, revoke the device token and
 connect again.
 
-Device tokens expire after 90 days. Logging in again on the same device
-replaces the previous active token; concurrent stale tokens are not kept.
+Device tokens renew on authenticated use and expire after 90 idle days.
+Logging in again on the same device replaces the previous active token;
+concurrent stale tokens are not kept.
 
 See the [user manual](./public-docs/user-manual.md) for the full feature
 walkthrough (command palette, history & diff modals, conflict resolution,
@@ -271,7 +272,8 @@ also require a bearer device token. Authenticated sync API routes are
 fixed-window rate limited at 600 requests per 60 seconds per route, method,
 client IP, and bearer token. SSE clients can replay missed commits with
 `Last-Event-ID`; replay is capped and falls back to a `lagged` event when the
-client should pull to catch up.
+client should pull to catch up. Concurrent SSE subscriptions are capped per
+user, with a separate global ceiling as a final guard.
 
 `/metrics` exposes Prometheus metrics only when the `enable_metrics` runtime
 setting is true. The route is behind the deployment key middleware and plugin

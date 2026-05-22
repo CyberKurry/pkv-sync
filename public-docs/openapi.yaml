@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 0.5.2
+  version: 0.5.3
   license:
     name: AGPL-3.0-only
   contact:
@@ -1385,7 +1385,8 @@ paths:
         a `lagged` event is sent — clients should respond with a full
         pull to catch up.
 
-        The server caps concurrent SSE subscriptions and limits replay after
+        The server caps concurrent SSE subscriptions per user (default 16)
+        with a global ceiling (default 1024), and limits replay after
         `Last-Event-ID`; when replay cannot cover the requested history, a
         `lagged` event is sent so clients can pull to catch up.
       parameters:

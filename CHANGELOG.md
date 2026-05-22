@@ -7,6 +7,18 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-05-22
+
+### Fixed
+
+- Active device tokens no longer silently expire on the 90-day mark. Every
+  authenticated request now extends token expiry by 90 days from the request
+  time, while idle devices still expire after 90 days without use.
+- SSE subscriber limits are now enforced per user, with a default cap of 16
+  concurrent subscribers per user and a global ceiling of 1024. One
+  authenticated client can no longer exhaust the shared SSE quota for every
+  other user.
+
 ## [0.5.2] - 2026-05-22
 
 ### Changed

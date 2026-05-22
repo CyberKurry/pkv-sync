@@ -137,7 +137,8 @@ files such as `my.conflict-resolution-notes.md` remain eligible for sync.
 
 ## Device Tokens
 
-Logging in issues a bearer device token that is valid for 90 days. The plugin
+Logging in issues a bearer device token. Authenticated use renews the token, so
+active devices stay signed in while devices idle for 90 days expire. The plugin
 keeps a stable device ID, so logging in again from the same device replaces that
 device's previous active token instead of accumulating duplicates.
 

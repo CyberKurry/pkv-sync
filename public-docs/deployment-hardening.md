@@ -13,7 +13,7 @@ depends on layered controls:
 
 1. HTTPS transport encryption
 2. Deployment key pre-authentication
-3. Username/password login and 90-day bearer device tokens
+3. Username/password login and bearer device tokens that renew on use
 4. Per-user vault authorization checks
 5. Admin session and CSRF protections
 6. OS or provider disk encryption
@@ -305,9 +305,9 @@ backups become mandatory rather than optional.
 
 ## Token Hygiene
 
-Device bearer tokens expire after 90 days and can be revoked by users or
-administrators. Treat active tokens as credentials until they expire or are
-revoked.
+Device bearer tokens renew on authenticated use, expire after 90 idle days, and
+can be revoked by users or administrators. Treat active tokens as credentials
+until they expire or are revoked.
 
 Obsidian stores the plugin's active token and deployment key in the vault-local
 plugin data file, `<vault>/.obsidian/plugins/pkv-sync/data.json`. Tell users to

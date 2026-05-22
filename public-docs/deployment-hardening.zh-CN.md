@@ -10,7 +10,7 @@ PKV Sync 不提供端到端加密。仓库内容安全依赖多层控制：
 
 1. HTTPS 传输加密
 2. 部署密钥预认证
-3. 用户名/密码登录和 90 天 bearer 设备 token
+3. 用户名/密码登录和使用时续期的 bearer 设备 token
 4. 按用户和笔记库执行授权检查
 5. Admin session 和 CSRF 保护
 6. 操作系统或云厂商磁盘加密
@@ -267,7 +267,7 @@ restic -r sftp:user@backup.example.com:/repo backup /var/lib/pkv-sync /etc/pkv-s
 
 ## Token 管理
 
-设备 bearer token 会在 90 天后过期，也可以由用户或管理员撤销。在过期或撤销前，请把活跃 token 当作凭据处理。
+设备 bearer token 会在认证请求时续期，连续 90 天未使用才会过期，也可以由用户或管理员撤销。在过期或撤销前，请把活跃 token 当作凭据处理。
 
 Obsidian 会把插件的活跃 token 和部署密钥保存在笔记库本地插件数据文件 `<vault>/.obsidian/plugins/pkv-sync/data.json` 中。请提醒用户不要把该文件放进共享压缩包、不可信同步目标或明文备份里。如果怀疑文件已经泄露，请撤销受影响的设备 token。
 

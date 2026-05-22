@@ -106,7 +106,7 @@ note.conflict-2026-04-25-143022-Desktop.md
 
 ## 设备 Token
 
-登录会签发一个有效期为 90 天的 bearer 设备 token。插件会保存稳定设备 ID，因此同一设备重新登录时会替换该设备旧的活跃 token，而不是不断累积重复 token。
+登录会签发 bearer 设备 token。认证请求会续期该 token，因此活跃设备会保持登录，连续 90 天未使用的设备才会过期。插件会保存稳定设备 ID，因此同一设备重新登录时会替换该设备旧的活跃 token，而不是不断累积重复 token。
 
 Obsidian 插件会把活跃 token 和部署密钥保存在 `<vault>/.obsidian/plugins/pkv-sync/data.json`。请把这个文件当作敏感文件处理：保护明文备份和云同步目标，不要分享它。如果怀疑文件已经泄露，请退出登录或让管理员撤销该设备 token，然后重新连接。
 
