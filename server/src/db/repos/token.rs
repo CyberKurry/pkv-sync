@@ -199,11 +199,15 @@ impl TokenRepo for SqliteTokenRepo {
     }
 
     async fn touch_used(&self, id: &str, ts: i64) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE tokens SET last_used_at = ? WHERE id = ?")
-            .bind(ts)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let expires_at = ts + token::TOKEN_TTL_SECONDS;
+        sqlx::query(
+            "UPDATE tokens SET last_used_at = ?, expires_at = MAX(expires_at, ?) WHERE id = ?",
+        )
+        .bind(ts)
+        .bind(expires_at)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
