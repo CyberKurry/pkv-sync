@@ -955,11 +955,12 @@ async fn read_merge_text(
     path: &str,
     at: &str,
 ) -> Result<Option<Vec<u8>>, ApiError> {
-    match git
-        .read_file(vault_id, path, Some(at))
-        .await
-        .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?
-    {
+    let file = match git.read_file(vault_id, path, Some(at)).await {
+        Ok(file) => file,
+        Err(GitStoreError::Git(_)) => return Ok(None),
+        Err(err) => return Err(ApiError::bad_request("bad_commit", err.to_string())),
+    };
+    match file {
         Some(StoredFile::Text { bytes }) => Ok(Some(bytes)),
         Some(StoredFile::BlobPointer { .. }) => Ok(None),
         None => Ok(Some(Vec::new())),
