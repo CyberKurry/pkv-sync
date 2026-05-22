@@ -54,6 +54,21 @@ async fn create_user_with_token(state: &AppState, username: &str) -> (Authentica
     )
 }
 
+async fn create_token_for_user(state: &AppState, user_id: &str, device_id: &str) -> String {
+    let raw = token::generate();
+    state
+        .tokens
+        .create(NewToken {
+            user_id,
+            token_hash: &token::hash(&raw),
+            device_id,
+            device_name: device_id,
+        })
+        .await
+        .unwrap();
+    raw
+}
+
 async fn post_tool(state: AppState, raw: &str, name: &str, arguments: Value) -> Value {
     let response = transport_http::router(state)
         .oneshot(
@@ -263,4 +278,120 @@ async fn delete_file_returns_conflict_when_parent_stale() {
 
     assert_eq!(structured(&body)["conflict"], true);
     assert_eq!(structured(&body)["current_head"], current);
+}
+
+#[tokio::test]
+async fn write_rate_limit_kicks_in_at_61st_request_in_window() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-rate-limit").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let mut head = seed_text(&state, &user, &vault.id, None, "note.md", "seed").await;
+
+    for idx in 0..60 {
+        let body = post_tool(
+            state.clone(),
+            &raw,
+            "write_file",
+            json!({
+                "vault_id": vault.id,
+                "path": "note.md",
+                "content": format!("write {idx}"),
+                "parent_commit": head
+            }),
+        )
+        .await;
+        head = structured(&body)["commit"].as_str().unwrap().to_string();
+    }
+
+    let body = post_tool(
+        state,
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "note.md",
+            "content": "write 61",
+            "parent_commit": head
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("rate_limited"));
+}
+
+#[tokio::test]
+async fn different_token_or_different_vault_has_independent_quota() {
+    let (state, _tmp) = test_state().await;
+    state
+        .mcp_write_limiter
+        .update_config(1, std::time::Duration::from_secs(60));
+    let (user, raw_a) = create_user_with_token(&state, "mcp-rate-scope").await;
+    let raw_b = create_token_for_user(&state, &user.user_id, "mcp-write-device-b").await;
+    let vault_a = state.vaults.create(&user.user_id, "a").await.unwrap();
+    let vault_b = state.vaults.create(&user.user_id, "b").await.unwrap();
+    let mut head_a = seed_text(&state, &user, &vault_a.id, None, "note.md", "a").await;
+    let head_b = seed_text(&state, &user, &vault_b.id, None, "note.md", "b").await;
+
+    let first = post_tool(
+        state.clone(),
+        &raw_a,
+        "write_file",
+        json!({
+            "vault_id": vault_a.id,
+            "path": "note.md",
+            "content": "a1",
+            "parent_commit": head_a
+        }),
+    )
+    .await;
+    head_a = structured(&first)["commit"].as_str().unwrap().to_string();
+
+    let same_scope = post_tool(
+        state.clone(),
+        &raw_a,
+        "write_file",
+        json!({
+            "vault_id": vault_a.id,
+            "path": "note.md",
+            "content": "a2",
+            "parent_commit": head_a
+        }),
+    )
+    .await;
+    assert!(same_scope["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("rate_limited"));
+
+    let different_token = post_tool(
+        state.clone(),
+        &raw_b,
+        "write_file",
+        json!({
+            "vault_id": vault_a.id,
+            "path": "note.md",
+            "content": "b token",
+            "parent_commit": head_a
+        }),
+    )
+    .await;
+    assert!(structured(&different_token)["commit"].is_string());
+
+    let different_vault = post_tool(
+        state,
+        &raw_a,
+        "write_file",
+        json!({
+            "vault_id": vault_b.id,
+            "path": "note.md",
+            "content": "b vault",
+            "parent_commit": head_b
+        }),
+    )
+    .await;
+    assert!(structured(&different_vault)["commit"].is_string());
 }

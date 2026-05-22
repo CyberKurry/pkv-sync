@@ -36,6 +36,7 @@ pub struct AppState {
     pub default_server_name: String,
     pub events: VaultEventBus,
     pub metrics: Arc<Metrics>,
+    pub mcp_write_limiter: crate::auth::McpWriteRateLimiter,
     pub git_available: bool,
     sse_per_user_limit: Arc<AtomicUsize>,
     sse_global_ceiling: Arc<AtomicUsize>,
@@ -83,6 +84,10 @@ impl AppState {
             default_server_name,
             events: VaultEventBus::new(64),
             metrics: Metrics::new(),
+            mcp_write_limiter: crate::auth::McpWriteRateLimiter::new(
+                60,
+                std::time::Duration::from_secs(60),
+            ),
             git_available,
             sse_per_user_limit: Arc::new(AtomicUsize::new(DEFAULT_SSE_PER_USER_LIMIT)),
             sse_global_ceiling: Arc::new(AtomicUsize::new(DEFAULT_SSE_GLOBAL_CEILING)),

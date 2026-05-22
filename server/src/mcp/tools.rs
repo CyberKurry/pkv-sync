@@ -363,6 +363,15 @@ async fn apply_write_tool(
     parent_commit: String,
     change: PushChange,
 ) -> Result<WriteToolOutput> {
+    state
+        .mcp_write_limiter
+        .try_record(&user.token_id, &vault_id)
+        .map_err(|retry_after| {
+            anyhow!(
+                "rate_limited: mcp write rate limit (60/min) exceeded for this token+vault; retry in {}s",
+                retry_after.as_secs().max(1)
+            )
+        })?;
     let parent = (!parent_commit.is_empty()).then_some(parent_commit.as_str());
     match sync::push_with_cas(
         state,

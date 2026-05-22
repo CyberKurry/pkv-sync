@@ -23,11 +23,29 @@ pub struct LoginRateLimiter {
     config: Arc<RwLock<Config>>,
 }
 
+#[derive(Debug, Clone)]
+struct McpWriteEntry {
+    count: u32,
+    window_start: Instant,
+}
+
+#[derive(Clone)]
+pub struct McpWriteRateLimiter {
+    inner: Arc<DashMap<(String, String), McpWriteEntry>>,
+    config: Arc<RwLock<McpWriteConfig>>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Config {
     threshold: u32,
     window: Duration,
     lock_duration: Duration,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct McpWriteConfig {
+    limit: u32,
+    window: Duration,
 }
 
 impl LoginRateLimiter {
@@ -200,6 +218,66 @@ impl LoginRateLimiter {
         let removed = stale.len();
         for ip in stale {
             self.inner.remove(&ip);
+        }
+        removed
+    }
+}
+
+impl McpWriteRateLimiter {
+    pub fn new(limit: u32, window: Duration) -> Self {
+        Self {
+            inner: Arc::new(DashMap::new()),
+            config: Arc::new(RwLock::new(McpWriteConfig {
+                limit: limit.max(1),
+                window,
+            })),
+        }
+    }
+
+    pub fn update_config(&self, limit: u32, window: Duration) {
+        *self
+            .config
+            .write()
+            .expect("mcp write limiter lock poisoned") = McpWriteConfig {
+            limit: limit.max(1),
+            window,
+        };
+    }
+
+    pub fn try_record(&self, token_id: &str, vault_id: &str) -> Result<(), Duration> {
+        let now = Instant::now();
+        let config = *self.config.read().expect("mcp write limiter lock poisoned");
+        let key = (token_id.to_string(), vault_id.to_string());
+        let mut entry = self.inner.entry(key).or_insert(McpWriteEntry {
+            count: 0,
+            window_start: now,
+        });
+        let elapsed = now.duration_since(entry.window_start);
+        if elapsed >= config.window {
+            entry.count = 0;
+            entry.window_start = now;
+        }
+        if entry.count >= config.limit {
+            return Err(config.window.saturating_sub(elapsed));
+        }
+        entry.count += 1;
+        Ok(())
+    }
+
+    pub fn prune_stale(&self) -> usize {
+        let now = Instant::now();
+        let config = *self.config.read().expect("mcp write limiter lock poisoned");
+        let stale = self
+            .inner
+            .iter()
+            .filter_map(|entry| {
+                (now.duration_since(entry.window_start) >= config.window)
+                    .then(|| entry.key().clone())
+            })
+            .collect::<Vec<_>>();
+        let removed = stale.len();
+        for key in stale {
+            self.inner.remove(&key);
         }
         removed
     }
