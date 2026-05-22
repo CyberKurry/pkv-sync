@@ -3,6 +3,21 @@
 {% block nav_dashboard %}is-active{% endblock %}
 {% block page_title %}{{ t.dashboard }}{% endblock %}
 {% block content %}
+{% if let Some(update) = update_status %}
+<section class="update-banner">
+  <div>
+    <strong>{{ t.update_available }}</strong>
+    <span>v{{ update.latest_version }}</span>
+    {% if update.notes_excerpt.len() > 0 %}
+    <p>{{ update.notes_excerpt }}</p>
+    {% endif %}
+  </div>
+  <a href="{{ update.release_url }}" target="_blank" rel="noopener">
+    {{ t.update_release_notes }}<svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-right"></use></svg>
+  </a>
+</section>
+{% endif %}
+
 <section class="metric-grid dashboard-metrics">
   <article class="metric-card">
     <div class="metric-head"><span>{{ t.cpu }} Usage</span><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#cpu"></use></svg></div>

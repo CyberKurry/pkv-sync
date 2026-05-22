@@ -9,6 +9,7 @@ pub mod merge;
 pub mod metrics;
 pub mod state;
 pub mod sync;
+pub mod update_check;
 pub mod vault;
 pub mod vault_settings;
 

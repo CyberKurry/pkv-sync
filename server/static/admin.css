@@ -138,6 +138,39 @@ svg { display: block; }
   box-shadow: none;
 }
 
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  border: 1px solid var(--warning-line);
+  background: var(--warning-bg);
+  color: var(--text);
+  border-radius: 8px;
+}
+
+.update-banner strong,
+.update-banner span {
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.update-banner p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+}
+
+.update-banner a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--panel-link);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .sidebar {
   position: relative;
   display: flex;

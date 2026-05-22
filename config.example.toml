@@ -23,3 +23,10 @@ trusted_proxies = ["127.0.0.1/32", "::1/128"]
 [logging]
 level = "info"
 format = "json"
+
+[update_check]
+# Check GitHub releases once per day and show an admin dashboard banner when a
+# newer PKV Sync release is available. Set enabled = false for air-gapped hosts.
+enabled = true
+interval_seconds = 86400
+repo = "cyberkurry/pkv-sync"

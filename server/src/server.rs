@@ -254,6 +254,7 @@ pub async fn run_with_listener_and_state(
     state: AppState,
     limiter: LoginRateLimiter,
 ) -> crate::Result<()> {
+    crate::service::update_check::spawn_update_check(state.clone(), cfg.update_check.clone());
     let cleanup_state = state.clone();
     let cleanup_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(6 * 60 * 60));

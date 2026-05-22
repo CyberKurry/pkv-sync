@@ -52,6 +52,10 @@ async fn app() -> axum::Router {
             trusted_proxies: vec!["127.0.0.1/32".parse::<IpNet>().unwrap()],
         },
         logging: LoggingConfig::default(),
+        update_check: pkv_sync_server::config::UpdateCheckConfig {
+            enabled: false,
+            ..Default::default()
+        },
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
     let _ = tmp; // tempdir lives as long as the test process

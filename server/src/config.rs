@@ -10,6 +10,8 @@ pub struct Config {
     pub network: NetworkConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
+    #[serde(default)]
+    pub update_check: UpdateCheckConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -42,6 +44,16 @@ pub struct LoggingConfig {
     pub format: LoggingFormat,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UpdateCheckConfig {
+    #[serde(default = "default_update_check_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_update_check_interval_seconds")]
+    pub interval_seconds: u64,
+    #[serde(default = "default_update_check_repo")]
+    pub repo: String,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum LoggingFormat {
     #[default]
@@ -60,6 +72,28 @@ impl Default for LoggingConfig {
 
 fn default_log_level() -> String {
     "info".to_string()
+}
+
+impl Default for UpdateCheckConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_update_check_enabled(),
+            interval_seconds: default_update_check_interval_seconds(),
+            repo: default_update_check_repo(),
+        }
+    }
+}
+
+fn default_update_check_enabled() -> bool {
+    true
+}
+
+fn default_update_check_interval_seconds() -> u64 {
+    86_400
+}
+
+fn default_update_check_repo() -> String {
+    "cyberkurry/pkv-sync".to_string()
 }
 
 impl LoggingFormat {
@@ -236,5 +270,54 @@ mod tests {
         );
         let cfg = Config::load(f.path()).unwrap();
         assert_eq!(cfg.server.public_host.as_deref(), Some("sync.example.com"));
+    }
+
+    #[test]
+    fn update_check_defaults_to_daily_github_release_checks() {
+        let f = write_temp(
+            r#"
+            [server]
+            bind_addr = "127.0.0.1:6710"
+            deployment_key = "k_test"
+
+            [storage]
+            data_dir = "/x"
+            db_path = "/x/y"
+
+            [network]
+            trusted_proxies = []
+            "#,
+        );
+        let cfg = Config::load(f.path()).unwrap();
+        assert!(cfg.update_check.enabled);
+        assert_eq!(cfg.update_check.interval_seconds, 86_400);
+        assert_eq!(cfg.update_check.repo, "cyberkurry/pkv-sync");
+    }
+
+    #[test]
+    fn update_check_can_be_disabled_for_air_gapped_deployments() {
+        let f = write_temp(
+            r#"
+            [server]
+            bind_addr = "127.0.0.1:6710"
+            deployment_key = "k_test"
+
+            [storage]
+            data_dir = "/x"
+            db_path = "/x/y"
+
+            [network]
+            trusted_proxies = []
+
+            [update_check]
+            enabled = false
+            interval_seconds = 172800
+            repo = "example/fork"
+            "#,
+        );
+        let cfg = Config::load(f.path()).unwrap();
+        assert!(!cfg.update_check.enabled);
+        assert_eq!(cfg.update_check.interval_seconds, 172_800);
+        assert_eq!(cfg.update_check.repo, "example/fork");
     }
 }

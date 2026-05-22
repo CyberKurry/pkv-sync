@@ -1,5 +1,6 @@
 use crate::admin::i18n::AdminText;
 use crate::db::repos::RuntimeConfig;
+use crate::service::update_check::UpdateStatus;
 use askama::Template;
 
 #[derive(Template)]
@@ -37,6 +38,7 @@ pub struct DashboardTemplate {
     pub disk_used_display: String,
     pub disk_total_display: String,
     pub uptime_display: String,
+    pub update_status: Option<UpdateStatus>,
     pub recent_activities: Vec<ActivityView>,
 }
 
@@ -324,6 +326,7 @@ mod tests {
             disk_used_display: "1 GB".into(),
             disk_total_display: "2 GB".into(),
             uptime_display: "5s".into(),
+            update_status: None,
             recent_activities: vec![ActivityView {
                 timestamp: "1970-01-01 00:00:01 +00:00 UTC".into(),
                 username: "admin".into(),
@@ -343,6 +346,36 @@ mod tests {
         assert!(html.contains("class=\"app-shell\""));
         assert!(html.contains("href=\"/admin/devices\""));
         assert!(!html.contains("unpkg.com"));
+    }
+
+    #[test]
+    fn dashboard_template_renders_update_banner() {
+        let html = DashboardTemplate {
+            t: AdminText::en(),
+            username: "admin".into(),
+            users: 1,
+            vaults: 2,
+            cpu_percent: 3.0,
+            cpu_display: "3".into(),
+            cpu_cores_display: "1 core".into(),
+            memory_display: "10 MB".into(),
+            memory_total_display: "20 MB".into(),
+            disk_used_display: "1 GB".into(),
+            disk_total_display: "2 GB".into(),
+            uptime_display: "5s".into(),
+            update_status: Some(UpdateStatus {
+                latest_version: "0.8.1".into(),
+                current_version: "0.8.0".into(),
+                release_url: "https://github.com/cyberkurry/pkv-sync/releases/tag/v0.8.1".into(),
+                notes_excerpt: "Release notes".into(),
+            }),
+            recent_activities: Vec::new(),
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("v0.8.1"));
+        assert!(html.contains("Release notes"));
+        assert!(html.contains("update-banner"));
     }
 
     #[test]
@@ -436,6 +469,7 @@ mod tests {
             disk_used_display: "1 GB".into(),
             disk_total_display: "2 GB".into(),
             uptime_display: "5s".into(),
+            update_status: None,
             recent_activities: Vec::new(),
         }
         .render()

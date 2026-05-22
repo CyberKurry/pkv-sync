@@ -45,6 +45,10 @@ async fn start_test_server() -> TestServer {
             trusted_proxies: vec!["127.0.0.1/32".parse::<IpNet>().unwrap()],
         },
         logging: LoggingConfig::default(),
+        update_check: pkv_sync_server::config::UpdateCheckConfig {
+            enabled: false,
+            ..Default::default()
+        },
     });
     let pool = pool::connect(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();

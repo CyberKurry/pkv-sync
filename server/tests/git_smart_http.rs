@@ -49,6 +49,10 @@ async fn start_test_server() -> (TestServer, AppState, String, String) {
             trusted_proxies: vec!["127.0.0.1/32".parse::<IpNet>().unwrap()],
         },
         logging: LoggingConfig::default(),
+        update_check: pkv_sync_server::config::UpdateCheckConfig {
+            enabled: false,
+            ..Default::default()
+        },
     });
 
     let db = pool::connect(&cfg.storage.db_path).await.unwrap();

@@ -100,6 +100,8 @@ pub struct AdminText {
     pub setup_success: &'static str,
     pub setup_required: &'static str,
     pub setup_begin: &'static str,
+    pub update_available: &'static str,
+    pub update_release_notes: &'static str,
 }
 
 impl AdminLang {
@@ -231,6 +233,8 @@ impl AdminText {
             setup_success: "Setup complete. Please sign in.",
             setup_required: "This server needs first-run setup before you can sign in.",
             setup_begin: "Open setup",
+            update_available: "New PKV Sync version available",
+            update_release_notes: "Release notes",
         }
     }
 
@@ -319,6 +323,8 @@ impl AdminText {
             setup_success: "设置完成。请登录。",
             setup_required: "此服务器需要先完成初始设置，然后才能登录。",
             setup_begin: "打开设置",
+            update_available: "有新的 PKV Sync 版本可用",
+            update_release_notes: "发行说明",
             extra_exclude_globs: "额外排除规则",
             extra_exclude_globs_hint:
                 "从同步中排除的文件模式（每行一个）。这些规则在内置硬排除之外额外生效。",
@@ -397,6 +403,8 @@ impl AdminText {
             setup_success: "設定完成。請登入。",
             setup_required: "此伺服器需要先完成初始設定，然後才能登入。",
             setup_begin: "開啟設定",
+            update_available: "有新的 PKV Sync 版本可用",
+            update_release_notes: "發行說明",
             extra_exclude_globs: "額外排除規則",
             extra_exclude_globs_hint:
                 "從同步中排除的檔案模式（每行一個）。這些規則會在內建硬排除之外額外生效。",
@@ -438,6 +446,8 @@ impl AdminText {
             setup_success: "設定が完了しました。ログインしてください。",
             setup_required: "ログインする前に、このサーバーの初期設定が必要です。",
             setup_begin: "設定を開く",
+            update_available: "新しい PKV Sync バージョンがあります",
+            update_release_notes: "リリースノート",
             ..Self::en()
         }
     }
@@ -475,6 +485,8 @@ impl AdminText {
             setup_success: "설정이 완료되었습니다. 로그인하세요.",
             setup_required: "로그인하기 전에 이 서버의 초기 설정을 완료해야 합니다.",
             setup_begin: "설정 열기",
+            update_available: "새 PKV Sync 버전을 사용할 수 있습니다",
+            update_release_notes: "릴리스 노트",
             ..Self::en()
         }
     }

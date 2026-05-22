@@ -41,6 +41,10 @@ fn app_with_state(state: AppState, data_dir: std::path::PathBuf) -> Router {
             trusted_proxies: vec!["127.0.0.1/32".parse::<IpNet>().unwrap()],
         },
         logging: LoggingConfig::default(),
+        update_check: pkv_sync_server::config::UpdateCheckConfig {
+            enabled: false,
+            ..Default::default()
+        },
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
     server::build_app(state, &cfg, limiter)

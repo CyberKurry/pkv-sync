@@ -505,6 +505,7 @@ async fn dashboard(
     let t = admin_text(&headers, &cookies);
     let uptime_seconds = crate::server::uptime_seconds();
     let recent_activities = list_admin_activities(&state, 5, &ActivityFilters::default()).await?;
+    let update_status = state.update_status.read().await.clone();
     Ok(Html(
         DashboardTemplate {
             disk_used_display: crate::human::format_bytes(metrics.disk_used_bytes),
@@ -523,6 +524,7 @@ async fn dashboard(
             memory_total_display: crate::human::format_bytes(
                 metrics.memory_total_mb.saturating_mul(1024 * 1024),
             ),
+            update_status,
             recent_activities,
         }
         .render()

@@ -103,6 +103,7 @@ pub fn config_for_data_dir(data_dir: &Path) -> Config {
             trusted_proxies: Vec::new(),
         },
         logging: LoggingConfig::default(),
+        update_check: Default::default(),
     }
 }
 

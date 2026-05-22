@@ -5,6 +5,7 @@ use crate::db::repos::{
 };
 use crate::service::events::VaultEventBus;
 use crate::service::metrics::Metrics;
+use crate::service::update_check::UpdateStatus;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -58,6 +59,7 @@ pub struct AppState {
     pub metrics: Arc<Metrics>,
     pub mcp_write_limiter: crate::auth::McpWriteRateLimiter,
     pub setup_limiter: crate::middleware::rate_limit::RequestRateLimiter,
+    pub update_status: Arc<RwLock<Option<UpdateStatus>>>,
     setup_state: Arc<RwLock<SetupState>>,
     pub git_available: bool,
     sse_per_user_limit: Arc<AtomicUsize>,
@@ -115,6 +117,7 @@ impl AppState {
                 3,
                 std::time::Duration::from_secs(60),
             ),
+            update_status: Arc::new(RwLock::new(None)),
             setup_state: Arc::new(RwLock::new(setup_state)),
             git_available,
             sse_per_user_limit: Arc::new(AtomicUsize::new(DEFAULT_SSE_PER_USER_LIMIT)),

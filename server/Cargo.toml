@@ -56,8 +56,8 @@ tokio-stream.workspace = true
 globset = "0.4"
 base64 = "0.22"
 rmcp = { version = "1.7.0", features = ["transport-io", "transport-streamable-http-server"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 
 [dev-dependencies]
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 tempfile = "3"
 futures-util = "0.3"
