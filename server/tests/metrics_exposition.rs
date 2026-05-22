@@ -115,6 +115,8 @@ async fn metrics_registry_encodes_expected_metric_names() {
         "pkv_blob_gc_last_run_unix_seconds",
         "pkv_blob_gc_freed_bytes_total",
         "pkv_git_repo_size_bytes",
+        "pkv_auto_merge_clean_total",
+        "pkv_auto_merge_conflict_total",
     ] {
         assert!(encoded.contains(name), "missing metric {name} in {encoded}");
     }

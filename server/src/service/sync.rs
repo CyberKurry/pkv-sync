@@ -1,8 +1,10 @@
 use crate::api::error::ApiError;
 use crate::db::repos::{
-    BlobRefRepo, BlobUploadRepo, IdempotencyRepo, NewActivity, SyncActivityRepo,
+    BlobRefRepo, BlobUploadRepo, IdempotencyRepo, NewActivity, RuntimeConfig, SyncActivityRepo,
 };
 use crate::service::events::{EventChange, VaultEvent};
+use crate::service::exclude::SyncPathFilter;
+use crate::service::merge::MergeOutcome;
 use crate::service::AppState;
 use crate::service::{vault, vault_settings};
 use crate::storage::blob::{BlobStore, LocalFsBlobStore};
@@ -86,6 +88,42 @@ pub struct PushReq {
 pub struct PushResp {
     pub new_commit: String,
     pub files_changed: usize,
+}
+
+struct PreparedPush {
+    git_changes: Vec<FileChange>,
+    blob_hashes: Vec<String>,
+    event_changes: Vec<EventChange>,
+    text_changes: u64,
+    blob_changes: u64,
+    delete_changes: u64,
+}
+
+struct CommitPushInput<'a> {
+    state: &'a AppState,
+    user: &'a crate::auth::AuthenticatedUser,
+    vault_id: &'a str,
+    parent: Option<String>,
+    device_name: Option<String>,
+    prepared: PreparedPush,
+    idempotency_key: Option<&'a str>,
+    request_hash: Option<&'a str>,
+    request_metadata: RequestMetadata<'a>,
+}
+
+struct AutoMergePushInput<'a> {
+    state: &'a AppState,
+    user: &'a crate::auth::AuthenticatedUser,
+    vault_id: &'a str,
+    base_commit: &'a str,
+    current_head: &'a str,
+    req: PushReq,
+    runtime_cfg: &'a RuntimeConfig,
+    classifier: &'a TextClassifier,
+    path_filter: &'a SyncPathFilter,
+    idempotency_key: Option<&'a str>,
+    request_hash: Option<&'a str>,
+    request_metadata: RequestMetadata<'a>,
 }
 
 #[derive(Debug, Serialize)]
@@ -352,10 +390,35 @@ pub async fn push_with_request_metadata(
         }
     }
 
+    let runtime_cfg = state.runtime_cfg.snapshot().await;
+    let classifier = TextClassifier::new(runtime_cfg.text_extensions.iter().map(|s| s.as_str()));
+    let path_filter = sync_path_filter(state, vault_id, &runtime_cfg.extra_exclude_globs).await?;
     let git = Git2VaultStore::new(state.default_vault_root());
     git.ensure_repo(vault_id).await.map_err(git_write_error)?;
     let head = git.head(vault_id).await.map_err(git_write_error)?;
     if head.as_deref() != if_match {
+        if runtime_cfg.enable_auto_merge {
+            if let (Some(base_commit), Some(current_head)) = (if_match, head.as_deref()) {
+                if let Some(resp) = try_auto_merge_push(AutoMergePushInput {
+                    state,
+                    user,
+                    vault_id,
+                    base_commit,
+                    current_head,
+                    req,
+                    runtime_cfg: &runtime_cfg,
+                    classifier: &classifier,
+                    path_filter: &path_filter,
+                    idempotency_key,
+                    request_hash: request_hash.as_deref(),
+                    request_metadata,
+                })
+                .await?
+                {
+                    return Ok(resp);
+                }
+            }
+        }
         tracing::warn!(
             user_id = %user.user_id,
             vault_id = %vault_id,
@@ -369,9 +432,6 @@ pub async fn push_with_request_metadata(
         ));
     }
 
-    let runtime_cfg = state.runtime_cfg.snapshot().await;
-    let classifier = TextClassifier::new(runtime_cfg.text_extensions.iter().map(|s| s.as_str()));
-    let path_filter = sync_path_filter(state, vault_id, &runtime_cfg.extra_exclude_globs).await?;
     let blob_store = blob_store(state);
     let mut git_changes = Vec::new();
     let mut blob_hashes = Vec::new();
@@ -522,35 +582,67 @@ pub async fn push_with_request_metadata(
         }
     }
 
+    commit_prepared_push(CommitPushInput {
+        state,
+        user,
+        vault_id,
+        parent: head,
+        device_name: req.device_name,
+        prepared: PreparedPush {
+            git_changes,
+            blob_hashes,
+            event_changes,
+            text_changes,
+            blob_changes,
+            delete_changes,
+        },
+        idempotency_key,
+        request_hash: request_hash.as_deref(),
+        request_metadata,
+    })
+    .await
+}
+
+async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, ApiError> {
+    let state = input.state;
+    let user = input.user;
+    let vault_id = input.vault_id;
+    let prepared = input.prepared;
     let msg = format!(
         "sync: {}\n{} files changed",
-        req.device_name.unwrap_or_else(|| user.username.clone()),
-        git_changes.len()
+        input.device_name.unwrap_or_else(|| user.username.clone()),
+        prepared.git_changes.len()
     );
+    let git = Git2VaultStore::new(state.default_vault_root());
     let new_commit = git
-        .commit_changes(vault_id, head.as_deref(), &git_changes, &msg)
+        .commit_changes(
+            vault_id,
+            input.parent.as_deref(),
+            &prepared.git_changes,
+            &msg,
+        )
         .await
         .map_err(git_write_error)?;
-    if text_changes > 0 {
+    if prepared.text_changes > 0 {
         state
             .metrics
             .push_changes_total
             .with_label_values(&["text"])
-            .inc_by(text_changes);
+            .inc_by(prepared.text_changes);
     }
-    if blob_changes > 0 {
+    if prepared.blob_changes > 0 {
         state
             .metrics
             .push_changes_total
             .with_label_values(&["blob"])
-            .inc_by(blob_changes);
+            .inc_by(prepared.blob_changes);
     }
-    if delete_changes > 0 {
+    if prepared.delete_changes > 0 {
         state
             .metrics
             .push_changes_total
             .with_label_values(&["delete"])
-            .inc_by(delete_changes);
+            .inc_by(prepared.delete_changes);
     }
     // Publish to SSE subscribers IMMEDIATELY after the commit lands in git, before
     // any of the metadata-side bookkeeping (idempotency cache write, activity log).
@@ -562,27 +654,27 @@ pub async fn push_with_request_metadata(
         vault_id,
         VaultEvent {
             commit: new_commit.clone(),
-            parent: head.clone(),
+            parent: input.parent.clone(),
             source_device_id: user.device_id.clone(),
             at: chrono::Utc::now().timestamp(),
-            changes: event_changes,
+            changes: prepared.event_changes,
         },
     );
     let resp = PushResp {
         new_commit: new_commit.clone(),
-        files_changed: git_changes.len(),
+        files_changed: prepared.git_changes.len(),
     };
     if let Err(err) = record_push_metadata(PushMetadataInput {
         state,
         user,
         vault_id,
         new_commit: &new_commit,
-        blob_hashes: &blob_hashes,
-        files_changed: git_changes.len(),
-        idempotency_key,
-        request_hash: request_hash.as_deref(),
-        client_ip: request_metadata.client_ip,
-        user_agent: request_metadata.user_agent,
+        blob_hashes: &prepared.blob_hashes,
+        files_changed: prepared.git_changes.len(),
+        idempotency_key: input.idempotency_key,
+        request_hash: input.request_hash,
+        client_ip: input.request_metadata.client_ip,
+        user_agent: input.request_metadata.user_agent,
         resp: &resp,
     })
     .await
@@ -603,7 +695,7 @@ pub async fn push_with_request_metadata(
                     "metadata repair failed after committed push"
                 );
             })?;
-        if let (Some(key), Some(hash)) = (idempotency_key, request_hash.as_deref()) {
+        if let (Some(key), Some(hash)) = (input.idempotency_key, input.request_hash) {
             if let Err(idem_err) = state
                 .idempotency
                 .put(
@@ -633,6 +725,219 @@ pub async fn push_with_request_metadata(
         "push completed"
     );
     Ok(resp)
+}
+
+async fn try_auto_merge_push(input: AutoMergePushInput<'_>) -> Result<Option<PushResp>, ApiError> {
+    let git = Git2VaultStore::new(input.state.default_vault_root());
+    let inline_max = input.runtime_cfg.inline_content_max_bytes as usize;
+    let mut git_changes = Vec::new();
+    let mut event_changes = Vec::new();
+    let mut clean_merges = 0;
+    let mut conflict_merges = 0;
+    let PushReq {
+        changes,
+        device_name,
+    } = input.req;
+    let conflict_device_name = device_name.as_deref().unwrap_or(&input.user.username);
+
+    for change in changes {
+        let PushChange::Text { path, content } = change else {
+            return Ok(None);
+        };
+
+        let normalized = path::normalize(&path)
+            .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
+        reject_filtered_push_path(input.path_filter, &normalized)?;
+        if content.len() as u64 > input.runtime_cfg.max_file_size {
+            return Err(ApiError::bad_request(
+                "file_too_large",
+                format!(
+                    "file exceeds max_file_size of {} bytes",
+                    input.runtime_cfg.max_file_size
+                ),
+            ));
+        }
+        if !input.classifier.is_text_path(&normalized) {
+            return Err(ApiError::bad_request(
+                "wrong_file_kind",
+                "non-text path sent as text",
+            ));
+        }
+
+        let Some(base_bytes) =
+            read_merge_text(&git, input.vault_id, &normalized, input.base_commit).await?
+        else {
+            return Ok(None);
+        };
+        let Some(remote_bytes) =
+            read_merge_text(&git, input.vault_id, &normalized, input.current_head).await?
+        else {
+            return Ok(None);
+        };
+
+        match crate::service::merge::three_way_merge_bytes(
+            &base_bytes,
+            content.as_bytes(),
+            &remote_bytes,
+        ) {
+            MergeOutcome::Clean(merged) => {
+                event_changes.push(text_event(&normalized, &merged, inline_max));
+                git_changes.push(FileChange::Upsert {
+                    path: normalized,
+                    file: StoredFile::Text {
+                        bytes: merged.into_bytes(),
+                    },
+                });
+                clean_merges += 1;
+            }
+            MergeOutcome::Conflicted(marked) => {
+                let conflict_path = conflict_path_for(&normalized, conflict_device_name);
+                event_changes.push(text_event(&conflict_path, &marked, inline_max));
+                git_changes.push(FileChange::Upsert {
+                    path: conflict_path,
+                    file: StoredFile::Text {
+                        bytes: marked.into_bytes(),
+                    },
+                });
+                conflict_merges += 1;
+            }
+            MergeOutcome::Binary => {
+                let conflict_path = conflict_path_for(&normalized, conflict_device_name);
+                event_changes.push(text_event(&conflict_path, &content, inline_max));
+                git_changes.push(FileChange::Upsert {
+                    path: conflict_path,
+                    file: StoredFile::Text {
+                        bytes: content.into_bytes(),
+                    },
+                });
+                conflict_merges += 1;
+            }
+        }
+    }
+
+    if git_changes.is_empty() {
+        return Ok(None);
+    }
+
+    let resp = commit_prepared_push(CommitPushInput {
+        state: input.state,
+        user: input.user,
+        vault_id: input.vault_id,
+        parent: Some(input.current_head.to_string()),
+        device_name,
+        prepared: PreparedPush {
+            text_changes: git_changes.len() as u64,
+            blob_changes: 0,
+            delete_changes: 0,
+            git_changes,
+            blob_hashes: Vec::new(),
+            event_changes,
+        },
+        idempotency_key: input.idempotency_key,
+        request_hash: input.request_hash,
+        request_metadata: input.request_metadata,
+    })
+    .await?;
+
+    if clean_merges > 0 {
+        input
+            .state
+            .metrics
+            .auto_merge_clean_total
+            .inc_by(clean_merges);
+    }
+    if conflict_merges > 0 {
+        input
+            .state
+            .metrics
+            .auto_merge_conflict_total
+            .inc_by(conflict_merges);
+    }
+
+    tracing::info!(
+        user_id = %input.user.user_id,
+        vault_id = %input.vault_id,
+        clean_merges,
+        conflict_merges,
+        "stale push handled by auto-merge"
+    );
+    Ok(Some(resp))
+}
+
+async fn read_merge_text(
+    git: &Git2VaultStore,
+    vault_id: &str,
+    path: &str,
+    at: &str,
+) -> Result<Option<Vec<u8>>, ApiError> {
+    match git
+        .read_file(vault_id, path, Some(at))
+        .await
+        .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?
+    {
+        Some(StoredFile::Text { bytes }) => Ok(Some(bytes)),
+        Some(StoredFile::BlobPointer { .. }) => Ok(None),
+        None => Ok(Some(Vec::new())),
+    }
+}
+
+fn text_event(path: &str, content: &str, inline_max: usize) -> EventChange {
+    if content.len() <= inline_max {
+        EventChange::TextInline {
+            path: path.to_string(),
+            content: content.to_string(),
+        }
+    } else {
+        EventChange::TextRef {
+            path: path.to_string(),
+            size: content.len() as u64,
+        }
+    }
+}
+
+fn conflict_path_for(original: &str, device_name: &str) -> String {
+    let stamp = chrono::Utc::now().format("%Y-%m-%d-%H%M%S");
+    let device = safe_conflict_device_name(device_name);
+    let slash = original.rfind('/');
+    let (dir, file) = match slash {
+        Some(idx) => (&original[..=idx], &original[idx + 1..]),
+        None => ("", original),
+    };
+    match file.rfind('.') {
+        Some(dot) if dot > 0 => format!(
+            "{}{}.conflict-{}-{}{}",
+            dir,
+            &file[..dot],
+            stamp,
+            device,
+            &file[dot..]
+        ),
+        _ => format!("{dir}{file}.conflict-{stamp}-{device}"),
+    }
+}
+
+fn safe_conflict_device_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in name.trim().chars() {
+        let safe = ch.is_ascii_alphanumeric() || ch == '_' || ch == '-';
+        let next = if safe { ch } else { '-' };
+        if next == '-' {
+            if !last_dash {
+                out.push(next);
+            }
+            last_dash = true;
+        } else {
+            out.push(next);
+            last_dash = false;
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "device".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn blob_available_to_vault(

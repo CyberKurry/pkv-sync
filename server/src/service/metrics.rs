@@ -1,7 +1,8 @@
 use prometheus::{
     register_gauge_with_registry, register_histogram_vec_with_registry,
-    register_int_counter_vec_with_registry, register_int_gauge_with_registry, Encoder, Gauge,
-    HistogramVec, IntCounterVec, IntGauge, Registry, TextEncoder,
+    register_int_counter_vec_with_registry, register_int_counter_with_registry,
+    register_int_gauge_with_registry, Encoder, Gauge, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, Registry, TextEncoder,
 };
 use std::sync::Arc;
 
@@ -18,6 +19,8 @@ pub struct Metrics {
     pub blob_gc_last_run_unix_seconds: IntGauge,
     pub blob_gc_freed_bytes_total: IntCounterVec,
     pub git_repo_size_bytes: Gauge,
+    pub auto_merge_clean_total: IntCounter,
+    pub auto_merge_conflict_total: IntCounter,
 }
 
 impl Metrics {
@@ -89,6 +92,18 @@ impl Metrics {
             registry
         )
         .expect("register pkv_git_repo_size_bytes");
+        let auto_merge_clean_total = register_int_counter_with_registry!(
+            "pkv_auto_merge_clean_total",
+            "Total text conflicts resolved by automatic three-way merge",
+            registry
+        )
+        .expect("register pkv_auto_merge_clean_total");
+        let auto_merge_conflict_total = register_int_counter_with_registry!(
+            "pkv_auto_merge_conflict_total",
+            "Total text conflicts that required merge marker files",
+            registry
+        )
+        .expect("register pkv_auto_merge_conflict_total");
 
         http_requests_total.with_label_values(&["unknown", "unknown", "0"]);
         http_request_duration_seconds.with_label_values(&["unknown", "unknown"]);
@@ -113,6 +128,8 @@ impl Metrics {
             blob_gc_last_run_unix_seconds,
             blob_gc_freed_bytes_total,
             git_repo_size_bytes,
+            auto_merge_clean_total,
+            auto_merge_conflict_total,
         })
     }
 

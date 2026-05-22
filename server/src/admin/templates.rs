@@ -662,6 +662,7 @@ mod tests {
                 push_debounce_ms: 250,
                 enable_git_smart_http: false,
                 enable_metrics: false,
+                enable_auto_merge: true,
             },
             max_file_size_display: "100 MB".into(),
             text_extensions_display: "md, txt".into(),
@@ -675,6 +676,7 @@ mod tests {
         assert!(html.contains("select name=\"timezone\""));
         assert!(html.contains("option value=\"UTC\" selected"));
         assert!(html.contains("Save"));
+        assert!(html.contains("name=\"enable_auto_merge\""));
         assert!(html.contains("/admin/static/lucide-icons.svg#trash-2"));
     }
 
@@ -699,6 +701,7 @@ mod tests {
                 push_debounce_ms: 250,
                 enable_git_smart_http: false,
                 enable_metrics: false,
+                enable_auto_merge: true,
             },
             max_file_size_display: "100 MB".into(),
             text_extensions_display: "md, txt".into(),
