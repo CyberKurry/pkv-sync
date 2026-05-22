@@ -490,8 +490,10 @@ async fn admin_can_browse_vault_files_history_and_diff_read_only() {
     assert!(history_body.contains(&c2[..7]));
     assert!(history_body.contains("View at this commit"));
     assert!(history_body.contains("Diff with previous"));
+    assert!(history_body.contains(&format!("action=\"/admin/vaults/{}/rollback\"", vault.id)));
+    assert!(history_body.contains(&format!("name=\"commit\" value=\"{c2}\"")));
+    assert!(history_body.contains("Rollback"));
     assert!(!history_body.contains("Restore"));
-    assert!(!history_body.contains("Rollback"));
 
     let mut diff_req = request(
         Method::GET,
