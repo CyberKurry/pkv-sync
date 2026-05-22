@@ -1,5 +1,7 @@
-use pkv_sync_server::auth::{password, token, AuthenticatedUser};
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use pkv_sync_server::api;
+use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
 use pkv_sync_server::service::events::{EventKind, VaultEvent};
@@ -7,8 +9,6 @@ use pkv_sync_server::service::sync::{push, PushChange, PushReq};
 use pkv_sync_server::service::vault::{self, rollback_to_commit, RollbackError};
 use pkv_sync_server::service::AppState;
 use pkv_sync_server::storage::git::{Git2VaultStore, GitVaultStore, StoredFile};
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
 use std::time::Duration;
 use tower::ServiceExt;
 
@@ -135,12 +135,7 @@ fn restore_request(
 }
 
 async fn response_json(resp: axum::response::Response) -> serde_json::Value {
-    serde_json::from_slice(
-        &axum::body::to_bytes(resp.into_body(), 4096)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
+    serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap()
 }
 
 #[tokio::test]
@@ -211,7 +206,12 @@ async fn restore_endpoint_returns_rollback_result_for_matching_confirm_name() {
     let app = api::router().with_state(ctx.state.clone());
 
     let resp = app
-        .oneshot(restore_request(&ctx.vault_id, &ctx.owner_token, &first, "main"))
+        .oneshot(restore_request(
+            &ctx.vault_id,
+            &ctx.owner_token,
+            &first,
+            "main",
+        ))
         .await
         .unwrap();
 
@@ -273,7 +273,12 @@ async fn restore_endpoint_rejects_non_owner_with_forbidden() {
     let app = api::router().with_state(ctx.state.clone());
 
     let resp = app
-        .oneshot(restore_request(&ctx.vault_id, &ctx.other_token, &first, "main"))
+        .oneshot(restore_request(
+            &ctx.vault_id,
+            &ctx.other_token,
+            &first,
+            "main",
+        ))
         .await
         .unwrap();
 
