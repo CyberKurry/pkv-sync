@@ -1,6 +1,151 @@
 use crate::api::error::ApiError;
 use crate::db::repos::{NewActivity, SyncActivityRepo, Vault, VaultRepo};
+use crate::service::events::{EventKind, VaultEvent};
 use crate::service::{vault_settings, AppState};
+use crate::storage::git::{Git2VaultStore, GitStoreError, GitVaultStore};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RollbackResult {
+    pub from_commit: Option<String>,
+    pub to_commit: String,
+    pub rolled_back: bool,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RollbackError {
+    #[error("vault not found")]
+    NotFound,
+    #[error("forbidden")]
+    Forbidden,
+    #[error("unknown commit: {commit}")]
+    UnknownCommit { commit: String },
+    #[error("rollback failed: {0}")]
+    Internal(String),
+}
+
+pub async fn rollback_to_commit(
+    state: &AppState,
+    user: &crate::auth::AuthenticatedUser,
+    vault_id: &str,
+    target_commit: &str,
+) -> Result<RollbackResult, RollbackError> {
+    let vault = state
+        .vaults
+        .find_by_id(vault_id)
+        .await
+        .map_err(rollback_db_error)?
+        .ok_or(RollbackError::NotFound)?;
+    if !user.is_admin && vault.user_id != user.user_id {
+        return Err(RollbackError::Forbidden);
+    }
+
+    let push_lock = state.vault_push_lock(vault_id).await;
+    let _push_guard = push_lock.lock().await;
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let from_commit = git.head(vault_id).await.map_err(rollback_git_error)?;
+    let reachable = git
+        .commit_reachable_from_head(vault_id, target_commit)
+        .await
+        .map_err(rollback_git_error)?;
+    if !reachable {
+        return Err(RollbackError::UnknownCommit {
+            commit: target_commit.to_string(),
+        });
+    }
+    if from_commit.as_deref() == Some(target_commit) {
+        return Ok(RollbackResult {
+            from_commit,
+            to_commit: target_commit.to_string(),
+            rolled_back: false,
+        });
+    }
+
+    git.set_main_ref(
+        vault_id,
+        target_commit,
+        &format!(
+            "rollback: {} -> {}",
+            from_commit.as_deref().unwrap_or("none"),
+            target_commit
+        ),
+    )
+    .await
+    .map_err(rollback_git_error)?;
+
+    let from = from_commit
+        .clone()
+        .ok_or_else(|| RollbackError::Internal("missing source head".into()))?;
+    record_rollback_activity(state, user, vault_id, &from, target_commit).await?;
+    state.events.publish(
+        vault_id,
+        VaultEvent {
+            commit: target_commit.to_string(),
+            parent: Some(from.clone()),
+            source_device_id: user.device_id.clone(),
+            at: chrono::Utc::now().timestamp(),
+            kind: EventKind::Rollback {
+                from_commit: from,
+                to_commit: target_commit.to_string(),
+            },
+            changes: Vec::new(),
+        },
+    );
+
+    Ok(RollbackResult {
+        from_commit,
+        to_commit: target_commit.to_string(),
+        rolled_back: true,
+    })
+}
+
+async fn record_rollback_activity(
+    state: &AppState,
+    user: &crate::auth::AuthenticatedUser,
+    vault_id: &str,
+    from_commit: &str,
+    to_commit: &str,
+) -> Result<(), RollbackError> {
+    let details = serde_json::json!({
+        "from_commit": from_commit,
+        "to_commit": to_commit,
+    })
+    .to_string();
+    state
+        .activities
+        .insert(NewActivity {
+            user_id: &user.user_id,
+            vault_id: Some(vault_id),
+            token_id: Some(user.token_id.as_str()),
+            action: "vault_rollback",
+            commit_hash: Some(to_commit),
+            client_ip: None,
+            user_agent: None,
+            details: Some(&details),
+        })
+        .await
+        .map_err(rollback_db_error)?;
+    Ok(())
+}
+
+fn rollback_db_error(err: sqlx::Error) -> RollbackError {
+    RollbackError::Internal(err.to_string())
+}
+
+fn rollback_git_error(err: GitStoreError) -> RollbackError {
+    match err {
+        GitStoreError::Git(git_err)
+            if matches!(
+                git_err.code(),
+                git2::ErrorCode::InvalidSpec | git2::ErrorCode::NotFound
+            ) =>
+        {
+            RollbackError::UnknownCommit {
+                commit: git_err.to_string(),
+            }
+        }
+        other => RollbackError::Internal(other.to_string()),
+    }
+}
 
 pub fn validate_vault_name(name: &str) -> Result<(), ApiError> {
     if name.trim().is_empty() || name.len() > 64 {

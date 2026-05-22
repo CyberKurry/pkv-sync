@@ -2,7 +2,7 @@ use crate::api::error::ApiError;
 use crate::db::repos::{
     BlobRefRepo, BlobUploadRepo, IdempotencyRepo, NewActivity, RuntimeConfig, SyncActivityRepo,
 };
-use crate::service::events::{EventChange, VaultEvent};
+use crate::service::events::{EventChange, EventKind, VaultEvent};
 use crate::service::exclude::SyncPathFilter;
 use crate::service::merge::MergeOutcome;
 use crate::service::AppState;
@@ -742,6 +742,7 @@ async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, Ap
             parent: input.parent.clone(),
             source_device_id: user.device_id.clone(),
             at: chrono::Utc::now().timestamp(),
+            kind: EventKind::Commit,
             changes: prepared.event_changes,
         },
     );

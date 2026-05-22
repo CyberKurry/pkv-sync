@@ -117,6 +117,58 @@ impl Git2VaultStore {
         .map_err(|_| GitStoreError::Panic)?
     }
 
+    pub async fn commit_reachable_from_head(
+        &self,
+        vault_id: &str,
+        commit: &str,
+    ) -> Result<bool, GitStoreError> {
+        let p = self.repo_path(vault_id);
+        let commit = commit.to_string();
+        tokio::task::spawn_blocking(move || -> Result<bool, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let Ok(target) = Oid::from_str(&commit) else {
+                return Ok(false);
+            };
+            if repo.find_commit(target).is_err() {
+                return Ok(false);
+            }
+            let Some(head) = main_ref_target(&repo)? else {
+                return Ok(false);
+            };
+            let mut walk = repo.revwalk()?;
+            walk.push(head)?;
+            for oid in walk {
+                if oid? == target {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
+    pub async fn set_main_ref(
+        &self,
+        vault_id: &str,
+        commit: &str,
+        message: &str,
+    ) -> Result<(), GitStoreError> {
+        let p = self.repo_path(vault_id);
+        let commit = commit.to_string();
+        let message = message.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let target = Oid::from_str(&commit)?;
+            repo.find_commit(target)?;
+            repo.reference(MAIN_REF, target, true, &message)?;
+            repo.set_head(MAIN_REF)?;
+            Ok(())
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
     pub async fn tree_diff(
         &self,
         vault_id: &str,

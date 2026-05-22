@@ -1,7 +1,7 @@
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
-use pkv_sync_server::service::events::{EventChange, VaultEvent, VaultEventBus};
+use pkv_sync_server::service::events::{EventChange, EventKind, VaultEvent, VaultEventBus};
 use pkv_sync_server::service::sync::{push, PushChange, PushReq};
 use pkv_sync_server::service::vault;
 use pkv_sync_server::service::AppState;
@@ -300,6 +300,7 @@ async fn publish_without_receiver_does_not_panic() {
             parent: None,
             source_device_id: "dev1".into(),
             at: 0,
+            kind: EventKind::Commit,
             changes: vec![],
         },
     );
@@ -317,6 +318,7 @@ async fn capacity_overflow_yields_lagged() {
                 parent: None,
                 source_device_id: "dev1".into(),
                 at: i as i64,
+                kind: EventKind::Commit,
                 changes: vec![],
             },
         );

@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 use git2::{Delta, Oid, Repository};
+use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -24,13 +25,57 @@ pub enum EventChange {
     Delete { path: String },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
+pub enum EventKind {
+    Commit,
+    Rollback {
+        from_commit: String,
+        to_commit: String,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct VaultEvent {
     pub commit: String,
     pub parent: Option<String>,
     pub source_device_id: String,
     pub at: i64,
+    pub kind: EventKind,
     pub changes: Vec<EventChange>,
+}
+
+impl Serialize for VaultEvent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match &self.kind {
+            EventKind::Commit => {
+                let mut state = serializer.serialize_struct("VaultEvent", 6)?;
+                state.serialize_field("commit", &self.commit)?;
+                state.serialize_field("parent", &self.parent)?;
+                state.serialize_field("source_device_id", &self.source_device_id)?;
+                state.serialize_field("at", &self.at)?;
+                state.serialize_field("kind", "commit")?;
+                state.serialize_field("changes", &self.changes)?;
+                state.end()
+            }
+            EventKind::Rollback {
+                from_commit,
+                to_commit,
+            } => {
+                let mut state = serializer.serialize_struct("VaultEvent", 7)?;
+                state.serialize_field("commit", &self.commit)?;
+                state.serialize_field("parent", &self.parent)?;
+                state.serialize_field("source_device_id", &self.source_device_id)?;
+                state.serialize_field("at", &self.at)?;
+                state.serialize_field("kind", "rollback")?;
+                state.serialize_field("from_commit", from_commit)?;
+                state.serialize_field("to_commit", to_commit)?;
+                state.end()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -133,6 +178,7 @@ fn replay_events_after_blocking(vault_path: PathBuf, last: Oid) -> anyhow::Resul
             parent,
             source_device_id: replay_source_device(commit.message().unwrap_or("")),
             at: commit.time().seconds(),
+            kind: EventKind::Commit,
             changes,
         });
     }
@@ -207,6 +253,7 @@ mod tests {
             parent: None,
             source_device_id: "dev1".into(),
             at: 0,
+            kind: EventKind::Commit,
             changes: vec![EventChange::TextInline {
                 path: "note.md".into(),
                 content: "hello".into(),
@@ -225,6 +272,7 @@ mod tests {
             parent: None,
             source_device_id: "dev1".into(),
             at: 0,
+            kind: EventKind::Commit,
             changes: vec![],
         };
         bus.publish("nonexistent", event);
@@ -240,6 +288,7 @@ mod tests {
             parent: None,
             source_device_id: "dev1".into(),
             at: 0,
+            kind: EventKind::Commit,
             changes: vec![],
         };
         bus.publish("vault1", event.clone());
@@ -259,6 +308,7 @@ mod tests {
                     parent: None,
                     source_device_id: "dev1".into(),
                     at: i as i64,
+                    kind: EventKind::Commit,
                     changes: vec![],
                 },
             );
