@@ -9,6 +9,7 @@ pub mod git_http;
 pub mod health;
 pub mod me;
 pub mod metrics;
+pub mod plugin_manifest;
 pub mod vault_settings;
 pub mod vaults;
 
@@ -19,6 +20,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/config", axum::routing::get(config::config))
         .merge(auth::router())
         .merge(me::router())
+        .merge(plugin_manifest::router())
         .merge(vault_settings::router())
         .merge(vaults::router())
         .merge(admin::router())

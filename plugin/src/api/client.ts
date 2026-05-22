@@ -32,6 +32,10 @@ export class ApiClient {
     this.opts = { ...this.opts, ...opts };
   }
 
+  serverUrl(): string {
+    return this.opts.serverUrl;
+  }
+
   async config(): Promise<ServerConfigResponse> {
     return this.request<ServerConfigResponse>("GET", "/api/config");
   }
@@ -111,6 +115,39 @@ export class ApiClient {
     auth = false,
     extraHeaders: Record<string, string> = {}
   ): Promise<T> {
+    const response = await this.send(method, path, body, auth, extraHeaders);
+    const contentType =
+      response.headers?.["content-type"] ?? response.headers?.["Content-Type"] ?? "";
+    if (contentType.includes("application/octet-stream")) {
+      return response.arrayBuffer as T;
+    }
+    if (contentType.startsWith("text/")) return response.text as T;
+    if (response.status === 204 || response.text.length === 0) return undefined as T;
+    return JSON.parse(response.text) as T;
+  }
+
+  async requestText(path: string, auth = false): Promise<string> {
+    return this.requestRaw("GET", path, undefined, auth);
+  }
+
+  private async requestRaw(
+    method: string,
+    path: string,
+    body?: unknown,
+    auth = false,
+    extraHeaders: Record<string, string> = {}
+  ): Promise<string> {
+    const response = await this.send(method, path, body, auth, extraHeaders);
+    return response.text;
+  }
+
+  private async send(
+    method: string,
+    path: string,
+    body?: unknown,
+    auth = false,
+    extraHeaders: Record<string, string> = {}
+  ): Promise<Awaited<ReturnType<typeof requestUrl>>> {
     if (!this.opts.serverUrl || !this.opts.deploymentKey) {
       throw new ApiError(
         0,
@@ -148,14 +185,7 @@ export class ApiClient {
       const parsed = tryParseError(response.text, response.status);
       throw new ApiError(response.status, parsed.code, parsed.message);
     }
-    const contentType =
-      response.headers?.["content-type"] ?? response.headers?.["Content-Type"] ?? "";
-    if (contentType.includes("application/octet-stream")) {
-      return response.arrayBuffer as T;
-    }
-    if (contentType.startsWith("text/")) return response.text as T;
-    if (response.status === 204 || response.text.length === 0) return undefined as T;
-    return JSON.parse(response.text) as T;
+    return response;
   }
 }
 

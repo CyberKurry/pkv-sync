@@ -10,7 +10,11 @@ import type {
 import { formatBytes } from "../format";
 import { format, languageInReview } from "../i18n";
 import type PKVSyncPlugin from "../main";
-import { normalizeTextExtensions, type PluginLanguage } from "../settings";
+import {
+  normalizeTextExtensions,
+  type PluginLanguage,
+  type PluginUpdateSource
+} from "../settings";
 import { listConflictFiles } from "../sync/conflict-files";
 import { DeleteVaultModal } from "./delete-vault-modal";
 import {
@@ -104,6 +108,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       }
     );
 
+    this.renderUpdates(panel);
     this.renderButton(panel, t.connect, "primary", async () => {
       try {
         const parsed = parseServerUrl(serverUrl.value, deploymentKey.value);
@@ -209,6 +214,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         inviteCode.value.trim()
       )
     );
+    this.renderUpdates(panel);
     this.renderConflictCleanup(panel);
   }
 
@@ -291,6 +297,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       this.renderVaults(body, me.vaults);
       this.renderConflictCleanup(body);
       this.renderDevices(body, tokens);
+      this.renderUpdates(body);
     } catch (error) {
       if (renderId !== this.renderId) return;
       body.empty();
@@ -440,6 +447,86 @@ export class PKVSyncSettingTab extends PluginSettingTab {
           : `${t.vaultSyncAllowlistLoadFailed}: ${String(error)}`
       );
     }
+  }
+
+  renderUpdates(body: HTMLElement): void {
+    const t = this.plugin.text();
+    this.renderSectionLabel(body, t.settingsUpdateSection);
+    const card = body.createDiv({ cls: "pkv-sync-update-card" });
+    card.createDiv({
+      cls: "pkv-sync-update-title",
+      text: format(t.currentVersion, {
+        version: this.plugin.manifest?.version ?? "0.0.0"
+      })
+    });
+    card.createDiv({
+      cls: "pkv-sync-update-meta",
+      text: format(t.lastUpdateCheck, {
+        time:
+          formatRelativeUnixSeconds(this.plugin.settings.lastUpdateCheckAt) ||
+          t.neverSynced
+      })
+    });
+
+    const toggleRow = card.createDiv({ cls: "pkv-sync-checkbox-row" });
+    const label = toggleRow.createEl("label", { cls: "pkv-sync-checkbox-label" });
+    const input = label.createEl("input", { type: "checkbox" });
+    input.checked = this.plugin.settings.checkForUpdates;
+    label.createSpan({ text: t.checkForUpdates });
+    input.addEventListener("change", () => {
+      this.plugin.settings.checkForUpdates = input.checked;
+      void this.plugin.saveSettings({ rebuild: false }).then(() => {
+        this.plugin.scheduleUpdateChecks();
+      });
+    });
+
+    this.renderSelectField(
+      card,
+      t.updateSource,
+      this.plugin.settings.updateSource,
+      [
+        { value: "server", label: t.updateSourceServer },
+        { value: "github", label: t.updateSourceGitHub }
+      ],
+      async (value) => {
+        this.plugin.settings.updateSource = value as PluginUpdateSource;
+        await this.plugin.saveSettings({ rebuild: false });
+        await this.plugin.checkForPluginUpdates(true);
+        this.display();
+      }
+    );
+
+    if (this.plugin.availableUpdate) {
+      const banner = card.createDiv({ cls: "pkv-sync-update-banner" });
+      banner.createDiv({
+        cls: "pkv-sync-update-title",
+        text: format(t.updateAvailable, {
+          version: this.plugin.availableUpdate.version
+        })
+      });
+      banner.createEl("a", {
+        cls: "pkv-sync-help-link",
+        text: t.updateReleaseNotes,
+        attr: {
+          href: this.plugin.availableUpdate.releaseNotesUrl,
+          target: "_blank",
+          rel: "noopener"
+        }
+      });
+    }
+
+    const actions = card.createDiv({ cls: "pkv-sync-button-row" });
+    this.renderButton(actions, t.updateCheckNow, "secondary", async () => {
+      await this.plugin.checkForPluginUpdates(true);
+      this.display();
+    });
+    const updateButton = this.renderButton(actions, t.updateNow, "primary", async () => {
+      if (!this.plugin.availableUpdate) return;
+      updateButton.disabled = true;
+      await this.plugin.applyPluginUpdate(this.plugin.availableUpdate);
+      this.display();
+    });
+    updateButton.disabled = !this.plugin.availableUpdate;
   }
 
   async deleteVaultAndRefresh(vault: VaultSummary): Promise<void> {

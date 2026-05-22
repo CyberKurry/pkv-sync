@@ -1,4 +1,5 @@
 export type PluginLanguage = "auto" | "en" | "zh-CN" | "zh-Hant" | "ja" | "ko";
+export type PluginUpdateSource = "server" | "github";
 const PLUGIN_LANGUAGES = new Set<PluginLanguage>([
   "auto",
   "en",
@@ -6,6 +7,10 @@ const PLUGIN_LANGUAGES = new Set<PluginLanguage>([
   "zh-Hant",
   "ja",
   "ko"
+]);
+const PLUGIN_UPDATE_SOURCES = new Set<PluginUpdateSource>([
+  "server",
+  "github"
 ]);
 
 export const MIN_DEBOUNCE_MS = 100;
@@ -35,6 +40,9 @@ export interface PKVSyncSettings {
   deviceId: string;
   deviceName: string;
   lastSyncSuccessAt: number | null;
+  checkForUpdates: boolean;
+  updateSource: PluginUpdateSource;
+  lastUpdateCheckAt: number | null;
   pollIntervalSeconds: number;
   debounceMs: number;
   textExtensions: string[];
@@ -55,6 +63,9 @@ export const DEFAULT_SETTINGS: PKVSyncSettings = {
   deviceId: "",
   deviceName: "",
   lastSyncSuccessAt: null,
+  checkForUpdates: true,
+  updateSource: "server",
+  lastUpdateCheckAt: null,
   pollIntervalSeconds: 60,
   debounceMs: 250,
   textExtensions: [...DEFAULT_TEXT_EXTENSIONS],
@@ -73,11 +84,23 @@ export function normalizeSettings(
   if (typeof settings.enableHistoryUi !== "boolean") {
     settings.enableHistoryUi = DEFAULT_SETTINGS.enableHistoryUi;
   }
+  if (typeof settings.checkForUpdates !== "boolean") {
+    settings.checkForUpdates = DEFAULT_SETTINGS.checkForUpdates;
+  }
+  if (!PLUGIN_UPDATE_SOURCES.has(settings.updateSource)) {
+    settings.updateSource = DEFAULT_SETTINGS.updateSource;
+  }
   if (
     typeof settings.lastSyncSuccessAt !== "number" ||
     !Number.isFinite(settings.lastSyncSuccessAt)
   ) {
     settings.lastSyncSuccessAt = null;
+  }
+  if (
+    typeof settings.lastUpdateCheckAt !== "number" ||
+    !Number.isFinite(settings.lastUpdateCheckAt)
+  ) {
+    settings.lastUpdateCheckAt = null;
   }
   settings.pollIntervalSeconds = finitePositiveNumber(
     settings.pollIntervalSeconds,

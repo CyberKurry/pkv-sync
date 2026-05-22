@@ -64,7 +64,10 @@ describe("PKVSyncSettingTab connection state", () => {
           deploymentKey: "",
           deviceName: "Phone",
           timezone: "Asia/Shanghai",
-          language: "auto"
+          language: "auto",
+          checkForUpdates: true,
+          updateSource: "server",
+          lastUpdateCheckAt: null
         },
         text: () => ({
           settingsTitle: "PKV Sync",
@@ -78,6 +81,16 @@ describe("PKVSyncSettingTab connection state", () => {
           deviceName: "Device Name",
           timezone: "Timezone",
           connect: "Connect",
+          settingsUpdateSection: "Updates",
+          currentVersion: "Current version: {version}",
+          lastUpdateCheck: "Last checked: {time}",
+          neverSynced: "Never",
+          checkForUpdates: "Check for updates",
+          updateSource: "Update source",
+          updateSourceServer: "Server",
+          updateSourceGitHub: "GitHub",
+          updateCheckNow: "Check now",
+          updateNow: "Update now",
           conflictFiles: "Conflict files",
           conflictFilesSummary: "{count} conflict files",
           deleteConflictsButton: "Delete conflicts"
@@ -330,6 +343,78 @@ describe("vault sync allowlist settings", () => {
   });
 });
 
+describe("plugin updates settings", () => {
+  it("renders available update actions and applies the selected update", async () => {
+    const applyPluginUpdate = vi.fn().mockResolvedValue(undefined);
+    const checkForPluginUpdates = vi.fn().mockResolvedValue(null);
+    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const display = vi.fn();
+    const plugin = {
+      manifest: { version: "0.8.0" },
+      settings: {
+        checkForUpdates: true,
+        updateSource: "server",
+        lastUpdateCheckAt: 1_000,
+        timezone: "Asia/Shanghai"
+      },
+      availableUpdate: {
+        version: "0.8.1",
+        releaseNotesUrl:
+          "https://github.com/cyberkurry/pkv-sync/releases/tag/v0.8.1"
+      },
+      text: () => en,
+      saveSettings,
+      scheduleUpdateChecks: vi.fn(),
+      checkForPluginUpdates,
+      applyPluginUpdate
+    };
+    const tab = Object.create(PKVSyncSettingTab.prototype) as {
+      plugin: typeof plugin;
+      display: () => void;
+      renderUpdates: (body: MockElement) => void;
+    };
+    tab.plugin = plugin;
+    tab.display = display;
+    const body = new MockElement("div");
+
+    tab.renderUpdates(body);
+
+    expect(body.textContent()).toContain("Current version: 0.8.0");
+    expect(body.textContent()).toContain("v0.8.1 available");
+
+    await body.clickButton("Update now");
+
+    expect(applyPluginUpdate).toHaveBeenCalledWith(plugin.availableUpdate);
+  });
+
+  it("has localized update strings in every plugin locale", () => {
+    const keys = [
+      "settingsUpdateSection",
+      "currentVersion",
+      "checkForUpdates",
+      "lastUpdateCheck",
+      "updateCheckNow",
+      "updateAvailable",
+      "updateReleaseNotes",
+      "updateNow",
+      "updateSourceServer",
+      "updateSourceGitHub",
+      "checkForPluginUpdatesCommand",
+      "updateSuccess",
+      "updateFailed",
+      "updateSha256Mismatch",
+      "updateUpToDate"
+    ] as const;
+
+    for (const bundle of [en, zh, zhHant, ja, ko]) {
+      for (const key of keys) {
+        expect(bundle[key]).toEqual(expect.any(String));
+        expect(bundle[key].length).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
 function mockElement(): any {
   return {
     empty: vi.fn(),
@@ -416,6 +501,12 @@ class MockElement {
       await listener();
     }
     await Promise.resolve();
+  }
+
+  textContent(): string {
+    return [this.text, ...this.children.map((child) => child.textContent())]
+      .filter(Boolean)
+      .join(" ");
   }
 
   private findButton(text: string): MockElement | undefined {

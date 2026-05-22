@@ -619,6 +619,38 @@ body.theme-dark .pkv-sync-settings-host {
   min-width: 120px;
 }
 
+.pkv-sync-update-card {
+  display: grid;
+  gap: 12px;
+  box-sizing: border-box;
+  margin-bottom: 22px;
+  border-radius: 8px;
+  background: var(--pkv-bg-control);
+  padding: 16px;
+}
+
+.pkv-sync-update-title {
+  color: var(--pkv-text-strong);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.pkv-sync-update-meta {
+  color: var(--pkv-muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.pkv-sync-update-banner {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--pkv-primary);
+  border-radius: 8px;
+  background: var(--pkv-bg-panel);
+  padding: 12px;
+}
+
 .pkv-sync-vault-settings .pkv-sync-textarea,
 .pkv-sync-textarea {
   min-height: 76px;

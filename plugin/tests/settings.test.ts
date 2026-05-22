@@ -16,6 +16,9 @@ describe("settings", () => {
     expect(settings.timezone).toBe("Asia/Shanghai");
     expect(settings.deviceId).toMatch(/^dev_/);
     expect(settings.lastSyncSuccessAt).toBeNull();
+    expect(settings.checkForUpdates).toBe(true);
+    expect(settings.updateSource).toBe("server");
+    expect(settings.lastUpdateCheckAt).toBeNull();
     expect(settings.pollIntervalSeconds).toBe(60);
     expect(settings.debounceMs).toBe(250);
     expect(settings.enableHistoryUi).toBe(true);
@@ -26,12 +29,18 @@ describe("settings", () => {
       pollIntervalSeconds: "abc",
       debounceMs: Number.NaN,
       lastSyncSuccessAt: Number.NaN,
+      checkForUpdates: "yes",
+      updateSource: "other",
+      lastUpdateCheckAt: Number.NaN,
       textExtensions: [123]
     } as any);
 
     expect(settings.pollIntervalSeconds).toBe(60);
     expect(settings.debounceMs).toBe(250);
     expect(settings.lastSyncSuccessAt).toBeNull();
+    expect(settings.checkForUpdates).toBe(true);
+    expect(settings.updateSource).toBe("server");
+    expect(settings.lastUpdateCheckAt).toBeNull();
     expect(settings.textExtensions).toEqual(DEFAULT_SETTINGS.textExtensions);
   });
 

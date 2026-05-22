@@ -49,15 +49,23 @@ import { MigrateModal } from "./ui/migrate-modal";
 import { statusText } from "./ui/status";
 import { formatRelativeUnixSeconds, formatUnixSeconds } from "./time";
 import { SerializedPluginDataStore } from "./plugin-store";
+import {
+  UpdateCheckService,
+  type PluginFileAdapter,
+  type PluginUpdateStatus
+} from "./services/update-check";
 
 export default class PKVSyncPlugin extends Plugin {
   settings: PKVSyncSettings = DEFAULT_SETTINGS;
+  availableUpdate: PluginUpdateStatus | null = null;
   private statusEl: HTMLElement | null = null;
   private client: ApiClient | null = null;
   private engine: SyncEngine | null = null;
   private pushDebouncer: Debouncer | null = null;
   private pollTimer: number | null = null;
   private fallbackTimer: number | null = null;
+  private updateDelayTimer: number | null = null;
+  private updateIntervalTimer: number | null = null;
   private serverCapabilities: ServerCapabilities | null = null;
   private syncGeneration = 0;
   private dataStore = new SerializedPluginDataStore(
@@ -116,6 +124,11 @@ export default class PKVSyncPlugin extends Plugin {
       id: "pkv-sync-manual-sync",
       name: t.manualSyncCommand,
       callback: () => void this.syncNowManual()
+    });
+    this.addCommand({
+      id: "pkv-sync-check-for-updates",
+      name: t.checkForPluginUpdatesCommand,
+      callback: () => void this.checkForPluginUpdates(true)
     });
     this.addCommand({
       id: "pkv-sync-migrate-from-obsidian-sync",
@@ -188,6 +201,7 @@ export default class PKVSyncPlugin extends Plugin {
     });
     this.registerHistoryFileMenu();
     this.rebuildSyncEngine();
+    this.scheduleUpdateChecks();
   }
 
   async onunload(): Promise<void> {
@@ -195,6 +209,10 @@ export default class PKVSyncPlugin extends Plugin {
     this.pushDebouncer?.cancel();
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.fallbackTimer !== null) window.clearInterval(this.fallbackTimer);
+    if (this.updateDelayTimer != null) window.clearTimeout(this.updateDelayTimer);
+    if (this.updateIntervalTimer != null) {
+      window.clearInterval(this.updateIntervalTimer);
+    }
     engine?.stopEventSubscription();
     if (engine) {
       try {
@@ -226,6 +244,69 @@ export default class PKVSyncPlugin extends Plugin {
     void this.refreshServerCapabilities();
     this.updateStatus();
     if (options.rebuild !== false) this.rebuildSyncEngine();
+  }
+
+  scheduleUpdateChecks(): void {
+    if (this.updateDelayTimer !== null) {
+      window.clearTimeout(this.updateDelayTimer);
+      this.updateDelayTimer = null;
+    }
+    if (this.updateIntervalTimer !== null) {
+      window.clearInterval(this.updateIntervalTimer);
+      this.updateIntervalTimer = null;
+    }
+    if (!this.settings.checkForUpdates) {
+      this.availableUpdate = null;
+      return;
+    }
+    this.updateDelayTimer = window.setTimeout(() => {
+      this.updateDelayTimer = null;
+      void this.checkForPluginUpdates(false);
+      this.updateIntervalTimer = window.setInterval(() => {
+        void this.checkForPluginUpdates(false);
+      }, 24 * 60 * 60 * 1000);
+    }, 5000);
+  }
+
+  async checkForPluginUpdates(showNotice = false): Promise<PluginUpdateStatus | null> {
+    if (!this.settings.checkForUpdates && !showNotice) return null;
+    try {
+      const update = await this.updateService().checkOnce(
+        this.settings.updateSource
+      );
+      this.availableUpdate = update;
+      this.settings.lastUpdateCheckAt = Math.floor(Date.now() / 1000);
+      await this.saveSettings({ rebuild: false });
+      if (showNotice && !update) new Notice(this.text().updateUpToDate);
+      if (showNotice && update) {
+        new Notice(format(this.text().updateAvailable, { version: update.version }));
+      }
+      return update;
+    } catch (error) {
+      if (showNotice) {
+        new Notice(
+          format(this.text().updateFailed, {
+            reason: error instanceof Error ? error.message : String(error)
+          })
+        );
+      }
+      return null;
+    }
+  }
+
+  async applyPluginUpdate(update: PluginUpdateStatus): Promise<void> {
+    try {
+      await this.updateService().applyUpdate(update);
+      this.availableUpdate = null;
+      new Notice(format(this.text().updateSuccess, { version: update.version }));
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      const message = /sha256/i.test(reason)
+        ? this.text().updateSha256Mismatch
+        : format(this.text().updateFailed, { reason });
+      new Notice(message);
+      throw error;
+    }
   }
 
   async loadSyncIndex(scopeKey = syncScopeKey(this.settings)): Promise<LocalIndex> {
@@ -316,6 +397,25 @@ export default class PKVSyncPlugin extends Plugin {
       token: this.settings.token,
       pluginVersion: this.manifest.version
     });
+  }
+
+  private updateService(): UpdateCheckService {
+    return new UpdateCheckService({
+      api: this.api(),
+      adapter: this.pluginFileAdapter(),
+      configDir: this.app.vault.configDir,
+      currentVersion: this.manifest.version,
+      pluginId: this.manifest.id || "pkv-sync"
+    });
+  }
+
+  private pluginFileAdapter(): PluginFileAdapter {
+    const adapter = this.app.vault.adapter;
+    return {
+      read: (path) => adapter.read(path),
+      write: (path, data) => adapter.write(path, data),
+      remove: (path) => adapter.remove(path)
+    };
   }
 
   private historyApi(): HistoryApi {
