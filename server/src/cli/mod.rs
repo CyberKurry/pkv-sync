@@ -1,6 +1,7 @@
 pub mod backup;
 pub mod materialize;
 pub mod restore;
+pub mod upgrade;
 pub mod verify;
 
 use clap::{Parser, Subcommand};
@@ -96,6 +97,18 @@ pub enum Command {
         /// HTTP only: bind address.
         #[arg(long, default_value = "127.0.0.1:6711")]
         bind: String,
+    },
+    /// Download a release binary next to the current executable.
+    Upgrade {
+        /// Show the planned upgrade without downloading anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip the interactive confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+        /// Upgrade to a specific version such as 0.9.1.
+        #[arg(long)]
+        version: Option<String>,
     },
 }
 
@@ -329,6 +342,31 @@ mod tests {
             } => {
                 assert_eq!(transport, "http");
                 assert_eq!(bind, "0.0.0.0:6711");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_upgrade_options() {
+        let cli = Cli::try_parse_from([
+            "pkvsyncd",
+            "upgrade",
+            "--dry-run",
+            "--yes",
+            "--version",
+            "0.9.1",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Upgrade {
+                dry_run,
+                yes,
+                version,
+            } => {
+                assert!(dry_run);
+                assert!(yes);
+                assert_eq!(version.as_deref(), Some("0.9.1"));
             }
             _ => panic!("wrong variant"),
         }

@@ -210,6 +210,21 @@ fn main() -> anyhow::Result<()> {
                 pkv_sync_server::mcp::run(state, transport).await
             })?;
         }
+        Command::Upgrade {
+            dry_run,
+            yes,
+            version,
+        } => {
+            pkv_sync_server::logging::init();
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(pkv_sync_server::cli::upgrade::run(
+                pkv_sync_server::cli::upgrade::RunOptions {
+                    dry_run,
+                    yes,
+                    version,
+                },
+            ))?;
+        }
     }
     Ok(())
 }
