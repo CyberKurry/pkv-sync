@@ -7,6 +7,36 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-23
+
+### Added
+
+- Vault-level rollback: `POST /api/vaults/:id/restore` moves a vault HEAD to
+  a selected historical commit after typed vault-name confirmation. The
+  Obsidian history modal exposes "Rollback to here", the Admin WebUI exposes
+  rollback controls from vault history, and `vault_rollback` activity records
+  `from_commit` / `to_commit` for audit.
+- Rollback SSE events: subscribed clients receive `kind: "rollback"` with the
+  old and new commit ids, then perform a full pull so every device aligns with
+  the restored vault state.
+- Obsidian Sync migration: the plugin command "Import current vault to PKV Sync"
+  scans the current vault, skips Sync internals, workspace/cache/trash/git and
+  PKV plugin files, creates a new PKV Sync vault, uploads text and binary files
+  in batches, and records the migration as the first PKV Sync commit.
+- Public migration guide for moving current files from Obsidian Sync to PKV
+  Sync in English, Simplified Chinese, Traditional Chinese, Japanese, and
+  Korean.
+- Prometheus counter `pkv_vault_rollback_total`.
+
+### Changed
+
+- `VaultEvent` JSON now carries a `kind` field. Normal commit events continue
+  to include the existing `changes` array, while rollback events carry
+  `from_commit` and `to_commit`.
+- Admin documentation no longer describes the Admin WebUI history surface as
+  read-only for rollback, and now points operators to the available rollback
+  controls.
+
 ## [0.6.0] - 2026-05-23
 
 ### Added

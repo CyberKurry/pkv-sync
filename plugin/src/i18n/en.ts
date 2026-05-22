@@ -41,7 +41,7 @@ export const en = {
   showStatusCommand: "Show sync status",
   refreshAccountCommand: "Refresh account info",
   manualSyncCommand: "Manual sync now",
-  migrateCommand: "Migrate from Obsidian Sync",
+  migrateCommand: "Import current vault to PKV Sync",
   migrateModalTitle: "Migrate from Obsidian Sync",
   migrateSyncDetected: "Obsidian Sync detected",
   migrateSyncNotDetected: "Obsidian Sync not detected",

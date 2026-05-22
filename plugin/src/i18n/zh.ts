@@ -40,7 +40,7 @@ export const zh = {
   showStatusCommand: "显示同步状态",
   refreshAccountCommand: "刷新账号信息",
   manualSyncCommand: "立即手动同步",
-  migrateCommand: "从 Obsidian Sync 迁移",
+  migrateCommand: "导入当前笔记库到 PKV Sync",
   migrateModalTitle: "从 Obsidian Sync 迁移",
   migrateSyncDetected: "已检测到 Obsidian Sync",
   migrateSyncNotDetected: "未检测到 Obsidian Sync",
