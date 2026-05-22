@@ -14,10 +14,21 @@ English | [简体中文](./README.zh-CN.md)
 PKV Sync is pre-1.0 software. APIs, storage layout, release packaging, and
 operational defaults may still change.
 
-PKV Sync does **not** provide end-to-end encryption. The server can read
-synced vault contents and attachments. Use HTTPS, strict account controls,
-encrypted disks, encrypted backups, and host-level hardening for real
-deployments — see the [deployment hardening guide](./public-docs/deployment-hardening.md).
+PKV Sync does **not** yet provide native end-to-end encryption (planned for
+v0.9.0; see `docs/ROADMAP.md` M6). The server can read synced vault contents
+and attachments. Use HTTPS, strict account controls, encrypted disks,
+encrypted backups, and host-level hardening for real deployments — see the
+[deployment hardening guide](./public-docs/deployment-hardening.md).
+
+**E2EE today via `git-crypt`** — users who need end-to-end encryption before
+v0.9.0 can layer [`git-crypt`](https://github.com/AGWA/git-crypt) on top of
+PKV Sync. Initialise `git-crypt` in your vault, mark sensitive paths in
+`.gitattributes`, and the encrypted content reaches PKV Sync as ciphertext
+blobs that the server cannot decrypt. Paths and filenames remain plaintext
+on the server (acceptable for most threat models; if you need zero-knowledge
+including paths, wait for v0.9.0 native E2EE). The standard `git clone` and
+`pkvsyncd materialize` flows still work with `git-crypt` encrypted vaults
+provided the client has the key.
 
 ## Highlights
 
