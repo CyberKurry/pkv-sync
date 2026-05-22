@@ -1,6 +1,10 @@
 import { TFile, TFolder } from "obsidian";
 import { describe, expect, it } from "vitest";
-import { ObsidianVaultAdapter, shouldSyncPath } from "../../src/sync/vault-adapter";
+import {
+  ObsidianVaultAdapter,
+  shouldAcceptRemoteConflictPath,
+  shouldSyncPath
+} from "../../src/sync/vault-adapter";
 
 function tfile(path: string): TFile {
   const file = Object.create(TFile.prototype) as TFile;
@@ -134,6 +138,31 @@ describe("shouldSyncPath", () => {
     expect(
       shouldSyncPath("folder/img.conflict-2026-04-29-120000-desktop.png")
     ).toBe(false);
+  });
+
+  it("accepts safe remote conflict files without making them scan-syncable", () => {
+    expect(
+      shouldAcceptRemoteConflictPath("note.conflict-2026-04-29-143022-iphone.md")
+    ).toBe(true);
+    expect(
+      shouldAcceptRemoteConflictPath(
+        "folder/img.conflict-2026-04-29-120000-desktop.png"
+      )
+    ).toBe(true);
+    expect(
+      shouldAcceptRemoteConflictPath(
+        "folder/.git/note.conflict-2026-04-29-143022-x.md"
+      )
+    ).toBe(false);
+    expect(
+      shouldAcceptRemoteConflictPath(
+        "folder/.trash/note.conflict-2026-04-29-143022-x.md"
+      )
+    ).toBe(false);
+    expect(shouldAcceptRemoteConflictPath("../note.conflict-2026-04-29-143022-x.md")).toBe(
+      false
+    );
+    expect(shouldAcceptRemoteConflictPath("note.md")).toBe(false);
   });
 
   it("allows normal files", () => {

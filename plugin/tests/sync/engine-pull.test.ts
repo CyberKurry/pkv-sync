@@ -346,6 +346,62 @@ describe("SyncEngine pull", () => {
     expect(api.push).not.toHaveBeenCalled();
   });
 
+  it("applies server-generated conflict files from full pull", async () => {
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const conflictPath = "note.conflict-2026-05-23-001122-server.md";
+    const marked = [
+      "<<<<<<< local",
+      "local",
+      "=======",
+      "remote",
+      ">>>>>>> remote",
+      ""
+    ].join("\n");
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c1",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [
+          {
+            path: conflictPath,
+            file_type: "text",
+            size: new TextEncoder().encode(marked).byteLength,
+            content_inline: null
+          }
+        ],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn().mockResolvedValue(marked)
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect(api.downloadTextFile).toHaveBeenCalledWith("v", conflictPath, "c1");
+    expect(vault.writes.get(conflictPath)).toBe(marked);
+    expect(idx.saved?.files[conflictPath]).toBeUndefined();
+    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+    expect(api.push).not.toHaveBeenCalled();
+  });
+
   it("applies allowlisted .obsidian pull files and skips non-allowlisted plugin code", async () => {
     const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
     const vault = new FakeVault([]);

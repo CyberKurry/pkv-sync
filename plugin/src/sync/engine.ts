@@ -14,7 +14,11 @@ import {
 } from "./index-store";
 import type { PushChange } from "./types";
 import type { LocalFileSnapshot, LocalIndex, PullFile, PullResponse } from "./types";
-import { shouldSyncPath, type VaultAdapter } from "./vault-adapter";
+import {
+  shouldAcceptRemoteConflictPath,
+  shouldSyncPath,
+  type VaultAdapter
+} from "./vault-adapter";
 
 export interface IndexPersistence {
   loadIndex(): Promise<LocalIndex>;
@@ -326,7 +330,7 @@ export class SyncEngine {
 
     try {
       for (const file of [...pull.added, ...pull.modified]) {
-        if (!shouldSyncPath(file.path) || !pathAccepted(file.path)) continue;
+        if (!this.shouldApplyPulledPath(file.path, pathAccepted)) continue;
         const local = currentByPath.get(file.path);
         const indexed = index.files[file.path];
         if (isLocalDeleted(local, indexed?.lastSyncedHash)) {
@@ -394,13 +398,27 @@ export class SyncEngine {
       throw error;
     }
 
-    index = markSynced(index, pull.to, touched);
+    index = markSynced(
+      index,
+      pull.to,
+      touched.filter((file) => shouldSyncPath(file.path))
+    );
     index = markDeleted(
       index,
       pull.to,
       pull.deleted.filter((path) => shouldSyncPath(path) && pathAccepted(path))
     );
     await this.opts.index.saveIndex(index);
+  }
+
+  private shouldApplyPulledPath(
+    path: string,
+    pathAccepted: (path: string) => boolean
+  ): boolean {
+    return (
+      (shouldSyncPath(path) && pathAccepted(path)) ||
+      shouldAcceptRemoteConflictPath(path)
+    );
   }
 
   private async savePartialPullProgress(

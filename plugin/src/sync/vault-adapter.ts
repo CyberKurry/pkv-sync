@@ -121,6 +121,15 @@ export function shouldSyncPath(path: string): boolean {
   return normalizeSyncPath(path) !== null;
 }
 
+export function shouldAcceptRemoteConflictPath(path: string): boolean {
+  const normalized = normalizeVaultPath(path);
+  return (
+    normalized !== null &&
+    isConflictPath(normalized) &&
+    !hasProtectedSegment(normalized)
+  );
+}
+
 export function normalizeSyncPath(path: string): string | null {
   const normalized = normalizeVaultPath(path);
   if (normalized === null) return null;
@@ -179,6 +188,12 @@ function hasUnsafeDecodedShape(path: string): boolean {
 function hasProtectedRoot(path: string): boolean {
   const firstSegment = path.split("/", 1)[0].toLowerCase();
   return firstSegment === ".trash" || firstSegment === ".git";
+}
+
+function hasProtectedSegment(path: string): boolean {
+  return path
+    .split("/")
+    .some((segment) => segment.toLowerCase() === ".trash" || segment.toLowerCase() === ".git");
 }
 
 function startsWithDotRoot(path: string): boolean {
