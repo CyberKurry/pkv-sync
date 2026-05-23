@@ -43,6 +43,7 @@ trusted_proxies = ["127.0.0.1/32"]
 "@ | Set-Content -LiteralPath $cfg -Encoding ASCII
 
 & $bin -c $cfg migrate up | Out-Null
+"adminpass1234" | & $bin -c $cfg user add admin --admin | Out-Null
 "passw0rd!!" | & $bin -c $cfg user add bob | Out-Null
 "newpass1234" | & $bin -c $cfg user passwd bob | Out-Null
 
