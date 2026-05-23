@@ -7,6 +7,8 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-05-23
+
 ### Security
 
 - Hardened the bundled plugin manifest endpoint so asset URLs use configured
