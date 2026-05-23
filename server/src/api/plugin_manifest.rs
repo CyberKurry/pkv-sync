@@ -2,6 +2,7 @@ use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
 use crate::service::AppState;
 use axum::body::Body;
+use axum::extract::Extension;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -12,6 +13,27 @@ use sha2::{Digest, Sha256};
 const MAIN_JS: &[u8] = include_bytes!("../../../plugin/main.js");
 const MANIFEST_JSON: &[u8] = include_bytes!("../../../plugin/manifest.json");
 const STYLES_CSS: &[u8] = include_bytes!("../../../plugin/styles.css");
+
+#[derive(Clone)]
+pub struct PluginAssetOrigin {
+    origin: Option<String>,
+}
+
+impl PluginAssetOrigin {
+    pub fn from_public_host(public_host: Option<String>) -> Self {
+        let origin = public_host
+            .map(|host| host.trim().trim_end_matches('/').to_string())
+            .filter(|host| !host.is_empty())
+            .map(|host| {
+                if host.starts_with("http://") || host.starts_with("https://") {
+                    host
+                } else {
+                    format!("https://{host}")
+                }
+            });
+        Self { origin }
+    }
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -41,10 +63,14 @@ async fn plugin_manifest(
     _user: AuthenticatedUser,
     uri: Uri,
     headers: HeaderMap,
+    origin: Option<Extension<PluginAssetOrigin>>,
 ) -> Result<Json<PluginManifestResponse>, ApiError> {
     let plugin_manifest: ObsidianManifest =
         serde_json::from_slice(MANIFEST_JSON).map_err(|e| ApiError::internal(e.to_string()))?;
-    let origin = request_origin(&uri, &headers)?;
+    let origin = origin
+        .and_then(|Extension(origin)| origin.origin)
+        .map(Ok)
+        .unwrap_or_else(|| request_origin(&uri, &headers))?;
 
     Ok(Json(PluginManifestResponse {
         version: plugin_manifest.version,
@@ -85,19 +111,12 @@ fn request_origin(uri: &Uri, headers: &HeaderMap) -> Result<String, ApiError> {
         }
     }
 
-    let scheme = headers
-        .get("x-forwarded-proto")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("http");
     let host = headers
         .get(header::HOST)
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::bad_request("missing_host", "missing Host header"))?;
-    Ok(format!("{scheme}://{host}"))
+    Ok(format!("http://{host}"))
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

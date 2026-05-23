@@ -1,6 +1,8 @@
 use axum::body::Body;
+use axum::extract::Extension;
 use axum::http::{header, Request, StatusCode};
 use axum::Router;
+use pkv_sync_server::api::plugin_manifest::PluginAssetOrigin;
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
 use pkv_sync_server::service::AppState;
@@ -44,6 +46,16 @@ fn auth_get(uri: &str, raw: &str, host: &str) -> Request<Body> {
         .uri(uri)
         .header(header::AUTHORIZATION, format!("Bearer {raw}"))
         .header(header::HOST, host)
+        .body(Body::empty())
+        .unwrap()
+}
+
+fn auth_get_with_forwarded(uri: &str, raw: &str, host: &str, proto: &str) -> Request<Body> {
+    Request::builder()
+        .uri(uri)
+        .header(header::AUTHORIZATION, format!("Bearer {raw}"))
+        .header(header::HOST, host)
+        .header("x-forwarded-proto", proto)
         .body(Body::empty())
         .unwrap()
 }
@@ -129,4 +141,61 @@ async fn plugin_manifest_advertises_downloadable_assets_with_matching_hashes() {
     );
     let styles_bytes = response_bytes(styles_resp).await;
     assert_eq!(body["styles_css_sha256"], sha256_hex(&styles_bytes));
+}
+
+#[tokio::test]
+async fn plugin_manifest_uses_configured_public_host_over_request_headers() {
+    let (app, raw, _tmp) = app_and_token().await;
+    let app = app.layer(Extension(PluginAssetOrigin::from_public_host(Some(
+        "sync.example.test".into(),
+    ))));
+
+    let manifest_resp = app
+        .oneshot(auth_get_with_forwarded(
+            "/api/plugin-manifest",
+            &raw,
+            "attacker.example.test",
+            "http",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(manifest_resp.status(), StatusCode::OK);
+
+    let body: serde_json::Value = serde_json::from_slice(&response_bytes(manifest_resp).await)
+        .expect("manifest response json");
+    assert_eq!(
+        body["main_js_url"],
+        "https://sync.example.test/api/plugin-assets/main.js"
+    );
+    assert_eq!(
+        body["manifest_json_url"],
+        "https://sync.example.test/api/plugin-assets/manifest.json"
+    );
+    assert_eq!(
+        body["styles_css_url"],
+        "https://sync.example.test/api/plugin-assets/styles.css"
+    );
+}
+
+#[tokio::test]
+async fn plugin_manifest_ignores_untrusted_forwarded_proto_without_public_host() {
+    let (app, raw, _tmp) = app_and_token().await;
+
+    let manifest_resp = app
+        .oneshot(auth_get_with_forwarded(
+            "/api/plugin-manifest",
+            &raw,
+            "sync.example.test",
+            "https",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(manifest_resp.status(), StatusCode::OK);
+
+    let body: serde_json::Value = serde_json::from_slice(&response_bytes(manifest_resp).await)
+        .expect("manifest response json");
+    assert_eq!(
+        body["main_js_url"],
+        "http://sync.example.test/api/plugin-assets/main.js"
+    );
 }

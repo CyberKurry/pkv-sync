@@ -43,7 +43,7 @@ pkvsyncd materialize abc123 -o ./my-vault-old --at def456
 
 ## pkvsyncd mcp
 
-Start the read-only MCP server for AI tools.
+Start the MCP server for AI tools.
 
 ### Synopsis
 
@@ -60,7 +60,7 @@ pkvsyncd mcp [--transport stdio|http] [--vault <vault-id>] [--token <pks-token>]
 
 ### Description
 
-stdio mode reads JSON-RPC from stdin and writes JSON-RPC to stdout. HTTP mode serves a stateless Streamable HTTP MCP endpoint at `/mcp`. Both modes are read-only and expose `list_vaults`, `list_files`, `read_file`, `read_file_at_commit`, and `search`.
+stdio mode reads JSON-RPC from stdin and writes JSON-RPC to stdout. HTTP mode serves a stateless Streamable HTTP MCP endpoint at `/mcp`. Both modes expose `list_vaults`, `list_files`, `read_file`, `read_file_at_commit`, `search`, `write_file`, and `delete_file`.
 
 ### Examples
 
@@ -71,6 +71,8 @@ PKV_TOKEN=pks_xxx pkvsyncd mcp --vault abc123
 # local Streamable HTTP endpoint
 pkvsyncd mcp --transport http --bind 127.0.0.1:6711
 ```
+
+HTTP mode requires the server deployment key header on every request.
 
 ## pkvsyncd upgrade
 

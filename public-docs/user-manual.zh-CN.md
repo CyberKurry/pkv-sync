@@ -20,7 +20,7 @@
 
 ## 插件更新
 
-PKV Sync 设置页包含 **更新** 区段。默认情况下，插件会向已连接的 PKV Sync 服务端检查内置插件版本；这对自托管部署是首选来源，因为升级服务端也会发布匹配的插件资源。需要时可以把更新来源切到 GitHub release。
+PKV Sync 设置页包含 **更新** 区段。默认情况下，插件会向已连接的 PKV Sync 服务端检查内置插件版本；这对自托管部署是首选来源，因为升级服务端也会发布匹配的插件资源。服务端配置了 `public_host` 时，插件资源 URL 会固定到该外部主机。需要时可以把更新来源切到 GitHub release。
 
 有新版本时，点击 **立即更新** 会下载 `main.js`、`manifest.json` 和存在时的 `styles.css`，校验 SHA-256 后写入插件文件，并提示重新加载 Obsidian。命令面板也提供 **PKV Sync：检查 PKV Sync 插件更新**。
 
@@ -120,9 +120,9 @@ Obsidian 插件会把活跃 token 和部署密钥保存在 `<vault>/.obsidian/pl
 - 设备丢失后，请让管理员撤销对应设备 token。
 - 修改密码会保留当前设备登录状态，并撤销其他设备 token。
 
-## MCP 只读访问
+## MCP 访问
 
-如果管理员启用了 `pkvsyncd mcp` 命令，AI 工具可以使用 bearer 设备 token 通过 MCP 读取你的笔记库。MCP 访问是只读的，提供笔记库列表、文件列表、读取 HEAD 或指定 commit 下的文件，以及简单文本搜索。stdio 和 Streamable HTTP 配置示例见 [`mcp-howto.zh-CN.md`](./mcp-howto.zh-CN.md)。
+如果管理员启用了 `pkvsyncd mcp` 命令，AI 工具可以使用 bearer 设备 token 通过 MCP 访问你的笔记库。MCP 提供笔记库列表、文件列表、读取 HEAD 或指定 commit 下的文件、简单文本搜索，以及带乐观并发控制的显式写入/删除工具。stdio 和 Streamable HTTP 配置示例见 [`mcp-howto.zh-CN.md`](./mcp-howto.zh-CN.md)。
 
 ## 命令
 

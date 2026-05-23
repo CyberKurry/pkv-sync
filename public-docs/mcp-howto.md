@@ -50,8 +50,13 @@ GET  http://127.0.0.1:6711/mcp
 Every request must include:
 
 ```text
+X-PKVSync-Deployment-Key: k_xxx
 Authorization: Bearer pks_xxx
 ```
+
+The deployment key is read from the same config file as the main PKV Sync
+server. Missing or wrong deployment keys receive HTTP `404` before bearer-token
+authentication.
 
 MCP HTTP is fixed-window rate limited at 120 requests per 60 seconds. When the
 limit is exceeded, the server responds with HTTP `429` and a JSON-RPC error
@@ -103,5 +108,5 @@ have happened"; that audit trail is intentional.
 - Claude Code, Codex CLI, Cherry Studio, OpenCode, and bridge-based MCP clients
   can use stdio mode by launching `pkvsyncd mcp`.
 - Clients that support Streamable HTTP can point at `/mcp` and send bearer auth
-  on every request.
+  plus the deployment key on every request.
 - The server is stateless; it does not require or return `Mcp-Session-Id`.

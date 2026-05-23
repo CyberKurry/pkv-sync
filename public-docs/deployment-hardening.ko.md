@@ -160,9 +160,23 @@ docker compose logs -f pkv-sync
 
 - 설정 시 프로덕션 스타일 admin cookies(`Secure`, `SameSite=Strict`)
 - admin 안의 "share server URL" 링크에 대한 `https://` 생성
-- `X-Forwarded-Proto`가 없을 때 기대하는 proto
+- `/api/plugin-manifest`가 반환하는 plugin asset URLs의 `https://` 외부 host
+
+Plugin manifest URL 생성은 클라이언트가 보낸 `X-Forwarded-Proto`를 신뢰하지 않습니다. 프로덕션에서는 `public_host`를 설정해 self-update clients가 실제 외부 host를 가리키는 안정적인 asset URLs를 받도록 하세요.
 
 SSE의 경우 같은 설정이 reverse proxy가 해당 route를 일반적인 짧은 요청이 아니라 keep-alive event stream으로 인식하는 데 도움이 됩니다.
+
+## Security Response Headers
+
+PKV Sync는 프로덕션 server stack에 다음 response headers를 추가합니다.
+
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: no-referrer`
+- `Content-Security-Policy` with `frame-ancestors 'none'`, `default-src 'self'`, `object-src 'none'`, `form-action 'self'`, self-hosted images/styles
+- `public_host` 설정 시 `Strict-Transport-Security`
+
+TLS termination과 `public_host`를 일치시키세요. HSTS는 server가 HTTPS public deployment로 설정된 경우에만 전송됩니다.
 
 ## Reverse Proxy Notes
 

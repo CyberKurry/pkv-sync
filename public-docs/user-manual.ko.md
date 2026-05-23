@@ -20,6 +20,12 @@
 
 압축을 푼 디렉터리에는 `main.js`, `manifest.json`, `styles.css`가 있어야 합니다.
 
+## 플러그인 업데이트
+
+PKV Sync 설정 페이지에는 **Updates** 섹션이 있습니다. 기본적으로 플러그인은 연결된 PKV Sync 서버의 bundled plugin version을 확인합니다. 서버를 업그레이드하면 대응하는 plugin assets도 함께 제공되므로, self-hosted deployment에서는 이 경로가 권장됩니다. `public_host`가 설정되어 있으면 plugin asset URLs는 해당 외부 host로 고정됩니다. 필요하면 update source를 GitHub releases로 바꿀 수 있습니다.
+
+업데이트가 있으면 **Update now**가 `main.js`, `manifest.json`, 그리고 존재할 경우 `styles.css`를 download하고 SHA-256을 verify한 뒤 plugin files에 써 넣고 Obsidian reload를 요청합니다. command palette에도 **PKV Sync: Check for PKV Sync plugin updates**가 있습니다.
+
 ## 서버에 연결
 
 서버 공유 URL은 보통 다음과 같습니다.
@@ -116,9 +122,9 @@ Obsidian 플러그인은 활성 token과 deployment key를 `<vault>/.obsidian/pl
 - 분실한 장치의 token은 관리자에게 철회를 요청하세요.
 - 비밀번호를 변경하면 현재 장치는 로그인 상태를 유지하고 다른 장치 token은 철회됩니다.
 
-## MCP 읽기 접근
+## MCP 접근
 
-관리자가 `pkvsyncd mcp` 명령을 활성화하면 AI 도구가 bearer device token을 사용해 MCP로 vault를 읽을 수 있습니다. MCP 접근은 읽기 전용이며 vault 목록, 파일 목록, HEAD 또는 commit의 파일 읽기, 간단한 텍스트 검색을 제공합니다. stdio와 Streamable HTTP 설정 예시는 [`mcp-howto.md`](./mcp-howto.md)를 참고하세요.
+관리자가 `pkvsyncd mcp` 명령을 활성화하면 AI 도구가 bearer device token을 사용해 MCP로 vault에 접근할 수 있습니다. MCP는 vault 목록, 파일 목록, HEAD 또는 commit의 파일 읽기, 간단한 텍스트 검색, 그리고 optimistic concurrency가 적용된 명시적 write / delete tools를 제공합니다. stdio와 Streamable HTTP 설정 예시는 [`mcp-howto.md`](./mcp-howto.md)를 참고하세요.
 
 ## 명령
 

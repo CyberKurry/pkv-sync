@@ -202,6 +202,7 @@ fn main() -> anyhow::Result<()> {
                     }
                     "http" => pkv_sync_server::mcp::McpTransport::Http {
                         bind: bind.parse()?,
+                        deployment_key: cfg.server.deployment_key.clone(),
                     },
                     other => anyhow::bail!(
                         "unsupported MCP transport '{other}', expected 'stdio' or 'http'"

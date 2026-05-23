@@ -48,8 +48,11 @@ GET  http://127.0.0.1:6711/mcp
 모든 요청에는 다음이 포함되어야 합니다.
 
 ```text
+X-PKVSync-Deployment-Key: k_xxx
 Authorization: Bearer pks_xxx
 ```
+
+배포 키는 주 PKV Sync 서버와 같은 설정 파일에서 읽습니다. 키가 없거나 잘못되면 bearer token 인증 전에 HTTP `404`를 반환합니다.
 
 MCP HTTP는 고정 창 방식으로 60초당 120개 요청으로 제한됩니다. 제한을 초과하면 서버는 HTTP `429`와 JSON-RPC error code `-32029`를 반환합니다.
 
@@ -83,5 +86,5 @@ AI-driven writes는 vault git history의 commits가 됩니다. 일반 git operat
 ## Client notes
 
 - Claude Code, Codex CLI, Cherry Studio, OpenCode, bridge-based MCP clients는 `pkvsyncd mcp`를 실행해 stdio mode를 사용할 수 있습니다.
-- Streamable HTTP를 지원하는 clients는 `/mcp`를 가리키고 모든 요청에 bearer auth를 보낼 수 있습니다.
+- Streamable HTTP를 지원하는 clients는 `/mcp`를 가리키고 모든 요청에 bearer auth와 배포 키를 보낼 수 있습니다.
 - 서버는 stateless입니다. `Mcp-Session-Id`를 요구하거나 반환하지 않습니다.

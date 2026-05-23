@@ -11,7 +11,9 @@ info:
 
     All `/api/*` routes are protected by the deployment key middleware and the
     plugin User-Agent guard in the production server stack. Authenticated user
-    and admin routes additionally require a bearer device token.
+    and admin routes additionally require a bearer device token. Production
+    responses include clickjacking, MIME sniffing, referrer, and CSP headers;
+    HSTS is emitted when `public_host` is configured.
 servers:
   - url: https://sync.example.com
 security:
@@ -225,12 +227,17 @@ components:
         main_js_url:
           type: string
           format: uri
+          description: |
+            Authenticated download URL. In the production stack this is anchored
+            to configured `public_host` when set; the server does not trust
+            unverified `X-Forwarded-Proto` for this origin.
         main_js_sha256:
           type: string
           pattern: '^[0-9a-f]{64}$'
         manifest_json_url:
           type: string
           format: uri
+          description: Authenticated download URL for bundled `manifest.json`.
         manifest_json_sha256:
           type: string
           pattern: '^[0-9a-f]{64}$'
@@ -238,6 +245,7 @@ components:
           type: string
           format: uri
           nullable: true
+          description: Authenticated download URL for bundled `styles.css`.
         styles_css_sha256:
           type: string
           pattern: '^[0-9a-f]{64}$'
@@ -810,7 +818,9 @@ paths:
       description: |
         Returns the Obsidian plugin version bundled with this PKV Sync server,
         plus authenticated download URLs and SHA-256 hashes for plugin assets.
-        Plugins use this endpoint before falling back to GitHub releases.
+        Plugins use this endpoint before falling back to GitHub releases. When
+        `[server].public_host` is configured, asset URLs use that external host
+        and do not rely on untrusted forwarded-proto request headers.
       responses:
         '200':
           description: Bundled plugin manifest

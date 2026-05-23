@@ -1,3 +1,4 @@
+use crate::middleware::deployment_key;
 use crate::service::AppState;
 use axum::body::Body;
 use axum::extract::Request;
@@ -17,16 +18,18 @@ use tokio_stream::StreamExt;
 
 use super::transport_stdio::{authenticate_token, handle_jsonrpc, jsonrpc_error};
 
-pub fn router(state: AppState) -> Router {
+pub fn router(state: AppState, deployment_key: String) -> Router {
     router_with_rate_limiter(
         state,
         crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+        deployment_key,
     )
 }
 
 fn router_with_rate_limiter(
     state: AppState,
     limiter: crate::middleware::rate_limit::RequestRateLimiter,
+    deployment_key_value: String,
 ) -> Router {
     Router::new()
         .route("/mcp", post(post_mcp).get(get_mcp_sse))
@@ -34,12 +37,16 @@ fn router_with_rate_limiter(
             limiter,
             mcp_rate_limit,
         ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            deployment_key::DeploymentKey::new(deployment_key_value),
+            deployment_key::middleware,
+        ))
         .with_state(state)
 }
 
-pub async fn run(state: AppState, bind: SocketAddr) -> anyhow::Result<()> {
+pub async fn run(state: AppState, bind: SocketAddr, deployment_key: String) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    axum::serve(listener, router(state).into_make_service()).await?;
+    axum::serve(listener, router(state, deployment_key).into_make_service()).await?;
     Ok(())
 }
 
@@ -275,12 +282,14 @@ mod tests {
                 1,
                 std::time::Duration::from_secs(60),
             ),
+            "k_test".into(),
         );
         let req = || {
             HttpRequest::builder()
                 .method("POST")
                 .uri("/mcp")
                 .header("content-type", "application/json")
+                .header(deployment_key::HEADER, "k_test")
                 .body(Body::from("{}"))
                 .unwrap()
         };

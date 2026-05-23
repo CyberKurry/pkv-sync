@@ -20,6 +20,12 @@
 
 展開後のディレクトリには `main.js`、`manifest.json`、`styles.css` が含まれている必要があります。
 
+## Plugin Updates
+
+PKV Sync の settings page には **Updates** セクションがあります。既定では、プラグインは接続先の PKV Sync server にある bundled plugin version を確認します。これは self-hosted deployment では推奨の source です。server を upgrade すると、対応する plugin assets も公開されます。`public_host` が設定されている場合、plugin asset URLs はその外部 host に固定されます。必要に応じて update source を GitHub releases に切り替えられます。
+
+更新がある場合、**Update now** は `main.js`、`manifest.json`、存在する場合は `styles.css` を download し、SHA-256 を verify して plugin files に書き込み、Obsidian の reload を促します。command palette にも **PKV Sync: Check for PKV Sync plugin updates** があります。
+
 ## サーバーに接続する
 
 サーバー共有 URL は通常次のような形式です。
@@ -116,9 +122,9 @@ Obsidian プラグインはアクティブ token と deployment key を `<vault>
 - 紛失した装置の token は管理者に取り消してもらってください。
 - パスワード変更は現在の装置のサインインを維持し、他の装置 token を取り消します。
 
-## MCP 読み取りアクセス
+## MCP アクセス
 
-管理者が `pkvsyncd mcp` コマンドを有効にしている場合、AI ツールは bearer device token を使って MCP 経由で vault を読み取れます。MCP アクセスは読み取り専用で、vault 一覧、ファイル一覧、HEAD または commit のファイル読み取り、簡単なテキスト検索を提供します。stdio と Streamable HTTP の設定例は [`mcp-howto.md`](./mcp-howto.md) を参照してください。
+管理者が `pkvsyncd mcp` コマンドを有効にしている場合、AI ツールは bearer device token を使って MCP 経由で vault にアクセスできます。MCP は vault 一覧、ファイル一覧、HEAD または commit のファイル読み取り、簡単なテキスト検索、そして optimistic concurrency 付きの明示的な write / delete tools を提供します。stdio と Streamable HTTP の設定例は [`mcp-howto.md`](./mcp-howto.md) を参照してください。
 
 ## コマンド
 

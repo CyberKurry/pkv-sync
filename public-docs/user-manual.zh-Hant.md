@@ -18,6 +18,12 @@
 
 解壓後的目錄應包含 `main.js`、`manifest.json` 和 `styles.css`。
 
+## 外掛更新
+
+PKV Sync 設定頁包含 **Updates** 區段。預設情況下，外掛會向已連接的 PKV Sync 服務端檢查內建外掛版本；這對自託管部署是首選來源，因為升級服務端也會發布匹配的外掛資源。服務端配置了 `public_host` 時，外掛資源 URL 會固定到該外部主機。需要時可以把更新來源切到 GitHub release。
+
+有新版本時，點擊 **Update now** 會下載 `main.js`、`manifest.json` 和存在時的 `styles.css`，校驗 SHA-256 後寫入外掛檔案，並提示重新載入 Obsidian。命令面板也提供 **PKV Sync: Check for PKV Sync plugin updates**。
+
 ## 連接服務端
 
 服務端分享 URL 通常類似：
@@ -114,9 +120,9 @@ Obsidian 外掛會把活躍 token 和部署金鑰保存於 `<vault>/.obsidian/pl
 - 裝置遺失後，請讓管理員撤銷對應裝置 token。
 - 修改密碼會保留目前裝置登入狀態，並撤銷其他裝置 token。
 
-## MCP 讀取存取
+## MCP 存取
 
-如果管理員啟用了 `pkvsyncd mcp` 命令，AI 工具可以使用 bearer 裝置 token 透過 MCP 讀取你的筆記庫。MCP 存取是唯讀的，提供筆記庫清單、檔案清單、讀取 HEAD 或指定 commit 下的檔案，以及簡單文字搜尋。stdio 和 Streamable HTTP 設定範例請見 [`mcp-howto.md`](./mcp-howto.md)。
+如果管理員啟用了 `pkvsyncd mcp` 命令，AI 工具可以使用 bearer 裝置 token 透過 MCP 存取你的筆記庫。MCP 提供筆記庫清單、檔案清單、讀取 HEAD 或指定 commit 下的檔案、簡單文字搜尋，以及帶樂觀並發控制的顯式寫入／刪除工具。stdio 和 Streamable HTTP 設定範例請見 [`mcp-howto.md`](./mcp-howto.md)。
 
 ## 命令
 

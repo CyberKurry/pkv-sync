@@ -20,7 +20,7 @@ PKV Sync **暂未提供**原生端到端加密（计划在 v0.9.0 / M6 里程碑
 - **多用户、多笔记库** Obsidian 同步，带按笔记库 push 锁和幂等 push。
 - **实时推送**——通过 Server-Sent Events 投递提交事件，小文本变更（≤ 8 KiB）直接内联在事件里，插件无需再 pull。健康网络下端到端目标亚秒级，轮询作为安全兜底保留。
 - **Git 原生**——每个笔记库在磁盘上就是一个裸 git 仓库。每文件历史、unified diff、单文件恢复在插件和管理面板里都可见。可选启用只读 `git clone https://_:<token>@host/git/<vault>` 用于离线浏览或外部镜像。
-- **AI 可读笔记库**——`pkvsyncd mcp` 通过 stdio 或无状态 Streamable HTTP 端点暴露只读 MCP 工具。
+- **AI 可读笔记库**——`pkvsyncd mcp` 通过 stdio 或无状态 Streamable HTTP 端点暴露读写 MCP 工具。
 - **选择性 `.obsidian` 同步**——新笔记库默认带一组起步 allowlist，用于主题、snippet、快捷键、应用偏好、外观和启用插件列表。插件代码和插件设置仍需用户主动 opt-in。
 - **冲突安全**——SSE 内联应用拒绝覆盖本地有未同步修改的文件；冲突落盘为保留原扩展名的 `.conflict-*` 文件，可在插件命令面板里用真 LCS 行差异预览并一键选择“保留本地”或“采纳远端”。
 - **管理面板**——用户、设备 token、笔记库、邀请码、运行时设置、活动日志、blob 垃圾回收。响应式，中英双语。
@@ -153,6 +153,7 @@ pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
 pkvsyncd -c /etc/pkv-sync/config.toml backup --output <dir> [--data-dir <dir>] [--gzip]
 pkvsyncd -c /etc/pkv-sync/config.toml restore --input <backup-dir> --data-dir <dir> [--force]
 pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
+pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
 pkvsyncd upgrade [--dry-run] [--yes] [--version 0.9.1]
 ```
 
@@ -165,6 +166,8 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version 0.9.1]
 `restore` 会先检查 manifest 和组件哈希，再把数据复制回 `--data-dir` 指定的目标数据目录。目标目录非空时需要 `--force`，恢复完成后会自动运行 `verify`。
 
 `verify` 会检查被引用的 blob 文件是否存在、内容 SHA-256 是否与文件名一致，报告孤立 blob，并用 `git2` 校验笔记库 git 仓库。缺失、损坏或 git 错误会返回失败；`--no-fail` 可覆盖退出码。
+
+`mcp` 通过 stdio 或 Streamable HTTP 暴露 MCP 工具。HTTP 模式会读取同一份配置文件中的部署密钥，并要求每个 `/mcp` 请求除了 bearer token 认证外，还必须带 `X-PKVSync-Deployment-Key`。
 
 `upgrade` 会下载匹配当前平台的 GitHub release 二进制到当前可执行文件旁边的 `pkvsyncd.new`（Windows 为 `pkvsyncd.new.exe`），用 `SHA256SUMS` 校验后打印 systemd／手动替换步骤。`--dry-run` 只显示计划不下载，`--yes` 跳过交互确认，`--version 0.9.1` 可指定版本。Docker 和 Kubernetes 部署应通过拉取或修改镜像 tag 升级；CLI 检测到容器环境时会输出镜像升级指引，不写入旁路二进制。
 
@@ -190,7 +193,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version 0.9.1]
 | --- | --- |
 | `server.bind_addr` | 监听地址。反代后用 `127.0.0.1:6710`；Docker Compose 里用 `0.0.0.0:6710`。 |
 | `server.deployment_key` | 由 `pkvsyncd genkey` 生成，客户端通过 `X-PKVSync-Deployment-Key` 头发送。 |
-| `server.public_host` | 对外可见的主机名（必要时含端口）。**admin POST 必备**——详见部署加固指南。 |
+| `server.public_host` | 对外可见的主机名（必要时含端口）。**admin POST 必备**，也用于分享 URL 和插件资源 URL——详见部署加固指南。 |
 | `storage.data_dir` | 数据根目录，包含 `metadata.db`、`vaults/`、`blobs/`。 |
 | `storage.db_path` | SQLite 数据库路径（通常是 `<data_dir>/metadata.db`）。 |
 | `network.trusted_proxies` | 允许设置 `X-Forwarded-For` / `X-Forwarded-Proto` 的 CIDR。 |
@@ -208,7 +211,9 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version 0.9.1]
 
 认证同步 API 路由使用固定窗口限流：按路由、方法、客户端 IP 和 bearer 设备 token 分桶，每 60 秒最多 600 次请求。SSE 客户端可以用 `Last-Event-ID` replay 断线期间错过的 commit；replay 有上限，超出时会收到 `lagged` 事件并应主动 pull 追赶。并发 SSE 订阅按用户限制，并保留独立的全局上限作为最后防线。
 
-`GET /api/plugin-manifest` 需要认证，返回当前服务端内置插件版本、SHA-256 校验值和插件资源下载 URL，供插件自更新使用。
+`GET /api/plugin-manifest` 需要认证，返回当前服务端内置插件版本、SHA-256 校验值和插件资源下载 URL，供插件自更新使用。配置了 `public_host` 时，这些 URL 会固定到该外部主机。
+
+生产响应会包含点击劫持、MIME 嗅探、referrer 泄露和 CSP 相关安全响应头。配置了 `public_host` 时会发送 HSTS。
 
 `/metrics` 指标端点只有启用 `enable_metrics=true` 后才可用，并且仍需通过部署密钥中间件、插件 User-Agent guard 和管理员 bearer token。
 

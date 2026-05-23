@@ -158,9 +158,23 @@ docker compose logs -f pkv-sync
 
 - 生產風格的 admin cookie（設定後啟用 `Secure`、`SameSite=Strict`）
 - admin 中「share server URL」連結使用 `https://` 前綴
-- 缺少 `X-Forwarded-Proto` 時的期望協定
+- `/api/plugin-manifest` 返回的外掛資源 URL 使用 `https://` 外部主機
+
+外掛清單 URL 產生不會信任用戶端傳入的 `X-Forwarded-Proto`。生產環境請設定 `public_host`，這樣外掛自更新拿到的資源 URL 才會穩定指向真實外部主機。
 
 對 SSE 來說，該設定也能幫助反向代理識別長連線事件流而不是普通短請求。
+
+## 安全回應標頭
+
+PKV Sync 會在生產服務端棧中加入這些回應標頭：
+
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: no-referrer`
+- `Content-Security-Policy`，包含 `frame-ancestors 'none'`、`default-src 'self'`、`object-src 'none'`、`form-action 'self'` 以及自託管圖片／樣式
+- 在設定了 `public_host` 時加入 `Strict-Transport-Security`
+
+請讓 TLS 終止和 `public_host` 保持一致。只有當服務端被設定為 HTTPS 對外發布時，才會發送 HSTS。
 
 ## 反向代理注意事項
 

@@ -8,8 +8,14 @@ use anyhow::Result;
 use std::net::SocketAddr;
 
 pub enum McpTransport {
-    Stdio { vault_id: String, token: String },
-    Http { bind: SocketAddr },
+    Stdio {
+        vault_id: String,
+        token: String,
+    },
+    Http {
+        bind: SocketAddr,
+        deployment_key: String,
+    },
 }
 
 pub async fn run(state: AppState, transport: McpTransport) -> Result<()> {
@@ -17,6 +23,9 @@ pub async fn run(state: AppState, transport: McpTransport) -> Result<()> {
         McpTransport::Stdio { vault_id, token } => {
             transport_stdio::run(state, vault_id, token).await
         }
-        McpTransport::Http { bind } => transport_http::run(state, bind).await,
+        McpTransport::Http {
+            bind,
+            deployment_key,
+        } => transport_http::run(state, bind, deployment_key).await,
     }
 }

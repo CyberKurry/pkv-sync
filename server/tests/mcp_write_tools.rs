@@ -9,6 +9,8 @@ use pkv_sync_server::storage::git::{Git2VaultStore, GitVaultStore, StoredFile};
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
+const DEPLOYMENT_KEY: &str = "k_mcp_write_test";
+
 async fn test_state() -> (AppState, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let p = pkv_sync_server::db::pool::connect(&tmp.path().join("test.db"))
@@ -70,12 +72,13 @@ async fn create_token_for_user(state: &AppState, user_id: &str, device_id: &str)
 }
 
 async fn post_tool(state: AppState, raw: &str, name: &str, arguments: Value) -> Value {
-    let response = transport_http::router(state)
+    let response = transport_http::router(state, DEPLOYMENT_KEY.into())
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/mcp")
                 .header("content-type", "application/json")
+                .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
                 .header("authorization", format!("Bearer {raw}"))
                 .body(Body::from(
                     json!({
@@ -278,6 +281,54 @@ async fn delete_file_returns_conflict_when_parent_stale() {
 
     assert_eq!(structured(&body)["conflict"], true);
     assert_eq!(structured(&body)["current_head"], current);
+}
+
+#[tokio::test]
+async fn write_file_records_normalized_mcp_path() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-normalize").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "seed.md", "seed").await;
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "folder\\note.md",
+            "content": "normalized path",
+            "parent_commit": head
+        }),
+    )
+    .await;
+    let commit = structured(&body)["commit"].as_str().unwrap();
+
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let file = git
+        .read_file(&vault.id, "folder/note.md", Some(commit))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        file,
+        StoredFile::Text {
+            bytes: b"normalized path".to_vec()
+        }
+    );
+
+    let (details,): (String,) = sqlx::query_as(
+        "SELECT details
+         FROM sync_activity
+         WHERE vault_id = ? AND action = 'mcp_write'
+         ORDER BY id DESC
+         LIMIT 1",
+    )
+    .bind(&vault.id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert!(details.contains("\"path\":\"folder/note.md\""), "{details}");
 }
 
 #[tokio::test]

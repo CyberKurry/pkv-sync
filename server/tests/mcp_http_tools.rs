@@ -11,6 +11,8 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tower::ServiceExt;
 
+const DEPLOYMENT_KEY: &str = "k_mcp_http_test";
+
 async fn test_state() -> (AppState, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let p = pkv_sync_server::db::pool::connect(&tmp.path().join("test.db"))
@@ -81,11 +83,12 @@ async fn post_mcp(
     let mut req = Request::builder()
         .method("POST")
         .uri("/mcp")
-        .header("content-type", "application/json");
+        .header("content-type", "application/json")
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY);
     if let Some(raw) = raw {
         req = req.header("authorization", format!("Bearer {raw}"));
     }
-    let response = transport_http::router(state)
+    let response = transport_http::router(state, DEPLOYMENT_KEY.into())
         .oneshot(req.body(Body::from(body.to_string())).unwrap())
         .await
         .unwrap();
@@ -94,6 +97,25 @@ async fn post_mcp(
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
     (status, headers, json)
+}
+
+async fn post_mcp_without_deployment_key(
+    state: AppState,
+    raw: Option<&str>,
+    body: Value,
+) -> StatusCode {
+    let mut req = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json");
+    if let Some(raw) = raw {
+        req = req.header("authorization", format!("Bearer {raw}"));
+    }
+    transport_http::router(state, DEPLOYMENT_KEY.into())
+        .oneshot(req.body(Body::from(body.to_string())).unwrap())
+        .await
+        .unwrap()
+        .status()
 }
 
 #[tokio::test]
@@ -113,6 +135,25 @@ async fn http_mcp_requires_bearer_auth_per_post() {
 
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body["error"]["code"], -32001);
+}
+
+#[tokio::test]
+async fn http_mcp_requires_deployment_key() {
+    let (state, _tmp) = test_state().await;
+    let (_user_id, raw) = create_user_with_token(&state, "http-deployment-key").await;
+
+    let status = post_mcp_without_deployment_key(
+        state,
+        Some(&raw),
+        json!({
+            "jsonrpc": "2.0",
+            "id": "tools",
+            "method": "tools/list"
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -290,7 +331,7 @@ async fn http_mcp_sse_replays_after_last_event_id() {
     let handle = tokio::spawn(async move {
         let _ = axum::serve(
             listener,
-            transport_http::router(server_state).into_make_service(),
+            transport_http::router(server_state, DEPLOYMENT_KEY.into()).into_make_service(),
         )
         .await;
     });
@@ -298,6 +339,7 @@ async fn http_mcp_sse_replays_after_last_event_id() {
     let resp = reqwest::Client::new()
         .get(format!("http://{addr}/mcp"))
         .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
         .header("accept", "text/event-stream")
         .header("last-event-id", &first.new_commit)
         .send()
@@ -339,7 +381,7 @@ async fn http_mcp_sse_rejects_when_subscriber_limit_is_reached() {
     let handle = tokio::spawn(async move {
         let _ = axum::serve(
             listener,
-            transport_http::router(server_state).into_make_service(),
+            transport_http::router(server_state, DEPLOYMENT_KEY.into()).into_make_service(),
         )
         .await;
     });
@@ -351,6 +393,7 @@ async fn http_mcp_sse_rejects_when_subscriber_limit_is_reached() {
     let first = client
         .get(format!("http://{addr}/mcp"))
         .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
         .header("accept", "text/event-stream")
         .send()
         .await
@@ -360,6 +403,7 @@ async fn http_mcp_sse_rejects_when_subscriber_limit_is_reached() {
     let second = client
         .get(format!("http://{addr}/mcp"))
         .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
         .header("accept", "text/event-stream")
         .send()
         .await
@@ -372,6 +416,7 @@ async fn http_mcp_sse_rejects_when_subscriber_limit_is_reached() {
     let third = client
         .get(format!("http://{addr}/mcp"))
         .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
         .header("accept", "text/event-stream")
         .send()
         .await
@@ -433,7 +478,7 @@ async fn http_mcp_sse_too_far_behind_emits_lagged() {
     let handle = tokio::spawn(async move {
         let _ = axum::serve(
             listener,
-            transport_http::router(server_state).into_make_service(),
+            transport_http::router(server_state, DEPLOYMENT_KEY.into()).into_make_service(),
         )
         .await;
     });
@@ -441,6 +486,7 @@ async fn http_mcp_sse_too_far_behind_emits_lagged() {
     let resp = reqwest::Client::new()
         .get(format!("http://{addr}/mcp"))
         .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
         .header("accept", "text/event-stream")
         .header("last-event-id", &first.new_commit)
         .send()

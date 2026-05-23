@@ -6,6 +6,7 @@ use crate::service::vault::ensure_user_vault;
 use crate::service::AppState;
 use crate::storage::blob::{BlobStore, LocalFsBlobStore};
 use crate::storage::git::{Git2VaultStore, GitVaultStore, StoredFile};
+use crate::storage::path;
 use crate::storage::text_kind::TextClassifier;
 use anyhow::{anyhow, bail, Result};
 use base64::Engine;
@@ -158,7 +159,8 @@ pub async fn read_file(
     user_id: &str,
     input: ReadFileInput,
 ) -> Result<ReadFileOutput> {
-    read_file_inner(state, user_id, input.vault_id, input.path, None).await
+    let normalized_path = normalize_mcp_path(input.path)?;
+    read_file_inner(state, user_id, input.vault_id, normalized_path, None).await
 }
 
 pub async fn read_file_at_commit(
@@ -166,11 +168,12 @@ pub async fn read_file_at_commit(
     user_id: &str,
     input: ReadFileAtCommitInput,
 ) -> Result<ReadFileOutput> {
+    let normalized_path = normalize_mcp_path(input.path)?;
     read_file_inner(
         state,
         user_id,
         input.vault_id,
-        input.path,
+        normalized_path,
         Some(input.commit),
     )
     .await
@@ -237,7 +240,7 @@ pub async fn write_file(
     user: &AuthenticatedUser,
     input: WriteFileInput,
 ) -> Result<WriteToolOutput> {
-    let path = input.path.clone();
+    let path = normalize_mcp_path(input.path)?;
     let size_bytes = input.content.len();
     apply_write_tool(
         state,
@@ -246,10 +249,10 @@ pub async fn write_file(
             vault_id: input.vault_id,
             parent_commit: input.parent_commit,
             activity_action: "mcp_write",
-            activity_path: path,
+            activity_path: path.clone(),
             activity_size_bytes: size_bytes,
             change: PushChange::Text {
-                path: input.path,
+                path,
                 content: input.content,
             },
         },
@@ -262,7 +265,7 @@ pub async fn delete_file(
     user: &AuthenticatedUser,
     input: DeleteFileInput,
 ) -> Result<WriteToolOutput> {
-    let path = input.path.clone();
+    let path = normalize_mcp_path(input.path)?;
     apply_write_tool(
         state,
         user,
@@ -270,12 +273,16 @@ pub async fn delete_file(
             vault_id: input.vault_id,
             parent_commit: input.parent_commit,
             activity_action: "mcp_delete",
-            activity_path: path,
+            activity_path: path.clone(),
             activity_size_bytes: 0,
-            change: PushChange::Delete { path: input.path },
+            change: PushChange::Delete { path },
         },
     )
     .await
+}
+
+fn normalize_mcp_path(raw_path: String) -> Result<String> {
+    path::normalize(&raw_path).map_err(|err| anyhow!("invalid_path: {err}"))
 }
 
 pub fn tool_definitions() -> Vec<Tool> {

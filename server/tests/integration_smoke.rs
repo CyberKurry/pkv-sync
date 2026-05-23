@@ -137,6 +137,35 @@ async fn full_stack_health_returns_ok() {
 }
 
 #[tokio::test]
+async fn full_stack_responses_include_security_headers() {
+    let server = start_test_server().await;
+    let resp = client()
+        .get(format!("http://{}/api/health", server.addr))
+        .header("user-agent", "PKVSync-Plugin/0.1.0")
+        .header("x-pkvsync-deployment-key", &server.key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers().get("x-frame-options").unwrap(), "DENY");
+    assert_eq!(
+        resp.headers().get("x-content-type-options").unwrap(),
+        "nosniff"
+    );
+    assert_eq!(
+        resp.headers().get("referrer-policy").unwrap(),
+        "no-referrer"
+    );
+    let csp = resp
+        .headers()
+        .get("content-security-policy")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(csp.contains("frame-ancestors 'none'"), "{csp}");
+}
+
+#[tokio::test]
 async fn config_endpoint_reachable_through_stack() {
     let server = start_test_server().await;
     let resp = client()

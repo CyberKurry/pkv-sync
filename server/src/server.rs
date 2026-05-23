@@ -5,7 +5,7 @@ use crate::middleware::{deployment_key, real_ip, request_id, ua_filter};
 use crate::service::AppState;
 use crate::{admin, api};
 use axum::extract::{MatchedPath, Request, State};
-use axum::http::{Method, StatusCode};
+use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -16,6 +16,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 static START: Lazy<Instant> = Lazy::new(Instant::now);
+
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'";
+
+#[derive(Clone)]
+struct SecurityHeadersConfig {
+    hsts: bool,
+}
 
 /// Initialize the global start time. Idempotent.
 pub fn mark_start() {
@@ -48,8 +55,16 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
     let trusted = real_ip::TrustedProxies::from_vec(cfg.network.trusted_proxies.clone());
     let dep_key = deployment_key::DeploymentKey::new(cfg.server.deployment_key.clone());
     let metrics_state = state.clone();
+    let security_headers = SecurityHeadersConfig {
+        hsts: cfg.server.public_host.is_some(),
+    };
 
     let api_routes = api::router()
+        .layer(axum::extract::Extension(
+            api::plugin_manifest::PluginAssetOrigin::from_public_host(
+                cfg.server.public_host.clone(),
+            ),
+        ))
         .layer(axum::middleware::from_fn_with_state(
             dep_key,
             deployment_key::middleware,
@@ -75,6 +90,10 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
         .merge(api_routes)
         .merge(admin_routes)
         .with_state(state)
+        .layer(axum::middleware::from_fn_with_state(
+            security_headers,
+            security_headers_middleware,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             metrics_state,
             access_log_middleware,
@@ -180,6 +199,38 @@ async fn setup_gate(State(state): State<AppState>, req: Request, next: Next) -> 
     next.run(req).await
 }
 
+async fn security_headers_middleware(
+    State(config): State<SecurityHeadersConfig>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+    );
+    if config.hsts {
+        headers.insert(
+            HeaderName::from_static("strict-transport-security"),
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        );
+    }
+    response
+}
+
 pub async fn log_setup_state(state: &AppState, public_host: Option<&str>) {
     if !state.is_setup_pending().await {
         return;
@@ -274,15 +325,26 @@ pub async fn run_with_listener_and_state(
         }
     });
     let cleanup_limiter = limiter.clone();
+    let cleanup_limiter_state = state.clone();
     let limiter_cleanup_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(5 * 60));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         interval.tick().await;
         loop {
             interval.tick().await;
-            let removed = cleanup_limiter.prune_stale();
-            if removed > 0 {
-                tracing::debug!(removed, "pruned stale login limiter entries");
+            let (login_removed, mcp_removed) =
+                prune_stale_limiters(&cleanup_limiter, &cleanup_limiter_state);
+            if login_removed > 0 {
+                tracing::debug!(
+                    removed = login_removed,
+                    "pruned stale login limiter entries"
+                );
+            }
+            if mcp_removed > 0 {
+                tracing::debug!(
+                    removed = mcp_removed,
+                    "pruned stale MCP write limiter entries"
+                );
             }
         }
     });
@@ -298,6 +360,10 @@ pub async fn run_with_listener_and_state(
     cleanup_handle.abort();
     limiter_cleanup_handle.abort();
     Ok(())
+}
+
+fn prune_stale_limiters(limiter: &LoginRateLimiter, state: &AppState) -> (usize, usize) {
+    (limiter.prune_stale(), state.mcp_write_limiter.prune_stale())
 }
 
 /// Run the server until shutdown.
@@ -348,11 +414,37 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::pool;
 
     #[test]
     fn uptime_is_non_negative() {
         mark_start();
         let _ = uptime_seconds();
+    }
+
+    #[tokio::test]
+    async fn limiter_cleanup_prunes_mcp_write_limiter_entries() {
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+        state
+            .mcp_write_limiter
+            .update_config(1, Duration::from_millis(5));
+        state
+            .mcp_write_limiter
+            .try_record("token", "vault")
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let (_login_removed, mcp_removed) = prune_stale_limiters(
+            &LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60)),
+            &state,
+        );
+
+        assert_eq!(mcp_removed, 1);
     }
 }
 

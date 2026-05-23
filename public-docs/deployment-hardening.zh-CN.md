@@ -160,9 +160,23 @@ docker compose logs -f pkv-sync
 
 - 生产风格的 admin cookie(设置后启用 `Secure`、`SameSite=Strict`)
 - admin "分享服务端 URL" 链接使用 `https://` 前缀
-- 缺少 `X-Forwarded-Proto` 时的期望协议
+- `/api/plugin-manifest` 返回的插件资源 URL 使用 `https://` 外部主机
+
+插件清单 URL 生成不会信任客户端传入的 `X-Forwarded-Proto`。生产环境请设置 `public_host`，这样插件自更新拿到的资源 URL 才会稳定指向真实外部主机。
 
 对 SSE 来说,该设置也能帮反向代理识别长连接事件流而不是普通短请求。
+
+## 安全响应头
+
+PKV Sync 会在生产服务端栈里添加这些响应头:
+
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: no-referrer`
+- `Content-Security-Policy`，包含 `frame-ancestors 'none'`、`default-src 'self'`、`object-src 'none'`、`form-action 'self'` 以及自托管图片／样式
+- 在配置了 `public_host` 时添加 `Strict-Transport-Security`
+
+请让 TLS 终止和 `public_host` 保持一致。只有当服务端被配置为 HTTPS 对外发布时，才会发送 HSTS。
 
 ## 反向代理注意事项
 

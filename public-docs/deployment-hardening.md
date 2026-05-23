@@ -181,10 +181,28 @@ breaks when proxies forward an inconsistent host.
 
 - Production-style admin cookies (`Secure`, `SameSite=Strict`) when set.
 - `https://` share URL generation for the in-admin "share server URL" link.
-- The expected proto used when `X-Forwarded-Proto` is missing.
+- `https://` plugin asset URLs returned by `/api/plugin-manifest`.
+
+Plugin manifest URL generation does not trust client-supplied
+`X-Forwarded-Proto`. Set `public_host` for production so self-update clients
+receive stable asset URLs for the real external host.
 
 For SSE, the same setting helps reverse proxies recognise that the route is a
 keep-alive event stream rather than a normal short-lived request.
+
+## Security Response Headers
+
+PKV Sync adds these response headers to the production server stack:
+
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: no-referrer`
+- `Content-Security-Policy` with `frame-ancestors 'none'`, `default-src 'self'`,
+  `object-src 'none'`, `form-action 'self'`, and self-hosted images/styles
+- `Strict-Transport-Security` when `public_host` is configured
+
+Keep TLS termination and `public_host` aligned. HSTS is only emitted when the
+server is configured as an HTTPS public deployment.
 
 ## Reverse Proxy Notes
 

@@ -26,8 +26,9 @@ The extracted directory should contain `main.js`, `manifest.json`, and
 The PKV Sync settings page includes an **Updates** section. By default the
 plugin checks the connected PKV Sync server for the bundled plugin version; this
 is the preferred source for self-hosted deployments because upgrading the server
-also publishes the matching plugin assets. You can switch the update source to
-GitHub releases when needed.
+also publishes the matching plugin assets. When the server is configured with
+`public_host`, the plugin asset URLs stay anchored to that external host. You
+can switch the update source to GitHub releases when needed.
 
 When an update is available, **Update now** downloads `main.js`,
 `manifest.json`, and `styles.css` when present, verifies SHA-256 hashes, writes
@@ -168,11 +169,11 @@ then connect again.
 
 ## MCP Read Access
 
-If your administrator enables the `pkvsyncd mcp` command, AI tools can read
-your vault through MCP using a bearer device token. MCP access is read-only and
-offers vault listing, file listing, file reads at HEAD or a commit, and simple
-text search. See [`mcp-howto.md`](./mcp-howto.md) for stdio and Streamable HTTP
-setup examples.
+If your administrator enables the `pkvsyncd mcp` command, AI tools can access
+your vault through MCP using a bearer device token. MCP offers vault listing,
+file listing, file reads at HEAD or a commit, simple text search, and explicit
+write/delete tools guarded by optimistic concurrency. See
+[`mcp-howto.md`](./mcp-howto.md) for stdio and Streamable HTTP setup examples.
 
 ## Commands
 

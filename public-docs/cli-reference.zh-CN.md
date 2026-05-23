@@ -43,7 +43,7 @@ pkvsyncd materialize abc123 -o ./my-vault-old --at def456
 
 ## pkvsyncd mcp
 
-启动面向 AI 工具的只读 MCP server。
+启动面向 AI 工具的 MCP server。
 
 ### 用法
 
@@ -60,7 +60,7 @@ pkvsyncd mcp [--transport stdio|http] [--vault <vault-id>] [--token <pks-token>]
 
 ### 说明
 
-stdio 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC。HTTP 模式在 `/mcp` 提供无状态 Streamable HTTP MCP 端点。两种模式都是只读的，暴露 `list_vaults`、`list_files`、`read_file`、`read_file_at_commit` 和 `search`。
+stdio 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC。HTTP 模式在 `/mcp` 提供无状态 Streamable HTTP MCP 端点。两种模式都暴露 `list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`write_file` 和 `delete_file`。
 
 ### 示例
 
@@ -71,6 +71,8 @@ PKV_TOKEN=pks_xxx pkvsyncd mcp --vault abc123
 # 本地 Streamable HTTP 端点
 pkvsyncd mcp --transport http --bind 127.0.0.1:6711
 ```
+
+HTTP 模式每个请求都需要服务端部署密钥 header。
 
 ## pkvsyncd upgrade
 

@@ -139,6 +139,61 @@ async fn read_file_returns_text_and_expands_text_blob_pointer() {
 }
 
 #[tokio::test]
+async fn read_file_normalizes_mcp_paths_before_git_lookup() {
+    let (state, _tmp) = test_state().await;
+    let user_id = create_user(&state, "mcp-path-reader").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    git.commit_changes(
+        &vault.id,
+        None,
+        &[FileChange::Upsert {
+            path: "folder/note.md".into(),
+            file: StoredFile::Text {
+                bytes: b"normalized".to_vec(),
+            },
+        }],
+        "seed",
+    )
+    .await
+    .unwrap();
+
+    let output = read_file(
+        &state,
+        &user_id,
+        ReadFileInput {
+            vault_id: vault.id,
+            path: "folder\\note.md".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(output.path, "folder/note.md");
+    assert_eq!(output.content, "normalized");
+}
+
+#[tokio::test]
+async fn read_file_rejects_mcp_parent_traversal_paths() {
+    let (state, _tmp) = test_state().await;
+    let user_id = create_user(&state, "mcp-path-reject").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+
+    let err = read_file(
+        &state,
+        &user_id,
+        ReadFileInput {
+            vault_id: vault.id,
+            path: "../secret.md".into(),
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert!(err.to_string().contains("invalid_path"), "{err}");
+}
+
+#[tokio::test]
 async fn search_finds_case_insensitive_text_matches_and_skips_binary_and_blob_content() {
     let (state, _tmp) = test_state().await;
     let user_id = create_user(&state, "searcher").await;

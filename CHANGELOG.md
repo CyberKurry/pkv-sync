@@ -7,6 +7,24 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+### Security
+
+- Hardened the bundled plugin manifest endpoint so asset URLs use configured
+  `public_host` when available and no longer trust unverified
+  `X-Forwarded-Proto` request headers.
+- Added the deployment key middleware to MCP Streamable HTTP transport, while
+  keeping bearer-token authentication for MCP user authorization.
+- Added default security response headers for clickjacking, MIME sniffing,
+  referrer, CSP, and HSTS when `public_host` is configured.
+- Normalized MCP file paths before read, write, and delete operations.
+- Included MCP write limiter cleanup in the periodic limiter pruning task.
+
+### Documentation
+
+- Updated README, OpenAPI, CLI reference, MCP how-to, user manuals, and
+  deployment hardening docs to match the current MCP write, deployment-key, and
+  plugin self-update behavior.
+
 ## [0.8.0] - 2026-05-23
 
 ### Added
