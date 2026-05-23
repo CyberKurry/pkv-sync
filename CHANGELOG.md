@@ -7,6 +7,15 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-05-23
+
+### Fixed
+
+- Kept setup wizard CSRF aligned with the configured public HTTPS origin so
+  `public_host = "sync.example.com"` works behind reverse proxies that forward
+  the backend scheme as HTTP.
+- Clarified `public_host` docs in README and deployment hardening guides.
+
 ## [0.8.1] - 2026-05-23
 
 ### Security
