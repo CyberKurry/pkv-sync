@@ -1,3 +1,10 @@
+FROM node:24-bookworm AS plugin-builder
+WORKDIR /app/plugin
+COPY plugin/package*.json ./
+RUN npm ci
+COPY plugin ./
+RUN npm run build
+
 FROM rust:bookworm AS server-builder
 WORKDIR /app
 RUN apt-get update \
@@ -5,14 +12,11 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
 COPY server ./server
+RUN mkdir -p plugin
+COPY --from=plugin-builder /app/plugin/main.js ./plugin/main.js
+COPY --from=plugin-builder /app/plugin/manifest.json ./plugin/manifest.json
+COPY --from=plugin-builder /app/plugin/styles.css ./plugin/styles.css
 RUN cargo build --release -p pkv-sync-server
-
-FROM node:24-bookworm AS plugin-builder
-WORKDIR /app/plugin
-COPY plugin/package*.json ./
-RUN npm ci
-COPY plugin ./
-RUN npm run build
 
 FROM debian:bookworm-slim
 RUN apt-get update \

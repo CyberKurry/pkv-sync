@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use tower::ServiceExt;
 
-async fn app() -> axum::Router {
+async fn app() -> (axum::Router, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("d");
     std::fs::create_dir_all(&data_dir).unwrap();
@@ -38,6 +38,7 @@ async fn app() -> axum::Router {
         })
         .await
         .unwrap();
+    state.mark_setup_complete().await;
     let cfg = Config {
         server: ServerConfig {
             bind_addr: "127.0.0.1:6710".parse().unwrap(),
@@ -58,13 +59,12 @@ async fn app() -> axum::Router {
         },
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
-    let _ = tmp; // tempdir lives as long as the test process
-    server::build_app(state, &cfg, limiter)
+    (server::build_app(state, &cfg, limiter), tmp)
 }
 
 #[tokio::test]
 async fn sse_preflight_returns_cors_headers_without_deployment_key_or_plugin_ua() {
-    let app = app().await;
+    let (app, _tmp) = app().await;
 
     // Simulate exactly what a browser fetch preflight sends:
     // - OPTIONS method
@@ -150,7 +150,7 @@ async fn sse_preflight_returns_cors_headers_without_deployment_key_or_plugin_ua(
 /// silently dropped CORS on the actual response.
 #[tokio::test]
 async fn sse_get_unauthorized_response_still_carries_cors_allow_origin() {
-    let app = app().await;
+    let (app, _tmp) = app().await;
 
     // GET without bearer → expect 401 from AuthenticatedUser extractor.
     // Critically, the 401 response must still have Access-Control-Allow-Origin
@@ -184,7 +184,7 @@ async fn sse_get_unauthorized_response_still_carries_cors_allow_origin() {
 
 #[tokio::test]
 async fn sse_get_bad_deployment_key_still_carries_cors_allow_origin() {
-    let app = app().await;
+    let (app, _tmp) = app().await;
 
     let mut req = axum::http::Request::builder()
         .method(axum::http::Method::GET)
@@ -214,7 +214,7 @@ async fn sse_get_bad_deployment_key_still_carries_cors_allow_origin() {
 
 #[tokio::test]
 async fn sse_get_bad_user_agent_still_carries_cors_allow_origin() {
-    let app = app().await;
+    let (app, _tmp) = app().await;
 
     let mut req = axum::http::Request::builder()
         .method(axum::http::Method::GET)
@@ -244,7 +244,7 @@ async fn sse_get_bad_user_agent_still_carries_cors_allow_origin() {
 
 #[tokio::test]
 async fn sse_get_plugin_header_with_browser_user_agent_reaches_auth_layer() {
-    let app = app().await;
+    let (app, _tmp) = app().await;
 
     let mut req = axum::http::Request::builder()
         .method(axum::http::Method::GET)
@@ -281,7 +281,7 @@ async fn non_sse_routes_still_reject_options_without_cors_when_no_route_layer() 
     // falls through to method-not-allowed. The important thing is the
     // SSE route's preflight passes — this test just documents that we
     // did NOT inadvertently open CORS for the entire API surface.
-    let app = app().await;
+    let (app, _tmp) = app().await;
     let mut req = axum::http::Request::builder()
         .method(axum::http::Method::OPTIONS)
         .uri("/api/vaults")
