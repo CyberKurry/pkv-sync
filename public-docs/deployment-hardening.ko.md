@@ -152,7 +152,7 @@ docker compose logs -f pkv-sync
 
 ## public_host(admin POST 필수)
 
-`[server].public_host`를 운영자가 admin panel에 접근하는 외부에서 보이는 hostname(비표준이면 port 포함)으로 설정합니다. 예: `sync.example.com` 또는 `pkv.local:8443`. admin CSRF 검사는 이 값에서 예상 origin을 도출합니다.
+`[server].public_host`를 scheme 없이, 운영자가 admin panel에 접근하는 외부에서 보이는 hostname(비표준이면 port 포함)으로 설정합니다. 예: `sync.example.com` 또는 `pkv.local:8443`. admin CSRF 검사는 이 값에서 예상 origin을 도출합니다. `public_host`가 설정된 경우 예상 origin은 `https://<public_host>`로 고정되며, reverse proxy가 보내는 `X-Forwarded-Proto`가 admin CSRF 검사를 backend HTTP로 downgrade하지 않습니다.
 
 `public_host`가 비어 있으면 모든 admin POST가 `403 csrf validation failed`와 `tracing::warn` 로그 행으로 거부됩니다. 이는 의도적인 fail-closed 동작입니다. 대안으로 요청 자체의 `Host` header에 fallback하면 인증이 공격자가 영향을 줄 수 있는 header와 결합되고, proxy가 일관되지 않은 host를 전달할 때 깨집니다.
 

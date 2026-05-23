@@ -26,12 +26,16 @@ async fn fresh_state() -> (AppState, tempfile::TempDir) {
     (state, tmp)
 }
 
-fn app_with_state(state: AppState, data_dir: std::path::PathBuf) -> Router {
+fn app_with_public_host(
+    state: AppState,
+    data_dir: std::path::PathBuf,
+    public_host: impl Into<String>,
+) -> Router {
     let cfg = Config {
         server: ServerConfig {
             bind_addr: "127.0.0.1:6710".parse().unwrap(),
             deployment_key: "k_test_setup".into(),
-            public_host: Some("127.0.0.1:6710".into()),
+            public_host: Some(public_host.into()),
         },
         storage: StorageConfig {
             data_dir,
@@ -48,6 +52,10 @@ fn app_with_state(state: AppState, data_dir: std::path::PathBuf) -> Router {
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
     server::build_app(state, &cfg, limiter)
+}
+
+fn app_with_state(state: AppState, data_dir: std::path::PathBuf) -> Router {
+    app_with_public_host(state, data_dir, "127.0.0.1:6710")
 }
 
 fn request(method: Method, uri: &str, body: Body) -> Request<Body> {
@@ -71,6 +79,17 @@ fn form_request(uri: &str, body: impl Into<String>) -> Request<Body> {
     );
     req.headers_mut()
         .insert(header::ORIGIN, "https://127.0.0.1:6710".parse().unwrap());
+    req
+}
+
+fn form_request_with_origin(uri: &str, body: impl Into<String>, origin: &str) -> Request<Body> {
+    let mut req = request(Method::POST, uri, Body::from(body.into()));
+    req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert(header::ORIGIN, origin.parse().unwrap());
     req
 }
 
@@ -126,6 +145,46 @@ async fn setup_wizard_creates_first_admin_and_seals() {
         .await
         .unwrap();
     assert_eq!(login.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
+async fn setup_post_accepts_public_host_configured_as_full_url() {
+    let (state, tmp) = fresh_state().await;
+    let app = app_with_public_host(
+        state.clone(),
+        tmp.path().to_path_buf(),
+        "https://sync.example.com/",
+    );
+
+    let create = app
+        .oneshot(form_request_with_origin(
+            "/setup",
+            format!("username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}"),
+            "https://sync.example.com",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(create.status(), StatusCode::SEE_OTHER);
+    assert_eq!(state.users.count_admins().await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn setup_post_accepts_https_origin_when_trusted_proxy_reports_http_proto() {
+    let (state, tmp) = fresh_state().await;
+    let app = app_with_public_host(state.clone(), tmp.path().to_path_buf(), "sync.example.com");
+    let mut req = form_request_with_origin(
+        "/setup",
+        format!("username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}"),
+        "https://sync.example.com",
+    );
+    req.headers_mut()
+        .insert("x-forwarded-proto", "http".parse().unwrap());
+
+    let create = app.oneshot(req).await.unwrap();
+
+    assert_eq!(create.status(), StatusCode::SEE_OTHER);
+    assert_eq!(state.users.count_admins().await.unwrap(), 1);
 }
 
 #[tokio::test]

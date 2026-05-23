@@ -150,7 +150,7 @@ docker compose logs -f pkv-sync
 
 ## public_host（admin POST 必備）
 
-將 `[server].public_host` 設定為運維實際存取 admin 面板使用的外部主機名稱（必要時含連接埠），例如 `sync.example.com` 或 `pkv.local:8443`。admin CSRF 檢查依據該值計算期望 Origin。
+將 `[server].public_host` 設定為運維實際存取 admin 面板使用的外部主機名稱（不含協定，必要時含連接埠），例如 `sync.example.com` 或 `pkv.local:8443`。admin CSRF 檢查依據該值計算期望 Origin。設定 `public_host` 後，期望 Origin 固定為 `https://<public_host>`；反向代理傳入的 `X-Forwarded-Proto` 不會把 admin CSRF 校驗降級到後端 HTTP。
 
 如果 `public_host` 留空，所有 admin POST 都會被拒絕，返回 `403 csrf validation failed`，並打一條 `tracing::warn` 日誌。這是有意的 fail-closed 行為：另一種做法是回退請求自帶的 `Host` header，但會把鑑權耦合到攻擊者可影響的 header，且在代理轉發不一致的 Host 時會出錯。
 

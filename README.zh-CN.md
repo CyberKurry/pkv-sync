@@ -97,7 +97,7 @@ docker pull ghcr.io/cyberkurry/pkv-sync:v0.8.1
    format = "json"
    ```
 
-   `public_host` **是关键字段**：不配置时 admin CSRF 检查会 fail-closed，所有 admin POST 都会被拒绝（详见部署加固指南）。
+   `public_host` **是关键字段**：不配置时 admin CSRF 检查会 fail-closed，所有 admin POST 都会被拒绝（详见部署加固指南）。配置后，admin CSRF 使用 `https://<public_host>` 作为公网 Origin；即使反向代理到后端时使用 HTTP，也不会因 `X-Forwarded-Proto: http` 降级。
 
 4. **编辑 `deploy/caddy/Caddyfile`**——把 `sync.example.com` 改成你的域名。compose 文件已经挂载好 Caddyfile 和 `caddy_data` 卷（用于 Let's Encrypt 证书持久化）。
 
@@ -193,7 +193,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version 0.9.1]
 | --- | --- |
 | `server.bind_addr` | 监听地址。反代后用 `127.0.0.1:6710`；Docker Compose 里用 `0.0.0.0:6710`。 |
 | `server.deployment_key` | 由 `pkvsyncd genkey` 生成，客户端通过 `X-PKVSync-Deployment-Key` 头发送。 |
-| `server.public_host` | 对外可见的主机名（必要时含端口）。**admin POST 必备**，也用于分享 URL 和插件资源 URL——详见部署加固指南。 |
+| `server.public_host` | 对外可见的主机名（不含协议，必要时含端口）。**admin POST 必备**，也用于分享 URL 和插件资源 URL——详见部署加固指南。 |
 | `storage.data_dir` | 数据根目录，包含 `metadata.db`、`vaults/`、`blobs/`。 |
 | `storage.db_path` | SQLite 数据库路径（通常是 `<data_dir>/metadata.db`）。 |
 | `network.trusted_proxies` | 允许设置 `X-Forwarded-For` / `X-Forwarded-Proto` 的 CIDR。 |

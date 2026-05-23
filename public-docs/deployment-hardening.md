@@ -166,10 +166,12 @@ with `[update_check] enabled = false`.
 
 ## public_host (required for admin POST)
 
-Set `[server].public_host` to the externally-visible hostname (and port, if
-non-standard) that operators use to reach the admin panel — for example
-`sync.example.com` or `pkv.local:8443`. The admin CSRF check derives its
-expected origin from this value.
+Set `[server].public_host` to the externally-visible hostname without a scheme
+(and port, if non-standard) that operators use to reach the admin panel — for
+example `sync.example.com` or `pkv.local:8443`. The admin CSRF check derives its
+expected origin from this value. When `public_host` is configured, that expected
+origin is `https://<public_host>`; reverse-proxy `X-Forwarded-Proto` headers
+cannot downgrade the admin CSRF check to backend HTTP.
 
 If `public_host` is empty, every admin POST is rejected with `403 csrf
 validation failed` and a `tracing::warn` log line. This is intentional

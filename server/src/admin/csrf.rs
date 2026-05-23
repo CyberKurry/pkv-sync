@@ -47,18 +47,33 @@ fn expected_origins(req: &Request) -> Option<Vec<String>> {
     // misconfigured proxies, ambiguous virtual-host setups). Require an
     // explicit public_host. Operators who haven't set one see admin POSTs
     // rejected with 403 and a clear log line telling them what to configure.
-    let Some(host) = policy.and_then(|p| p.public_host.as_deref()) else {
+    let Some(host) = policy
+        .and_then(|p| p.public_host.as_deref())
+        .and_then(normalize_public_host)
+    else {
         tracing::warn!(
             "admin CSRF rejected: public_host is not configured; set [server].public_host in config.toml"
         );
         return None;
     };
-    let proto = trusted_forwarded_proto(req).unwrap_or(if policy.is_some_and(|p| p.secure) {
+    let proto = if policy.is_some_and(|p| p.secure) {
         "https"
     } else {
-        "http"
-    });
+        trusted_forwarded_proto(req).unwrap_or("http")
+    };
     Some(vec![format!("{proto}://{host}")])
+}
+
+fn normalize_public_host(public_host: &str) -> Option<&str> {
+    let host = public_host.trim().trim_end_matches('/');
+    if host.is_empty() {
+        return None;
+    }
+    Some(
+        host.strip_prefix("https://")
+            .or_else(|| host.strip_prefix("http://"))
+            .unwrap_or(host),
+    )
 }
 
 fn trusted_forwarded_proto(req: &Request) -> Option<&'static str> {
@@ -234,5 +249,19 @@ mod tests {
                 public_host: Some("example.test".into()),
             });
         assert!(same_origin(&req));
+    }
+
+    #[test]
+    fn normalizes_public_host_scheme_and_trailing_slash() {
+        assert_eq!(
+            normalize_public_host(" https://example.test/ "),
+            Some("example.test")
+        );
+        assert_eq!(
+            normalize_public_host("http://example.test"),
+            Some("example.test")
+        );
+        assert_eq!(normalize_public_host("example.test"), Some("example.test"));
+        assert_eq!(normalize_public_host("   "), None);
     }
 }
