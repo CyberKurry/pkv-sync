@@ -36,6 +36,8 @@ v1 SQLite baseline for fresh 1.x deployments.
 - Admin language selection uses a compact dropdown, and plugin language
   selection remains usable for longer localized language names.
 - Activity rows now label the vault column as "Vault" instead of "Detail".
+- Manual light/dark mode in the Obsidian plugin now wins over the current
+  Obsidian app theme.
 
 ### Fixed
 
@@ -54,6 +56,9 @@ v1 SQLite baseline for fresh 1.x deployments.
   list-then-check path.
 - MCP vault listing reads vault heads concurrently and no longer carries
   unused public-config code.
+- Queued pushes re-check vault ownership after acquiring the per-vault push
+  lock, so deleting a vault cannot be followed by a stale push that recreates
+  orphaned git storage.
 
 ### Security
 
