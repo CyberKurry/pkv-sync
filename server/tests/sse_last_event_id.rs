@@ -320,6 +320,226 @@ async fn reconnect_with_last_event_id_replays_missed_commits() {
     assert!(body.find("b.md") < body.find("c.md"));
 }
 
+struct EnvVarGuard {
+    key: &'static str,
+}
+
+impl EnvVarGuard {
+    fn set_path(key: &'static str, value: &std::path::Path) -> Self {
+        std::env::set_var(key, value);
+        Self { key }
+    }
+
+    fn set(key: &'static str, value: &str) -> Self {
+        std::env::set_var(key, value);
+        Self { key }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        std::env::remove_var(self.key);
+    }
+}
+
+async fn wait_for_file(path: &std::path::Path) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if path.exists() {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for {}",
+            path.display()
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn reconnect_with_last_event_id_does_not_miss_commit_landing_during_replay() {
+    let (ts, state, raw, vid, first_commit) = start_test_server().await;
+    let auth = {
+        let user = state.users.find_by_username("u").await.unwrap().unwrap();
+        let (token_row, _username) = state
+            .tokens
+            .find_by_hash(&token::hash(&raw))
+            .await
+            .unwrap()
+            .unwrap();
+        pkv_sync_server::auth::AuthenticatedUser {
+            user_id: user.id,
+            username: user.username,
+            is_admin: false,
+            token_id: token_row.id,
+            device_id: token_row.device_id,
+        }
+    };
+
+    let mut parent = first_commit.clone();
+    for idx in 0..3 {
+        let pushed = sync::push(
+            &state,
+            &auth,
+            &vid,
+            Some(&parent),
+            None,
+            PushReq {
+                device_name: Some(format!("replay-backlog-{idx}")),
+                changes: vec![PushChange::Text {
+                    path: format!("backlog-{idx}.md"),
+                    content: idx.to_string(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        parent = pushed.new_commit;
+    }
+
+    // The marker/pause env vars are a debug-only test seam in the SSE handler.
+    // They make the old subscribe-after-replay race deterministic: this test
+    // waits until replay has completed, pushes while the handler is paused, and
+    // then expects that commit from the reconnect stream.
+    let marker = ts._tmp.path().join("sse-after-replay.marker");
+    let _marker_env = EnvVarGuard::set_path("PKVSYNC_TEST_SSE_PAUSE_AFTER_REPLAY_MARKER", &marker);
+    let _pause_env = EnvVarGuard::set("PKVSYNC_TEST_SSE_PAUSE_AFTER_REPLAY_MS", "250");
+
+    let sse_url = format!("http://{}/api/vaults/{}/events", ts.addr, vid);
+    let client = reqwest::Client::new();
+    let reconnect = tokio::spawn({
+        let url = sse_url.clone();
+        let raw = raw.clone();
+        let key = ts.key.clone();
+        async move {
+            auth_headers(
+                client
+                    .get(&url)
+                    .bearer_auth(&raw)
+                    .header("Last-Event-ID", &first_commit),
+                &key,
+            )
+            .send()
+            .await
+            .unwrap()
+        }
+    });
+
+    wait_for_file(&marker).await;
+    let during_reconnect = sync::push(
+        &state,
+        &auth,
+        &vid,
+        Some(&parent),
+        None,
+        PushReq {
+            device_name: Some("during-reconnect".into()),
+            changes: vec![PushChange::Text {
+                path: "during-reconnect.md".into(),
+                content: "must not be missed".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let sse_resp = reconnect.await.unwrap();
+    let body = read_until(sse_resp, &[&format!("id: {}", during_reconnect.new_commit)]).await;
+
+    assert!(
+        body.contains(&format!("id: {}", during_reconnect.new_commit)),
+        "expected reconnect stream to include commit that landed during replay, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn reconnect_with_last_event_id_dedupes_commit_seen_by_replay_and_live_stream() {
+    let (ts, state, raw, vid, first_commit) = start_test_server().await;
+    let auth = {
+        let user = state.users.find_by_username("u").await.unwrap().unwrap();
+        let (token_row, _username) = state
+            .tokens
+            .find_by_hash(&token::hash(&raw))
+            .await
+            .unwrap()
+            .unwrap();
+        pkv_sync_server::auth::AuthenticatedUser {
+            user_id: user.id,
+            username: user.username,
+            is_admin: false,
+            token_id: token_row.id,
+            device_id: token_row.device_id,
+        }
+    };
+
+    // This pause fires after subscribe but before replay. The pushed commit is
+    // therefore both queued on the live receiver and discoverable by replay.
+    // The reconnect stream should emit replay first and suppress the duplicate
+    // live copy.
+    let marker = ts._tmp.path().join("sse-after-subscribe.marker");
+    let _marker_env =
+        EnvVarGuard::set_path("PKVSYNC_TEST_SSE_PAUSE_AFTER_SUBSCRIBE_MARKER", &marker);
+    let _pause_env = EnvVarGuard::set("PKVSYNC_TEST_SSE_PAUSE_AFTER_SUBSCRIBE_MS", "250");
+
+    let sse_url = format!("http://{}/api/vaults/{}/events", ts.addr, vid);
+    let client = reqwest::Client::new();
+    let reconnect = tokio::spawn({
+        let url = sse_url.clone();
+        let raw = raw.clone();
+        let key = ts.key.clone();
+        let first_commit = first_commit.clone();
+        async move {
+            auth_headers(
+                client
+                    .get(&url)
+                    .bearer_auth(&raw)
+                    .header("Last-Event-ID", &first_commit),
+                &key,
+            )
+            .send()
+            .await
+            .unwrap()
+        }
+    });
+
+    wait_for_file(&marker).await;
+    let during_reconnect = sync::push(
+        &state,
+        &auth,
+        &vid,
+        Some(&first_commit),
+        None,
+        PushReq {
+            device_name: Some("during-reconnect-dedupe".into()),
+            changes: vec![PushChange::Text {
+                path: "during-reconnect-dedupe.md".into(),
+                content: "emit once".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let sse_resp = reconnect.await.unwrap();
+    let body = read_until(
+        sse_resp,
+        &[
+            &format!("id: {}", during_reconnect.new_commit),
+            "during-reconnect-dedupe.md",
+        ],
+    )
+    .await;
+    let occurrences = body
+        .matches(&format!("id: {}", during_reconnect.new_commit))
+        .count();
+
+    assert_eq!(
+        occurrences, 1,
+        "expected replay/live duplicate to be emitted once, got: {body}"
+    );
+}
+
 #[tokio::test]
 async fn reconnect_too_far_behind_emits_lagged_instead_of_replaying_unbounded_history() {
     let (ts, state, raw, vid, first_commit) = start_test_server().await;

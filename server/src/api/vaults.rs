@@ -13,7 +13,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
@@ -493,6 +493,9 @@ async fn events(
         .try_acquire_sse_subscriber(&user.user_id)
         .ok_or_else(|| ApiError::too_many("too many concurrent SSE subscriptions"))?;
 
+    let receiver = state.events.subscribe(&id);
+    debug_pause_after_subscribe_for_tests().await;
+
     let replay_events = match headers
         .get("last-event-id")
         .and_then(|h| h.to_str().ok())
@@ -508,12 +511,15 @@ async fn events(
         None => crate::service::events::ReplayEvents::Events(Vec::new()),
     };
 
-    let receiver = state.events.subscribe(&id);
+    debug_pause_after_replay_for_tests().await;
+
+    let mut replay_commit_ids = HashSet::new();
     let replay_items = match replay_events {
         crate::service::events::ReplayEvents::Events(events) => events
             .into_iter()
             .filter_map(|event| {
                 let id = event.commit.clone();
+                replay_commit_ids.insert(id.clone());
                 Some(Ok::<Event, Infallible>(
                     Event::default()
                         .event("commit")
@@ -528,14 +534,19 @@ async fn events(
         }
     };
     let replay_stream = tokio_stream::iter(replay_items);
-    let live_stream = BroadcastStream::new(receiver).filter_map(|res| match res {
-        Ok(event) => Some(Ok::<Event, Infallible>(
-            Event::default()
-                .event("commit")
-                .id(event.commit.clone())
-                .json_data(&event)
-                .ok()?,
-        )),
+    let live_stream = BroadcastStream::new(receiver).filter_map(move |res| match res {
+        Ok(event) => {
+            if replay_commit_ids.contains(&event.commit) {
+                return None;
+            }
+            Some(Ok::<Event, Infallible>(
+                Event::default()
+                    .event("commit")
+                    .id(event.commit.clone())
+                    .json_data(&event)
+                    .ok()?,
+            ))
+        }
         Err(_lagged) => Some(Ok(Event::default().event("lagged").data(""))),
     });
     let stream = {
@@ -584,6 +595,44 @@ async fn events(
 
     Ok(response)
 }
+
+#[cfg(debug_assertions)]
+async fn debug_pause_from_env_for_tests(marker_key: &str, pause_key: &str) {
+    if let Ok(path) = std::env::var(marker_key) {
+        let _ = std::fs::write(path, b"paused");
+    }
+    let Ok(ms) = std::env::var(pause_key) else {
+        return;
+    };
+    let Ok(ms) = ms.parse::<u64>() else {
+        return;
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(debug_assertions)]
+async fn debug_pause_after_subscribe_for_tests() {
+    debug_pause_from_env_for_tests(
+        "PKVSYNC_TEST_SSE_PAUSE_AFTER_SUBSCRIBE_MARKER",
+        "PKVSYNC_TEST_SSE_PAUSE_AFTER_SUBSCRIBE_MS",
+    )
+    .await;
+}
+
+#[cfg(debug_assertions)]
+async fn debug_pause_after_replay_for_tests() {
+    debug_pause_from_env_for_tests(
+        "PKVSYNC_TEST_SSE_PAUSE_AFTER_REPLAY_MARKER",
+        "PKVSYNC_TEST_SSE_PAUSE_AFTER_REPLAY_MS",
+    )
+    .await;
+}
+
+#[cfg(not(debug_assertions))]
+async fn debug_pause_after_subscribe_for_tests() {}
+
+#[cfg(not(debug_assertions))]
+async fn debug_pause_after_replay_for_tests() {}
 
 fn request_metadata_parts(
     client_ip: Option<Extension<ClientIp>>,
