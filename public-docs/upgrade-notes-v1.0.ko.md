@@ -12,7 +12,7 @@ SQLite database는 1.0.0으로 in-place upgrade할 수 없습니다.
 
 0.x server를 운영 중이라면 다음 경로 중 하나를 선택하세요.
 
-1. 기존 deployment를 최신 0.8.x patch release에 유지합니다.
+1. 기존 deployment는 migration 준비를 위한 backup, materialize, export에 필요한 동안만 최종 0.8.x patch release에 유지합니다.
 2. 각 vault를 backup 또는 materialize하고, 새 1.0 data directory로 시작한 뒤 user와 vault를
    다시 만들고 contents를 새 server로 import 또는 push합니다.
 3. migration rehearsal을 시도하기 전에 0.x data root의 전체 `pkvsyncd backup`을 보관합니다.
@@ -37,7 +37,7 @@ detail입니다.
 
 ## 권장 0.x to 1.0 절차
 
-1. 먼저 기존 deployment를 최신 0.8.x patch release로 update합니다.
+1. 가능하면 먼저 기존 deployment를 최종 0.8.x patch release로 update하고, backup, materialize, export 준비에만 사용합니다.
 2. `pkvsyncd backup --output <backup-dir>`를 실행하고 결과를 안전하게 보관합니다.
 3. 각 vault에 대해 최신 Obsidian client, `git clone`, 또는
    `pkvsyncd materialize <vault-id> --output <dir>`로 현재 file tree를 만듭니다.

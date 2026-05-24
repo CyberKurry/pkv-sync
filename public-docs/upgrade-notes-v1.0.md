@@ -13,7 +13,8 @@ databases created by 0.x releases are **not supported for in-place upgrade** to
 
 If you run a 0.x server, choose one of these paths:
 
-1. Stay on the latest 0.8.x release for the old deployment.
+1. Keep the old deployment on the final 0.8.x patch release only long enough
+   to back up, materialize, or export data for migration.
 2. Back up or materialize each vault, start a fresh 1.0 data directory, create
    users and vaults again, then import or push the vault contents into the new
    server.
@@ -40,7 +41,8 @@ internal implementation details.
 
 ## Recommended 0.x to 1.0 sequence
 
-1. Upgrade the old deployment to the latest 0.8.x patch release first.
+1. If possible, update the old deployment to the final 0.8.x patch release
+   first, then use it only for backup, materialize, or export preparation.
 2. Run `pkvsyncd backup --output <backup-dir>` and store the result safely.
 3. For each vault, either use an up-to-date Obsidian client, `git clone`, or
    `pkvsyncd materialize <vault-id> --output <dir>` to produce a current file
