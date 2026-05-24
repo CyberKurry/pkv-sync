@@ -12,13 +12,17 @@ use crate::storage::git::{FileChange, Git2VaultStore, GitStoreError, GitVaultSto
 use crate::storage::path;
 use crate::storage::text_kind::TextClassifier;
 use bytes::Bytes;
+use git2::{Oid, Repository};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
 const MAX_PUSH_CHANGES: usize = 1000;
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
+const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
+const POINTER_VERSION: u64 = 1;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RequestMetadata<'a> {
@@ -199,7 +203,6 @@ pub async fn upload_check(
             return Err(ApiError::bad_request("invalid_hash", "invalid hash"));
         }
     }
-    let store = blob_store(state);
     let refs = state
         .blob_refs
         .referenced_hashes_for_vault(vault_id, &hashes)
@@ -211,12 +214,7 @@ pub async fn upload_check(
     let mut missing = Vec::new();
     for h in hashes {
         let available_to_vault = refs.contains(&h) || uploads.contains(&h);
-        if !available_to_vault
-            || !store
-                .has(&h)
-                .await
-                .map_err(|e| ApiError::bad_request("invalid_hash", e.to_string()))?
-        {
+        if !available_to_vault {
             missing.push(h);
         }
     }
@@ -1344,29 +1342,31 @@ async fn pull_for_user(
             .map_err(|e| ApiError::internal(e.to_string()))?,
         None => std::collections::BTreeMap::new(),
     };
-    let mut added = Vec::new();
-    let mut modified = Vec::new();
+    let rc = state.runtime_cfg.snapshot().await;
+    let path_filter = sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await?;
+    let mut added_paths = Vec::new();
+    let mut modified_paths = Vec::new();
     let mut deleted = Vec::new();
 
     for (path, cur) in &current {
+        if !path_filter.path_accepts(path) {
+            continue;
+        }
         match base.get(path) {
-            None => added.push(file_to_pull(&git, vault_id, path, &h).await?),
+            None => added_paths.push(path.clone()),
             Some(old) if old.git_oid != cur.git_oid => {
-                modified.push(file_to_pull(&git, vault_id, path, &h).await?)
+                modified_paths.push(path.clone());
             }
             Some(_) => {}
         }
     }
     for path in base.keys() {
-        if !current.contains_key(path) {
+        if !current.contains_key(path) && path_filter.path_accepts(path) {
             deleted.push(path.clone());
         }
     }
-    let rc = state.runtime_cfg.snapshot().await;
-    let path_filter = sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await?;
-    added.retain(|f| path_filter.path_accepts(&f.path));
-    modified.retain(|f| path_filter.path_accepts(&f.path));
-    deleted.retain(|p| path_filter.path_accepts(p));
+    let added = files_to_pull(state.default_vault_root(), vault_id, &h, added_paths).await?;
+    let modified = files_to_pull(state.default_vault_root(), vault_id, &h, modified_paths).await?;
     if !added.is_empty() {
         state
             .metrics
@@ -1426,40 +1426,99 @@ async fn pull_for_user(
     })
 }
 
-async fn file_to_pull(
-    git: &Git2VaultStore,
+async fn files_to_pull(
+    vault_root: PathBuf,
     vault_id: &str,
-    path: &str,
     head: &str,
-) -> Result<PullFile, ApiError> {
-    let f = git
-        .read_file(vault_id, path, Some(head))
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
-        .ok_or_else(|| ApiError::internal("file disappeared during pull"))?;
-    match f {
-        StoredFile::Text { bytes } => {
-            let content = if bytes.len() <= 64 * 1024 {
-                Some(String::from_utf8_lossy(&bytes).to_string())
-            } else {
-                None
-            };
-            Ok(PullFile {
-                path: path.into(),
-                file_type: "text",
-                size: bytes.len() as u64,
-                content_inline: content,
-                blob_hash: None,
-            })
-        }
-        StoredFile::BlobPointer { hash, size, .. } => Ok(PullFile {
-            path: path.into(),
-            file_type: "blob",
-            size,
-            content_inline: None,
-            blob_hash: Some(hash),
-        }),
+    paths: Vec<String>,
+) -> Result<Vec<PullFile>, ApiError> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
     }
+    let repo_path = vault_root.join(vault_id);
+    let head = head.to_string();
+    tokio::task::spawn_blocking(move || -> Result<Vec<PullFile>, GitStoreError> {
+        let repo = Repository::open_bare(&repo_path)?;
+        let oid = Oid::from_str(&head)?;
+        let commit = repo.find_commit(oid)?;
+        let tree = commit.tree()?;
+        let mut files = Vec::with_capacity(paths.len());
+        for path in paths {
+            let entry = tree
+                .get_path(Path::new(&path))
+                .map_err(|_| GitStoreError::NotFound)?;
+            let blob = repo.find_blob(entry.id())?;
+            let file = decode_pull_file(&path, blob.content().to_vec());
+            files.push(match file {
+                StoredFile::Text { bytes } => text_pull_file(&path, bytes),
+                StoredFile::BlobPointer { hash, size, .. } => blob_pull_file(&path, hash, size),
+            });
+        }
+        Ok(files)
+    })
+    .await
+    .map_err(|_| ApiError::internal("pull file read task panicked"))?
+    .map_err(|e| {
+        if matches!(e, GitStoreError::NotFound) {
+            ApiError::internal("file disappeared during pull")
+        } else {
+            ApiError::internal(e.to_string())
+        }
+    })
+}
+
+fn text_pull_file(path: &str, bytes: Vec<u8>) -> PullFile {
+    let content = if bytes.len() <= 64 * 1024 {
+        Some(String::from_utf8_lossy(&bytes).to_string())
+    } else {
+        None
+    };
+    PullFile {
+        path: path.into(),
+        file_type: "text",
+        size: bytes.len() as u64,
+        content_inline: content,
+        blob_hash: None,
+    }
+}
+
+fn blob_pull_file(path: &str, hash: String, size: u64) -> PullFile {
+    PullFile {
+        path: path.into(),
+        file_type: "blob",
+        size,
+        content_inline: None,
+        blob_hash: Some(hash),
+    }
+}
+
+fn decode_pull_file(path: &str, bytes: Vec<u8>) -> StoredFile {
+    if let Some(pointer) = pointer_bytes(&bytes, true) {
+        return pointer;
+    }
+    if !TextClassifier::default().is_text_path(path) {
+        if let Some(pointer) = pointer_bytes(&bytes, false) {
+            return pointer;
+        }
+    }
+    StoredFile::Text { bytes }
+}
+
+fn pointer_bytes(bytes: &[u8], require_magic: bool) -> Option<StoredFile> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    if require_magic && value.get(POINTER_MAGIC_KEY)?.as_u64()? != POINTER_VERSION {
+        return None;
+    }
+    let hash = value.get("blob")?.as_str()?.to_string();
+    if !crate::storage::blob::is_sha256_hex(&hash) {
+        return None;
+    }
+    let size = value.get("size")?.as_u64()?;
+    let mime = value
+        .get("mime")
+        .and_then(|m| m.as_str())
+        .map(str::to_string);
+    Some(StoredFile::BlobPointer { hash, size, mime })
 }
 
 pub async fn read_file(
@@ -1484,7 +1543,7 @@ mod tests {
     use crate::auth::{token, AuthenticatedUser};
     use crate::db::pool;
     use crate::db::repos::{
-        BlobRefRepo, NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo,
+        BlobRefRepo, BlobUploadRepo, NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo,
     };
     use crate::service::{vault, AppState};
     use crate::storage::blob::LocalFsBlobStore;
@@ -1610,6 +1669,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(resp.missing, vec![hash]);
+    }
+
+    #[tokio::test]
+    async fn upload_check_trusts_vault_upload_row_when_blob_file_is_missing() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let hash = "1".repeat(64);
+        state
+            .blob_uploads
+            .record_upload(&vid, &hash, chrono::Utc::now().timestamp())
+            .await
+            .unwrap();
+
+        let resp = upload_check(&state, &user.user_id, &vid, vec![hash])
+            .await
+            .unwrap();
+
+        assert!(resp.missing.is_empty());
     }
 
     #[tokio::test]
@@ -2163,6 +2239,50 @@ mod tests {
                 bytes: b"hello".to_vec()
             }
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "benchmark-flavored check for pull filter-first behavior"]
+    async fn pull_filter_first_benchmark_skips_excluded_candidates() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        state
+            .runtime_cfg_repo
+            .set_extra_exclude_globs(vec!["excluded/**".into()], None)
+            .await
+            .unwrap();
+        state
+            .runtime_cfg
+            .replace(state.runtime_cfg_repo.load().await.unwrap())
+            .await;
+
+        let mut changes = Vec::new();
+        for i in 0..100 {
+            changes.push(FileChange::Upsert {
+                path: format!("excluded/{i}.md"),
+                file: StoredFile::Text {
+                    bytes: vec![b'x'; 256 * 1024],
+                },
+            });
+        }
+        changes.push(FileChange::Upsert {
+            path: "included.md".into(),
+            file: StoredFile::Text {
+                bytes: b"keep".to_vec(),
+            },
+        });
+
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let commit = git
+            .commit_changes(&vid, None, &changes, "seed mostly excluded pull")
+            .await
+            .unwrap();
+
+        let pulled = pull(&state, &user.user_id, &vid, None).await.unwrap();
+
+        assert_eq!(pulled.to.as_deref(), Some(commit.as_str()));
+        assert_eq!(pulled.added.len(), 1);
+        assert_eq!(pulled.added[0].path, "included.md");
+        assert_eq!(pulled.added[0].content_inline.as_deref(), Some("keep"));
     }
 
     #[tokio::test]
