@@ -1,5 +1,6 @@
 export type PluginLanguage = "auto" | "en" | "zh-CN" | "zh-Hant" | "ja" | "ko";
 export type PluginUpdateSource = "server" | "github";
+export type PluginThemeMode = "auto" | "light" | "dark";
 const PLUGIN_LANGUAGES = new Set<PluginLanguage>([
   "auto",
   "en",
@@ -12,6 +13,7 @@ const PLUGIN_UPDATE_SOURCES = new Set<PluginUpdateSource>([
   "server",
   "github"
 ]);
+const PLUGIN_THEME_MODES = new Set<PluginThemeMode>(["auto", "light", "dark"]);
 
 export const MIN_DEBOUNCE_MS = 100;
 export const MAX_DEBOUNCE_MS = 60_000;
@@ -28,6 +30,7 @@ const SAFE_TEXT_EXTENSIONS = new Set<string>(DEFAULT_TEXT_EXTENSIONS);
 
 export interface PKVSyncSettings {
   language: PluginLanguage;
+  themeMode: PluginThemeMode;
   timezone: string;
   enableHistoryUi: boolean;
   serverUrl: string;
@@ -51,6 +54,7 @@ export interface PKVSyncSettings {
 
 export const DEFAULT_SETTINGS: PKVSyncSettings = {
   language: "auto",
+  themeMode: "auto",
   timezone: "Asia/Shanghai",
   enableHistoryUi: true,
   serverUrl: "",
@@ -78,6 +82,9 @@ export function normalizeSettings(
   const settings = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
   if (!PLUGIN_LANGUAGES.has(settings.language)) {
     settings.language = DEFAULT_SETTINGS.language;
+  }
+  if (!PLUGIN_THEME_MODES.has(settings.themeMode)) {
+    settings.themeMode = DEFAULT_SETTINGS.themeMode;
   }
   if (!settings.deviceId) settings.deviceId = generateDeviceId();
   if (!settings.timezone) settings.timezone = DEFAULT_SETTINGS.timezone;

@@ -16,6 +16,17 @@ pub async fn admin_css() -> impl IntoResponse {
     )
 }
 
+pub async fn admin_js() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )],
+        include_str!("../../static/admin.js"),
+    )
+}
+
 pub async fn admin_icons() -> impl IntoResponse {
     (
         StatusCode::OK,

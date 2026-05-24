@@ -13,6 +13,7 @@ describe("settings", () => {
     const settings = normalizeSettings({ serverUrl: "https://x" });
     expect(settings.serverUrl).toBe("https://x");
     expect(settings.language).toBe("auto");
+    expect(settings.themeMode).toBe("auto");
     expect(settings.timezone).toBe("Asia/Shanghai");
     expect(settings.deviceId).toMatch(/^dev_/);
     expect(settings.lastSyncSuccessAt).toBeNull();
@@ -31,6 +32,7 @@ describe("settings", () => {
       lastSyncSuccessAt: Number.NaN,
       checkForUpdates: "yes",
       updateSource: "other",
+      themeMode: "neon",
       lastUpdateCheckAt: Number.NaN,
       textExtensions: [123]
     } as any);
@@ -40,6 +42,7 @@ describe("settings", () => {
     expect(settings.lastSyncSuccessAt).toBeNull();
     expect(settings.checkForUpdates).toBe(true);
     expect(settings.updateSource).toBe("server");
+    expect(settings.themeMode).toBe("auto");
     expect(settings.lastUpdateCheckAt).toBeNull();
     expect(settings.textExtensions).toEqual(DEFAULT_SETTINGS.textExtensions);
   });

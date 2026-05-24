@@ -26,7 +26,7 @@
 {% block content %}
 <section class="panel table-panel activity-table">
   <table class="data-table">
-    <thead><tr><th>{{ t.time }}</th><th>{{ t.user }}</th><th>{{ t.action }}</th><th>Detail</th><th>{{ t.device }}</th><th>{{ t.ip }}</th><th>{{ t.user_agent }}</th></tr></thead>
+    <thead><tr><th>{{ t.time }}</th><th>{{ t.user }}</th><th>{{ t.action }}</th><th>{{ t.vault }}</th><th>{{ t.device }}</th><th>{{ t.ip }}</th><th>{{ t.user_agent }}</th></tr></thead>
     <tbody>
     {% for a in activities %}
       <tr>

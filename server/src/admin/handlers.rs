@@ -56,10 +56,12 @@ pub struct AdminCookiePolicy {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/admin/static/admin.css", get(crate::admin::admin_css))
+        .route("/admin/static/admin.js", get(crate::admin::admin_js))
         .route(
             "/admin/static/lucide-icons.svg",
             get(crate::admin::admin_icons),
         )
+        .route("/admin/language", get(set_language_query))
         .route("/admin/language/:lang", get(set_language))
         .route("/admin/login", get(login_page).post(login_post))
         .route("/setup", get(setup_get).post(setup_post))
@@ -186,12 +188,28 @@ async fn set_language(
     Path(lang): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Redirect {
-    if let Some(lang) = crate::admin::i18n::AdminLang::parse(&lang) {
-        cookies.add(crate::admin::i18n::language_cookie(
-            lang,
-            cookie_policy.secure,
-        ));
+    set_language_cookie(&cookie_policy, &cookies, &lang);
+    redirect_to_safe_admin_next(&params)
+}
+
+async fn set_language_query(
+    Extension(cookie_policy): Extension<AdminCookiePolicy>,
+    cookies: Cookies,
+    Query(params): Query<HashMap<String, String>>,
+) -> Redirect {
+    if let Some(lang) = params.get("lang") {
+        set_language_cookie(&cookie_policy, &cookies, lang);
     }
+    redirect_to_safe_admin_next(&params)
+}
+
+fn set_language_cookie(policy: &AdminCookiePolicy, cookies: &Cookies, lang: &str) {
+    if let Some(lang) = crate::admin::i18n::AdminLang::parse(&lang) {
+        cookies.add(crate::admin::i18n::language_cookie(lang, policy.secure));
+    }
+}
+
+fn redirect_to_safe_admin_next(params: &HashMap<String, String>) -> Redirect {
     let next = params
         .get("next")
         .filter(|value| is_safe_admin_next(value))

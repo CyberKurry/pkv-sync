@@ -7,6 +7,10 @@ export const en = {
   zhHantLanguage: "Traditional Chinese",
   japaneseLanguage: "Japanese",
   koreanLanguage: "Korean",
+  themeMode: "Theme",
+  themeAuto: "Auto",
+  themeLight: "Light",
+  themeDark: "Dark",
   needsReviewSuffix: "(needs review)",
   translationNeedsReview:
     "This language is community-translated; please report issues.",

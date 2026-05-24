@@ -16,6 +16,10 @@ export const ko = {
   zhHantLanguage: "중국어 번체",
   japaneseLanguage: "일본어",
   koreanLanguage: "한국어",
+  themeMode: "테마",
+  themeAuto: "자동",
+  themeLight: "라이트",
+  themeDark: "다크",
   needsReviewSuffix: "（검토 필요）",
   translationNeedsReview:
     "이 언어는 커뮤니티 번역입니다. 문제가 있으면 알려 주세요.",

@@ -16,6 +16,10 @@ export const ja = {
   zhHantLanguage: "繁体字中国語",
   japaneseLanguage: "日本語",
   koreanLanguage: "韓国語",
+  themeMode: "テーマ",
+  themeAuto: "自動",
+  themeLight: "ライト",
+  themeDark: "ダーク",
   needsReviewSuffix: "（レビュー募集中）",
   translationNeedsReview:
     "この言語はコミュニティ翻訳です。問題があれば報告してください。",

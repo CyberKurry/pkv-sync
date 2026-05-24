@@ -485,6 +485,52 @@ mod tests {
     }
 
     #[test]
+    fn admin_shell_uses_language_select_in_sidebar() {
+        let layout = include_str!("../../templates/layout.html");
+        let css = include_str!("../../static/admin.css");
+        let js = include_str!("../../static/admin.js");
+        assert!(layout.contains("language-switch"));
+        assert!(layout.contains("select"));
+        assert!(layout.contains("data-next=\"/admin\""));
+        assert!(layout.contains("data-language-select"));
+        assert!(layout.contains("/admin/static/admin.js"));
+        assert!(!layout.contains("onchange="));
+        assert!(!layout.contains("<span>|</span>"));
+        assert!(css.contains(".sidebar-control select"));
+        assert!(css.contains("width: 100%"));
+        assert!(js.contains("data-language-select"));
+        assert!(js.contains("querySelectorAll(\"[data-language-select]\")"));
+    }
+
+    #[test]
+    fn admin_shell_uses_single_theme_cycle_button_in_sidebar() {
+        let layout = include_str!("../../templates/layout.html");
+        let css = include_str!("../../static/admin.css");
+        let js = include_str!("../../static/admin.js");
+        let sprite = include_str!("../../static/lucide-icons.svg");
+        assert!(layout.contains("data-theme-toggle"));
+        assert!(layout.contains("data-theme-icon-use"));
+        assert!(layout.contains("data-label-auto"));
+        assert!(layout.contains("data-label-light"));
+        assert!(layout.contains("data-label-dark"));
+        assert!(layout.contains("type=\"button\""));
+        assert!(!layout.contains("<script>"));
+        assert!(css.contains(".theme-toggle-button"));
+        assert!(css.contains(".theme-toggle-icon"));
+        assert!(css.contains("[data-theme-mode=\"dark\"]"));
+        assert!(js.contains("pkv-admin-theme"));
+        assert!(js.contains("dataset.theme"));
+        assert!(js.contains("data-theme-toggle"));
+        assert!(js.contains("querySelectorAll(\"[data-theme-toggle]\")"));
+        assert!(js.contains("monitor"));
+        assert!(js.contains("sun"));
+        assert!(js.contains("moon"));
+        assert!(sprite.contains(r#"id="monitor""#));
+        assert!(sprite.contains(r#"id="sun""#));
+        assert!(sprite.contains(r#"id="moon""#));
+    }
+
+    #[test]
     fn dashboard_template_uses_lucide_sprite_and_mobile_toggle() {
         let html = DashboardTemplate {
             t: AdminText::en(),
@@ -830,6 +876,8 @@ mod tests {
         assert!(html.contains("vault_pull"));
         assert!(html.contains("Main Vault"));
         assert!(html.contains("Laptop"));
+        assert!(html.contains("<th>Vault</th>"));
+        assert!(!html.contains("<th>Detail</th>"));
         assert!(html.contains("<summary>ID</summary>"));
         assert!(html.contains("PKVSync-Plugin"));
         assert!(html.contains("/admin/static/lucide-icons.svg#filter"));
@@ -848,5 +896,36 @@ mod tests {
         .render()
         .unwrap();
         assert!(html.contains("/admin/static/lucide-icons.svg#log-in"));
+    }
+
+    #[test]
+    fn login_and_setup_templates_expose_language_and_theme_controls() {
+        let login = LoginTemplate {
+            t: AdminText::en(),
+            error: None,
+            success: None,
+            setup_required: false,
+            username_value: String::new(),
+            version: env!("CARGO_PKG_VERSION"),
+        }
+        .render()
+        .unwrap();
+        let setup = SetupTemplate {
+            t: AdminText::en(),
+            error: None,
+            username_value: String::new(),
+            version: env!("CARGO_PKG_VERSION"),
+        }
+        .render()
+        .unwrap();
+        for html in [login, setup] {
+            assert!(html.contains("/admin/static/admin.js"));
+            assert!(html.contains("data-language-select"));
+            assert!(html.contains("data-theme-toggle"));
+            assert!(html.contains("data-theme-icon-use"));
+            assert!(html.contains("/admin/static/lucide-icons.svg#monitor"));
+            assert!(html.contains("data-label-auto"));
+            assert!(!html.contains("<span>|</span>"));
+        }
     }
 }

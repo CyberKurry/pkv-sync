@@ -65,6 +65,7 @@ describe("PKVSyncSettingTab connection state", () => {
           deviceName: "Phone",
           timezone: "Asia/Shanghai",
           language: "auto",
+          themeMode: "dark",
           checkForUpdates: true,
           updateSource: "server",
           lastUpdateCheckAt: null
@@ -75,6 +76,16 @@ describe("PKVSyncSettingTab connection state", () => {
           autoLanguage: "Auto",
           englishLanguage: "English",
           zhCnLanguage: "Simplified Chinese",
+          zhHantLanguage: "Traditional Chinese",
+          japaneseLanguage: "Japanese",
+          koreanLanguage: "Korean",
+          needsReviewSuffix: "(needs review)",
+          translationNeedsReview: "This language is community-translated.",
+          helpTranslate: "Help translate",
+          themeMode: "Theme",
+          themeAuto: "Auto",
+          themeLight: "Light",
+          themeDark: "Dark",
           connection: "Connection",
           serverUrl: "Server URL",
           deploymentKey: "Deployment Key",
@@ -106,6 +117,8 @@ describe("PKVSyncSettingTab connection state", () => {
 
       expect(containerEl.toggleClass).toHaveBeenCalledWith("is-mobile", true);
       expect(containerEl.toggleClass).toHaveBeenCalledWith("is-phone", true);
+      expect(containerEl.toggleClass).toHaveBeenCalledWith("is-light-override", false);
+      expect(containerEl.toggleClass).toHaveBeenCalledWith("is-dark-override", true);
     } finally {
       Platform.isMobile = previous.isMobile;
       Platform.isMobileApp = previous.isMobileApp;
@@ -130,7 +143,8 @@ describe("PKVSyncSettingTab connection state", () => {
         deploymentKey: "k_abc",
         deviceName: "Laptop",
         timezone: "Asia/Shanghai",
-        language: "auto"
+        language: "auto",
+        themeMode: "auto"
       },
       text: () => ({
         ...en,
@@ -415,6 +429,134 @@ describe("plugin updates settings", () => {
   });
 });
 
+describe("device list settings", () => {
+  it("renders connected devices as card rows with current-device badge", () => {
+    const plugin = {
+      text: () => ({
+        tokens: "Devices",
+        currentDeviceSuffix: " (current)"
+      })
+    };
+    const tab = Object.create(PKVSyncSettingTab.prototype) as {
+      plugin: typeof plugin;
+      renderDevices: (body: MockElement, tokens: unknown[]) => void;
+    };
+    tab.plugin = plugin;
+    const body = new MockElement("div");
+
+    tab.renderDevices(body, [
+      {
+        id: "token-1",
+        device_name: "Laptop",
+        current: true
+      },
+      {
+        id: "token-2",
+        device_name: "Android",
+        current: false
+      }
+    ]);
+
+    const list = body.findByClass("pkv-sync-device-list");
+    expect(list?.tag).toBe("div");
+    expect(body.findAllByClass("pkv-sync-device-card")).toHaveLength(2);
+    expect(body.findAllByClass("pkv-sync-device-status")).toHaveLength(2);
+    expect(body.findAllByClass("pkv-sync-device-badge")).toHaveLength(1);
+    expect(body.textContent()).toContain("Laptop");
+    expect(body.textContent()).toContain("Android");
+    expect(body.textContent()).toContain("(current)");
+  });
+});
+
+describe("language selector settings", () => {
+  it("renders language selection after login", () => {
+    const body = new MockElement("div");
+    const plugin = {
+      settings: {
+        language: "zh-Hant",
+        themeMode: "auto",
+        lastSyncSuccessAt: null
+      },
+      text: () => en,
+      saveSettings: vi.fn().mockResolvedValue(undefined),
+      api: () => ({
+        me: vi.fn(),
+        tokens: vi.fn()
+      })
+    };
+    const tab = Object.create(PKVSyncSettingTab.prototype) as {
+      plugin: typeof plugin;
+      syncTimeExpanded: boolean;
+      renderId: number;
+      renderSynced: (panel: MockElement, renderId: number) => void;
+      syncDetailTime: () => string;
+      isMobileLayout: () => boolean;
+    };
+    tab.plugin = plugin;
+    tab.syncTimeExpanded = false;
+    tab.renderId = 1;
+    tab.syncDetailTime = () => "";
+    tab.isMobileLayout = () => false;
+
+    tab.renderSynced(body, 1);
+
+    expect(body.findByClass("pkv-sync-language-select")).toBeTruthy();
+    expect(body.textContent()).toContain("Language");
+  });
+});
+
+describe("theme mode settings", () => {
+  it("renders theme mode as one icon button that cycles to the next mode", async () => {
+    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const settings = {
+      language: "auto",
+      themeMode: "auto",
+      lastSyncSuccessAt: null
+    };
+    const body = new MockElement("div");
+    const plugin = {
+      settings,
+      text: () => en,
+      saveSettings,
+      api: () => ({
+        me: vi.fn(),
+        tokens: vi.fn()
+      })
+    };
+    const tab = Object.create(PKVSyncSettingTab.prototype) as {
+      plugin: typeof plugin;
+      syncTimeExpanded: boolean;
+      renderId: number;
+      display: () => void;
+      renderSynced: (panel: MockElement, renderId: number) => void;
+      syncDetailTime: () => string;
+      isMobileLayout: () => boolean;
+    };
+    tab.plugin = plugin;
+    tab.syncTimeExpanded = false;
+    tab.renderId = 1;
+    tab.display = vi.fn();
+    tab.syncDetailTime = () => "";
+    tab.isMobileLayout = () => false;
+
+    tab.renderSynced(body, 1);
+
+    const button = body.findByClass("pkv-sync-theme-button");
+    expect(button).toBeTruthy();
+    expect(button?.attrs["data-theme-mode"]).toBe("auto");
+    expect(button?.attrs["aria-label"]).toBe("Theme: Auto");
+    expect(body.findAllByClass("pkv-sync-theme-icon")).toHaveLength(1);
+    expect(body.textContent()).toContain("Theme");
+    expect(body.textContent()).toContain("Auto");
+
+    await body.clickButton("Auto");
+
+    expect(settings.themeMode).toBe("light");
+    expect(saveSettings).toHaveBeenCalledWith({ rebuild: false });
+    expect(tab.display).toHaveBeenCalledTimes(1);
+  });
+});
+
 function mockElement(): any {
   return {
     empty: vi.fn(),
@@ -425,6 +567,7 @@ function mockElement(): any {
     createEl: vi.fn(() => mockElement()),
     createSpan: vi.fn(() => mockElement()),
     setText: vi.fn(),
+    setAttr: vi.fn(),
     addEventListener: vi.fn()
   };
 }
@@ -436,11 +579,13 @@ class MockElement {
   disabled = false;
   text = "";
   cls = "";
+  attrs: Record<string, string> = {};
 
   constructor(public tag: string) {}
 
   empty(): void {
     this.children = [];
+    this.text = "";
   }
 
   addClass(): void {}
@@ -448,6 +593,10 @@ class MockElement {
   removeClass(): void {}
 
   toggleClass(): void {}
+
+  setAttr(name: string, value: string): void {
+    this.attrs[name] = value;
+  }
 
   createDiv(options: { cls?: string; text?: string } = {}): MockElement {
     return this.createChild("div", options);
@@ -458,6 +607,7 @@ class MockElement {
     options: { cls?: string; text?: string; attr?: Record<string, string> } = {}
   ): MockElement {
     const child = this.createChild(tag, options);
+    child.attrs = { ...(options.attr ?? {}) };
     if (options.attr?.placeholder) child.value = "";
     return child;
   }
@@ -494,6 +644,13 @@ class MockElement {
     return undefined;
   }
 
+  findAllByClass(cls: string): MockElement[] {
+    return [
+      ...(this.cls.split(/\s+/).includes(cls) ? [this] : []),
+      ...this.children.flatMap((child) => child.findAllByClass(cls))
+    ];
+  }
+
   async clickButton(text: string): Promise<void> {
     const button = this.findButton(text);
     if (!button) throw new Error(`Button not found: ${text}`);
@@ -510,7 +667,7 @@ class MockElement {
   }
 
   private findButton(text: string): MockElement | undefined {
-    if (this.tag === "button" && this.text === text) return this;
+    if (this.tag === "button" && this.textContent() === text) return this;
     for (const child of this.children) {
       const found = child.findButton(text);
       if (found) return found;
@@ -520,11 +677,12 @@ class MockElement {
 
   private createChild(
     tag: string,
-    options: { cls?: string; text?: string } = {}
+    options: { cls?: string; text?: string; attr?: Record<string, string> } = {}
   ): MockElement {
     const child = new MockElement(tag);
     child.cls = options.cls ?? "";
     child.text = options.text ?? "";
+    child.attrs = { ...(options.attr ?? {}) };
     this.children.push(child);
     return child;
   }

@@ -13,6 +13,7 @@ import type PKVSyncPlugin from "../main";
 import {
   normalizeTextExtensions,
   type PluginLanguage,
+  type PluginThemeMode,
   type PluginUpdateSource
 } from "../settings";
 import { listConflictFiles } from "../sync/conflict-files";
@@ -49,6 +50,8 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     containerEl.addClass("pkv-sync-settings-host");
     containerEl.toggleClass("is-mobile", this.isMobileLayout());
     containerEl.toggleClass("is-phone", Platform.isPhone);
+    containerEl.toggleClass("is-light-override", this.plugin.settings.themeMode === "light");
+    containerEl.toggleClass("is-dark-override", this.plugin.settings.themeMode === "dark");
 
     const shell = containerEl.createDiv({ cls: "pkv-sync-app" });
     const panel = shell.createDiv({ cls: "pkv-sync-panel" });
@@ -72,6 +75,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       tone: "muted"
     });
     this.renderLanguage(panel);
+    this.renderThemeMode(panel);
     this.renderSectionLabel(panel, t.connection);
 
     const serverUrl = this.renderTextField(panel, t.serverUrl, {
@@ -139,7 +143,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     const t = this.plugin.text();
     const row = panel.createDiv({ cls: "pkv-sync-inline-field" });
     row.createDiv({ cls: "pkv-sync-label", text: t.language });
-    const selectWrap = row.createDiv({ cls: "pkv-sync-select-wrap is-compact" });
+    const selectWrap = row.createDiv({ cls: "pkv-sync-select-wrap pkv-sync-language-select" });
     const select = selectWrap.createEl("select", {
       cls: "pkv-sync-input pkv-sync-select"
     });
@@ -190,6 +194,8 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     this.renderButton(panel, t.changeServer, "ghost", () =>
       this.showConnectionSettings()
     ).addClass("pkv-sync-change-server");
+    this.renderLanguage(panel);
+    this.renderThemeMode(panel);
     this.renderSectionLabel(panel, t.account);
 
     const username = this.renderTextField(panel, t.username, {
@@ -228,6 +234,8 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       tone: "success",
       expandedDetail: this.syncDetailTime()
     });
+    this.renderLanguage(panel);
+    this.renderThemeMode(panel);
 
     const body = panel.createDiv({ cls: "pkv-sync-synced-body" });
     body.createDiv({ cls: "pkv-sync-loading", text: "Loading account..." });
@@ -604,13 +612,19 @@ export class PKVSyncSettingTab extends PluginSettingTab {
   private renderDevices(body: HTMLElement, tokens: TokenView[]): void {
     const t = this.plugin.text();
     this.renderSectionLabel(body, t.tokens);
-    const list = body.createEl("ul", { cls: "pkv-sync-device-list" });
+    const list = body.createDiv({ cls: "pkv-sync-device-list" });
     for (const token of tokens) {
-      const item = list.createEl("li", {
-        cls: token.current ? "is-current" : ""
+      const item = list.createDiv({
+        cls: `pkv-sync-device-card${token.current ? " is-current" : ""}`
       });
-      item.createSpan({ text: token.device_name });
-      if (token.current) item.createSpan({ text: t.currentDeviceSuffix });
+      item.createDiv({ cls: "pkv-sync-device-status" });
+      const name = item.createDiv({
+        cls: "pkv-sync-device-name",
+        text: token.device_name
+      });
+      if (token.current) {
+        name.createSpan({ cls: "pkv-sync-device-badge", text: t.currentDeviceSuffix });
+      }
     }
   }
 
@@ -668,6 +682,48 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         text: options.expandedDetail
       });
     }
+  }
+
+  private renderThemeMode(panel: HTMLElement): void {
+    const t = this.plugin.text();
+    const row = panel.createDiv({ cls: "pkv-sync-inline-field pkv-sync-theme-field" });
+    row.createDiv({ cls: "pkv-sync-label", text: t.themeMode });
+    const mode = this.plugin.settings.themeMode;
+    const button = row.createEl("button", {
+      cls: `pkv-sync-theme-button is-${mode}`,
+      text: ""
+    });
+    const label = this.themeModeLabel(mode);
+    button.setAttr("type", "button");
+    button.setAttr("aria-label", `${t.themeMode}: ${label}`);
+    button.setAttr("title", `${t.themeMode}: ${label}`);
+    button.setAttr("data-theme-mode", mode);
+    const icon = button.createSpan({ cls: "pkv-sync-theme-icon" });
+    setIcon(icon, this.themeModeIcon(mode));
+    button.createSpan({ cls: "pkv-sync-theme-label", text: label });
+    button.addEventListener("click", () => {
+      this.plugin.settings.themeMode = this.nextThemeMode(mode);
+      void this.plugin.saveSettings({ rebuild: false }).then(() => this.display());
+    });
+  }
+
+  private themeModeLabel(mode: PluginThemeMode): string {
+    const t = this.plugin.text();
+    if (mode === "light") return t.themeLight;
+    if (mode === "dark") return t.themeDark;
+    return t.themeAuto;
+  }
+
+  private themeModeIcon(mode: PluginThemeMode): string {
+    if (mode === "light") return "sun";
+    if (mode === "dark") return "moon";
+    return "monitor";
+  }
+
+  private nextThemeMode(mode: PluginThemeMode): PluginThemeMode {
+    if (mode === "auto") return "light";
+    if (mode === "light") return "dark";
+    return "auto";
   }
 
   private renderSectionLabel(parent: HTMLElement, text: string): void {
