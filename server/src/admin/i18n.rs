@@ -102,6 +102,16 @@ pub struct AdminText {
     pub setup_begin: &'static str,
     pub update_available: &'static str,
     pub update_release_notes: &'static str,
+    pub version_label: &'static str,
+    pub up_to_date: &'static str,
+    pub last_checked_label: &'static str,
+    pub never_checked: &'static str,
+    pub sync_status_live: &'static str,
+    pub sync_status_idle: &'static str,
+    pub sync_status_quiet: &'static str,
+    pub active_subscribers: &'static str,
+    pub last_sync_activity_label: &'static str,
+    pub no_recent_activity: &'static str,
 }
 
 impl AdminLang {
@@ -235,6 +245,16 @@ impl AdminText {
             setup_begin: "Open setup",
             update_available: "New PKV Sync version available",
             update_release_notes: "Release notes",
+            version_label: "Version",
+            up_to_date: "Up to date",
+            last_checked_label: "Last checked",
+            never_checked: "Never checked",
+            sync_status_live: "Live",
+            sync_status_idle: "Idle",
+            sync_status_quiet: "Quiet",
+            active_subscribers: "Active subscribers",
+            last_sync_activity_label: "Last sync activity",
+            no_recent_activity: "No recent activity",
         }
     }
 
@@ -328,6 +348,16 @@ impl AdminText {
             extra_exclude_globs: "额外排除规则",
             extra_exclude_globs_hint:
                 "从同步中排除的文件模式（每行一个）。这些规则在内置硬排除之外额外生效。",
+            version_label: "版本",
+            up_to_date: "已是最新",
+            last_checked_label: "上次检查",
+            never_checked: "尚未检查",
+            sync_status_live: "实时",
+            sync_status_idle: "空闲",
+            sync_status_quiet: "静默",
+            active_subscribers: "活动订阅",
+            last_sync_activity_label: "上次同步活动",
+            no_recent_activity: "近期无活动",
         }
     }
 
@@ -408,6 +438,16 @@ impl AdminText {
             extra_exclude_globs: "額外排除規則",
             extra_exclude_globs_hint:
                 "從同步中排除的檔案模式（每行一個）。這些規則會在內建硬排除之外額外生效。",
+            version_label: "版本",
+            up_to_date: "已是最新",
+            last_checked_label: "上次檢查",
+            never_checked: "尚未檢查",
+            sync_status_live: "即時",
+            sync_status_idle: "閒置",
+            sync_status_quiet: "靜默",
+            active_subscribers: "活躍訂閱",
+            last_sync_activity_label: "上次同步活動",
+            no_recent_activity: "近期無活動",
             ..Self::zh_cn()
         }
     }
@@ -448,6 +488,19 @@ impl AdminText {
             setup_begin: "設定を開く",
             update_available: "新しい PKV Sync バージョンがあります",
             update_release_notes: "リリースノート",
+            extra_exclude_globs: "追加の除外パターン",
+            extra_exclude_globs_hint:
+                "同期から除外するファイルパターン（1 行に 1 つ）。組み込みの除外規則に加えて適用されます。",
+            version_label: "バージョン",
+            up_to_date: "最新です",
+            last_checked_label: "最終確認",
+            never_checked: "未確認",
+            sync_status_live: "ライブ",
+            sync_status_idle: "アイドル",
+            sync_status_quiet: "静かに",
+            active_subscribers: "アクティブな購読",
+            last_sync_activity_label: "最後の同期アクティビティ",
+            no_recent_activity: "最近のアクティビティなし",
             ..Self::en()
         }
     }
@@ -487,6 +540,19 @@ impl AdminText {
             setup_begin: "설정 열기",
             update_available: "새 PKV Sync 버전을 사용할 수 있습니다",
             update_release_notes: "릴리스 노트",
+            extra_exclude_globs: "추가 제외 패턴",
+            extra_exclude_globs_hint:
+                "동기화에서 제외할 파일 패턴(한 줄에 하나). 기본 제외 규칙에 추가로 적용됩니다.",
+            version_label: "버전",
+            up_to_date: "최신 상태",
+            last_checked_label: "마지막 확인",
+            never_checked: "확인되지 않음",
+            sync_status_live: "라이브",
+            sync_status_idle: "유휴",
+            sync_status_quiet: "조용함",
+            active_subscribers: "활성 구독자",
+            last_sync_activity_label: "마지막 동기화 활동",
+            no_recent_activity: "최근 활동 없음",
             ..Self::en()
         }
     }

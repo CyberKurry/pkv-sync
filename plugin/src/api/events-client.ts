@@ -51,12 +51,12 @@ export function subscribeVaultEvents(opts: SubscribeOptions): () => void {
         if (!resp.ok || !resp.body) {
           opts.onError(new Error(`SSE failed: HTTP ${resp.status}`));
         } else {
+          reconnectAttempt = 0;
           await readEventStream(resp.body, {
             ownDeviceId: opts.ownDeviceId,
             onEvent: opts.onEvent,
             onCommit: (commit) => {
               lastCommitId = commit;
-              reconnectAttempt = 0;
             },
             shouldEmit: (commit) => {
               if (commit === lastEmittedCommitId) return false;

@@ -115,6 +115,17 @@ impl VaultEventBus {
         self.inner.remove(vault_id);
     }
 
+    /// Sum of live broadcast receivers across all vaults. Used by the admin
+    /// dashboard's "Sync Status" card so the displayed number reflects actual
+    /// SSE clients rather than a static placeholder. Receivers that have been
+    /// dropped are not counted (tokio::broadcast tracks per-`Sender`).
+    pub fn total_subscribers(&self) -> usize {
+        self.inner
+            .iter()
+            .map(|entry| entry.value().receiver_count())
+            .sum()
+    }
+
     #[cfg(test)]
     pub fn len_for_tests(&self) -> usize {
         self.inner.len()
@@ -210,19 +221,58 @@ fn replay_changes_for_commit(
             }
             Delta::Added | Delta::Modified | Delta::Typechange | Delta::Renamed | Delta::Copied => {
                 if let Some(path) = delta.new_file().path().and_then(display_path) {
-                    let size = new_tree
+                    let change = new_tree
                         .get_path(Path::new(&path))
                         .ok()
                         .and_then(|entry| repo.find_blob(entry.id()).ok())
-                        .map(|blob| blob.content().len() as u64)
-                        .unwrap_or(0);
-                    changes.push(EventChange::TextRef { path, size });
+                        .map(|blob| classify_replay_change(&path, blob.content()))
+                        .unwrap_or(EventChange::TextRef {
+                            path: path.clone(),
+                            size: 0,
+                        });
+                    changes.push(change);
                 }
             }
             _ => {}
         }
     }
     Ok(changes)
+}
+
+/// Decide whether a stored git blob represents an attachment (blob pointer JSON
+/// emitted by `storage::git::encode_file`) or a plain text payload. Mirrors the
+/// publish-time emission in `service::sync` so that SSE replay after reconnect
+/// reports the same `kind` clients saw on the live channel — without this,
+/// reconnecting subscribers would see every attachment as `text_ref` with the
+/// JSON-pointer length as `size`, and would also fall through to refetch text
+/// via `/files`.
+fn classify_replay_change(path: &str, blob_bytes: &[u8]) -> EventChange {
+    if let Some((hash, size)) = detect_blob_pointer(blob_bytes) {
+        return EventChange::Blob {
+            path: path.to_string(),
+            blob_hash: hash,
+            size,
+        };
+    }
+    EventChange::TextRef {
+        path: path.to_string(),
+        size: blob_bytes.len() as u64,
+    }
+}
+
+fn detect_blob_pointer(bytes: &[u8]) -> Option<(String, u64)> {
+    // Keep this in sync with storage::git's POINTER_MAGIC_KEY / POINTER_VERSION
+    // and the field layout written by encode_file.
+    let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    if v.get("pkvsync_pointer")?.as_u64()? != 1 {
+        return None;
+    }
+    let hash = v.get("blob")?.as_str()?.to_string();
+    if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let size = v.get("size")?.as_u64()?;
+    Some((hash, size))
 }
 
 fn display_path(path: &Path) -> Option<String> {
@@ -243,6 +293,57 @@ fn replay_source_device(message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classify_replay_change_detects_blob_pointer() {
+        let pointer = serde_json::json!({
+            "pkvsync_pointer": 1,
+            "blob": "a".repeat(64),
+            "size": 42_u64,
+            "mime": "image/png",
+        });
+        let bytes = serde_json::to_vec(&pointer).unwrap();
+        match classify_replay_change("img.png", &bytes) {
+            EventChange::Blob {
+                path,
+                blob_hash,
+                size,
+            } => {
+                assert_eq!(path, "img.png");
+                assert_eq!(blob_hash, "a".repeat(64));
+                assert_eq!(size, 42);
+            }
+            other => panic!("expected Blob, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_replay_change_treats_text_as_text_ref() {
+        let bytes = b"# regular markdown content\nno pointer fields here";
+        match classify_replay_change("note.md", bytes) {
+            EventChange::TextRef { path, size } => {
+                assert_eq!(path, "note.md");
+                assert_eq!(size, bytes.len() as u64);
+            }
+            other => panic!("expected TextRef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_replay_change_rejects_pointer_with_bad_hash() {
+        // JSON parses, claims to be a pointer, but hash is not 64 hex chars —
+        // treat as text rather than emit an invalid Blob event downstream.
+        let pointer = serde_json::json!({
+            "pkvsync_pointer": 1,
+            "blob": "not-a-hash",
+            "size": 0_u64,
+        });
+        let bytes = serde_json::to_vec(&pointer).unwrap();
+        match classify_replay_change("x", &bytes) {
+            EventChange::TextRef { .. } => {}
+            other => panic!("expected TextRef fallback, got {other:?}"),
+        }
+    }
 
     #[tokio::test]
     async fn subscribe_receives_published_event() {
@@ -276,6 +377,21 @@ mod tests {
             changes: vec![],
         };
         bus.publish("nonexistent", event);
+    }
+
+    #[tokio::test]
+    async fn total_subscribers_sums_receivers_across_vaults() {
+        let bus = VaultEventBus::new(16);
+        assert_eq!(bus.total_subscribers(), 0);
+        let r1 = bus.subscribe("vault-a");
+        let r2 = bus.subscribe("vault-a");
+        let r3 = bus.subscribe("vault-b");
+        assert_eq!(bus.total_subscribers(), 3);
+        drop(r1);
+        assert_eq!(bus.total_subscribers(), 2);
+        drop(r2);
+        drop(r3);
+        assert_eq!(bus.total_subscribers(), 0);
     }
 
     #[tokio::test]

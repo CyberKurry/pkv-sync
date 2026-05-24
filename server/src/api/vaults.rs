@@ -335,7 +335,7 @@ async fn read_file(
         crate::storage::git::StoredFile::Text { bytes } => Ok((
             StatusCode::OK,
             [("content-type", "text/plain; charset=utf-8")],
-            bytes,
+            bytes::Bytes::from(bytes),
         )),
         crate::storage::git::StoredFile::BlobPointer { hash, .. } => {
             let b = sync::download_blob(&state, &user.user_id, &id, &hash)
@@ -344,7 +344,7 @@ async fn read_file(
             Ok((
                 StatusCode::OK,
                 [("content-type", "application/octet-stream")],
-                b.to_vec(),
+                b,
             ))
         }
     }

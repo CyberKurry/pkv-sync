@@ -430,15 +430,7 @@ export default class PKVSyncPlugin extends Plugin {
     try {
       const cfg = await this.api().config();
       this.serverCapabilities = cfg.capabilities ?? { history: true, diff: true };
-      const globs = cfg.extra_exclude_globs ?? [];
       let settingsDirty = false;
-      if (
-        globs.length !== this.settings.extraExcludeGlobs.length ||
-        !globs.every((g, i) => g === this.settings.extraExcludeGlobs[i])
-      ) {
-        this.settings.extraExcludeGlobs = globs;
-        settingsDirty = true;
-      }
       // Mirror server-controlled push debounce into local settings so the
       // engine actually honours runtime tuning (Plan J Critical fix).
       const debounceMs = normalizeDebounceMs(
@@ -510,7 +502,6 @@ export default class PKVSyncPlugin extends Plugin {
     this.pollTimer = window.setInterval(() => {
       void this.engine?.syncNow();
     }, this.settings.pollIntervalSeconds * 1000);
-    this.registerInterval(this.pollTimer);
     const fallbackMs = Math.max(
       30_000,
       Math.floor((this.settings.pollIntervalSeconds * 1000) / 2)
@@ -518,7 +509,6 @@ export default class PKVSyncPlugin extends Plugin {
     this.fallbackTimer = window.setInterval(() => {
       this.pushDebouncer?.trigger();
     }, fallbackMs);
-    this.registerInterval(this.fallbackTimer);
     void this.engine.syncNow();
   }
 

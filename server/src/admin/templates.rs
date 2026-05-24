@@ -40,6 +40,18 @@ pub struct DashboardTemplate {
     pub uptime_display: String,
     pub update_status: Option<UpdateStatus>,
     pub recent_activities: Vec<ActivityView>,
+    pub current_version: &'static str,
+    /// Localised "X ago" or empty when no check has run yet.
+    pub last_update_check_display: String,
+    /// Live count of SSE subscribers across all vaults.
+    pub sse_subscribers: usize,
+    /// Localised "X ago" string for the most recent sync activity (push /
+    /// pull / rollback / MCP write), or empty when no activity exists.
+    pub last_sync_activity_display: String,
+    /// "live" when at least one SSE subscriber is connected, "active" when
+    /// no subscriber but a sync activity happened recently, "quiet" otherwise.
+    /// Templates use this to pick the badge colour/class.
+    pub sync_status_state: &'static str,
 }
 
 #[derive(Template)]
@@ -327,6 +339,11 @@ mod tests {
             disk_total_display: "2 GB".into(),
             uptime_display: "5s".into(),
             update_status: None,
+            current_version: env!("CARGO_PKG_VERSION"),
+            last_update_check_display: String::new(),
+            sse_subscribers: 0,
+            last_sync_activity_display: String::new(),
+            sync_status_state: "quiet",
             recent_activities: vec![ActivityView {
                 timestamp: "1970-01-01 00:00:01 +00:00 UTC".into(),
                 username: "admin".into(),
@@ -343,6 +360,14 @@ mod tests {
         assert!(html.contains("admin"));
         assert!(html.contains("Users"));
         assert!(html.contains("Sync Status"));
+        assert!(
+            !html.contains("All systems healthy"),
+            "Sync Status card must reflect live state, not the legacy static placeholder"
+        );
+        assert!(
+            html.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))),
+            "dashboard must display the running server version"
+        );
         assert!(html.contains("class=\"app-shell\""));
         assert!(html.contains("href=\"/admin/devices\""));
         assert!(!html.contains("unpkg.com"));
@@ -369,6 +394,11 @@ mod tests {
                 release_url: "https://github.com/cyberkurry/pkv-sync/releases/tag/v0.8.1".into(),
                 notes_excerpt: "Release notes".into(),
             }),
+            current_version: env!("CARGO_PKG_VERSION"),
+            last_update_check_display: "1 minute ago".into(),
+            sse_subscribers: 0,
+            last_sync_activity_display: String::new(),
+            sync_status_state: "quiet",
             recent_activities: Vec::new(),
         }
         .render()
@@ -470,6 +500,11 @@ mod tests {
             disk_total_display: "2 GB".into(),
             uptime_display: "5s".into(),
             update_status: None,
+            current_version: env!("CARGO_PKG_VERSION"),
+            last_update_check_display: String::new(),
+            sse_subscribers: 0,
+            last_sync_activity_display: String::new(),
+            sync_status_state: "quiet",
             recent_activities: Vec::new(),
         }
         .render()

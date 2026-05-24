@@ -60,6 +60,13 @@ pub struct AppState {
     pub mcp_write_limiter: crate::auth::McpWriteRateLimiter,
     pub setup_limiter: crate::middleware::rate_limit::RequestRateLimiter,
     pub update_status: Arc<RwLock<Option<UpdateStatus>>>,
+    /// Wall-clock Unix timestamp of the most recent update check attempt that
+    /// returned an HTTP-level success (regardless of whether a new version was
+    /// found). `None` means the server hasn't reached the first scheduled tick
+    /// yet (or update_check is disabled by configuration). The admin
+    /// dashboard surfaces this as a "Last checked" relative time so operators
+    /// see that the system is alive even when no banner is shown.
+    pub last_update_check_at: Arc<RwLock<Option<i64>>>,
     setup_state: Arc<RwLock<SetupState>>,
     pub git_available: bool,
     sse_per_user_limit: Arc<AtomicUsize>,
@@ -118,6 +125,7 @@ impl AppState {
                 std::time::Duration::from_secs(60),
             ),
             update_status: Arc::new(RwLock::new(None)),
+            last_update_check_at: Arc::new(RwLock::new(None)),
             setup_state: Arc::new(RwLock::new(setup_state)),
             git_available,
             sse_per_user_limit: Arc::new(AtomicUsize::new(DEFAULT_SSE_PER_USER_LIMIT)),

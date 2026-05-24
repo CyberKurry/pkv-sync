@@ -72,10 +72,26 @@
       <p class="metric-value">{{ vaults }}</p>
       <p class="metric-note">tracked by this server</p>
     </article>
-    <article class="metric-card status-card">
+    <article class="metric-card status-card status-card-{{ sync_status_state }}">
       <span class="metric-label">Sync Status</span>
-      <p class="status-line"><span class="event-dot"></span>All systems healthy</p>
-      <p class="metric-note">Last check: now</p>
+      <p class="status-line">
+        <span class="event-dot"></span>
+        {% if sync_status_state == "live" %}{{ t.sync_status_live }}{% else if sync_status_state == "idle" %}{{ t.sync_status_idle }}{% else %}{{ t.sync_status_quiet }}{% endif %}
+      </p>
+      <p class="metric-note">{{ sse_subscribers }} {{ t.active_subscribers }}</p>
+      <p class="metric-note">
+        {% if last_sync_activity_display.len() > 0 %}{{ t.last_sync_activity_label }}: {{ last_sync_activity_display }}{% else %}{{ t.no_recent_activity }}{% endif %}
+      </p>
+    </article>
+    <article class="metric-card status-card">
+      <span class="metric-label">{{ t.version_label }}</span>
+      <p class="metric-value">v{{ current_version }}</p>
+      <p class="metric-note">
+        {% if let Some(update) = update_status %}v{{ update.latest_version }} {{ t.update_available }}{% else %}{{ t.up_to_date }}{% endif %}
+      </p>
+      <p class="metric-note">
+        {% if last_update_check_display.len() > 0 %}{{ t.last_checked_label }}: {{ last_update_check_display }}{% else %}{{ t.never_checked }}{% endif %}
+      </p>
     </article>
   </aside>
 </section>

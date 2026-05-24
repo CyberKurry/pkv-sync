@@ -24,6 +24,11 @@ pub struct NewUser {
 #[async_trait]
 pub trait UserRepo: Send + Sync {
     async fn create(&self, new_user: NewUser) -> Result<User, sqlx::Error>;
+    /// Atomically create the first admin if and only if no admin exists yet.
+    /// Returns `Ok(Some(user))` on creation, `Ok(None)` when another admin
+    /// already exists (loser of a race). Avoids the TOCTOU between a separate
+    /// `count_admins() == 0` check and `create(..)`.
+    async fn create_first_admin(&self, new_user: NewUser) -> Result<Option<User>, sqlx::Error>;
     async fn find_by_id(&self, id: &str) -> Result<Option<User>, sqlx::Error>;
     async fn find_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error>;
     async fn list(&self) -> Result<Vec<User>, sqlx::Error>;
@@ -75,6 +80,34 @@ impl UserRepo for SqliteUserRepo {
             created_at: now,
             last_login_at: None,
         })
+    }
+
+    async fn create_first_admin(&self, n: NewUser) -> Result<Option<User>, sqlx::Error> {
+        let id = Uuid::new_v4().simple().to_string();
+        let now = chrono::Utc::now().timestamp();
+        let result = sqlx::query(
+            "INSERT INTO users (id, username, password_hash, is_admin, is_active, created_at)
+             SELECT ?, ?, ?, 1, 1, ?
+             WHERE NOT EXISTS (SELECT 1 FROM users WHERE is_admin = 1)",
+        )
+        .bind(&id)
+        .bind(&n.username)
+        .bind(&n.password_hash)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        Ok(Some(User {
+            id,
+            username: n.username,
+            password_hash: n.password_hash,
+            is_admin: true,
+            is_active: true,
+            created_at: now,
+            last_login_at: None,
+        }))
     }
 
     async fn find_by_id(&self, id: &str) -> Result<Option<User>, sqlx::Error> {
@@ -290,6 +323,49 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(repo.count_admins().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn create_first_admin_when_none_exists() {
+        let repo = fresh_repo().await;
+        let created = repo
+            .create_first_admin(NewUser {
+                username: "first".into(),
+                password_hash: "h".into(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        let user = created.expect("create_first_admin should succeed when no admin exists");
+        assert!(user.is_admin);
+        assert_eq!(user.username, "first");
+        assert_eq!(repo.count_admins().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn create_first_admin_refuses_when_admin_already_exists() {
+        let repo = fresh_repo().await;
+        repo.create(NewUser {
+            username: "existing".into(),
+            password_hash: "h".into(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
+        let result = repo
+            .create_first_admin(NewUser {
+                username: "second".into(),
+                password_hash: "h".into(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        assert!(
+            result.is_none(),
+            "create_first_admin must return None when an admin already exists"
+        );
+        assert_eq!(repo.count_admins().await.unwrap(), 1);
+        assert!(repo.find_by_username("second").await.unwrap().is_none());
     }
 
     #[tokio::test]

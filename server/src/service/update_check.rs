@@ -34,8 +34,20 @@ pub fn spawn_update_check(state: AppState, cfg: UpdateCheckConfig) {
         tokio::time::sleep(first_delay).await;
         loop {
             match check_once(&current_version, &api_url, &client).await {
-                Ok(status) => {
-                    *state.update_status.write().await = status;
+                Ok(Some(status)) => {
+                    *state.update_status.write().await = Some(status);
+                    *state.last_update_check_at.write().await =
+                        Some(chrono::Utc::now().timestamp());
+                }
+                Ok(None) => {
+                    // Either the remote response was a transient non-success
+                    // (HTTP 4xx/5xx, rate-limit) or it definitively reports
+                    // we're on the latest version. Either way, do not clobber
+                    // a previously-known update banner; the next successful
+                    // check will refresh it. We still record the timestamp so
+                    // the dashboard can show "Last checked" liveness.
+                    *state.last_update_check_at.write().await =
+                        Some(chrono::Utc::now().timestamp());
                 }
                 Err(err) => {
                     tracing::debug!(error = %err, "failed to check for updates");

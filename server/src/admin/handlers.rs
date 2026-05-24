@@ -294,14 +294,22 @@ async fn setup_post(
         }
         _ => ApiError::internal(e.to_string()),
     })?;
-    state
+    let created = state
         .users
-        .create(NewUser {
+        .create_first_admin(NewUser {
             username: username.clone(),
             password_hash,
             is_admin: true,
         })
         .await?;
+    if created.is_none() {
+        // Atomic race lost: another concurrent setup_post created the first
+        // admin between our pre-check and INSERT. Seal setup and respond with
+        // 404 so the loser falls through to the login page like any other
+        // post-setup request.
+        state.mark_setup_complete().await;
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
     state.mark_setup_complete().await;
     tracing::info!(username = %username, "first admin created via setup wizard");
     Ok(Redirect::to(&format!(
@@ -506,6 +514,30 @@ async fn dashboard(
     let uptime_seconds = crate::server::uptime_seconds();
     let recent_activities = list_admin_activities(&state, 5, &ActivityFilters::default()).await?;
     let update_status = state.update_status.read().await.clone();
+    let last_update_check_at = *state.last_update_check_at.read().await;
+    let last_sync_activity_at: Option<i64> =
+        sqlx::query_scalar("SELECT MAX(timestamp) FROM sync_activity")
+            .fetch_optional(&state.pool)
+            .await?
+            .flatten();
+    let sse_subscribers = state.events.total_subscribers();
+    let now = chrono::Utc::now().timestamp();
+    let last_update_check_display = last_update_check_at
+        .map(|ts| crate::human::format_duration_seconds((now - ts).max(0) as u64, t.html_lang))
+        .unwrap_or_default();
+    let last_sync_activity_display = last_sync_activity_at
+        .map(|ts| crate::human::format_duration_seconds((now - ts).max(0) as u64, t.html_lang))
+        .unwrap_or_default();
+    let sync_status_state: &'static str = if sse_subscribers > 0 {
+        "live"
+    } else if last_sync_activity_at
+        .map(|ts| (now - ts).max(0) < 24 * 60 * 60)
+        .unwrap_or(false)
+    {
+        "idle"
+    } else {
+        "quiet"
+    };
     Ok(Html(
         DashboardTemplate {
             disk_used_display: crate::human::format_bytes(metrics.disk_used_bytes),
@@ -525,6 +557,11 @@ async fn dashboard(
                 metrics.memory_total_mb.saturating_mul(1024 * 1024),
             ),
             update_status,
+            current_version: env!("CARGO_PKG_VERSION"),
+            last_update_check_display,
+            sse_subscribers,
+            last_sync_activity_display,
+            sync_status_state,
             recent_activities,
         }
         .render()
