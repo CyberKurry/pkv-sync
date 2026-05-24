@@ -27,6 +27,8 @@
 }
 
 body.theme-light .pkv-sync-settings-host,
+body.theme-light .pkv-sync-settings-host.is-light-override,
+body.theme-dark .pkv-sync-settings-host.is-light-override,
 .pkv-sync-settings-host.is-light-override {
   --pkv-bg-page: #f6f8fc;
   --pkv-bg-panel: #ffffff;
@@ -48,6 +50,8 @@ body.theme-light .pkv-sync-settings-host,
 }
 
 body.theme-dark .pkv-sync-settings-host,
+body.theme-light .pkv-sync-settings-host.is-dark-override,
+body.theme-dark .pkv-sync-settings-host.is-dark-override,
 .pkv-sync-settings-host.is-dark-override {
   --pkv-bg-page: #0f111c;
   --pkv-bg-panel: #161928;

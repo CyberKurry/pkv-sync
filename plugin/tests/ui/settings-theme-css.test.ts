@@ -43,6 +43,11 @@ describe("settings theme CSS", () => {
     expect(css).not.toContain(".pkv-sync-theme-select");
   });
 
+  it("makes manual theme overrides win over the current Obsidian app theme", () => {
+    expect(css).toContain("body.theme-dark .pkv-sync-settings-host.is-light-override");
+    expect(css).toContain("body.theme-light .pkv-sync-settings-host.is-dark-override");
+  });
+
   it("renders secondary and ghost actions as visible buttons", () => {
     expect(css).toContain(".pkv-sync-button.is-secondary");
     expect(css).toContain("background: var(--pkv-bg-panel)");
