@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { writePluginSettings, writeSyncIndex } from "../src/plugin-data";
+import {
+  writePluginSettings,
+  writePluginSettingsPatch,
+  writeSyncIndex
+} from "../src/plugin-data";
 import { SerializedPluginDataStore } from "../src/plugin-store";
 import { DEFAULT_SETTINGS } from "../src/settings";
 import type { LocalIndex } from "../src/sync/types";
@@ -44,6 +48,46 @@ describe("SerializedPluginDataStore", () => {
     expect(stored).toEqual({
       settings: nextSettings,
       syncIndexes: { "scope-a": index }
+    });
+  });
+
+  it("merges concurrent partial settings updates without clobbering full saves", async () => {
+    let stored: unknown = { settings: DEFAULT_SETTINGS };
+    const gate = deferred();
+    const nextSettings = {
+      ...DEFAULT_SETTINGS,
+      serverUrl: "https://sync.example.test",
+      debounceMs: 250,
+      lastUpdateCheckAt: null
+    };
+    const store = new SerializedPluginDataStore(
+      async () => stored,
+      async (data) => {
+        stored = data;
+      }
+    );
+
+    const fullSave = store.update(async (raw) => {
+      await gate.promise;
+      return writePluginSettings(raw, nextSettings);
+    });
+    const updateCheckWrite = store.update((raw) =>
+      writePluginSettingsPatch(raw, { lastUpdateCheckAt: 1_700_000_000 })
+    );
+    const debounceWrite = store.update((raw) =>
+      writePluginSettingsPatch(raw, { debounceMs: 1_000 })
+    );
+
+    await Promise.resolve();
+    gate.resolve();
+    await Promise.all([fullSave, updateCheckWrite, debounceWrite]);
+
+    expect(stored).toEqual({
+      settings: {
+        ...nextSettings,
+        lastUpdateCheckAt: 1_700_000_000,
+        debounceMs: 1_000
+      }
     });
   });
 

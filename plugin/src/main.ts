@@ -8,6 +8,7 @@ import {
   readSyncIndex,
   syncScopeKey,
   writePluginSettings,
+  writePluginSettingsPatch,
   writeSyncIndex
 } from "./plugin-data";
 import {
@@ -252,6 +253,16 @@ export default class PKVSyncPlugin extends Plugin {
     if (options.rebuild !== false) this.rebuildSyncEngine();
   }
 
+  private async saveSettingsPatch(
+    patch: Partial<PKVSyncSettings>,
+    options: { rebuild?: boolean } = {}
+  ): Promise<void> {
+    Object.assign(this.settings, patch);
+    await this.dataStore.update((data) => writePluginSettingsPatch(data, patch));
+    this.updateStatus();
+    if (options.rebuild !== false) this.rebuildSyncEngine();
+  }
+
   scheduleUpdateChecks(): void {
     if (this.updateDelayTimer !== null) {
       window.clearTimeout(this.updateDelayTimer);
@@ -281,8 +292,10 @@ export default class PKVSyncPlugin extends Plugin {
         this.settings.updateSource
       );
       this.availableUpdate = update;
-      this.settings.lastUpdateCheckAt = Math.floor(Date.now() / 1000);
-      await this.saveSettings({ rebuild: false });
+      await this.saveSettingsPatch(
+        { lastUpdateCheckAt: Math.floor(Date.now() / 1000) },
+        { rebuild: false }
+      );
       if (showNotice && !update) new Notice(this.text().updateUpToDate);
       if (showNotice && update) {
         new Notice(format(this.text().updateAvailable, { version: update.version }));
@@ -392,8 +405,10 @@ export default class PKVSyncPlugin extends Plugin {
 
   private async recordSyncSuccess(generation: number): Promise<void> {
     if (generation !== this.syncGeneration) return;
-    this.settings.lastSyncSuccessAt = Math.floor(Date.now() / 1000);
-    await this.saveSettings({ rebuild: false });
+    await this.saveSettingsPatch(
+      { lastSyncSuccessAt: Math.floor(Date.now() / 1000) },
+      { rebuild: false }
+    );
   }
 
   private makeClient(): ApiClient {
@@ -436,7 +451,6 @@ export default class PKVSyncPlugin extends Plugin {
     try {
       const cfg = await this.api().config();
       this.serverCapabilities = cfg.capabilities ?? { history: true, diff: true };
-      let settingsDirty = false;
       // Mirror server-controlled push debounce into local settings so the
       // engine actually honours runtime tuning (Plan J Critical fix).
       const debounceMs = normalizeDebounceMs(
@@ -444,11 +458,7 @@ export default class PKVSyncPlugin extends Plugin {
         this.settings.debounceMs
       );
       if (debounceMs !== this.settings.debounceMs) {
-        this.settings.debounceMs = debounceMs;
-        settingsDirty = true;
-      }
-      if (settingsDirty) {
-        await this.saveSettings({ rebuild: true });
+        await this.saveSettingsPatch({ debounceMs }, { rebuild: true });
       }
     } catch {
       this.serverCapabilities = null;

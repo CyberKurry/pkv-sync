@@ -37,6 +37,18 @@ export function writePluginSettings(
   return { ...(asPluginData(raw) ?? {}), settings };
 }
 
+export function writePluginSettingsPatch(
+  raw: unknown,
+  patch: Partial<PKVSyncSettings>
+): PluginData {
+  const data = asPluginData(raw) ?? {};
+  const settings =
+    data.settings && typeof data.settings === "object"
+      ? { ...data.settings, ...patch }
+      : { ...readPluginSettings(raw), ...patch };
+  return { ...data, settings };
+}
+
 export function writeSyncIndex(
   raw: unknown,
   scopeKey: string,
