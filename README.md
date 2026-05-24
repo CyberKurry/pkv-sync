@@ -7,22 +7,21 @@ desktop Obsidian plugin.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-English | [简体中文](./README.zh-CN.md)
+English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
 ## Status
 
-PKV Sync is pre-1.0 software. APIs, storage layout, release packaging, and
-operational defaults may still change.
+PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
+storage layout, plugin package, Docker image, and public documentation are
+versioned together.
 
 PKV Sync does **not** yet provide native end-to-end encryption. The server
 can read synced vault contents and attachments. Native per-vault E2EE is
-planned for the 1.x roadmap **after** the 1.0 release; it will ship as an
-opt-in privacy mode rather than a global default, because encryption
-trades away the server-side features (history diff, three-way auto-merge,
-inline SSE payload, MCP read/write) that make Git-native PKV useful. See
-`docs/ROADMAP.md` (private) for the design notes that will guide the 1.x
-work. Use HTTPS, strict account controls, encrypted disks, encrypted
-backups, and host-level hardening for real deployments — see the
+planned for the 1.x roadmap; it will ship as an opt-in privacy mode rather
+than a global default, because encryption trades away the server-side features
+(history diff, three-way auto-merge, inline SSE payload, MCP read/write) that
+make Git-native PKV useful. Use HTTPS, strict account controls, encrypted
+disks, encrypted backups, and host-level hardening for real deployments — see the
 [deployment hardening guide](./public-docs/deployment-hardening.md).
 
 **E2EE today via `git-crypt`** — users who need end-to-end encryption
@@ -35,6 +34,31 @@ on the server (acceptable for most threat models; if you need
 zero-knowledge including paths, wait for the native E2EE in the 1.x
 line). The standard `git clone` and `pkvsyncd materialize` flows still
 work with `git-crypt` encrypted vaults provided the client has the key.
+
+## Stability and Versioning
+
+PKV Sync follows semantic versioning starting at v1.0.0:
+
+- **Major (X.0.0)**: backwards-incompatible changes to the public HTTP API,
+  storage layout, or CLI surface. Migration notes are documented in
+  `public-docs/upgrade-notes-vX.0.md`.
+- **Minor (1.X.0)**: backwards-compatible feature additions. Existing
+  endpoints, CLI flags, and storage formats keep working.
+- **Patch (1.0.X)**: bug fixes and security patches. No breaking public API,
+  storage, CLI, or plugin compatibility changes.
+
+The public REST API contract is `public-docs/openapi.yaml`. Admin Web UI form
+handlers and other routes not listed there are internal implementation details.
+MCP behavior is documented in `public-docs/mcp-howto.md`.
+
+PKV Sync 1.0 intentionally resets the SQLite migration baseline. Fresh 1.x
+databases start from `server/migrations/0001_initial.sql`, and future 1.x
+migrations are append-only. SQLite databases created by 0.x releases are **not
+supported for in-place upgrade** to 1.0.0; follow
+[`public-docs/upgrade-notes-v1.0.md`](./public-docs/upgrade-notes-v1.0.md).
+
+Security disclosures are handled through
+[`SECURITY.md`](./SECURITY.md).
 
 ## Highlights
 
@@ -59,7 +83,7 @@ work with `git-crypt` encrypted vaults provided the client has the key.
   real LCS-based line diff and one-click "keep local" / "accept remote"
   buttons.
 - **Admin panel** for users, device tokens, vaults, invites, runtime settings,
-  activity log, and blob garbage collection. Responsive, English + 简体中文.
+  activity log, and blob garbage collection. Responsive, five-language UI.
 - **Security**: Argon2id password hashing, atomic per-IP login rate limiter
   with burst protection, CSRF fail-closed when `public_host` is unset, unified
   "invalid credentials" response across wrong-password and disabled-account
@@ -102,7 +126,7 @@ Docker images are published multi-arch (`linux/amd64`, `linux/arm64`) to GHCR:
 
 ```bash
 docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v0.8.3
+docker pull ghcr.io/cyberkurry/pkv-sync:v1.0.0
 ```
 
 ## Quick Start: Docker Compose
@@ -196,9 +220,11 @@ docker compose up -d
 ```
 
 The admin dashboard checks GitHub releases once every 24 hours and shows a
-banner when a newer PKV Sync release is available. Database migrations are
-append-only and run automatically on start. To roll back, restore the data
-directory from a backup.
+banner when a newer PKV Sync release is available. For 1.x deployments,
+database migrations run automatically on start and remain append-only after the
+v1 baseline. 0.x SQLite databases cannot be upgraded in place to 1.0.0; follow
+the [1.0 upgrade notes](./public-docs/upgrade-notes-v1.0.md). To roll back,
+restore the data directory from a backup.
 
 **Production hardening** — read the
 [deployment hardening guide](./public-docs/deployment-hardening.md) for:
@@ -221,7 +247,7 @@ pkvsyncd -c /etc/pkv-sync/config.toml backup --output <dir> [--data-dir <dir>] [
 pkvsyncd -c /etc/pkv-sync/config.toml restore --input <backup-dir> --data-dir <dir> [--force]
 pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
-pkvsyncd upgrade [--dry-run] [--yes] [--version 0.9.1]
+pkvsyncd upgrade [--dry-run] [--yes] [--version 1.0.0]
 ```
 
 Default config path: `/etc/pkv-sync/config.toml`.
@@ -252,7 +278,7 @@ on every `/mcp` request in addition to bearer token authentication.
 binary as `pkvsyncd.new` (or `pkvsyncd.new.exe` on Windows), verifies it
 against `SHA256SUMS`, and prints the systemd/manual swap commands. Use
 `--dry-run` to see the plan without downloading, `--yes` for non-interactive
-download, or `--version 0.9.1` to choose a specific release. Docker and
+download, or `--version 1.0.0` to choose a specific release. Docker and
 Kubernetes deployments should upgrade by pulling or changing the image tag; the
 CLI detects container environments and prints image-based guidance instead of
 writing a binary.
@@ -336,6 +362,8 @@ setting is true. The route is behind the deployment key middleware and plugin
 User-Agent guard, and it requires an admin bearer token. See the
 [OpenAPI specification](./public-docs/openapi.yaml) for the full route table,
 request / response schemas, metrics endpoint, and SSE event payload format.
+Starting with v1.0.0, that OpenAPI file is the public REST compatibility
+contract for 1.x.
 
 ## Operations
 
@@ -358,6 +386,8 @@ request / response schemas, metrics endpoint, and SSE event payload format.
 - [Deployment hardening](./public-docs/deployment-hardening.md)
 - [Admin manual](./public-docs/admin-manual.md)
 - [User manual](./public-docs/user-manual.md)
+- [1.0 upgrade notes](./public-docs/upgrade-notes-v1.0.md)
+- [Security policy](./SECURITY.md)
 - [OpenAPI spec](./public-docs/openapi.yaml)
 - [Changelog](./CHANGELOG.md)
 
