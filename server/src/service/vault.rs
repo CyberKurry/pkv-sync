@@ -1,5 +1,5 @@
 use crate::api::error::ApiError;
-use crate::db::repos::{NewActivity, SyncActivityRepo, Vault, VaultRepo};
+use crate::db::repos::{self, NewActivity, SyncActivityRepo, Vault, VaultRepo};
 use crate::service::events::{EventKind, VaultEvent};
 use crate::service::{vault_settings, AppState};
 use crate::storage::git::{Git2VaultStore, GitStoreError, GitVaultStore};
@@ -165,19 +165,13 @@ pub fn validate_vault_name(name: &str) -> Result<(), ApiError> {
 
 pub async fn create_vault(state: &AppState, user_id: &str, name: &str) -> Result<Vault, ApiError> {
     validate_vault_name(name)?;
-    if state
-        .vaults
-        .list_for_user(user_id)
-        .await?
-        .iter()
-        .any(|v| v.name == name)
-    {
-        return Err(ApiError::conflict(
-            "vault_name_taken",
-            "vault name already exists",
-        ));
-    }
-    let vault = state.vaults.create(user_id, name).await?;
+    let vault = state.vaults.create(user_id, name).await.map_err(|err| {
+        if repos::vault::is_user_name_unique_error(&err) {
+            ApiError::conflict("vault_name_taken", "vault name already exists")
+        } else {
+            ApiError::from(err)
+        }
+    })?;
     vault_settings::save(
         state,
         &vault.id,
@@ -338,6 +332,59 @@ mod tests {
         create_vault(&s, &uid, "main").await.unwrap();
         let err = create_vault(&s, &uid, "main").await.unwrap_err();
         assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_duplicate_name_conflicts_from_database_constraint() {
+        let (s, uid, _tmp) = state_and_user().await;
+        let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+
+        let first_state = s.clone();
+        let first_user = uid.clone();
+        let first_barrier = barrier.clone();
+        let first = tokio::spawn(async move {
+            first_barrier.wait().await;
+            create_vault(&first_state, &first_user, "main").await
+        });
+
+        let second_state = s.clone();
+        let second = tokio::spawn(async move {
+            barrier.wait().await;
+            create_vault(&second_state, &uid, "main").await
+        });
+
+        let results = [first.await.unwrap(), second.await.unwrap()];
+        let successes = results.iter().filter(|r| r.is_ok()).count();
+        let conflicts: Vec<_> = results
+            .iter()
+            .filter_map(|r| r.as_ref().err())
+            .filter(|err| {
+                err.status == axum::http::StatusCode::CONFLICT && err.code == "vault_name_taken"
+            })
+            .collect();
+
+        assert_eq!(successes, 1, "{results:?}");
+        assert_eq!(conflicts.len(), 1, "{results:?}");
+    }
+
+    #[tokio::test]
+    async fn same_name_is_allowed_for_different_users() {
+        let (s, first_uid, _tmp) = state_and_user().await;
+        let second = s
+            .users
+            .create(NewUser {
+                username: "v".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+
+        create_vault(&s, &first_uid, "main").await.unwrap();
+        let second_vault = create_vault(&s, &second.id, "main").await.unwrap();
+
+        assert_eq!(second_vault.name, "main");
+        assert_eq!(second_vault.user_id, second.id);
     }
 
     #[tokio::test]

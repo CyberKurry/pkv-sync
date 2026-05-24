@@ -42,6 +42,18 @@ impl SqliteVaultRepo {
     }
 }
 
+pub fn is_user_name_unique_error(e: &sqlx::Error) -> bool {
+    e.as_database_error()
+        .map(|db| {
+            db.is_unique_violation()
+                || db
+                    .message()
+                    .to_lowercase()
+                    .contains("vaults.user_id, vaults.name")
+        })
+        .unwrap_or(false)
+}
+
 #[async_trait]
 impl VaultRepo for SqliteVaultRepo {
     async fn create(&self, user_id: &str, name: &str) -> Result<Vault, sqlx::Error> {
