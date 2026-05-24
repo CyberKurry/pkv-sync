@@ -11,9 +11,9 @@
 
 PKV Sync 是 pre-1.0 软件。API、存储布局、发布形式和默认值都可能继续变更。
 
-PKV Sync **暂未提供**原生端到端加密（计划在 v0.9.0 / M6 里程碑落地，详见 `docs/ROADMAP.md`）。服务端可以读取同步的笔记内容和附件。生产部署务必启用 HTTPS、严格的账号控制、加密磁盘、加密备份和主机层加固——详见 [部署加固指南](./public-docs/deployment-hardening.zh-CN.md)。
+PKV Sync **暂未提供**原生端到端加密。服务端可以读取同步的笔记内容和附件。原生 per-vault E2EE 计划在 **1.0 发布之后**作为 1.x 路线图项目落地，并以"按 vault 可选启用的隐私模式"形式发布，而非全局默认 —— 加密会牺牲服务端侧的核心 Git-native 能力(历史 diff、三路自动合并、SSE inline 内容、MCP 读写),所以默认 vault 仍是明文 Git-native,需要的用户在创建 vault 时选 E2EE。生产部署务必启用 HTTPS、严格的账号控制、加密磁盘、加密备份和主机层加固——详见 [部署加固指南](./public-docs/deployment-hardening.zh-CN.md)。
 
-**今天就要 E2EE？用 `git-crypt` 过渡** —— 在 v0.9.0 之前需要端到端加密的用户，可以在 vault 上叠加 [`git-crypt`](https://github.com/AGWA/git-crypt)：本地初始化 `git-crypt`，在 `.gitattributes` 里标记敏感路径，加密后的内容到达 PKV Sync 时已经是密文 blob，服务端无法解密。**路径和文件名仍为明文**（对多数威胁模型可接受；若需要包含路径在内的零知识方案，请等待 v0.9.0 原生 E2EE）。标准的 `git clone` 与 `pkvsyncd materialize` 流程对 `git-crypt` 加密的 vault 仍然有效，前提是客户端持有密钥。
+**今天就要 E2EE？用 `git-crypt` 过渡** —— 在原生 E2EE 落地前需要端到端加密的用户，可以在 vault 上叠加 [`git-crypt`](https://github.com/AGWA/git-crypt)：本地初始化 `git-crypt`，在 `.gitattributes` 里标记敏感路径，加密后的内容到达 PKV Sync 时已经是密文 blob，服务端无法解密。**路径和文件名仍为明文**（对多数威胁模型可接受；若需要包含路径在内的零知识方案，请等待 1.x 路线图上的原生 E2EE）。标准的 `git clone` 与 `pkvsyncd materialize` 流程对 `git-crypt` 加密的 vault 仍然有效，前提是客户端持有密钥。
 
 ## 亮点
 
