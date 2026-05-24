@@ -7,6 +7,16 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-05-24
+
+### Fixed
+
+- Relaxed the global `Referrer-Policy` from `no-referrer` to `same-origin`
+  so first-run setup and admin form POSTs are no longer blocked by
+  browsers serializing `Origin: null` per the Fetch spec under
+  `no-referrer`. CSRF stays strict — `Origin: null` is rejected by a
+  dedicated regression test.
+
 ## [0.8.2] - 2026-05-23
 
 ### Fixed

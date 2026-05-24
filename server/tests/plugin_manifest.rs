@@ -84,7 +84,7 @@ async fn plugin_manifest_advertises_downloadable_assets_with_matching_hashes() {
 
     let body: serde_json::Value = serde_json::from_slice(&response_bytes(manifest_resp).await)
         .expect("manifest response json");
-    assert_eq!(body["version"], "0.8.2");
+    assert_eq!(body["version"], "0.8.3");
     assert_eq!(
         body["main_js_url"],
         "http://sync.example.test/api/plugin-assets/main.js"
