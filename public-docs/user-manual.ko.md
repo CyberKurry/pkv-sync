@@ -67,7 +67,7 @@ PKV Sync는 vault별 allowlist를 통해 선택된 Obsidian 설정 파일을 동
 
 기존 원격 vault는 사용자가 opt-in할 때까지 빈 allowlist를 유지합니다. **Settings -> PKV Sync**에서 현재 vault를 선택하고 **.obsidian sync rules**를 편집한 다음 저장합니다. 권장 starter list 버튼은 새 vault에 사용되는 것과 같은 starter rules를 채웁니다.
 
-플러그인 코드와 플러그인 설정은 기본적으로 동기화되지 않습니다. `.obsidian/plugins/**` 또는 플러그인 `data.json` 파일 같은 고급 규칙을 추가하기 전에 [`dot-obsidian-sync-howto.md`](./dot-obsidian-sync-howto.md)를 읽어 주세요.
+플러그인 코드와 플러그인 설정은 기본적으로 동기화되지 않습니다. `.obsidian/plugins/**` 또는 플러그인 `data.json` 파일 같은 고급 규칙을 추가하기 전에 [`dot-obsidian-sync-howto.ko.md`](./dot-obsidian-sync-howto.ko.md)를 읽어 주세요.
 
 ## 마지막 동기화 시간
 
@@ -124,7 +124,7 @@ Obsidian 플러그인은 활성 token과 deployment key를 `<vault>/.obsidian/pl
 
 ## MCP 접근
 
-관리자가 `pkvsyncd mcp` 명령을 활성화하면 AI 도구가 bearer device token을 사용해 MCP로 vault에 접근할 수 있습니다. MCP는 vault 목록, 파일 목록, HEAD 또는 commit의 파일 읽기, 간단한 텍스트 검색, 그리고 optimistic concurrency가 적용된 명시적 write / delete tools를 제공합니다. stdio와 Streamable HTTP 설정 예시는 [`mcp-howto.md`](./mcp-howto.md)를 참고하세요.
+관리자가 `pkvsyncd mcp` 명령을 활성화하면 AI 도구가 bearer device token을 사용해 MCP로 vault에 접근할 수 있습니다. MCP는 vault 목록, 파일 목록, HEAD 또는 commit의 파일 읽기, 간단한 텍스트 검색, 그리고 optimistic concurrency가 적용된 명시적 write / delete tools를 제공합니다. stdio와 Streamable HTTP 설정 예시는 [`mcp-howto.ko.md`](./mcp-howto.ko.md)를 참고하세요.
 
 ## 명령
 

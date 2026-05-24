@@ -167,7 +167,7 @@ then connect again.
 - Changing your password keeps the current device signed in and revokes your
   other device tokens.
 
-## MCP Read Access
+## MCP Access
 
 If your administrator enables the `pkvsyncd mcp` command, AI tools can access
 your vault through MCP using a bearer device token. MCP offers vault listing,

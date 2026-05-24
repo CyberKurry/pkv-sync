@@ -13,7 +13,7 @@
    ```
 
 2. 基于 `config.example.toml` 创建 `/etc/pkv-sync/config.toml`。
-3. 执行数据库迁移：
+3. 为全新的 1.x 数据目录初始化 v1 数据库基线：
 
    ```bash
    pkvsyncd -c /etc/pkv-sync/config.toml migrate up
@@ -28,7 +28,7 @@
 5. 全新数据库首次启动后，在浏览器打开 `/setup`，创建第一个管理员账号。PKV Sync 不再把随机管理员密码输出到 stderr 或容器日志。
 6. setup 完成后，日常管理员登录使用 `/admin/login`。
 
-已发布后的 migration 应保持追加式管理。对于已有部署，不要压缩或编辑已经发布的 migration 文件。
+PKV Sync 1.0 使用单个 v1 SQLite 基线。由 0.x 创建的数据库不支持原地升级到 1.0.0；请按 [`upgrade-notes-v1.0.zh-CN.md`](./upgrade-notes-v1.0.zh-CN.md) 操作。在这次 v1 基线之后，已发布的 1.x migration 保持追加式。
 
 ## Admin Web 面板
 
@@ -190,7 +190,9 @@ https://sync.example.com/k_xxx/
 
 二进制部署可先运行 `pkvsyncd upgrade --dry-run` 预览最新 release、目标资产和旁路写入路径。运行 `pkvsyncd upgrade --yes` 会把校验后的 release 二进制下载到当前可执行文件旁边的 `pkvsyncd.new`（Windows 为 `pkvsyncd.new.exe`）。命令会根据 `SHA256SUMS` 校验 SHA-256，并打印 systemd／手动替换步骤；它不会热替换正在运行的进程。
 
-使用 `pkvsyncd upgrade --version 0.9.1` 可以指定 release。若命令找不到匹配资产或校验和，请手动从 GitHub release 下载，并自行校验 `SHA256SUMS`。
+使用 `pkvsyncd upgrade --version 1.0.0` 可以指定 release。若命令找不到匹配资产或校验和，请手动从 GitHub release 下载，并自行校验 `SHA256SUMS`。
+
+对于 0.x 部署，不要把 1.0 二进制或镜像直接指向已有 `metadata.db`。请先备份、materialize 或导出笔记库内容，使用全新的 1.0 数据目录启动服务，再把笔记库内容导入或 push 到新服务端。详见 [`upgrade-notes-v1.0.zh-CN.md`](./upgrade-notes-v1.0.zh-CN.md)。
 
 Docker 和 Kubernetes 部署应通过拉取或修改容器镜像 tag 升级，然后重启服务或 rollout。upgrade CLI 检测到容器环境时，会输出镜像升级指引，不写入旁路二进制。
 

@@ -377,13 +377,16 @@ Before upgrading production:
    plugin zip, and `SHA256SUMS`.
 4. Verify the GHCR image exists for the tag and `latest`.
 5. Back up current data.
-6. For binary installs, run `pkvsyncd upgrade --dry-run` to preview the release
+6. If the current deployment is 0.x, read
+   [`upgrade-notes-v1.0.md`](./upgrade-notes-v1.0.md) before starting the 1.0
+   binary or image. Do not point 1.0 at an existing 0.x `metadata.db`.
+7. For binary installs, run `pkvsyncd upgrade --dry-run` to preview the release
    asset, then `pkvsyncd upgrade --yes` to download and verify `pkvsyncd.new`
    next to the current binary. Stop the service and swap binaries only after
    checksum verification.
-7. For Docker or Kubernetes, pull or change the image tag and restart the
+8. For Docker or Kubernetes, pull or change the image tag and restart the
    service or rollout instead of replacing a binary inside the container.
-8. Run migrations with the new binary or image.
+9. Run migrations with the new binary or image.
 
-Migrations are append-only once released. Do not squash published migrations for
-an existing deployment.
+PKV Sync 1.0 uses a single v1 SQLite baseline. After that baseline, published
+1.x migrations are append-only for existing 1.x deployments.

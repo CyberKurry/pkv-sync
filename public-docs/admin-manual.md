@@ -14,7 +14,7 @@ For network and host hardening, read the deployment hardening guide as well.
    ```
 
 2. Create `/etc/pkv-sync/config.toml` from `config.example.toml`.
-3. Apply database migrations:
+3. Initialize the v1 database baseline for a fresh 1.x data directory:
 
    ```bash
    pkvsyncd -c /etc/pkv-sync/config.toml migrate up
@@ -31,8 +31,10 @@ For network and host hardening, read the deployment hardening guide as well.
    stderr or container logs.
 6. After setup completes, use `/admin/login` for normal administrator sign-in.
 
-Migrations are intentionally append-only after release. Do not squash or edit
-already published migration files for an existing deployment.
+PKV Sync 1.0 uses a single v1 SQLite baseline. Databases created by 0.x
+releases are not supported for in-place upgrade to 1.0.0; follow
+[`upgrade-notes-v1.0.md`](./upgrade-notes-v1.0.md). After this v1 baseline,
+published 1.x migrations are append-only.
 
 ## Admin Web Panel
 
@@ -267,9 +269,14 @@ download the verified release binary next to the current executable as
 from `SHA256SUMS` and prints the systemd/manual swap steps. It does not hot
 replace the running process.
 
-Use `pkvsyncd upgrade --version 0.9.1` to target a specific release. If the
+Use `pkvsyncd upgrade --version 1.0.0` to target a specific release. If the
 command cannot find a matching asset or checksum, follow the manual GitHub
 release download path and verify `SHA256SUMS` yourself.
+
+For 0.x deployments, do not point the 1.0 binary or image at an existing
+`metadata.db`. Back up, materialize or export vault contents, start a fresh
+1.0 data directory, and import or push the vault contents into the new server.
+See [`upgrade-notes-v1.0.md`](./upgrade-notes-v1.0.md).
 
 Docker and Kubernetes deployments should upgrade by pulling or changing the
 container image tag, then restarting the service or rollout. The upgrade CLI

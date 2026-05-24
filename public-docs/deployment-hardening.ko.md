@@ -320,6 +320,7 @@ PKV Sync는 동기화, vault 수명 주기, 읽기 전용 탐색 활동을 user,
 3. GitHub release에 Linux amd64, Linux arm64, Windows x64, plugin zip, `SHA256SUMS`가 포함되어 있는지 확인합니다.
 4. GHCR image가 해당 tag와 `latest`에 존재하는지 확인합니다.
 5. 현재 data를 백업합니다.
-6. 새 binary로 migrations를 실행합니다.
+6. 현재 배포가 0.x라면 1.0 binary 또는 image를 시작하기 전에 [`upgrade-notes-v1.0.ko.md`](./upgrade-notes-v1.0.ko.md)를 읽으세요. 1.0을 기존 0.x `metadata.db`에 연결하지 마세요.
+7. 새 binary로 migrations를 실행합니다.
 
-Migrations는 릴리스 후 append-only입니다. 기존 배포를 위해 게시된 migrations를 squash하지 마세요.
+PKV Sync 1.0은 단일 v1 SQLite baseline을 사용합니다. 이 baseline 이후 게시되는 1.x migrations는 기존 1.x 배포에 대해 append-only입니다.

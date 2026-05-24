@@ -13,7 +13,7 @@
    ```
 
 2. 以 `config.example.toml` 建立 `/etc/pkv-sync/config.toml`。
-3. 執行資料庫 migration：
+3. 為全新的 1.x 資料目錄初始化 v1 資料庫基線：
 
    ```bash
    pkvsyncd -c /etc/pkv-sync/config.toml migrate up
@@ -28,7 +28,7 @@
 5. 全新資料庫首次啟動後，在瀏覽器開啟 `/setup`，建立第一個管理員帳號。PKV Sync 不再把隨機管理員密碼輸出到 stderr 或容器日誌。
 6. setup 完成後，日常管理員登入使用 `/admin/login`。
 
-已發布後的 migration 應保持追加式管理。對於既有部署，不要壓縮或編輯已經發布的 migration 檔案。
+PKV Sync 1.0 使用單一 v1 SQLite 基線。由 0.x 建立的資料庫不支援原地升級到 1.0.0；請參考 [`upgrade-notes-v1.0.zh-Hant.md`](./upgrade-notes-v1.0.zh-Hant.md) 的流程。在這次 v1 基線之後，已發布的 1.x migration 保持追加式。
 
 ## Admin Web 面板
 

@@ -15,7 +15,7 @@
    ```
 
 2. `config.example.toml` から `/etc/pkv-sync/config.toml` を作成します。
-3. データベース migration を適用します。
+3. 新しい 1.x データディレクトリ向けに v1 データベース baseline を初期化します。
 
    ```bash
    pkvsyncd -c /etc/pkv-sync/config.toml migrate up
@@ -30,7 +30,7 @@
 5. 新規データベースの初回起動後、ブラウザーで `/setup` を開き、最初の管理者アカウントを作成します。PKV Sync はランダムな管理者パスワードを stderr やコンテナログへ出力しません。
 6. setup 完了後、通常の管理者サインインには `/admin/login` を使用します。
 
-リリース後の migration は意図的に追記のみで管理します。既存デプロイメント向けに、公開済みの migration ファイルを squash したり編集したりしないでください。
+PKV Sync 1.0 は単一の v1 SQLite baseline を使用します。0.x で作成されたデータベースは 1.0.0 へインプレース upgrade できません。[`upgrade-notes-v1.0.ja.md`](./upgrade-notes-v1.0.ja.md) の手順に従ってください。この v1 baseline 以後、公開済みの 1.x migrations は append-only です。
 
 ## Admin Web パネル
 
