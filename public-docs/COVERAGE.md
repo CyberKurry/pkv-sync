@@ -1,6 +1,6 @@
 # PKV Sync Coverage Baseline
 
-English | [简体中文](./COVERAGE.zh-CN.md)
+English | [简体中文](./COVERAGE.zh-CN.md) | [繁體中文](./COVERAGE.zh-Hant.md) | [日本語](./COVERAGE.ja.md) | [한국어](./COVERAGE.ko.md)
 
 This page tracks the CI coverage baseline for the Rust server and Obsidian plugin. CI compares fresh coverage reports against this table and fails when any component drops by more than the allowed threshold.
 
@@ -27,4 +27,4 @@ the measured surface is broader than the previous plugin baseline.
 - Recompute the baseline at major release boundaries. Intentional refactors that move substantial code between modules should update this document in the same commit as the coverage gate expectation.
 - Exemptions must be explicit in this document or in the release notes for the change that introduces them.
 
-The coverage gate reads this English document as the tracked source of truth. Keep the Chinese mirror in `public-docs/COVERAGE.zh-CN.md` synchronized whenever this table changes.
+The coverage gate reads this English document as the tracked source of truth. Keep every language mirror synchronized whenever this table changes.

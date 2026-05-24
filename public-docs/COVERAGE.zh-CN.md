@@ -1,6 +1,6 @@
 # PKV Sync 覆盖率基线
 
-[English](./COVERAGE.md) | 简体中文
+[English](./COVERAGE.md) | 简体中文 | [繁體中文](./COVERAGE.zh-Hant.md) | [日本語](./COVERAGE.ja.md) | [한국어](./COVERAGE.ko.md)
 
 本页记录 Rust 服务端和 Obsidian 插件的 CI 覆盖率基线。CI 会把最新覆盖率报告与此表对比；任一组件的下降幅度超过允许阈值时，检查会失败。
 
@@ -23,4 +23,4 @@ v0.5.1 基线来自 CI run `26225831124`。Rust 服务端覆盖率采用 Ubuntu 
 - 主要 release 边界应重新计算基线。大规模重构导致代码在模块间迁移时，应在同一提交中同步更新本文档和覆盖率门禁预期。
 - 豁免必须在本文档或引入该豁免的 release notes 中明确说明。
 
-覆盖率门禁以英文文档 `public-docs/COVERAGE.md` 作为跟踪的事实来源。每次修改该表时，请同步更新本中文镜像。
+覆盖率门禁以英文文档 `public-docs/COVERAGE.md` 作为跟踪的事实来源。每次修改该表时，请同步更新所有语言镜像。

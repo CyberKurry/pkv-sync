@@ -1,6 +1,6 @@
 # CLI 参考
 
-[English](./cli-reference.md) | 简体中文
+[English](./cli-reference.md) | 简体中文 | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
 ## pkvsyncd materialize
 
@@ -88,7 +88,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <版本>]
 
 - `--dry-run`：只显示将使用的 release、资产和目标路径，不下载文件。
 - `--yes`：跳过交互确认。
-- `--version <版本>`：指定 release，例如 `0.9.1`；不传时使用最新 release。
+- `--version <版本>`：指定 release，例如 `1.0.0`；不传时使用最新 release。
 
 ### 说明
 
@@ -106,5 +106,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 下载指定 release
-pkvsyncd upgrade --yes --version 0.9.1
+pkvsyncd upgrade --yes --version 1.0.0
 ```

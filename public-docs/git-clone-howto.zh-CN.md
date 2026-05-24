@@ -1,6 +1,6 @@
 # 通过 Git 克隆你的 PKV 仓库
 
-[English](./git-clone-howto.md) | 简体中文
+[English](./git-clone-howto.md) | 简体中文 | [繁體中文](./git-clone-howto.zh-Hant.md) | [日本語](./git-clone-howto.ja.md) | [한국어](./git-clone-howto.ko.md)
 
 PKV Sync 可以将每个仓库（vault）通过 HTTPS 以只读 Git 仓库的形式暴露出来。
 
