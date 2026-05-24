@@ -29,6 +29,7 @@ export function markSynced(
     next.files[file.path] = {
       lastSyncedHash: file.hash,
       lastSyncedAt: now,
+      lastSyncedMtime: file.mtime,
       kind: file.kind,
       size: file.size
     };

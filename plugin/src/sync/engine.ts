@@ -181,7 +181,7 @@ export class SyncEngine {
     index: LocalIndex;
   }> {
     const index = await this.opts.index.loadIndex();
-    const current = await this.opts.vault.scan(this.opts.textExtensions);
+    const current = await this.opts.vault.scan(this.opts.textExtensions, index);
     const pathAccepted = this.currentPathMatcher();
     const filtered = current.filter((f) => pathAccepted(f.path));
     const currentPaths = new Set(filtered.map((f) => f.path));
@@ -335,7 +335,7 @@ export class SyncEngine {
   private async applyPull(pull: PullResponse): Promise<void> {
     if (!pull.to) return;
     let index = await this.opts.index.loadIndex();
-    const current = await this.opts.vault.scan(this.opts.textExtensions);
+    const current = await this.opts.vault.scan(this.opts.textExtensions, index);
     const currentByPath = new Map(current.map((file) => [file.path, file]));
     const pathAccepted = this.currentPathMatcher();
     const touched: LocalFileSnapshot[] = [];

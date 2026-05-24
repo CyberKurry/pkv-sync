@@ -1,7 +1,7 @@
 import { TFile, type Vault } from "obsidian";
 import { isConflictPath } from "./conflict-files";
 import { sha256Bytes, sha256Text } from "./hash";
-import type { LocalFileSnapshot } from "./types";
+import type { LocalFileSnapshot, LocalIndex } from "./types";
 
 export interface VaultAdapter {
   listFiles(): TFile[];
@@ -12,7 +12,10 @@ export interface VaultAdapter {
   delete(path: string): Promise<void>;
   exists(path: string): boolean;
   snapshot(path: string, textExtensions: Set<string>): Promise<LocalFileSnapshot>;
-  scan(textExtensions: Set<string>): Promise<LocalFileSnapshot[]>;
+  scan(
+    textExtensions: Set<string>,
+    previousIndex?: LocalIndex
+  ): Promise<LocalFileSnapshot[]>;
 }
 
 export class ObsidianVaultAdapter implements VaultAdapter {
@@ -66,6 +69,7 @@ export class ObsidianVaultAdapter implements VaultAdapter {
     textExtensions: Set<string>
   ): Promise<LocalFileSnapshot> {
     path = requireSafeVaultPath(path);
+    const file = this.requireFile(path);
     const ext = path.includes(".") ? path.split(".").pop()!.toLowerCase() : "";
     if (textExtensions.has(ext)) {
       const content = await this.readText(path);
@@ -73,6 +77,7 @@ export class ObsidianVaultAdapter implements VaultAdapter {
         path,
         hash: await sha256Text(content),
         size: new TextEncoder().encode(content).byteLength,
+        mtime: file.stat.mtime,
         kind: "text",
         content
       };
@@ -82,15 +87,33 @@ export class ObsidianVaultAdapter implements VaultAdapter {
       path,
       hash: await sha256Bytes(bytes),
       size: bytes.byteLength,
+      mtime: file.stat.mtime,
       kind: "blob",
       bytes
     };
   }
 
-  async scan(textExtensions: Set<string>): Promise<LocalFileSnapshot[]> {
+  async scan(
+    textExtensions: Set<string>,
+    previousIndex?: LocalIndex
+  ): Promise<LocalFileSnapshot[]> {
     const files = this.listFiles().filter((file) => shouldSyncPath(file.path));
     const out: LocalFileSnapshot[] = [];
     for (const file of files) {
+      const previous = previousIndex?.files[file.path];
+      if (
+        previous?.lastSyncedMtime === file.stat.mtime &&
+        previous.size === file.stat.size
+      ) {
+        out.push({
+          path: file.path,
+          hash: previous.lastSyncedHash,
+          size: file.stat.size,
+          mtime: file.stat.mtime,
+          kind: previous.kind
+        });
+        continue;
+      }
       out.push(await this.snapshot(file.path, textExtensions));
     }
     return out;

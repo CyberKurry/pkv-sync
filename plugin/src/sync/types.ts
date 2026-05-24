@@ -3,6 +3,7 @@ export type FileKind = "text" | "blob";
 export interface IndexedFile {
   lastSyncedHash: string;
   lastSyncedAt: number;
+  lastSyncedMtime?: number;
   kind: FileKind;
   size: number;
 }
@@ -16,6 +17,7 @@ export interface LocalFileSnapshot {
   path: string;
   hash: string;
   size: number;
+  mtime?: number;
   kind: FileKind;
   content?: string;
   bytes?: ArrayBuffer;

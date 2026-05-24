@@ -1,14 +1,22 @@
 import { TFile, TFolder } from "obsidian";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ObsidianVaultAdapter,
   shouldAcceptRemoteConflictPath,
   shouldSyncPath
 } from "../../src/sync/vault-adapter";
 
-function tfile(path: string): TFile {
+function tfile(path: string, stat: Partial<TFile["stat"]> = {}): TFile {
   const file = Object.create(TFile.prototype) as TFile;
-  Object.assign(file, { path });
+  Object.assign(file, {
+    path,
+    stat: {
+      mtime: 1_700_000_000_000,
+      ctime: 1_700_000_000_000,
+      size: 5,
+      ...stat
+    }
+  });
   return file;
 }
 
@@ -51,6 +59,10 @@ class FakeVault {
     return file.path === "note.md" ? "hello" : "ignored";
   }
 
+  async readBinary(): Promise<ArrayBuffer> {
+    return new Uint8Array([1, 2, 3, 4]).buffer;
+  }
+
   async create(path: string, content: string): Promise<TFile> {
     const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
     if (parent && !this.folders.has(parent)) {
@@ -83,6 +95,85 @@ describe("ObsidianVaultAdapter", () => {
 
     expect(vault.createdFolders).toEqual(["folder", "folder/deeper"]);
     expect(vault.createdFiles.get("folder/deeper/remote.md")).toBe("remote");
+  });
+
+  it("reuses previous hashes for unchanged files and only reads changed files", async () => {
+    const unchanged = tfile("unchanged.md", {
+      mtime: 1_700_000_000_000,
+      size: 10
+    });
+    const unchangedBlob = tfile("unchanged.png", {
+      mtime: 1_700_000_000_010,
+      size: 4
+    });
+    const changed = tfile("changed.md", {
+      mtime: 1_700_000_000_100,
+      size: 19
+    });
+    const vault = new FakeVault();
+    vault.files = [unchanged, unchangedBlob, changed];
+    const read = vi.spyOn(vault, "read").mockImplementation(async (file: TFile) => {
+      if (file.path === "unchanged.md") return "would hash differently";
+      return "changed.md contents";
+    });
+    const readBinary = vi.spyOn(vault, "readBinary");
+    const adapter = new ObsidianVaultAdapter(vault as any);
+
+    const snapshots = await adapter.scan(new Set(["md"]), {
+      lastSyncedCommit: "commit-1",
+      files: {
+        "unchanged.md": {
+          lastSyncedHash: "hash-from-index",
+          lastSyncedAt: 1_700_000_000_050,
+          lastSyncedMtime: unchanged.stat.mtime,
+          kind: "text",
+          size: unchanged.stat.size
+        },
+        "unchanged.png": {
+          lastSyncedHash: "blob-hash-from-index",
+          lastSyncedAt: 1_700_000_000_050,
+          lastSyncedMtime: unchangedBlob.stat.mtime,
+          kind: "blob",
+          size: unchangedBlob.stat.size
+        },
+        "changed.md": {
+          lastSyncedHash: "old-hash",
+          lastSyncedAt: 1_700_000_000_050,
+          lastSyncedMtime: 1_700_000_000_000,
+          kind: "text",
+          size: changed.stat.size
+        }
+      }
+    });
+
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith(changed);
+    expect(readBinary).not.toHaveBeenCalled();
+    expect(snapshots).toEqual([
+      {
+        path: "unchanged.md",
+        hash: "hash-from-index",
+        size: 10,
+        kind: "text",
+        mtime: 1_700_000_000_000
+      },
+      {
+        path: "unchanged.png",
+        hash: "blob-hash-from-index",
+        size: 4,
+        kind: "blob",
+        mtime: 1_700_000_000_010
+      },
+      {
+        path: "changed.md",
+        hash: expect.any(String),
+        size: 19,
+        kind: "text",
+        content: "changed.md contents",
+        mtime: 1_700_000_000_100
+      }
+    ]);
+    expect(snapshots[2].hash).not.toBe("old-hash");
   });
 
   it("rejects unsafe remote write paths before touching the vault", async () => {
