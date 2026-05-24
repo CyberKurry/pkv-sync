@@ -7,6 +7,58 @@ and this project adheres to semantic versioning after v1.0.0.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-05-24
+
+### Fixed
+
+- **Plugin no longer wipes user-configured `extraExcludeGlobs` on every
+  config refresh**: the server config endpoint never emits
+  `extra_exclude_globs`, but the plugin previously read it as `?? []` and
+  silently reset the user setting. The field has been removed from the
+  plugin/server contract; the per-vault `extra_sync_globs` allowlist remains
+  the live path.
+- **SSE reconnect with `Last-Event-Id` no longer misclassifies attachments
+  as text**: the replay path now parses the `pkvsync_pointer` JSON marker
+  and emits `kind: "blob"` with `blob_hash` + real `size` instead of
+  reporting every replayed change as `text_ref` with the JSON pointer
+  length. Clients reconnecting after a network blip will now fetch
+  attachments through the right code path again.
+- **Background update check no longer clears a known available-update
+  banner on a transient GitHub failure**: only `Ok(Some(_))` overwrites
+  the status; rate-limit / 5xx responses leave the previous banner intact
+  until the next successful tick.
+- **First-run setup wizard creates the first admin atomically**: rebuilt
+  on top of a new `UserRepo::create_first_admin` that uses
+  `INSERT ... WHERE NOT EXISTS (SELECT 1 FROM users WHERE is_admin = 1)`,
+  so two concurrent `/setup` POSTs from different IPs can no longer both
+  pass the `count_admins() == 0` check and create two admin rows.
+- `/api/vaults/:id/files/:path` blob response avoids an extra `Vec<u8>`
+  copy for large attachments; both arms now return `Bytes` directly.
+- Plugin SSE reconnect backoff resets as soon as the response is OK,
+  rather than waiting for the first commit event. An open-then-immediately-
+  closed stream no longer leaves the next reconnect pinned at 30 s.
+- Plugin no longer double-registers poll/fallback timers with Obsidian's
+  `registerInterval` while still clearing them manually, so rebuilding the
+  sync engine across settings edits no longer accumulates stale auto-clear
+  entries.
+- Admin dashboard now translates `extra_exclude_globs` and its hint into
+  Japanese and Korean instead of falling back to English.
+
+### Added
+
+- **Admin dashboard "Sync Status" card now reflects live state**: total
+  SSE subscribers across all vaults, the most recent `sync_activity`
+  timestamp, and a three-state badge (live / idle / quiet) replacing the
+  previous static "All systems healthy" placeholder.
+- **Admin dashboard "Version" card** showing the running server version,
+  "Up to date" or `v{latest} available` derived from the background
+  update check, and the relative time of the last successful update-check
+  HTTP roundtrip. The card is always visible, so operators can confirm
+  the update-check pipeline is alive even when no newer release exists.
+- New `VaultEventBus::total_subscribers()` aggregate used by the
+  dashboard, plus a regression test that asserts the legacy
+  "All systems healthy" placeholder is not rendered.
+
 ## [0.8.3] - 2026-05-24
 
 ### Fixed
