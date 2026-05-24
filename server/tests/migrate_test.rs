@@ -45,6 +45,21 @@ async fn migrate_up_is_idempotent() {
 }
 
 #[tokio::test]
+async fn v1_uses_single_baseline_migration() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("t.db");
+    let p = pool::connect(&db_path).await.unwrap();
+    pool::migrate_up(&p).await.unwrap();
+
+    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM _sqlx_migrations")
+        .fetch_one(&p)
+        .await
+        .unwrap();
+
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
 async fn sync_activity_token_fk_sets_null_on_token_delete() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("t.db");
