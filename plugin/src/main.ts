@@ -50,6 +50,7 @@ import { statusText } from "./ui/status";
 import { formatRelativeUnixSeconds, formatUnixSeconds } from "./time";
 import { SerializedPluginDataStore } from "./plugin-store";
 import {
+  recoverPendingUpdate,
   UpdateCheckService,
   type PluginFileAdapter,
   type PluginUpdateStatus
@@ -75,6 +76,11 @@ export default class PKVSyncPlugin extends Plugin {
 
   async onload(): Promise<void> {
     const t = this.text();
+    await recoverPendingUpdate({
+      adapter: this.pluginFileAdapter(),
+      configDir: this.app.vault.configDir,
+      pluginId: this.manifest.id || "pkv-sync"
+    });
     this.settings = readPluginSettings(await this.loadData());
     let shouldSaveSettings = false;
     if (!this.settings.deviceId) {

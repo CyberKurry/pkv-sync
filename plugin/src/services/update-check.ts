@@ -22,6 +22,12 @@ export interface PluginFileAdapter {
   remove(path: string): Promise<void>;
 }
 
+interface RecoverPendingUpdateOptions {
+  adapter: PluginFileAdapter;
+  configDir: string;
+  pluginId: string;
+}
+
 interface UpdateCheckOptions {
   api: ApiClient;
   adapter: PluginFileAdapter;
@@ -225,15 +231,43 @@ export class UpdateCheckService {
       this.pluginId,
       `.${fileName}.bak`
     );
+    const expected = resolvePluginAssetPath(
+      this.options.configDir,
+      this.pluginId,
+      `.${fileName}.sha256`
+    );
+    const expectedSha256 = await sha256Text(content);
     await this.options.adapter.write(temp, content);
+    await this.options.adapter.write(expected, expectedSha256);
+    let hadBackup = false;
     try {
       const old = await this.options.adapter.read(target);
       await this.options.adapter.write(backup, old);
+      hadBackup = true;
     } catch {
       await this.options.adapter.remove(backup).catch(() => undefined);
     }
     await this.options.adapter.write(target, content);
+    const actualSha256 = await sha256Text(await this.options.adapter.read(target));
+    if (actualSha256 !== expectedSha256) {
+      if (hadBackup) {
+        const old = await this.options.adapter.read(backup);
+        await this.options.adapter.write(target, old);
+      } else {
+        await this.options.adapter.remove(target).catch(() => undefined);
+      }
+      throw new Error(`${fileName} post-write sha256 mismatch`);
+    }
     await this.options.adapter.remove(temp).catch(() => undefined);
+    await this.options.adapter.remove(expected).catch(() => undefined);
+  }
+}
+
+export async function recoverPendingUpdate(
+  options: RecoverPendingUpdateOptions
+): Promise<void> {
+  for (const fileName of ["main.js", "manifest.json", "styles.css"]) {
+    await recoverPendingFile(options, fileName);
   }
 }
 
@@ -292,12 +326,54 @@ function findAsset(
   return assets.find((asset) => asset.name === name);
 }
 
-function extractSha256(notes: string, fileName: string): string | null {
+export function extractSha256(notes: string, fileName: string): string | null {
   const escaped = fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`\\b([a-fA-F0-9]{64})\\b[^\\n]*${escaped}`);
-  return pattern.exec(notes)?.[1]?.toLowerCase() ?? null;
+  const sha = "([a-fA-F0-9]{64})";
+  const shaBeforeFile = new RegExp(`\\b${sha}\\b[^\\n]*${escaped}`);
+  const fileBeforeSha = new RegExp(`${escaped}[^\\n]*\\b${sha}\\b`);
+  return (
+    shaBeforeFile.exec(notes)?.[1]?.toLowerCase() ??
+    fileBeforeSha.exec(notes)?.[1]?.toLowerCase() ??
+    null
+  );
 }
 
 function trimSlashes(value: string): string {
   return value.replace(/\/+$/g, "");
+}
+
+async function recoverPendingFile(
+  options: RecoverPendingUpdateOptions,
+  fileName: string
+): Promise<void> {
+  const target = resolvePluginAssetPath(
+    options.configDir,
+    options.pluginId,
+    fileName
+  );
+  const temp = resolvePluginAssetPath(
+    options.configDir,
+    options.pluginId,
+    `.${fileName}.new`
+  );
+  const expected = resolvePluginAssetPath(
+    options.configDir,
+    options.pluginId,
+    `.${fileName}.sha256`
+  );
+
+  let staged: string;
+  let expectedSha256: string;
+  try {
+    staged = await options.adapter.read(temp);
+    expectedSha256 = (await options.adapter.read(expected)).trim().toLowerCase();
+  } catch {
+    return;
+  }
+
+  if ((await sha256Text(staged)) === expectedSha256) {
+    await options.adapter.write(target, staged);
+  }
+  await options.adapter.remove(temp).catch(() => undefined);
+  await options.adapter.remove(expected).catch(() => undefined);
 }

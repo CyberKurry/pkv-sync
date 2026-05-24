@@ -4,6 +4,7 @@ import { ApiClient } from "../../src/api/client";
 import {
   UpdateCheckService,
   compareVersions,
+  extractSha256,
   resolvePluginAssetPath,
   type PluginFileAdapter
 } from "../../src/services/update-check";
@@ -30,6 +31,22 @@ class MemoryAdapter implements PluginFileAdapter {
   async remove(path: string): Promise<void> {
     this.removed.push(path);
     this.files.delete(path);
+  }
+}
+
+class CorruptingTargetAdapter extends MemoryAdapter {
+  corruptNextMainWrite = true;
+
+  async write(path: string, data: string): Promise<void> {
+    if (
+      path === ".obsidian/plugins/pkv-sync/main.js" &&
+      this.corruptNextMainWrite
+    ) {
+      this.corruptNextMainWrite = false;
+      await super.write(path, `${data}\n// corrupted`);
+      return;
+    }
+    await super.write(path, data);
   }
 }
 
@@ -158,6 +175,18 @@ describe("plugin update check", () => {
     });
   });
 
+  it("extracts sha256 before the filename from release notes", () => {
+    const sha = "a".repeat(64);
+
+    expect(extractSha256(`Checksums:\n${sha}  main.js`, "main.js")).toBe(sha);
+  });
+
+  it("extracts sha256 after the filename from release notes", () => {
+    const sha = "b".repeat(64);
+
+    expect(extractSha256(`Checksums:\nmain.js  ${sha}`, "main.js")).toBe(sha);
+  });
+
   it("rejects sha256 mismatches before writing plugin files", async () => {
     const adapter = new MemoryAdapter();
     requestUrlMock.mockResolvedValueOnce(responseText("changed main"));
@@ -205,14 +234,43 @@ describe("plugin update check", () => {
 
     expect(adapter.writes.map((write) => write.path)).toEqual([
       ".obsidian/plugins/pkv-sync/.main.js.new",
+      ".obsidian/plugins/pkv-sync/.main.js.sha256",
       ".obsidian/plugins/pkv-sync/.main.js.bak",
       ".obsidian/plugins/pkv-sync/main.js",
       ".obsidian/plugins/pkv-sync/.manifest.json.new",
+      ".obsidian/plugins/pkv-sync/.manifest.json.sha256",
       ".obsidian/plugins/pkv-sync/.manifest.json.bak",
       ".obsidian/plugins/pkv-sync/manifest.json"
     ]);
     expect(adapter.files.get(".obsidian/plugins/pkv-sync/main.js")).toBe(main);
     expect(adapter.removed).toContain(".obsidian/plugins/pkv-sync/.main.js.new");
+  });
+
+  it("rolls back from backup when post-write verification fails", async () => {
+    const adapter = new CorruptingTargetAdapter();
+    adapter.files.set(".obsidian/plugins/pkv-sync/main.js", "old");
+    const main = "console.log('0.8.1')";
+    const manifest = '{"version":"0.8.1"}';
+    requestUrlMock
+      .mockResolvedValueOnce(responseText(main))
+      .mockResolvedValueOnce(responseText(manifest));
+    const update = {
+      version: "0.8.1",
+      source: "server" as const,
+      releaseNotesUrl: "https://example.com/release",
+      mainJsUrl: "https://example.com/main.js",
+      mainJsSha256: await sha256Text(main),
+      manifestJsonUrl: "https://example.com/manifest.json",
+      manifestJsonSha256: await sha256Text(manifest),
+      stylesCssUrl: null,
+      stylesCssSha256: null
+    };
+
+    await expect(service(adapter).applyUpdate(update)).rejects.toThrow(
+      /post-write sha256 mismatch/i
+    );
+
+    expect(adapter.files.get(".obsidian/plugins/pkv-sync/main.js")).toBe("old");
   });
 
   it("downloads same-server assets with plugin auth headers", async () => {
