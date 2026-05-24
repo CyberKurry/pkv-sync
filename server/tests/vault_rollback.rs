@@ -360,7 +360,7 @@ async fn rollback_waits_for_existing_vault_push_lock() {
     let ctx = setup().await;
     let first = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, None, "v1").await;
     let second = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, Some(&first), "v2").await;
-    let lock = ctx.state.vault_push_lock(&ctx.vault_id).await;
+    let lock = ctx.state.vault_push_lock(&ctx.vault_id);
     let guard = lock.lock().await;
 
     let rollback = {
