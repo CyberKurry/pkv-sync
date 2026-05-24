@@ -181,7 +181,7 @@ pub struct PullFile {
     pub blob_hash: Option<String>,
 }
 
-pub fn blob_store(state: &AppState) -> LocalFsBlobStore {
+pub(crate) fn blob_store(state: &AppState) -> LocalFsBlobStore {
     LocalFsBlobStore::new(state.default_blob_root())
 }
 

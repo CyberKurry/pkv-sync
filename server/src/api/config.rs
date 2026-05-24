@@ -69,29 +69,6 @@ pub async fn config(State(state): State<AppState>) -> Json<ConfigResponse> {
     ))
 }
 
-pub async fn public_config(
-    State(cfg): State<crate::db::repos::RuntimeConfig>,
-) -> Json<ConfigResponse> {
-    Json(response(
-        cfg.server_name,
-        "disabled",
-        cfg.max_file_size,
-        cfg.text_extensions,
-        ServerCapabilities {
-            history: cfg.enable_history_ui,
-            diff: cfg.enable_diff_endpoint,
-            sse: true,
-            // Unauthenticated handler has no AppState access; conservatively
-            // expose the runtime toggle. Authenticated config above gates on
-            // git_available too; clients should rely on the authenticated path
-            // for accurate capability detection.
-            git_smart_http: cfg.enable_git_smart_http,
-        },
-        cfg.push_debounce_ms,
-        cfg.inline_content_max_bytes,
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,5 +1,5 @@
 use crate::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
-use crate::storage::blob::{is_sha256_hex, LocalFsBlobStore};
+use crate::storage::blob::is_sha256_hex;
 use git2::{ObjectType, Repository};
 use sha2::{Digest, Sha256};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -239,9 +239,4 @@ fn verify_blob_store(blobs_dir: &Path, report: &mut VerifyReport) -> anyhow::Res
 
 fn sharded_blob_path(blobs_dir: &Path, hash: &str) -> PathBuf {
     blobs_dir.join(&hash[0..2]).join(&hash[2..4]).join(hash)
-}
-
-#[allow(dead_code)]
-fn _store_for_data_dir(data_dir: &Path) -> LocalFsBlobStore {
-    LocalFsBlobStore::new(data_dir.join("blobs"))
 }

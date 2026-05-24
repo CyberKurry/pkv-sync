@@ -122,17 +122,29 @@ struct WriteToolRequest {
 }
 
 pub async fn list_vaults(state: &AppState, user_id: &str) -> Result<ListVaultsOutput> {
-    let git = Git2VaultStore::new(state.default_vault_root());
-    let mut vaults = Vec::new();
-    for vault in state.vaults.list_for_user(user_id).await? {
-        let head_commit = git.head(&vault.id).await?;
-        vaults.push(VaultSummary {
-            id: vault.id,
-            name: vault.name,
-            head_commit,
-            file_count: vault.file_count,
-            size_bytes: vault.size_bytes,
-        });
+    let vault_root = state.default_vault_root();
+    let head_tasks = state
+        .vaults
+        .list_for_user(user_id)
+        .await?
+        .into_iter()
+        .map(|vault| {
+            let vault_root = vault_root.clone();
+            tokio::spawn(async move {
+                let head_commit = Git2VaultStore::new(vault_root).head(&vault.id).await?;
+                Ok::<_, anyhow::Error>(VaultSummary {
+                    id: vault.id,
+                    name: vault.name,
+                    head_commit,
+                    file_count: vault.file_count,
+                    size_bytes: vault.size_bytes,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut vaults = Vec::with_capacity(head_tasks.len());
+    for task in head_tasks {
+        vaults.push(task.await??);
     }
     Ok(ListVaultsOutput { vaults })
 }
@@ -657,6 +669,59 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.matches.len(), SEARCH_MAX_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn list_vaults_returns_ordered_summaries_with_heads() {
+        let (state, user_id, first_vault_id, _tmp) = state_user_vault().await;
+        let second_vault = vault::create_vault(&state, &user_id, "second")
+            .await
+            .unwrap();
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let first_head = git
+            .commit_changes(
+                &first_vault_id,
+                None,
+                &[FileChange::Upsert {
+                    path: "first.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"first".to_vec(),
+                    },
+                }],
+                "seed first",
+            )
+            .await
+            .unwrap();
+        let second_head = git
+            .commit_changes(
+                &second_vault.id,
+                None,
+                &[FileChange::Upsert {
+                    path: "second.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"second".to_vec(),
+                    },
+                }],
+                "seed second",
+            )
+            .await
+            .unwrap();
+
+        let output = list_vaults(&state, &user_id).await.unwrap();
+
+        assert_eq!(output.vaults.len(), 2);
+        assert_eq!(output.vaults[0].id, first_vault_id);
+        assert_eq!(output.vaults[0].name, "main");
+        assert_eq!(
+            output.vaults[0].head_commit.as_deref(),
+            Some(first_head.as_str())
+        );
+        assert_eq!(output.vaults[1].id, second_vault.id);
+        assert_eq!(output.vaults[1].name, "second");
+        assert_eq!(
+            output.vaults[1].head_commit.as_deref(),
+            Some(second_head.as_str())
+        );
     }
 
     #[tokio::test]
