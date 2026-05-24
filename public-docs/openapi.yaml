@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 0.8.3
+  version: 1.0.0
   license:
     name: AGPL-3.0-only
   contact:
@@ -14,6 +14,10 @@ info:
     and admin routes additionally require a bearer device token. Production
     responses include clickjacking, MIME sniffing, referrer, and CSP headers;
     HSTS is emitted when `public_host` is configured.
+
+    Starting at v1.0.0, this OpenAPI document is the public REST contract.
+    Routes outside this document, including Admin Web UI form handlers, are
+    internal implementation details unless documented separately.
 servers:
   - url: https://sync.example.com
 security:
@@ -28,6 +32,8 @@ tags:
   - name: Plugin
   - name: Admin
   - name: Metrics
+  - name: Git
+  - name: MCP
 components:
   securitySchemes:
     DeploymentKey:
@@ -743,7 +749,7 @@ components:
           format: int64
     GcReport:
       type: object
-      required: [deleted, kept_referenced, candidates]
+      required: [deleted, kept_referenced, candidates, freed_bytes]
       properties:
         deleted:
           type: integer
@@ -754,6 +760,18 @@ components:
         candidates:
           type: integer
           minimum: 0
+        freed_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    JsonRpcRequest:
+      type: object
+      description: JSON-RPC 2.0 request object accepted by the MCP transport.
+      additionalProperties: true
+    JsonRpcResponse:
+      type: object
+      description: JSON-RPC 2.0 response object returned by the MCP transport.
+      additionalProperties: true
 paths:
   /metrics:
     get:
@@ -1661,6 +1679,75 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           description: Git smart HTTP is disabled or `git` is not available
+  /mcp:
+    post:
+      tags: [MCP]
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: MCP Streamable HTTP JSON-RPC request
+      description: |
+        Streamable HTTP transport for Model Context Protocol clients. The
+        endpoint is served by the optional MCP HTTP listener, not the main
+        plugin REST listener. It requires the configured deployment key and a
+        bearer device token. JSON-RPC method names and payloads follow the MCP
+        protocol plus PKV Sync's documented tool set.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JsonRpcRequest'
+      responses:
+        '200':
+          description: JSON-RPC response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JsonRpcResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    get:
+      tags: [MCP]
+      security:
+        - DeploymentKey: []
+          BearerAuth: []
+      summary: MCP Streamable HTTP SSE stream
+      description: |
+        Server-Sent Events stream for MCP vault change notifications. Clients
+        must send `Accept: text/event-stream`; otherwise the server returns
+        `405`. The stream uses bearer authentication, the deployment key, MCP
+        replay via `Last-Event-ID`, and the same per-user/global SSE subscriber
+        caps as the plugin event stream.
+      parameters:
+        - in: header
+          name: Accept
+          required: true
+          schema:
+            type: string
+            enum: [text/event-stream]
+        - in: header
+          name: Last-Event-ID
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: MCP SSE notification stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '405':
+          description: "Missing `Accept: text/event-stream`"
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /api/admin/users:
     get:
       tags: [Admin]
@@ -1829,7 +1916,7 @@ paths:
           BearerAuth: []
       summary: Create invite as admin
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
