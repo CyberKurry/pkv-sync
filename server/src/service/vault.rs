@@ -39,7 +39,7 @@ pub async fn rollback_to_commit(
         return Err(RollbackError::Forbidden);
     }
 
-    let push_lock = state.vault_push_lock(vault_id).await;
+    let push_lock = state.vault_push_lock(vault_id);
     let _push_guard = push_lock.lock().await;
     let git = Git2VaultStore::new(state.default_vault_root());
     let from_commit = git.head(vault_id).await.map_err(rollback_git_error)?;
@@ -202,15 +202,15 @@ pub async fn delete_vault_for_user(
     {
         return Ok(false);
     }
-    let push_lock = state.vault_push_lock(vault_id).await;
+    let push_lock = state.vault_push_lock(vault_id);
     let _push_guard = push_lock.lock().await;
     let deleted = state.vaults.delete_for_user(user_id, vault_id).await?;
     if !deleted {
-        state.remove_vault_push_lock(vault_id).await;
+        state.remove_vault_push_lock(vault_id);
         return Ok(false);
     }
     let storage_result = remove_vault_storage(state, vault_id).await;
-    state.remove_vault_push_lock(vault_id).await;
+    state.remove_vault_push_lock(vault_id);
     state.events.remove(vault_id);
     storage_result?;
     Ok(true)
@@ -349,14 +349,14 @@ mod tests {
         tokio::fs::write(repo_dir.join("HEAD"), b"ref: main")
             .await
             .unwrap();
-        let _ = s.vault_push_lock(&v.id).await;
+        let _ = s.vault_push_lock(&v.id);
         let _ = s.events.subscribe(&v.id);
 
         assert!(delete_vault_for_user(&s, &uid, &v.id).await.unwrap());
 
         assert!(s.vaults.find_by_id(&v.id).await.unwrap().is_none());
         assert!(!tokio::fs::try_exists(&repo_dir).await.unwrap());
-        assert_eq!(s.vault_push_lock_count_for_tests().await, 0);
+        assert_eq!(s.vault_push_lock_count_for_tests(), 0);
         assert_eq!(s.events.len_for_tests(), 0);
     }
 
@@ -393,11 +393,11 @@ mod tests {
         tokio::fs::write(&repo_path, b"not a directory")
             .await
             .unwrap();
-        let _ = s.vault_push_lock(&v.id).await;
+        let _ = s.vault_push_lock(&v.id);
 
         let err = delete_vault_for_user(&s, &uid, &v.id).await.unwrap_err();
 
         assert_eq!(err.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(s.vault_push_lock_count_for_tests().await, 0);
+        assert_eq!(s.vault_push_lock_count_for_tests(), 0);
     }
 }

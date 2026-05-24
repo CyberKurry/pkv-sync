@@ -434,7 +434,7 @@ async fn push_with_request_metadata_internal(
             format!("push changes exceed limit of {MAX_PUSH_CHANGES}"),
         ));
     }
-    let push_lock = state.vault_push_lock(vault_id).await;
+    let push_lock = state.vault_push_lock(vault_id);
     let _push_guard = push_lock.lock().await;
     let request_hash = match idempotency_key {
         Some(_) => Some(push_request_hash(if_match, &req)?),

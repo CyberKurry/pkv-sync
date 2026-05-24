@@ -8,12 +8,11 @@ use crate::service::metrics::Metrics;
 use crate::service::update_check::UpdateStatus;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
-type VaultPushLocks = Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
+type VaultPushLocks = Arc<DashMap<String, Arc<Mutex<()>>>>;
 const DEFAULT_SSE_PER_USER_LIMIT: usize = 16;
 const DEFAULT_SSE_GLOBAL_CEILING: usize = 1024;
 
@@ -132,7 +131,7 @@ impl AppState {
             sse_global_ceiling: Arc::new(AtomicUsize::new(DEFAULT_SSE_GLOBAL_CEILING)),
             sse_per_user_counts: Arc::new(DashMap::new()),
             sse_global_count: Arc::new(AtomicUsize::new(0)),
-            push_locks: Arc::new(Mutex::new(HashMap::new())),
+            push_locks: Arc::new(DashMap::new()),
         };
         state.spawn_metrics_refresh_task();
         Ok(state)
@@ -167,16 +166,15 @@ impl AppState {
         self.data_dir.join("vaults")
     }
 
-    pub async fn vault_push_lock(&self, vault_id: &str) -> Arc<Mutex<()>> {
-        let mut locks = self.push_locks.lock().await;
-        locks
+    pub fn vault_push_lock(&self, vault_id: &str) -> Arc<Mutex<()>> {
+        self.push_locks
             .entry(vault_id.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
     }
 
-    pub async fn remove_vault_push_lock(&self, vault_id: &str) {
-        self.push_locks.lock().await.remove(vault_id);
+    pub fn remove_vault_push_lock(&self, vault_id: &str) {
+        self.push_locks.remove(vault_id);
     }
 
     pub fn set_sse_per_user_limit_for_tests(&self, limit: usize) {
@@ -278,8 +276,8 @@ impl AppState {
     }
 
     #[cfg(test)]
-    pub async fn vault_push_lock_count_for_tests(&self) -> usize {
-        self.push_locks.lock().await.len()
+    pub fn vault_push_lock_count_for_tests(&self) -> usize {
+        self.push_locks.len()
     }
 }
 
@@ -339,5 +337,34 @@ mod tests {
             .is_none());
         assert_eq!(state.default_blob_root(), tmp.path().join("blobs"));
         assert_eq!(state.default_vault_root(), tmp.path().join("vaults"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn vault_push_locks_do_not_serialize_across_vaults() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+        let held_lock = state.vault_push_lock("held-vault");
+        let _held_guard = held_lock.lock().await;
+
+        let mut tasks = tokio::task::JoinSet::new();
+        for index in 0..100 {
+            let state = state.clone();
+            tasks.spawn(async move {
+                let lock = state.vault_push_lock(&format!("vault-{index}"));
+                let _guard = lock.lock().await;
+            });
+        }
+
+        tokio::time::timeout(std::time::Duration::from_millis(50), async {
+            while let Some(result) = tasks.join_next().await {
+                result.unwrap();
+            }
+        })
+        .await
+        .expect("one vault's held push lock must not block distinct vault locks");
     }
 }
