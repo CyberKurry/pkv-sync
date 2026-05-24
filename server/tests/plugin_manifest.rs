@@ -84,7 +84,11 @@ async fn plugin_manifest_advertises_downloadable_assets_with_matching_hashes() {
 
     let body: serde_json::Value = serde_json::from_slice(&response_bytes(manifest_resp).await)
         .expect("manifest response json");
-    assert_eq!(body["version"], "0.8.3");
+    // The bundled plugin manifest is kept in lockstep with the workspace
+    // version by the release process, so the served version must match
+    // CARGO_PKG_VERSION. Past releases had this hard-coded which forced an
+    // edit in every chore(release) commit (and broke v0.8.4 when missed).
+    assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(
         body["main_js_url"],
         "http://sync.example.test/api/plugin-assets/main.js"
