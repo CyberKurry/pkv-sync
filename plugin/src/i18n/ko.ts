@@ -52,7 +52,9 @@ export const ko = {
   rollbackConfirmPrompt: "확인하려면 Vault 이름 \"{name}\"을(를) 입력하세요",
   rollbackConfirmButton: "Vault 롤백",
   rollbackSuccess: "Vault가 롤백되었습니다. PKV Sync가 지금 가져옵니다.",
-  rollbackFailed: "롤백 실패"
+  rollbackFailed: "롤백 실패",
+  inlineApplyFailed:
+    "{path}의 실시간 업데이트를 적용하지 못했습니다: {reason}. 전체 동기화로 전환합니다."
 } satisfies typeof en;
 
 export const koInReview = true;

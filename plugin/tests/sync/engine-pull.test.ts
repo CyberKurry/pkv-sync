@@ -9,6 +9,7 @@ import { sha256Bytes, sha256Text } from "../../src/sync/hash";
 import type { LocalFileSnapshot, LocalIndex } from "../../src/sync/types";
 import { shouldSyncPath } from "../../src/sync/vault-adapter";
 import { notices } from "../mocks/obsidian";
+import { en } from "../../src/i18n/en";
 
 vi.mock("../../src/api/events-client", () => ({
   subscribeVaultEvents: vi.fn()
@@ -22,6 +23,16 @@ class FakeVault {
 
   async scan(): Promise<LocalFileSnapshot[]> {
     return this.files.filter((file) => shouldSyncPath(file.path));
+  }
+
+  exists(path: string): boolean {
+    return this.files.some((file) => file.path === path);
+  }
+
+  async readText(path: string): Promise<string> {
+    const file = this.files.find((entry) => entry.path === path);
+    if (!file || file.kind !== "text") throw new Error(`not found: ${path}`);
+    return file.content ?? "";
   }
 
   async writeText(path: string, content: string): Promise<void> {
@@ -711,5 +722,157 @@ describe("SyncEngine pull", () => {
     });
 
     expect(idx.saved?.lastSyncedCommit).toBe("c2");
+  });
+
+  it("surfaces non-dirty inline apply failures while falling back to pull", async () => {
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const writeError = Object.assign(new Error("ENOSPC: no space left"), {
+      code: "ENOSPC"
+    });
+    vi.spyOn(vault, "writeText").mockRejectedValueOnce(writeError);
+    const setStatus = vi.fn();
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c1",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      labels: en,
+      setStatus
+    });
+
+    engine.startEventSubscription();
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+    options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [
+        {
+          kind: "text_inline",
+          path: "space.md",
+          content: "remote"
+        }
+      ]
+    });
+
+    await vi.waitFor(() => {
+      expect(api.pull).toHaveBeenCalledWith("v", "c0");
+    });
+
+    const message =
+      "Failed to apply realtime update for space.md: ENOSPC: no space left. Falling back to full sync.";
+    expect(notices).toContain(message);
+    expect(setStatus).toHaveBeenCalledWith("error", message);
+  });
+
+  it("silently falls back to pull when inline apply finds dirty local content", async () => {
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const cleanHash = await sha256Text("clean");
+    const dirtyHash = await sha256Text("local edit");
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "dirty.md": {
+          lastSyncedHash: cleanHash,
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 5
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "dirty.md",
+        hash: dirtyHash,
+        size: 10,
+        kind: "text",
+        content: "local edit"
+      }
+    ]);
+    const setStatus = vi.fn();
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c1",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({ new_commit: "c2", files_changed: 1 }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      labels: en,
+      setStatus
+    });
+
+    engine.startEventSubscription();
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+    options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [
+        {
+          kind: "text_inline",
+          path: "dirty.md",
+          content: "remote"
+        }
+      ]
+    });
+
+    await vi.waitFor(() => {
+      expect(api.pull).toHaveBeenCalledWith("v", "c0");
+    });
+
+    expect(notices).toEqual([]);
+    expect(setStatus).not.toHaveBeenCalledWith("error", expect.any(String));
   });
 });

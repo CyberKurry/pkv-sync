@@ -4,6 +4,7 @@ import { subscribeVaultEvents } from "../api/events-client";
 import type { SyncApi } from "../api/sync-client";
 import type { VaultEvent } from "../api/types";
 import type { VaultSettings } from "../api/types";
+import { format, strings, type Strings } from "../i18n";
 import { createPathMatcher } from "./exclude";
 import { conflictPath } from "./conflict";
 import { sha256Bytes, sha256Text } from "./hash";
@@ -64,6 +65,7 @@ export interface SyncEngineOptions {
     status: "connected" | "syncing" | "offline" | "error",
     detail?: string
   ): void;
+  labels?: Pick<Strings, "inlineApplyFailed">;
   onSyncSuccess?(): void | Promise<void>;
 }
 
@@ -143,7 +145,14 @@ export class SyncEngine {
                   break;
               }
             } catch (err) {
-              console.warn("[pkv-sync] inline apply failed, falling back to pull:", err);
+              if (
+                change.kind === "text_inline" &&
+                !(err instanceof InlineApplyDirtyError)
+              ) {
+                this.reportInlineApplyFailure(change.path, err);
+              } else if (!(err instanceof InlineApplyDirtyError)) {
+                console.warn("[pkv-sync] inline apply failed, falling back to pull:", err);
+              }
               needFallbackPull = true;
             }
           }
@@ -497,6 +506,19 @@ export class SyncEngine {
       await this.opts.vault.writeText(path, content);
       return markSynced(index, commit, [snapshot]);
     });
+  }
+
+  private reportInlineApplyFailure(path: string, error: unknown): void {
+    const message = format(
+      (this.opts.labels ?? strings()).inlineApplyFailed,
+      {
+        path,
+        reason: error instanceof Error ? error.message : String(error)
+      }
+    );
+    console.warn("[pkv-sync] inline apply failed, falling back to pull:", error);
+    new Notice(message);
+    this.opts.setStatus("error", message);
   }
 
   private async applyDelete(path: string, commit: string): Promise<void> {

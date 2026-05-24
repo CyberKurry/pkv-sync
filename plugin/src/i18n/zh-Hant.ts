@@ -41,5 +41,6 @@ export const zhHant = {
   rollbackConfirmPrompt: "請輸入筆記庫名 \"{name}\" 以確認",
   rollbackConfirmButton: "回滾筆記庫",
   rollbackSuccess: "筆記庫已回滾。PKV Sync 將立即拉取回滾結果。",
-  rollbackFailed: "回滾失敗"
+  rollbackFailed: "回滾失敗",
+  inlineApplyFailed: "無法套用 {path} 的即時更新：{reason}。將回退到完整同步。"
 } satisfies typeof zh;

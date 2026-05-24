@@ -86,6 +86,7 @@ export const zh = {
   noticeNotConfigured: "PKV Sync 未配置。",
   noticeSyncNotReady: "PKV Sync 尚未就绪。请先选择一个笔记库。",
   noticeSyncComplete: "PKV Sync 同步完成",
+  inlineApplyFailed: "无法应用 {path} 的实时更新：{reason}。将回退到完整同步。",
   connectedToServer: "已连接到 {serverName}",
   changeServer: "修改服务器",
   serverInfo: "服务器：{serverName} ({version})，注册：{registration}",

@@ -52,7 +52,9 @@ export const ja = {
   rollbackConfirmPrompt: "確認のため Vault 名 \"{name}\" を入力してください",
   rollbackConfirmButton: "Vault をロールバック",
   rollbackSuccess: "Vault をロールバックしました。PKV Sync が今すぐ取得します。",
-  rollbackFailed: "ロールバックに失敗しました"
+  rollbackFailed: "ロールバックに失敗しました",
+  inlineApplyFailed:
+    "{path} のリアルタイム更新を適用できませんでした: {reason}。完全同期にフォールバックします。"
 } satisfies typeof en;
 
 export const jaInReview = true;

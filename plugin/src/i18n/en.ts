@@ -87,6 +87,8 @@ export const en = {
   noticeNotConfigured: "PKV Sync is not configured.",
   noticeSyncNotReady: "PKV Sync is not ready. Select a vault first.",
   noticeSyncComplete: "PKV Sync complete",
+  inlineApplyFailed:
+    "Failed to apply realtime update for {path}: {reason}. Falling back to full sync.",
   connectedToServer: "Connected to {serverName}",
   changeServer: "Change server",
   serverInfo:
