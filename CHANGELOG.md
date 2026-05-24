@@ -3,9 +3,71 @@
 All notable changes to PKV Sync will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to semantic versioning after v1.0.0.
+and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-05-25
+
+**PKV Sync 1.0** is the first stable release. It freezes the documented
+public `/api/*` contract in `public-docs/openapi.yaml`, establishes semantic
+versioning for the 1.x line, and consolidates the storage schema into a single
+v1 SQLite baseline for fresh 1.x deployments.
+
+### Added
+
+- Stable public REST contract, published as OpenAPI 3.0 with experimental
+  surfaces explicitly marked.
+- Five-language public documentation set: English, Simplified Chinese,
+  Traditional Chinese, Japanese, and Korean for README, security policy, and
+  all public Markdown guides.
+- 1.0 upgrade notes that document the supported 0.x to 1.0 path: back up,
+  export or materialize vault data, start a fresh 1.0 data directory, then
+  import or push content into the new server.
+
+### Changed
+
+- Server, plugin manifest, package metadata, lock files, Docker/release
+  documentation, and public docs are aligned on version `1.0.0`.
+- SQLite migrations are squashed into `0001_initial.sql` as the v1 baseline.
+  Published 1.x migrations after this baseline are append-only.
+- Admin Web UI and the Obsidian plugin now expose a single theme-mode button
+  that cycles through automatic, light, and dark modes.
+- Admin language selection uses a compact dropdown, and plugin language
+  selection remains usable for longer localized language names.
+- Activity rows now label the vault column as "Vault" instead of "Detail".
+
+### Fixed
+
+- Per-vault push locking no longer serializes through a global mutex.
+- SSE reconnect subscribes before replay, closing the window where commits
+  created during reconnect could be missed.
+- Pull and upload-check hot paths avoid avoidable blocking and repeated work
+  for large vaults.
+- Plugin self-update writes are post-write verified and recover from leftover
+  temporary or backup files on startup.
+- Background settings writes in the plugin partial-merge only their own fields,
+  avoiding clobbering concurrent settings edits.
+- Plugin vault scans skip rehashing unchanged files when file metadata proves
+  the cached hash is still current.
+- Vault name uniqueness is enforced by SQLite instead of a race-prone
+  list-then-check path.
+- MCP vault listing reads vault heads concurrently and no longer carries
+  unused public-config code.
+
+### Security
+
+- Security policy now defines supported versions, disclosure channels, and
+  response targets for the 1.x line.
+- Release documentation now explicitly states that 0.x is unsupported after
+  the 1.0 release.
+
+### Breaking
+
+- 1.0 uses a new v1 SQLite migration baseline. Existing 0.x `metadata.db`
+  files are not supported for in-place upgrade by the 1.0 binary or container.
+  Follow `public-docs/upgrade-notes-v1.0.md` before starting 1.0 against
+  production data.
 
 ## [0.8.4] - 2026-05-24
 
