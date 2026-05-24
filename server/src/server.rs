@@ -214,9 +214,15 @@ async fn security_headers_middleware(
         HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
     );
+    // `same-origin`, not `no-referrer`: under `no-referrer`, browsers serialize
+    // the `Origin` header of same-origin POSTs as the literal string `null`
+    // (Fetch spec, "determine request's origin"). That breaks the admin/setup
+    // CSRF check, which requires Origin == public_host. `same-origin` keeps
+    // referrer info from leaking cross-origin while preserving Origin/Referer
+    // on the admin UI's own form submissions.
     headers.insert(
         HeaderName::from_static("referrer-policy"),
-        HeaderValue::from_static("no-referrer"),
+        HeaderValue::from_static("same-origin"),
     );
     headers.insert(
         HeaderName::from_static("content-security-policy"),

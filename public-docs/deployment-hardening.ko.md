@@ -172,7 +172,7 @@ PKV Sync는 프로덕션 server stack에 다음 response headers를 추가합니
 
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
-- `Referrer-Policy: no-referrer`
+- `Referrer-Policy: same-origin`
 - `Content-Security-Policy` with `frame-ancestors 'none'`, `default-src 'self'`, `object-src 'none'`, `form-action 'self'`, self-hosted images/styles
 - `public_host` 설정 시 `Strict-Transport-Security`
 

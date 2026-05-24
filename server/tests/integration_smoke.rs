@@ -154,7 +154,7 @@ async fn full_stack_responses_include_security_headers() {
     );
     assert_eq!(
         resp.headers().get("referrer-policy").unwrap(),
-        "no-referrer"
+        "same-origin"
     );
     let csp = resp
         .headers()

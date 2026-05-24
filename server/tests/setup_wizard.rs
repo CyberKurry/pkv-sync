@@ -251,6 +251,47 @@ async fn setup_post_requires_same_origin() {
 }
 
 #[tokio::test]
+async fn setup_post_rejects_null_origin() {
+    // Regression: Fetch spec serializes the Origin header as the literal string
+    // "null" for non-GET requests when the page's Referrer-Policy is
+    // `no-referrer`. Even after relaxing to `same-origin` we must keep
+    // rejecting "null" so a downgraded/sandboxed referrer never satisfies CSRF.
+    let (state, tmp) = fresh_state().await;
+    let app = app_with_public_host(state.clone(), tmp.path().to_path_buf(), "sync.example.com");
+    let resp = app
+        .oneshot(form_request_with_origin(
+            "/setup",
+            format!("username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}"),
+            "null",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(state.users.count_admins().await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn responses_use_same_origin_referrer_policy() {
+    // Regression: `no-referrer` made browsers send `Origin: null` on the
+    // setup-form POST, blocking first-run setup behind a 403. `same-origin`
+    // preserves cross-origin privacy while keeping CSRF same-origin checks
+    // functional on the admin UI's own forms.
+    let (state, tmp) = fresh_state().await;
+    let app = app_with_state(state, tmp.path().to_path_buf());
+    let resp = app
+        .oneshot(request(Method::GET, "/setup", Body::empty()))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get(header::REFERRER_POLICY).unwrap(),
+        "same-origin"
+    );
+}
+
+#[tokio::test]
 async fn setup_rejects_weak_password_without_creating_admin() {
     let (state, tmp) = fresh_state().await;
     let app = app_with_state(state.clone(), tmp.path().to_path_buf());

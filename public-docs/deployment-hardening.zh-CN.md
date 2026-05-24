@@ -172,7 +172,7 @@ PKV Sync 会在生产服务端栈里添加这些响应头:
 
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
-- `Referrer-Policy: no-referrer`
+- `Referrer-Policy: same-origin`
 - `Content-Security-Policy`，包含 `frame-ancestors 'none'`、`default-src 'self'`、`object-src 'none'`、`form-action 'self'` 以及自托管图片／样式
 - 在配置了 `public_host` 时添加 `Strict-Transport-Security`
 

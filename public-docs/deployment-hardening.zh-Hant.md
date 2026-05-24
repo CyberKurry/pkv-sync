@@ -170,7 +170,7 @@ PKV Sync 會在生產服務端棧中加入這些回應標頭：
 
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
-- `Referrer-Policy: no-referrer`
+- `Referrer-Policy: same-origin`
 - `Content-Security-Policy`，包含 `frame-ancestors 'none'`、`default-src 'self'`、`object-src 'none'`、`form-action 'self'` 以及自託管圖片／樣式
 - 在設定了 `public_host` 時加入 `Strict-Transport-Security`
 

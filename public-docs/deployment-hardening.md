@@ -198,7 +198,7 @@ PKV Sync adds these response headers to the production server stack:
 
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
-- `Referrer-Policy: no-referrer`
+- `Referrer-Policy: same-origin`
 - `Content-Security-Policy` with `frame-ancestors 'none'`, `default-src 'self'`,
   `object-src 'none'`, `form-action 'self'`, and self-hosted images/styles
 - `Strict-Transport-Security` when `public_host` is configured
