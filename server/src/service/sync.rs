@@ -434,6 +434,7 @@ async fn push_with_request_metadata_internal(
     }
     let push_lock = state.vault_push_lock(vault_id);
     let _push_guard = push_lock.lock().await;
+    let _vault = vault::ensure_user_vault(state, &user.user_id, vault_id).await?;
     let request_hash = match idempotency_key {
         Some(_) => Some(push_request_hash(if_match, &req)?),
         None => None,
@@ -1544,6 +1545,7 @@ mod tests {
     use crate::db::pool;
     use crate::db::repos::{
         BlobRefRepo, BlobUploadRepo, NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo,
+        VaultRepo,
     };
     use crate::service::{vault, AppState};
     use crate::storage::blob::LocalFsBlobStore;
@@ -2132,6 +2134,51 @@ mod tests {
 
         assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
         assert_eq!(err.code, "idempotency_key_reused");
+    }
+
+    #[tokio::test]
+    async fn queued_push_rechecks_vault_after_delete_removes_storage() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let lock = state.vault_push_lock(&vid);
+        let guard = lock.lock().await;
+        let repo_dir = state.default_vault_root().join(&vid);
+
+        let queued_state = state.clone();
+        let queued_user = user.clone();
+        let queued_vid = vid.clone();
+        let queued = tokio::spawn(async move {
+            push(
+                &queued_state,
+                &queued_user,
+                &queued_vid,
+                None,
+                None,
+                PushReq {
+                    device_name: Some("test".into()),
+                    changes: vec![PushChange::Text {
+                        path: "note.md".into(),
+                        content: "hello".into(),
+                    }],
+                },
+            )
+            .await
+        });
+
+        tokio::task::yield_now().await;
+        assert!(state
+            .vaults
+            .delete_for_user(&user.user_id, &vid)
+            .await
+            .unwrap());
+        state.remove_vault_push_lock(&vid);
+        state.events.remove(&vid);
+
+        drop(guard);
+        let err = queued.await.unwrap().unwrap_err();
+
+        assert_eq!(err.status, axum::http::StatusCode::NOT_FOUND);
+        assert!(!tokio::fs::try_exists(&repo_dir).await.unwrap());
+        assert!(state.vaults.find_by_id(&vid).await.unwrap().is_none());
     }
 
     #[tokio::test]
