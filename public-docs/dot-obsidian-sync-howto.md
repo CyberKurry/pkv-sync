@@ -21,8 +21,18 @@ New vaults get this starter allowlist:
 Only the enabled plugin lists are included. Plugin code and plugin settings are
 not synced by default.
 
-Existing vaults keep an empty allowlist until you apply the starter list from
-the plugin settings or Admin WebUI.
+Existing vaults keep an empty allowlist until you apply the starter list.
+
+- **Admin WebUI: Vaults -> Settings -> Apply starter allowlist** writes the
+  full 7-glob starter list above.
+- **Obsidian plugin: Settings -> PKV Sync -> Apply recommended starter list**
+  writes only the two safest globs (`.obsidian/themes/**` and
+  `.obsidian/snippets/**`) — themes and CSS snippets are usually safe to share
+  across devices, while the other five globs touch user-specific app state
+  that the plugin won't enable without an explicit decision.
+
+For the full 7-glob starter, use the Admin WebUI button or paste the globs
+into the plugin's allowlist editor manually.
 
 ## Never synced
 

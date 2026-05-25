@@ -23,15 +23,18 @@ PKV Sync 会创建一个新笔记库，并把当前导入内容作为第一条 P
 
 ## 会跳过什么
 
-导入器会跳过 Obsidian Sync 内部文件和本地运行时文件，包括：
+导入器会跳过 Obsidian Sync 内部文件、PKV Sync 插件自身状态、操作系统垃圾文件和本地运行时文件，包括：
 
 - `.obsidian/sync/`
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`
 - `.obsidian/workspaces.json`
 - `.obsidian/cache/**`
+- `.obsidian/plugins/pkv-sync/`（插件自身的设置和 token 存储仅保留在本地）
 - `.trash/**`
 - `.git/**`
+- `.DS_Store`（macOS）
+- `Thumbs.db`（Windows）
 - `*.tmp`、`*.lock` 等临时文件
 - 设备专属的工作区、缓存、回收站和临时文件
 

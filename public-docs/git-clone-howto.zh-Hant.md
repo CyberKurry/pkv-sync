@@ -20,11 +20,13 @@ git clone https://_:<token>@your-server/git/<vault-id>
 
 ### 範例
 
-如果 server 是 `sync.example.com`、vault ID 是 `abc123`、device token 是 `pks_0f1e2d3c4b5a6978...`，執行：
+如果 server 是 `sync.example.com`、vault ID 是 `6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`、device token 是 `pks_0f1e2d3c4b5a6978...`，執行：
 
 ```bash
-git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/abc123
+git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 ```
+
+Vault ID 是 32 個字元的小寫 hex（不含連字號）。Admin WebUI 與 `pkvsyncd user list` 會顯示有效 ID；像 `abc123` 這類佔位字串會被以 `400 invalid_vault_id` 拒絕。
 
 ## Materialize
 

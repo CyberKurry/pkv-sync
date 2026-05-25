@@ -9,12 +9,12 @@ PKV Sync는 MCP server를 통해 vault 내용을 노출할 수 있습니다. 서
 ## Tools
 
 - `list_vaults`: 인증된 사용자가 사용할 수 있는 vault를 나열합니다.
-- `list_files`: HEAD 또는 특정 commit의 paths를 나열합니다.
-- `read_file`: HEAD의 파일을 읽습니다.
-- `read_file_at_commit`: 특정 commit의 파일을 읽습니다.
-- `search`: 텍스트 파일에서 대소문자를 구분하지 않는 substring search를 수행합니다.
-- `write_file`: optimistic concurrency로 텍스트 파일을 만들거나 업데이트합니다.
-- `delete_file`: optimistic concurrency로 파일을 삭제합니다.
+- `list_files {vault_id, at?}`: HEAD 또는 `at`이 지정된 경우 해당 commit SHA의 paths를 나열합니다.
+- `read_file {vault_id, path}`: HEAD의 파일을 읽습니다.
+- `read_file_at_commit {vault_id, path, commit}`: 특정 commit의 파일을 읽습니다.
+- `search {vault_id, query, at?, limit?}`: 텍스트 파일에서 대소문자를 구분하지 않는 substring search를 수행합니다. `at`은 과거 commit으로 범위를 한정하고, `limit`은 반환되는 일치 수의 상한을 지정합니다.
+- `write_file {vault_id, path, content, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 텍스트 파일을 만들거나 업데이트합니다.
+- `delete_file {vault_id, path, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 파일을 삭제합니다.
 
 ## stdio transport
 

@@ -21,12 +21,17 @@ matters as the password.
 
 ### Example
 
-If your server is at `sync.example.com`, your vault ID is `abc123`, and your
-device token is `pks_0f1e2d3c4b5a6978...`, run:
+If your server is at `sync.example.com`, your vault ID is
+`6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`, and your device token is
+`pks_0f1e2d3c4b5a6978...`, run:
 
 ```bash
-git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/abc123
+git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 ```
+
+Vault IDs are 32-character lowercase hex (no dashes). The Admin WebUI and
+`pkvsyncd user list` show valid IDs; placeholders like `abc123` are rejected
+with `400 invalid_vault_id`.
 
 ## Materialize
 

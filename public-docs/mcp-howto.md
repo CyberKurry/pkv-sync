@@ -9,12 +9,12 @@ read-write tools, and requires a normal PKV Sync bearer device token.
 ## Tools
 
 - `list_vaults`: list vaults available to the authenticated user.
-- `list_files`: list paths at HEAD or a specific commit.
-- `read_file`: read a file at HEAD.
-- `read_file_at_commit`: read a file at a specific commit.
-- `search`: case-insensitive substring search over text files.
-- `write_file`: create or update a text file with optimistic concurrency.
-- `delete_file`: delete a file with optimistic concurrency.
+- `list_files {vault_id, at?}`: list paths at HEAD or, when `at` is set, at that commit SHA.
+- `read_file {vault_id, path}`: read a file at HEAD.
+- `read_file_at_commit {vault_id, path, commit}`: read a file at a specific commit.
+- `search {vault_id, query, at?, limit?}`: case-insensitive substring search over text files. `at` scopes to a historical commit; `limit` caps the number of returned matches.
+- `write_file {vault_id, path, content, parent_commit}`: create or update a text file with optimistic concurrency on `parent_commit`.
+- `delete_file {vault_id, path, parent_commit}`: delete a file with optimistic concurrency on `parent_commit`.
 
 ## stdio transport
 

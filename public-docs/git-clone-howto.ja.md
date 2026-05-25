@@ -20,11 +20,13 @@ git clone https://_:<token>@your-server/git/<vault-id>
 
 ### Example
 
-server が `sync.example.com`、vault ID が `abc123`、device token が `pks_0f1e2d3c4b5a6978...` の場合：
+server が `sync.example.com`、vault ID が `6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`、device token が `pks_0f1e2d3c4b5a6978...` の場合：
 
 ```bash
-git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/abc123
+git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 ```
+
+Vault ID は 32 文字の小文字 hex（dash なし）です。Admin WebUI と `pkvsyncd user list` で有効な ID を確認できます。`abc123` のような placeholder は `400 invalid_vault_id` で拒否されます。
 
 ## Materialize
 

@@ -32,15 +32,19 @@ they match PKV Sync's hard exclusions.
 
 ## What is skipped
 
-The importer skips Obsidian Sync internals and local runtime files, including:
+The importer skips Obsidian Sync internals, the PKV Sync plugin's own state,
+OS-junk files, and local runtime files, including:
 
 - `.obsidian/sync/`
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`
 - `.obsidian/workspaces.json`
 - `.obsidian/cache/**`
+- `.obsidian/plugins/pkv-sync/` (the plugin's own settings and token store stay local-only)
 - `.trash/**`
 - `.git/**`
+- `.DS_Store` (macOS)
+- `Thumbs.db` (Windows)
 - temporary files such as `*.tmp` and `*.lock`
 - device-specific workspace, cache, trash, and temporary files
 

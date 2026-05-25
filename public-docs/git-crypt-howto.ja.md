@@ -72,6 +72,7 @@ git-crypt unlock ../vault-key
 - **git-crypt は Git client 側で動作します。** Server は ciphertext blobs を保存します。key なしで clone すると、encrypted files は不透明な binary data として見えます。
 - **Key management は手動です。** key を失うと encrypted files は復旧できません。
 - **Git clone workflow 専用です。** PKV Sync Obsidian plugin は git-crypt を理解しません。encrypted files は vault を clone し、Git で直接扱う必要があります。
+- **`pkvsyncd materialize` は git-crypt を認識しません。** PKV Sync が `pkvsync_pointer` JSON として保存したファイル（通常は text-extension list より大きい binaries）は、materialize 時に server の blob store から解決され、生バイトとしてクライアントに到着します。git-crypt の filter はクライアント側でこれらを見ないため、`*.pdf` などの blob 保存対象拡張子を git-crypt で暗号化しても期待される ciphertext stream にはなりません。git-crypt の pattern は、PKV Sync が text として扱うファイル種別（server で設定された `text_extensions` list、既定：`md`、`canvas`、`base`、`json`、`txt`、`css`）に限定してください。
 
 ## Recommended Workflow
 

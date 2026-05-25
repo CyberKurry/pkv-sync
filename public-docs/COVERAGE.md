@@ -13,11 +13,18 @@ Rust coverage is generated only on the Ubuntu CI runner with `cargo tarpaulin`. 
 
 ## Baseline Refresh
 
-The v0.5.1 baseline was refreshed from CI run `26225831124`. Rust server
-coverage is the Ubuntu tarpaulin artifact (`90.95%`). Obsidian plugin coverage
-is the Vitest/V8 summary from the same run (`48.42%`); this run includes the
-plugin entrypoint and UI import graph reached by the unload regression test, so
-the measured surface is broader than the previous plugin baseline.
+The current baseline was last refreshed from CI run `26225831124` during the
+v0.5.1 cycle and carries forward into v1.0.0 unchanged: the test surface has
+expanded since but neither component has dropped. Rust server coverage is the
+Ubuntu tarpaulin artifact (`90.95%`). Obsidian plugin coverage is the
+Vitest/V8 summary from the same run (`48.42%`); this run includes the plugin
+entrypoint and UI import graph reached by the unload regression test, so the
+measured surface is broader than the previous plugin baseline.
+
+A v1.0.0 baseline refresh from the post-release CI run is planned as a
+follow-up patch once the v1.0.0 Release workflow completes; until then the
+v0.5.1 numbers remain the active gate and the per-component 5.0 pp drop rule
+still applies.
 
 ## Policy
 

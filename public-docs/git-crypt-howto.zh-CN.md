@@ -72,6 +72,7 @@ git-crypt unlock ../vault-key
 - **git-crypt 在 Git 客户端运行。** 服务器存储的是密文。如果你在没有密钥的情况下克隆，加密文件会显示为不透明的二进制数据。
 - **密钥管理是手动的。** 如果密钥丢失，加密文件无法恢复。
 - **仅适用于 Git 克隆工作流。** PKV Sync Obsidian 插件不理解 git-crypt。你必须克隆仓库并通过 Git 直接操作加密文件。
+- **`pkvsyncd materialize` 不感知 git-crypt。** PKV Sync 以 `pkvsync_pointer` JSON 形式存储的文件（通常是文本扩展名清单之外的二进制文件）在 materialize 时会从服务器的 blob 存储中解析，并以原始字节落地——git-crypt 的 filter 在客户端根本看不到它们，因此通过 git-crypt 加密 `*.pdf` 或其他以 blob 形式存储的扩展名，不会得到预期的密文流。请把 git-crypt 模式限制在 PKV Sync 视为文本的扩展名（服务器配置的 `text_extensions` 列表，默认为 `md`、`canvas`、`base`、`json`、`txt`、`css`）。
 
 ## 推荐工作流
 

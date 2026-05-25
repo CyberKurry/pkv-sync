@@ -18,7 +18,12 @@ PKV Sync は通常、hidden path を同期しません。vault ごとの allowli
 
 含まれるのは有効化済み plugin list のみです。plugin code と plugin settings は既定では同期されません。
 
-既存 vault は、plugin settings または Admin WebUI で starter list を適用するまで空の allowlist のままです。
+既存 vault は、starter list を適用するまで空の allowlist のままです。
+
+- **Admin WebUI：Vaults -> Settings -> Apply starter allowlist** は上記の 7 glob すべてを starter list として書き込みます。
+- **Obsidian plugin：Settings -> PKV Sync -> Apply recommended starter list** は最も安全な 2 glob（`.obsidian/themes/**` と `.obsidian/snippets/**`）のみを書き込みます。themes と CSS snippets はデバイス間で共有しても通常安全ですが、残り 5 つの glob はユーザー固有の app state に触れるため、plugin は明示的な判断なしには有効化しません。
+
+7 glob の完全な starter を適用するには、Admin WebUI のボタンを使うか、plugin の allowlist editor に glob を手動で貼り付けてください。
 
 ## 常に同期されないもの
 

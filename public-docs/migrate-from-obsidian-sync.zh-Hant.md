@@ -23,15 +23,18 @@ PKV Sync 會建立一個新筆記庫，並把目前匯入內容作為第一條 P
 
 ## 會跳過什麼
 
-匯入器會跳過 Obsidian Sync 內部檔案和本機執行階段檔案，包括：
+匯入器會跳過 Obsidian Sync 內部檔案、PKV Sync 外掛自身狀態、OS 垃圾檔案以及本機執行階段檔案，包括：
 
 - `.obsidian/sync/`
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`
 - `.obsidian/workspaces.json`
 - `.obsidian/cache/**`
+- `.obsidian/plugins/pkv-sync/`（外掛自身的設定與 token store 僅保留在本機）
 - `.trash/**`
 - `.git/**`
+- `.DS_Store`（macOS）
+- `Thumbs.db`（Windows）
 - `*.tmp`、`*.lock` 等暫存檔案
 - 裝置專屬的工作區、快取、回收站和暫存檔案
 

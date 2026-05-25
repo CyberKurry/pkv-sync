@@ -25,15 +25,18 @@ PKV Sync는 새 vault를 만들고 현재 가져오기 내용을 첫 PKV 기록 
 
 ## 건너뛰는 항목
 
-가져오기 도구는 Obsidian Sync 내부 파일과 로컬 런타임 파일을 건너뜁니다. 예:
+가져오기 도구는 Obsidian Sync 내부 파일, PKV Sync plugin 자체 상태, OS 부산물 파일, 로컬 런타임 파일을 건너뜁니다. 예:
 
 - `.obsidian/sync/`
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`
 - `.obsidian/workspaces.json`
 - `.obsidian/cache/**`
+- `.obsidian/plugins/pkv-sync/` (plugin 자체 설정과 token 저장소는 로컬에만 보관)
 - `.trash/**`
 - `.git/**`
+- `.DS_Store` (macOS)
+- `Thumbs.db` (Windows)
 - `*.tmp`, `*.lock` 같은 임시 파일
 - 장치별 workspace, cache, trash, 임시 파일
 

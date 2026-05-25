@@ -20,11 +20,13 @@ git clone https://_:<token>@your-server/git/<vault-id>
 
 ### 示例
 
-如果你的服务器地址为 `sync.example.com`，仓库 ID 为 `abc123`，设备令牌为 `pks_0f1e2d3c4b5a6978...`，运行：
+如果你的服务器地址为 `sync.example.com`，仓库 ID 为 `6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`，设备令牌为 `pks_0f1e2d3c4b5a6978...`，运行：
 
 ```bash
-git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/abc123
+git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 ```
+
+Vault ID 是 32 个字符的小写十六进制（不含连字符）。Admin WebUI 和 `pkvsyncd user list` 会显示有效 ID；像 `abc123` 这样的占位符会被以 `400 invalid_vault_id` 拒绝。
 
 ## 还原（Materialize）
 

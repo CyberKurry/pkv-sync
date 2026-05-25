@@ -72,6 +72,7 @@ git-crypt unlock ../vault-key
 - **git-crypt 在 Git client 端運作。** Server 儲存的是 ciphertext blobs。沒有 key 時 clone，encrypted files 會顯示為不透明 binary data。
 - **Key management 是手動的。** Key 遺失時 encrypted files 無法復原。
 - **只適用於 Git clone workflow。** PKV Sync Obsidian 外掛不了解 git-crypt。你必須 clone vault 並透過 Git 直接處理 encrypted files。
+- **`pkvsyncd materialize` 不認識 git-crypt。** 被 PKV Sync 以 `pkvsync_pointer` JSON 儲存的檔案（通常是不在文字副檔名清單內的二進位檔），會在 materialize 時對照 server 的 blob store 還原為原始 bytes —— 用戶端的 git-crypt filter 完全看不到這些檔案，因此用 git-crypt 加密 `*.pdf` 或其他被存為 blob 的副檔名，不會產生預期的密文流。請把 git-crypt patterns 限制在 PKV Sync 視為文字的檔案類型（伺服器設定的 `text_extensions` 清單，預設為 `md`、`canvas`、`base`、`json`、`txt`、`css`）。
 
 ## 建議工作流
 

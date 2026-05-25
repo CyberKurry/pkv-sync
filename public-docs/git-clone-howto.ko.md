@@ -20,11 +20,13 @@ git clone https://_:<token>@your-server/git/<vault-id>
 
 ### Example
 
-server가 `sync.example.com`, vault ID가 `abc123`, device token이 `pks_0f1e2d3c4b5a6978...`라면 다음을 실행합니다.
+server가 `sync.example.com`, vault ID가 `6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`, device token이 `pks_0f1e2d3c4b5a6978...`라면 다음을 실행합니다.
 
 ```bash
-git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/abc123
+git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 ```
+
+Vault ID는 32자 소문자 hex입니다(대시 없음). Admin WebUI와 `pkvsyncd user list`가 유효한 ID를 보여줍니다. `abc123` 같은 placeholder는 `400 invalid_vault_id`로 거부됩니다.
 
 ## Materialize
 

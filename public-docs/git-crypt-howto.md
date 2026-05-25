@@ -83,6 +83,14 @@ git-crypt unlock ../vault-key
 - **Only works with the Git clone workflow.** The PKV Sync Obsidian plugin does
   not understand git-crypt. You must clone the vault and work through Git
   directly for encrypted files.
+- **`pkvsyncd materialize` is not git-crypt-aware.** Files that PKV Sync stored
+  as `pkvsync_pointer` JSON (typically binaries above the text-extension list)
+  are resolved against the server's blob store during materialize and arrive
+  as raw bytes — git-crypt's filter never sees them on the client side, so
+  encrypting `*.pdf` or other blob-stored extensions via git-crypt does not
+  produce the expected ciphertext stream. Restrict git-crypt patterns to file
+  types PKV Sync treats as text (the server-configured `text_extensions` list,
+  default: `md`, `canvas`, `base`, `json`, `txt`, `css`).
 
 ## Recommended Workflow
 
