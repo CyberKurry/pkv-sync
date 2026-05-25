@@ -1,142 +1,169 @@
-# PKV Sync 사용자 설명서
+# PKV Sync 사용자 매뉴얼
 
 [English](./user-manual.md) | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | 한국어
 
-이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
-
-이 설명서는 기존 PKV Sync 서버에 연결하는 Obsidian 사용자를 위한 것입니다. 시작하기 전에 서버 관리자에게 서버 공유 URL과 계정 또는 초대 코드를 요청하세요.
+이 매뉴얼은 기존 PKV Sync 서버에 연결하는 Obsidian 사용자를 위한 것입니다. 시작하기 전에 서버 관리자에게 서버 공유 URL과 계정 또는 초대 코드를 요청하십시오.
 
 ## 플러그인 수동 설치
 
-1. 해당 GitHub release에서 `pkv-sync-plugin.zip`을 다운로드합니다.
-2. 아카이브를 vault에 풉니다.
+1. 해당 GitHub 릴리스에서 `pkv-sync-plugin.zip`을 다운로드합니다.
+2. 아카이브를 Vault에 추출합니다.
 
    ```text
    <vault>/.obsidian/plugins/pkv-sync/
    ```
 
-3. Obsidian에서 community plugins를 활성화합니다.
+3. Obsidian에서 커뮤니티 플러그인을 활성화합니다.
 4. **PKV Sync**를 활성화합니다.
 
-압축을 푼 디렉터리에는 `main.js`, `manifest.json`, `styles.css`가 있어야 합니다.
+추출한 디렉터리에는 `main.js`, `manifest.json`, `styles.css`가 포함되어 있어야 합니다.
 
 ## 플러그인 업데이트
 
-PKV Sync 설정 페이지에는 **Updates** 섹션이 있습니다. 기본적으로 플러그인은 연결된 PKV Sync 서버의 bundled plugin version을 확인합니다. 서버를 업그레이드하면 대응하는 plugin assets도 함께 제공되므로, self-hosted deployment에서는 이 경로가 권장됩니다. `public_host`가 설정되어 있으면 plugin asset URLs는 해당 외부 host로 고정됩니다. 필요하면 update source를 GitHub releases로 바꿀 수 있습니다.
+PKV Sync 설정 페이지에는 **업데이트** 섹션이 있습니다. 기본적으로 플러그인은 연결된 PKV Sync 서버에서 번들된 플러그인 버전을 확인합니다. 셀프 호스팅 배포에서는 서버를 업그레이드할 때 일치하는 플러그인 자산도 함께 게시되므로 이 방식이 권장됩니다. 서버가 `public_host`로 구성되어 있으면 플러그인 자산 URL은 해당 외부 호스트에 고정된 상태로 유지됩니다. 필요에 따라 업데이트 소스를 GitHub 릴리스로 전환할 수 있습니다.
 
-업데이트가 있으면 **Update now**가 `main.js`, `manifest.json`, 그리고 존재할 경우 `styles.css`를 download하고 SHA-256을 verify한 뒤 plugin files에 써 넣고 Obsidian reload를 요청합니다. command palette에도 **PKV Sync: Check for PKV Sync plugin updates**가 있습니다.
+업데이트가 있을 경우 **지금 업데이트**는 `main.js`, `manifest.json`, 그리고 존재한다면 `styles.css`를 다운로드하고, SHA-256 해시를 검증한 뒤 플러그인 파일을 기록하고 Obsidian 재로드를 안내합니다. 명령 팔레트에는 **PKV Sync: PKV Sync 플러그인 업데이트 확인** 항목도 포함되어 있습니다.
 
 ## 서버에 연결
 
-서버 공유 URL은 보통 다음과 같습니다.
+서버 공유 URL은 보통 다음과 같은 형식입니다.
 
 ```text
 https://sync.example.com/k_xxx/
 ```
 
-**Settings -> PKV Sync**를 열고 공유 URL을 붙여 넣은 다음 **Connect**를 클릭합니다. 배포 키가 URL에 포함되어 있으면 플러그인이 자동으로 채웁니다.
+**설정 -> PKV Sync**를 열고 공유 URL을 붙여넣은 다음 **연결**을 클릭하십시오. 배포 키가 URL에 포함되어 있으면 플러그인이 자동으로 채워 줍니다.
 
-잘못된 서버를 입력했거나 다른 자체 호스팅 서버로 이동해야 하는 경우, 로그인 화면의 **Change server**를 사용해 플러그인을 다시 설치하지 않고 서버 설정으로 돌아갈 수 있습니다.
+잘못된 서버를 입력했거나 다른 셀프 호스팅 서버로 이동해야 하는 경우, 로그인 화면의 **서버 변경**을 사용하면 플러그인을 다시 설치하지 않고도 서버 설정 화면으로 돌아갈 수 있습니다.
 
 ## 로그인 또는 등록
 
 등록 동작은 서버 런타임 설정에 따라 달라집니다.
 
-- **Disabled**: 관리자가 계정을 만들어야 합니다.
-- **Invite only**: 관리자가 제공한 초대 코드를 입력합니다.
-- **Open**: 계정을 직접 만들 수 있습니다.
+- **비활성화**: 관리자가 계정을 생성해야 합니다.
+- **초대 전용**: 관리자가 제공한 초대 코드를 입력합니다.
+- **공개**: 직접 계정을 생성합니다.
 
-로그인 후 기존 원격 vault를 선택하거나 새 원격 vault를 만듭니다. 선택한 원격 vault와 이미 완전히 동일한 로컬 vault를 연결하면, PKV Sync는 전체 vault에 대한 conflict file을 만들지 않고 일치하는 파일을 로컬 동기화 인덱스에 채택합니다.
+로그인 후 기존 원격 Vault를 선택하거나 새 Vault를 만들 수 있습니다. 선택한 원격 Vault와 이미 동일한 로컬 Vault를 연결하면, PKV Sync는 전체 Vault에 대한 충돌 파일 세트를 만드는 대신 일치하는 파일을 로컬 동기화 색인에 그대로 채택합니다.
 
 ## 동기화 동작
 
-PKV Sync는 Obsidian 안에서 현재 vault를 동기화합니다.
+PKV Sync는 Obsidian 내부에서 실행되며 현재 Vault를 동기화합니다.
 
-- 로컬 파일 변경은 짧은 debounce 간격 후 push됩니다.
-- 원격 변경은 주기적으로 poll됩니다.
-- 설정 페이지와 command palette에서 수동 동기화를 사용할 수 있습니다.
-- 관련 파일 생성/수정/삭제 이벤트가 동기화를 예약합니다.
-- 창 blur가 동기화를 트리거할 수 있습니다.
-- 시작 시 vault 내용과 로컬 동기화 인덱스에서 동기화되지 않은 로컬 변경을 감지합니다.
+- 로컬 파일 변경은 짧은 디바운스 간격 후에 푸시됩니다.
+- 원격 변경은 주기적으로 폴링됩니다.
+- 수동 동기화는 설정 페이지와 명령 팔레트에서 사용할 수 있습니다.
+- 관련 파일의 생성/수정/삭제 이벤트가 동기화를 예약합니다.
+- 창이 포커스를 잃으면 동기화가 트리거될 수 있습니다.
+- 시작 시 Vault 내용과 로컬 동기화 색인으로부터 동기화되지 않은 로컬 변경을 감지합니다.
 
-큰 첨부 파일을 업로드하는 동안 Obsidian을 열어 두세요. 플러그인은 연결 후 서버 설정을 읽고 서버가 제공한 텍스트 확장자 목록과 최대 파일 크기 규칙을 사용합니다.
+대용량 첨부 파일이 업로드되는 동안 Obsidian을 열어 두십시오. 플러그인은 연결 후 서버 구성을 읽어 서버가 제공한 텍스트 확장자 목록과 최대 파일 크기 규칙을 사용합니다.
 
 ## 선택적 `.obsidian` 동기화
 
-PKV Sync는 vault별 allowlist를 통해 선택된 Obsidian 설정 파일을 동기화할 수 있습니다. 새 원격 vault는 테마, CSS snippets, 단축키, 앱 환경설정, 모양 환경설정, 활성화된 플러그인 목록 규칙으로 시작합니다.
+PKV Sync는 Vault별 허용 목록을 통해 선택된 Obsidian 구성 파일을 동기화할 수 있습니다. 새 원격 Vault는 테마, CSS 스니펫, 단축키, 앱 환경 설정, 외관 환경 설정, 활성화된 플러그인 목록에 대한 규칙으로 시작합니다.
 
-기존 원격 vault는 사용자가 opt-in할 때까지 빈 allowlist를 유지합니다. **Settings -> PKV Sync**에서 현재 vault를 선택하고 **.obsidian sync rules**를 편집한 다음 저장합니다. 권장 starter list 버튼은 새 vault에 사용되는 것과 같은 starter rules를 채웁니다.
+기존 원격 Vault는 사용자가 옵트인할 때까지 빈 허용 목록을 유지합니다. **설정 -> PKV Sync**에서 현재 Vault를 선택하고 **.obsidian 동기화 규칙**을 편집한 다음 저장하십시오. 권장 시작 목록 버튼은 새 Vault에 사용되는 동일한 시작 규칙을 채워 줍니다.
 
-플러그인 코드와 플러그인 설정은 기본적으로 동기화되지 않습니다. `.obsidian/plugins/**` 또는 플러그인 `data.json` 파일 같은 고급 규칙을 추가하기 전에 [`dot-obsidian-sync-howto.ko.md`](./dot-obsidian-sync-howto.ko.md)를 읽어 주세요.
+플러그인 코드와 플러그인 설정은 기본적으로 동기화되지 않습니다. `.obsidian/plugins/**`이나 플러그인 `data.json` 파일과 같은 고급 규칙을 추가하기 전에 [`dot-obsidian-sync-howto.md`](./dot-obsidian-sync-howto.md)를 참조하십시오.
 
 ## 마지막 동기화 시간
 
-설정 페이지는 마지막 성공 동기화를 상대 시간으로 표시합니다. 옆의 작은 펼침 컨트롤을 사용하면 다음 형식의 정확한 타임스탬프를 볼 수 있습니다.
+설정 페이지는 마지막으로 성공한 동기화를 상대 시간으로 표시합니다. 옆의 작은 확장 버튼을 사용하면 다음 형식의 정확한 타임스탬프를 볼 수 있습니다.
 
 ```text
 YYYY/MM/DD HH:MM:SS
 ```
 
-플러그인은 선택한 IANA 시간대를 사용하며 기본값은 `Asia/Shanghai`입니다.
+플러그인은 선택된 IANA 시간대를 사용하며 기본값은 `Asia/Shanghai`입니다.
 
-## 기록, Diff, 복원
+## 테마
 
-서버가 기록 지원을 보고하고 플러그인 설정에서 **Enable history and diff UI**가 켜져 있으면 다음 위치에서 파일 기록을 볼 수 있습니다.
+플러그인 설정 페이지에는 세 가지 옵션이 있는 **테마** 드롭다운이 있습니다.
 
-- **PKV Sync: Show file history**
-- 파일 오른쪽 클릭 메뉴: **PKV Sync: File history**
-- 파일 오른쪽 클릭 메뉴: **PKV Sync: Diff with previous**
+- **자동**(기본값): 현재 Obsidian 앱 테마를 따릅니다.
+- **라이트** / **다크**: 앱 테마와 관계없이 PKV Sync 설정 UI에 특정 테마를 강제 적용합니다.
 
-기록 모달은 현재 파일의 commit을 시간, 장치, commit id, 변경 유형과 함께 나열합니다. 텍스트 파일은 unified diff를 표시할 수 있습니다. 바이너리 파일은 기록에 표시하고 복원할 수 있지만 PKV Sync는 바이너리 diff를 렌더링하지 않습니다.
+이 설정은 플러그인 자체의 모달(설정, 동기화 상태, 충돌 해결기, 파일/Vault 기록)에만 영향을 미칩니다. Obsidian 앱 테마는 변경하지 않습니다.
 
-버전을 복원하면 플러그인이 선택한 과거 콘텐츠를 서버에서 읽고 로컬 Obsidian vault에 다시 쓴 뒤 일반 동기화 엔진이 그 쓰기를 새 commit으로 push하게 합니다. 현재 로컬 파일이 마지막 동기화 hash와 다르면 확인 대화상자가 동기화되지 않은 로컬 변경이 덮어써진다고 경고합니다.
+## 기록, 차이, 복원
 
-PKV Sync는 플러그인에 전체 오프라인 기록 캐시를 유지하지 않습니다. 기록과 diff 보기는 서버에 연결할 수 있어야 합니다.
+서버가 기록 지원을 보고하고 플러그인 설정에서 **기록 및 차이 UI 사용**이 켜져 있으면, 다음 방법으로 파일 기록을 확인할 수 있습니다.
 
-## Conflict Files
+- **PKV Sync: 파일 기록 표시**
+- **PKV Sync: Vault 기록 표시**
+- 파일 우클릭 메뉴: **PKV Sync: 파일 기록**
+- 파일 우클릭 메뉴: **PKV Sync: 이전과 비교**
 
-두 장치가 같은 파일을 오프라인에서 편집하면 PKV Sync는 두 버전을 모두 보존합니다. 원격 또는 로컬의 대체 버전은 생성된 conflict file로 저장됩니다.
+파일 기록 모달은 현재 파일의 commit을 시간, 기기, commit id, 변경 유형과 함께 나열합니다. 텍스트 파일은 통합 차이를 표시할 수 있습니다. 바이너리 파일은 목록 표시와 복원이 가능하지만, PKV Sync는 바이너리 차이를 렌더링하지 않습니다.
+
+Vault 기록 모달은 Vault 전체에서 가장 최근의 commit을 시간, 기기, 변경 수, commit id와 함께 나열합니다. commit을 열면 파일별 변경 요약을 볼 수 있습니다.
+
+버전을 복원하면 서버에서 선택된 기록 콘텐츠를 읽어 로컬 Obsidian Vault에 다시 기록하고, 일반 동기화 엔진이 해당 기록을 새 commit으로 푸시하도록 합니다. 현재 로컬 파일이 마지막으로 동기화된 해시와 다르면, 확인 대화 상자가 동기화되지 않은 로컬 변경이 덮어쓰이게 됨을 경고합니다.
+
+PKV Sync는 플러그인에 전체 오프라인 기록 캐시를 유지하지 않습니다. 기록 및 차이 보기에는 서버에 도달할 수 있어야 합니다.
+
+## 충돌 파일
+
+두 기기가 동일한 파일을 오프라인에서 편집하는 경우, PKV Sync는 두 버전을 모두 보존합니다. 원격 또는 로컬의 대체 버전은 생성된 충돌 파일로 저장됩니다.
 
 ```text
 note.md
 note.conflict-2026-04-25-143022-Desktop.md
 ```
 
-생성된 conflict files는 이후 동기화에서 제외됩니다. Obsidian에서 두 파일을 검토하고 보존할 내용을 수동으로 병합한 뒤 conflict file을 삭제하세요.
+생성된 충돌 파일은 이후 동기화에서 제외됩니다. Obsidian에서 두 파일을 검토하고 유지할 콘텐츠를 병합한 다음 충돌 파일을 삭제하십시오.
 
-생성된 conflict files는 다음에서 관리할 수 있습니다.
+생성된 충돌 파일은 다음 위치에서 관리할 수 있습니다.
 
-- **Settings -> PKV Sync -> Conflict files**
-- **PKV Sync: List conflict files**
-- **PKV Sync: Delete conflict files**
+- **설정 -> PKV Sync -> 충돌 파일**
+- **PKV Sync: 충돌 파일 목록**
+- **PKV Sync: 충돌 파일 삭제**
 
-삭제 작업은 PKV Sync가 생성한 conflict filename만 대상으로 합니다. `my.conflict-resolution-notes.md` 같은 일반 파일은 계속 동기화 대상입니다.
+삭제 동작은 PKV Sync가 생성한 충돌 파일 이름만 대상으로 합니다. `my.conflict-resolution-notes.md`와 같은 일반 파일은 계속 동기화 대상으로 유지됩니다.
 
-## 장치 Token
+## 원격 Vault 삭제
 
-로그인하면 bearer device token이 발급됩니다. 인증된 사용은 token을 갱신하므로 활성 장치는 로그인 상태를 유지하고 90일 동안 유휴 상태인 장치는 만료됩니다. 플러그인은 안정적인 device ID를 유지하므로 같은 장치에서 다시 로그인하면 중복을 누적하지 않고 그 장치의 이전 활성 token을 대체합니다.
+플러그인 설정 페이지에는 현재 선택된 원격 Vault에 대한 **Vault 삭제** 동작이 있습니다. 이 동작은 다음과 같이 진행됩니다.
 
-Obsidian 플러그인은 활성 token과 deployment key를 `<vault>/.obsidian/plugins/pkv-sync/data.json`에 저장합니다. 이 파일을 민감한 파일로 다루세요. 평문 백업과 클라우드 동기화 대상을 보호하고 공유하지 마세요. 파일이 유출되었을 수 있으면 로그아웃하거나 관리자에게 장치 token 철회를 요청한 뒤 다시 연결하세요.
+1. 정확한 Vault 이름을 입력해야 하는 확인 모달을 엽니다.
+2. 서버의 `DELETE /api/vaults/:id` 엔드포인트를 호출하여 Vault 레코드, 해당 git 저장소, 그리고 해당 Vault의 blob 참조를 제거합니다.
+3. 로컬 Obsidian Vault를 PKV Sync에서 분리합니다(로컬 파일은 디스크에 그대로 남습니다).
 
-- 플러그인 설정에서 현재 장치를 로그아웃할 수 있습니다.
-- 분실한 장치의 token은 관리자에게 철회를 요청하세요.
-- 비밀번호를 변경하면 현재 장치는 로그인 상태를 유지하고 다른 장치 token은 철회됩니다.
+Vault 삭제는 서버에서 되돌릴 수 없습니다. 안전망이 필요하다면 먼저 `pkvsyncd backup`으로 백업을 만드십시오. 삭제된 Vault에 현재 연결된 다른 기기는 다음 동기화에서 404를 받게 되며 다른 Vault에 다시 페어링해야 합니다.
+
+## 기기 토큰
+
+로그인하면 bearer 기기 토큰이 발급됩니다. 인증된 사용은 토큰을 갱신하므로 활성 기기는 계속 로그인된 상태로 유지되며 90일 동안 유휴 상태인 기기는 만료됩니다. 플러그인은 안정적인 기기 ID를 유지하므로 동일한 기기에서 다시 로그인하면 중복이 누적되지 않고 해당 기기의 이전 활성 토큰을 대체합니다.
+
+Obsidian 플러그인은 활성 토큰과 배포 키를 `<vault>/.obsidian/plugins/pkv-sync/data.json`에 저장합니다. 이 파일은 민감 정보로 취급하십시오. 평문 백업과 클라우드 동기화 대상을 보호하고 공유하지 마십시오. 파일이 유출되었을 가능성이 있다면 로그아웃하거나 관리자에게 기기 토큰 폐기를 요청한 뒤 다시 연결하십시오.
+
+- 현재 기기에서 로그아웃하려면 플러그인 설정을 사용하십시오.
+- 분실된 기기의 토큰 폐기는 관리자에게 요청하십시오.
+- 비밀번호 변경은 현재 기기는 로그인 상태로 유지하고 다른 기기 토큰은 폐기합니다.
 
 ## MCP 접근
 
-관리자가 `pkvsyncd mcp` 명령을 활성화하면 AI 도구가 bearer device token을 사용해 MCP로 vault에 접근할 수 있습니다. MCP는 vault 목록, 파일 목록, HEAD 또는 commit의 파일 읽기, 간단한 텍스트 검색, 그리고 optimistic concurrency가 적용된 명시적 write / delete tools를 제공합니다. stdio와 Streamable HTTP 설정 예시는 [`mcp-howto.ko.md`](./mcp-howto.ko.md)를 참고하세요.
+관리자가 `pkvsyncd mcp` 명령을 활성화한 경우, AI 도구는 bearer 기기 토큰을 사용하여 MCP를 통해 Vault에 접근할 수 있습니다. MCP는 Vault 목록, 파일 목록, HEAD 또는 특정 commit에서의 파일 읽기, 간단한 텍스트 검색, 그리고 낙관적 동시성으로 보호되는 명시적 쓰기/삭제 도구를 제공합니다. stdio 및 Streamable HTTP 설정 예시는 [`mcp-howto.md`](./mcp-howto.md)를 참조하십시오.
 
 ## 명령
 
-PKV Sync는 다음 command palette actions를 추가합니다.
+PKV Sync는 다음과 같은 명령 팔레트 동작을 추가합니다.
 
-- Show sync status
-- Refresh account info
-- Manual sync now
-- View sync status details
-- List conflict files
-- Delete conflict files
+- 동기화 상태 표시
+- 계정 정보 새로 고침
+- 지금 수동 동기화
+- 동기화 상태 자세히 보기
+- PKV Sync 플러그인 업데이트 확인
+- 현재 Vault를 PKV Sync로 가져오기(Obsidian Sync에서의 일회성 마이그레이션)
+- 충돌 파일 목록
+- 충돌 파일 삭제
+- 충돌 파일 해결
+- 파일 기록 표시
+- Vault 기록 표시
 
-## 개인정보 알림
+## 개인 정보 주의 사항
 
-PKV Sync는 종단 간 암호화를 제공하지 않습니다. 서버 관리자와 서버 파일 시스템 접근 권한이 있는 사람은 동기화된 vault 내용과 첨부 파일을 읽을 수 있습니다. 신뢰하는 서버와 관리자에게만 사용하세요.
+PKV Sync는 기본적으로 종단 간 암호화되지 않습니다. 서버 관리자와 서버 파일 시스템에 접근할 수 있는 모든 사람은 동기화된 Vault 콘텐츠와 첨부 파일을 읽을 수 있습니다. 신뢰할 수 있는 서버와 관리자에게서만 사용하십시오.
+
+지금 당장 서버 자체로부터의 기밀성이 필요하다면, 프로젝트는 임시 Vault별 암호화 계층으로 `git-crypt` 사용을 권장합니다. [`git-crypt-howto.md`](./git-crypt-howto.md)를 참조하십시오. 네이티브 Vault별 E2EE는 1.x 로드맵에 있으며 1.0 릴리스에는 포함되지 않습니다.

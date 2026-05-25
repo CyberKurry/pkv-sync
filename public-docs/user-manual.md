@@ -105,18 +105,32 @@ YYYY/MM/DD HH:MM:SS
 
 The plugin uses the selected IANA timezone, defaulting to `Asia/Shanghai`.
 
+## Theme
+
+The plugin settings page has a **Theme** dropdown with three options:
+
+- **Auto** (default): follow the current Obsidian app theme.
+- **Light** / **Dark**: force a specific theme for the PKV Sync settings UI regardless of the app theme.
+
+The setting only affects the plugin's own modals (settings, sync status, conflict resolver, file/vault history). It does not change the Obsidian app theme.
+
 ## History, Diff, and Restore
 
 When the server reports history support and **Enable history and diff UI** is on
 in plugin settings, you can inspect file history from:
 
 - **PKV Sync: Show file history**
+- **PKV Sync: Show vault history**
 - the file right-click menu: **PKV Sync: File history**
 - the file right-click menu: **PKV Sync: Diff with previous**
 
-The history modal lists commits for the current file with time, device, commit
-id, and change type. Text files can show unified diffs. Binary files can be
-listed and restored, but PKV Sync does not render binary diffs.
+The file-history modal lists commits for the current file with time, device,
+commit id, and change type. Text files can show unified diffs. Binary files can
+be listed and restored, but PKV Sync does not render binary diffs.
+
+The vault-history modal lists the most recent commits across the whole vault
+with time, device, change count, and commit id. Open a commit to see its
+per-file change summary.
 
 Restoring a version reads the selected historical content from the server,
 writes it back to the local Obsidian vault, and lets the normal sync engine push
@@ -148,6 +162,21 @@ You can manage generated conflict files from:
 
 The delete action only targets PKV Sync generated conflict filenames. Normal
 files such as `my.conflict-resolution-notes.md` remain eligible for sync.
+
+## Delete a Remote Vault
+
+The plugin settings page exposes a **Delete vault** action for the currently
+selected remote vault. The action:
+
+1. Opens a confirmation modal that requires you to type the exact vault name.
+2. Calls the server's `DELETE /api/vaults/:id` endpoint, which removes the vault row, its git repository, and blob references for that vault.
+3. Detaches the local Obsidian vault from PKV Sync (local files are left
+   untouched on disk).
+
+Vault deletion is irreversible on the server. Take a backup via
+`pkvsyncd backup` first if you need a safety net. Other devices currently
+connected to the deleted vault will see a 404 on their next sync and need to
+re-pair to a different vault.
 
 ## Device Tokens
 
@@ -184,11 +213,20 @@ PKV Sync adds these command palette actions:
 - Manual sync now
 - View sync status details
 - Check for PKV Sync plugin updates
+- Import current vault to PKV Sync (one-shot migration from Obsidian Sync)
 - List conflict files
 - Delete conflict files
+- Resolve conflict files
+- Show file history
+- Show vault history
 
 ## Privacy Reminder
 
-PKV Sync is not end-to-end encrypted. The server administrator and anyone with
-server filesystem access can read synced vault contents and attachments. Use it
-only with a server and administrator you trust.
+PKV Sync is not end-to-end encrypted out of the box. The server administrator
+and anyone with server filesystem access can read synced vault contents and
+attachments. Use it only with a server and administrator you trust.
+
+If you need confidentiality from the server itself today, the project
+recommends `git-crypt` as an interim per-vault encryption layer; see
+[`git-crypt-howto.md`](./git-crypt-howto.md). Native per-vault E2EE is on the
+1.x roadmap and not part of the 1.0 release.
