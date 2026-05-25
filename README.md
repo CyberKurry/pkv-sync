@@ -1,164 +1,56 @@
 # PKV Sync
 
-Self-hosted Obsidian vault synchronization with a Rust server, SQLite metadata,
-Git-backed text history, content-addressed attachment storage, and a mobile /
-desktop Obsidian plugin.
+**Self-host your Obsidian vault.** PKV Sync runs on your own server and keeps
+your Obsidian vaults in sync across phone, tablet, and desktop. One binary,
+one SQLite database, one bare git repo per vault — no cluster, no S3, no
+managed cloud. You install it, point Obsidian at it, and your notes sync.
 
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
-## Status
+## Features
 
-PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
-storage layout, plugin package, Docker image, and public documentation are
-versioned together.
+- **Multi-user, multi-vault** sync over authenticated devices, with
+  per-vault push locks and idempotent retries.
+- **Real-time push.** Small edits land sub-second over Server-Sent
+  Events; polling stays as a safety net.
+- **Git is the source of truth.** Every vault is a bare git repo, so
+  per-file history, unified diff, and single-file restore work out of
+  the box — in the plugin and in the admin panel.
+- **Conflict-safe.** The plugin never silently overwrites local edits;
+  conflicts surface as `.conflict-*` files with a one-click resolver.
+- **Admin panel** in five languages (English, 简中, 繁中, 日本語, 한국어)
+  for users, device tokens, vaults, invites, activity, and blob GC.
+- **AI-readable vaults.** `pkvsyncd mcp` exposes read/write MCP tools
+  over stdio or streaming HTTP.
+- **Boring on purpose.** Single binary, single SQLite metadata DB, one
+  bare git repo per vault, one content-addressed blob per attachment.
 
-PKV Sync does **not** yet provide native end-to-end encryption. The server
-can read synced vault contents and attachments. Native per-vault E2EE is
-planned for the 1.x roadmap; it will ship as an opt-in privacy mode rather
-than a global default, because encryption trades away the server-side features
-(history diff, three-way auto-merge, inline SSE payload, MCP read/write) that
-make Git-native PKV useful. Use HTTPS, strict account controls, encrypted
-disks, encrypted backups, and host-level hardening for real deployments — see the
-[deployment hardening guide](./public-docs/deployment-hardening.md).
+## Quick start with Docker Compose
 
-**E2EE today via `git-crypt`** — users who need end-to-end encryption
-before native E2EE lands can layer
-[`git-crypt`](https://github.com/AGWA/git-crypt) on top of PKV Sync.
-Initialise `git-crypt` in your vault, mark sensitive paths in
-`.gitattributes`, and the encrypted content reaches PKV Sync as ciphertext
-blobs that the server cannot decrypt. Paths and filenames remain plaintext
-on the server (acceptable for most threat models; if you need
-zero-knowledge including paths, wait for the native E2EE in the 1.x
-line). The standard `git clone` and `pkvsyncd materialize` flows still
-work with `git-crypt` encrypted vaults provided the client has the key.
+The recommended path. Caddy in `deploy/caddy/` fronts HTTPS via Let's
+Encrypt; PKV Sync sits on `127.0.0.1:6710` inside the compose network and
+never sees plain HTTP from the public internet.
 
-## Stability and Versioning
+You need a domain name (e.g. `sync.example.com`) with A/AAAA records
+pointing at the server, and ports `80` and `443` reachable from the
+internet (port 80 is needed for ACME HTTP-01 validation).
 
-PKV Sync follows semantic versioning starting at v1.0.0:
-
-- **Major (X.0.0)**: backwards-incompatible changes to the public HTTP API,
-  storage layout, or CLI surface. Migration notes are documented in
-  `public-docs/upgrade-notes-vX.0.md`.
-- **Minor (1.X.0)**: backwards-compatible feature additions. Existing
-  endpoints, CLI flags, and storage formats keep working.
-- **Patch (1.0.X)**: bug fixes and security patches. No breaking public API,
-  storage, CLI, or plugin compatibility changes.
-
-The public REST API contract is `public-docs/openapi.yaml`. Admin Web UI form
-handlers and other routes not listed there are internal implementation details.
-MCP behavior is documented in `public-docs/mcp-howto.md`.
-
-PKV Sync 1.0 intentionally resets the SQLite migration baseline. Fresh 1.x
-databases start from `server/migrations/0001_initial.sql`, and future 1.x
-migrations are append-only. SQLite databases created by 0.x releases are **not
-supported for in-place upgrade** to 1.0.0; follow
-[`public-docs/upgrade-notes-v1.0.md`](./public-docs/upgrade-notes-v1.0.md).
-
-Security disclosures are handled through
-[`SECURITY.md`](./SECURITY.md).
-
-## Highlights
-
-- **Multi-user, multi-vault** Obsidian sync through authenticated devices, with
-  per-vault push locks and idempotent pushes.
-- **Real-time push** via Server-Sent Events: small text changes (≤ 8 KiB) are
-  delivered inline in the event so the plugin applies them without a separate
-  pull. Sub-second end-to-end target on a healthy network. Polling stays as a
-  safety-net fallback.
-- **Git-native**: each vault is a bare git repository on disk. Per-file history,
-  unified diff, and single-file restore are exposed in both the Obsidian plugin
-  and the admin panel. Optional read-only `git clone https://_:<token>@host/git/<vault>`
-  for offline browsing or external mirroring.
-- **AI-readable vaults**: `pkvsyncd mcp` exposes read/write MCP tools through
-  MCP over stdio or a stateless Streamable HTTP endpoint.
-- **Selective `.obsidian` sync**: new vaults get a starter allowlist for
-  themes, snippets, hotkeys, app preferences, appearance, and enabled plugin
-  lists. Plugin code and plugin settings stay opt-in.
-- **Conflict-safe**: SSE inline apply refuses to overwrite a locally-modified
-  file; conflicts surface as generated `.conflict-*` files that preserve the
-  original extension and can be resolved from the plugin command palette with a
-  real LCS-based line diff and one-click "keep local" / "accept remote"
-  buttons.
-- **Admin panel** for users, device tokens, vaults, invites, runtime settings,
-  activity log, and blob garbage collection. Responsive, five-language UI.
-- **Security**: Argon2id password hashing, atomic per-IP login rate limiter
-  with burst protection, CSRF fail-closed when `public_host` is unset, unified
-  "invalid credentials" response across wrong-password and disabled-account
-  cases, bearer device tokens that renew on use, and rotation on re-login.
-- **Boring on purpose**: single binary, single SQLite metadata DB, one bare
-  git repo per vault, one content-addressed blob per attachment. No cluster,
-  no MySQL/PostgreSQL backend, no S3 dependency.
-- Linux amd64 / arm64, Windows x64 binaries plus a multi-arch GHCR Docker image.
-
-See the [admin manual](./public-docs/admin-manual.md) and
-[user manual](./public-docs/user-manual.md) for full operational and end-user
-walkthroughs.
-
-## Storage Layout
-
-```text
-data_dir/
-  metadata.db        SQLite metadata
-  vaults/<vault-id>/ Bare Git repository for each remote vault
-  blobs/<sha256>     Content-addressed binary blobs
-```
-
-`metadata.db` tracks users, vaults, device tokens, invites, runtime settings,
-sync activity, blob references, and idempotency records. Per-vault Git history
-is the source of truth for versioned file state; blob files are retained while
-referenced and cleaned by garbage collection after the grace period. Use
-`pkvsyncd backup` to snapshot the data root and matching `config.toml`.
-
-## Release Assets
-
-GitHub releases publish:
-
-- `pkvsyncd-x86_64-unknown-linux-gnu`
-- `pkvsyncd-aarch64-unknown-linux-gnu`
-- `pkvsyncd-x86_64-pc-windows-msvc.exe`
-- `pkv-sync-plugin.zip`
-- `SHA256SUMS`
-
-Docker images are published multi-arch (`linux/amd64`, `linux/arm64`) to GHCR:
-
-```bash
-docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v1.0.0
-```
-
-## Quick Start: Docker Compose
-
-This is the recommended path. Caddy in `deploy/caddy/` requests and renews
-HTTPS certificates via Let's Encrypt; PKV Sync listens on `127.0.0.1:6710`
-inside the compose network and never sees plain HTTP from the public internet.
-
-**Requirements**: a public DNS A/AAAA record pointing at the server, ports `80`
-and `443` reachable from the internet (port 80 is needed for ACME HTTP-01
-validation and HTTP→HTTPS redirects).
-
-1. **Point DNS at the server**
-
-   ```text
-   sync.example.com A    <server IPv4>
-   sync.example.com AAAA <server IPv6, optional>
-   ```
-
-2. **Generate a deployment key**
+1. Generate a deployment key:
 
    ```bash
    docker run --rm ghcr.io/cyberkurry/pkv-sync:latest genkey
    ```
 
-3. **Create `config.toml` next to `docker-compose.yml`**
+2. Drop `config.toml` next to `docker-compose.yml`:
 
    ```toml
    [server]
-   bind_addr     = "0.0.0.0:6710"
+   bind_addr      = "0.0.0.0:6710"
    deployment_key = "k_replace_me_with_genkey_output"
-   public_host   = "sync.example.com"   # required for admin POST
+   public_host    = "sync.example.com"   # required, makes admin POSTs work
 
    [storage]
    data_dir = "/var/lib/pkv-sync"
@@ -166,250 +58,104 @@ validation and HTTP→HTTPS redirects).
 
    [network]
    trusted_proxies = ["172.16.0.0/12"]   # Docker bridge network
-
-   [logging]
-   level  = "info"
-   format = "json"
    ```
 
-   `public_host` is **load-bearing**: when unset, the admin CSRF check fails
-   closed and every admin POST is rejected (see deployment hardening guide).
-   When set, admin CSRF checks the HTTPS public origin derived from this host;
-   reverse-proxy `X-Forwarded-Proto` headers cannot downgrade it to backend
-   HTTP.
+3. Edit `deploy/caddy/Caddyfile` and replace `sync.example.com` with your
+   real domain.
 
-4. **Edit `deploy/caddy/Caddyfile`** and replace `sync.example.com` with your
-   domain. The compose file mounts this Caddyfile and a writable
-   `caddy_data` volume for Let's Encrypt certificates.
-
-5. **Start the stack**
+4. Bring the stack up:
 
    ```bash
    docker compose up -d
-   docker compose logs -f pkv-sync
    ```
 
-   On a fresh database, open the setup wizard:
+   Open `https://sync.example.com/setup` and create the first
+   administrator account in your browser.
 
-   ```text
-   https://sync.example.com/setup
-   ```
+5. Install `pkv-sync-plugin.zip` in Obsidian
+   (`<vault>/.obsidian/plugins/pkv-sync/`), enable it, paste the share
+   URL from the admin panel, then log in or register and pick a vault.
 
-   Create the first administrator account in the browser. PKV Sync no longer
-   prints a random admin password to stderr or container logs.
+Updating is `docker compose pull && docker compose up -d`. For native
+installs, reverse-proxy tuning (Caddy / Nginx / Traefik), `public_host`
+semantics, backup / restore, and disk encryption, read the
+[deployment hardening guide](./public-docs/deployment-hardening.md).
 
-6. **Sign in and connect Obsidian**
+## Obsidian plugin
 
-   Open `https://sync.example.com/admin/login`, sign in with the administrator
-   account, create your first user account and vault, install
-   `pkv-sync-plugin.zip` in Obsidian, then paste the Admin WebUI share URL into
-   the plugin and connect.
+Local files are the source of truth — the plugin reads and writes your
+normal Obsidian vault on disk, no proxy filesystem. Plugin settings and
+the active bearer device token live in
+`<vault>/.obsidian/plugins/pkv-sync/data.json`; treat that file as
+sensitive. Device tokens renew on use and expire after 90 idle days;
+logging in again on the same device rotates the active token.
 
-**Where things live**
+Day-to-day features — command palette, file history, side-by-side diff,
+conflict resolution, selective `.obsidian` sync, device management, and
+self-update — are walked through in the
+[user manual](./public-docs/user-manual.md).
 
-- Server data: `./data` on the host, bind-mounted to `/var/lib/pkv-sync` in
-  the container. Snapshot it with `pkvsyncd backup` before maintenance.
-- Caddy certificates: `caddy_data` named volume.
-- Logs: `docker compose logs pkv-sync` (JSON formatted by default).
+## Encryption today
 
-**Updating**
+PKV Sync 1.0 does **not** yet ship native end-to-end encryption — the
+server can read vault contents. Native per-vault E2EE is planned for the
+1.x roadmap as an opt-in mode, because encryption trades away the
+server-side features (history diff, three-way auto-merge, inline SSE
+payload, MCP read/write) that make Git-native PKV useful.
 
-```bash
-docker compose pull
-docker compose up -d
-```
+If you need E2EE before it lands, layer
+[`git-crypt`](https://github.com/AGWA/git-crypt) on your vault: marked
+paths reach the server as ciphertext blobs it cannot decrypt. Filenames
+stay plaintext on the server (acceptable for most threat models). Standard
+`git clone` and `pkvsyncd materialize` still work for clients that hold
+the key.
 
-The admin dashboard checks GitHub releases once every 24 hours and shows a
-banner when a newer PKV Sync release is available. For 1.x deployments,
-database migrations run automatically on start and remain append-only after the
-v1 baseline. 0.x SQLite databases cannot be upgraded in place to 1.0.0; follow
-the [1.0 upgrade notes](./public-docs/upgrade-notes-v1.0.md). To roll back,
-restore the data directory from a backup.
+For real deployments, also run behind HTTPS, restrict
+`trusted_proxies`, encrypt the data disk, and encrypt backups — see the
+[deployment hardening guide](./public-docs/deployment-hardening.md).
 
-**Production hardening** — read the
-[deployment hardening guide](./public-docs/deployment-hardening.md) for:
-reverse-proxy specifics (Caddy / Nginx / Traefik), `trusted_proxies` tuning,
-`public_host` semantics, runtime CSRF behaviour, backups, disk encryption,
-and token hygiene.
+## Looking for…
 
-## Server CLI
-
-```bash
-pkvsyncd genkey                                      # generate a deployment key
-pkvsyncd -c /etc/pkv-sync/config.toml migrate up     # apply database migrations
-pkvsyncd -c /etc/pkv-sync/config.toml serve          # run the HTTP server
-pkvsyncd -c /etc/pkv-sync/config.toml user add alice [--admin]
-pkvsyncd -c /etc/pkv-sync/config.toml user passwd alice
-pkvsyncd -c /etc/pkv-sync/config.toml user list
-pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
-pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
-pkvsyncd -c /etc/pkv-sync/config.toml backup --output <dir> [--data-dir <dir>] [--gzip]
-pkvsyncd -c /etc/pkv-sync/config.toml restore --input <backup-dir> --data-dir <dir> [--force]
-pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
-pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
-pkvsyncd upgrade [--dry-run] [--yes] [--version 1.0.0]
-```
-
-Default config path: `/etc/pkv-sync/config.toml`.
-
-`materialize` walks a vault's bare git tree and resolves blob pointer files
-into the actual binary content — useful for `git clone` users or offline
-inspection.
-
-`backup` snapshots `metadata.db` with `VACUUM INTO`, copies `vaults/`,
-`blobs/`, and `config.toml` when present, and writes a `MANIFEST.json` with
-the pkvsyncd version plus component hashes, sizes, and counts. Use `--data-dir`
-for offline checks against a stopped server's data root, and `--gzip` when a
-single archive is more convenient than a directory.
-
-`restore` checks the manifest and component hashes before copying data back
-into the `--data-dir` target. Use `--force` to clear a non-empty target first,
-then it runs `verify` on the restored tree.
-
-`verify` checks referenced blob files against their SHA-256 names, reports
-orphan blobs, and validates vault git repositories with `git2`. It exits
-non-zero on missing, corrupt, or git errors unless `--no-fail` is set.
-
-`mcp` exposes MCP tools over stdio or Streamable HTTP. HTTP mode reads the
-deployment key from the same config file and requires `X-PKVSync-Deployment-Key`
-on every `/mcp` request in addition to bearer token authentication.
-
-`upgrade` downloads the matching GitHub release asset next to the current
-binary as `pkvsyncd.new` (or `pkvsyncd.new.exe` on Windows), verifies it
-against `SHA256SUMS`, and prints the systemd/manual swap commands. Use
-`--dry-run` to see the plan without downloading, `--yes` for non-interactive
-download, or `--version 1.0.0` to choose a specific release. Docker and
-Kubernetes deployments should upgrade by pulling or changing the image tag; the
-CLI detects container environments and prints image-based guidance instead of
-writing a binary.
-
-## Obsidian Plugin
-
-Install from the bundled release zip (`pkv-sync-plugin.zip`) into
-`<vault>/.obsidian/plugins/pkv-sync/`, enable community plugins, and turn on
-**PKV Sync** in Obsidian settings. Paste the server share URL
-(`https://sync.example.com/k_xxx/`) from the admin panel, click **Connect**,
-then log in or register and pick a remote vault.
-
-**Local files are the source of truth.** The plugin reads from and writes to
-your normal Obsidian vault on disk — no opaque storage layer, no proxy
-filesystem. Plugin settings and the sync index live in Obsidian's
-`<vault>/.obsidian/plugins/pkv-sync/data.json`.
-
-`data.json` contains the active bearer device token and deployment key. Treat
-it as sensitive: do not publish it, sync it to untrusted locations, or keep it
-in plaintext backups. If it may have leaked, revoke the device token and
-connect again.
-
-Device tokens renew on authenticated use and expire after 90 idle days.
-Logging in again on the same device replaces the previous active token;
-concurrent stale tokens are not kept.
-
-The plugin settings panel includes **Updates**. By default the plugin checks
-the connected PKV Sync server's bundled plugin manifest, then can fall back to
-GitHub releases. **Update now** downloads `main.js`, `manifest.json`, and
-`styles.css` when present, verifies SHA-256 hashes, writes the plugin files, and
-prompts you to reload Obsidian.
-
-See the [user manual](./public-docs/user-manual.md) for the full feature
-walkthrough (command palette, history & diff modals, conflict resolution,
-selective sync rules, device management, language and timezone).
-
-## Configuration
-
-Static `config.toml` (read at startup):
-
-| Field | Purpose |
+| Topic | Doc |
 | --- | --- |
-| `server.bind_addr` | Where the daemon listens. `127.0.0.1:6710` behind a reverse proxy; `0.0.0.0:6710` in Docker Compose. |
-| `server.deployment_key` | Generated by `pkvsyncd genkey`; sent by clients in the `X-PKVSync-Deployment-Key` header. |
-| `server.public_host` | Externally-visible hostname without a scheme (and port if non-standard). **Required for admin POSTs** and used for share URLs and plugin asset URLs — see deployment hardening guide. |
-| `storage.data_dir` | Data root containing `metadata.db`, `vaults/`, and `blobs/`. |
-| `storage.db_path` | SQLite database path (usually `<data_dir>/metadata.db`). |
-| `network.trusted_proxies` | CIDRs allowed to set `X-Forwarded-For` / `X-Forwarded-Proto`. |
-| `logging.level` | tracing filter such as `info`, `debug`. |
-| `logging.format` | `json` or `pretty`. |
-| `update_check.enabled` | Whether the server checks GitHub releases and shows an admin dashboard update banner. Set `false` for air-gapped deployments. |
-| `update_check.interval_seconds` | Update-check interval, default `86400` seconds. |
-| `update_check.repo` | GitHub repository to check, default `cyberkurry/pkv-sync`. |
+| Day-to-day plugin usage | [user manual](./public-docs/user-manual.md) |
+| Server admin and runtime settings | [admin manual](./public-docs/admin-manual.md) |
+| Every CLI command and flag | [CLI reference](./public-docs/cli-reference.md) |
+| Upgrading from 0.x to 1.0 | [1.0 upgrade notes](./public-docs/upgrade-notes-v1.0.md) |
+| Reverse proxy, TLS, backups, hardening | [deployment hardening](./public-docs/deployment-hardening.md) |
+| HTTP API contract | [OpenAPI spec](./public-docs/openapi.yaml) |
+| MCP setup and tool list | [MCP how-to](./public-docs/mcp-howto.md) |
+| Migrating from Obsidian Sync | [migration guide](./public-docs/migrate-from-obsidian-sync.md) |
+| Security disclosures | [SECURITY.md](./SECURITY.md) |
+| Release history | [CHANGELOG.md](./CHANGELOG.md) |
 
-Runtime settings (registration mode, login rate limits, max file size, text
-extensions, push debounce, inline SSE content cap, SSE heartbeat, Git smart
-HTTP toggle, extra exclude globs, history/diff feature flags) are edited
-from the Admin panel — see the
-[admin manual](./public-docs/admin-manual.md#runtime-settings).
+## Status
 
-## HTTP API
+PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
+storage layout, plugin package, and Docker image are versioned together
+under semver: 1.X.Y stays backwards-compatible on the public surface, and
+the OpenAPI spec is the canonical compatibility contract. SQLite databases
+created by 0.x releases cannot be upgraded in place to 1.0.0 — follow the
+[1.0 upgrade notes](./public-docs/upgrade-notes-v1.0.md).
 
-All `/api/*` routes require the deployment key header; authenticated routes
-also require a bearer device token. Authenticated sync API routes are
-fixed-window rate limited at 600 requests per 60 seconds per route, method,
-client IP, and bearer token. SSE clients can replay missed commits with
-`Last-Event-ID`; replay is capped and falls back to a `lagged` event when the
-client should pull to catch up. Concurrent SSE subscriptions are capped per
-user, with a separate global ceiling as a final guard.
+Each GitHub release publishes Linux amd64/arm64 binaries, a Windows x64
+binary, a multi-arch GHCR Docker image, the Obsidian plugin zip, and
+`SHA256SUMS`.
 
-`GET /api/plugin-manifest` is authenticated and advertises the plugin version
-bundled with the connected server, plus SHA-256 hashes and download URLs for
-the bundled plugin assets used by plugin self-update. When `public_host` is
-set, those URLs are anchored to the configured external host.
-
-Production responses include security headers for clickjacking, MIME sniffing,
-referrer leakage, and CSP. HSTS is emitted when `public_host` is configured.
-
-`/metrics` exposes Prometheus metrics only when the `enable_metrics` runtime
-setting is true. The route is behind the deployment key middleware and plugin
-User-Agent guard, and it requires an admin bearer token. See the
-[OpenAPI specification](./public-docs/openapi.yaml) for the full route table,
-request / response schemas, metrics endpoint, and SSE event payload format.
-Starting with v1.0.0, that OpenAPI file is the public REST compatibility
-contract for 1.x.
-
-## Operations
-
-- Snapshot with `pkvsyncd backup --output /var/backups/pkv/<date>`.
-- Periodically run `pkvsyncd verify` to catch SHA drift or orphan blobs.
-- Restore with `pkvsyncd restore --input /var/backups/pkv/<date> --data-dir
-  /var/lib/pkv-sync`.
-- Use `pkvsyncd restore --force` only when the destination data directory can
-  be cleared first.
-- Run behind HTTPS; restrict `[network].trusted_proxies` to the actual proxy
-  CIDRs.
-- Watch logs for repeated `401`, `403`, `409`, and `429` responses.
-- Run blob garbage collection from the admin panel after large attachment
-  deletions.
-- Use vault metadata reconciliation if file counts, sizes, or blob references
-  drift after interrupted operations.
-
-## Documentation
-
-- [Deployment hardening](./public-docs/deployment-hardening.md)
-- [Admin manual](./public-docs/admin-manual.md)
-- [User manual](./public-docs/user-manual.md)
-- [1.0 upgrade notes](./public-docs/upgrade-notes-v1.0.md)
-- [Security policy](./SECURITY.md)
-- [OpenAPI spec](./public-docs/openapi.yaml)
-- [Changelog](./CHANGELOG.md)
-
-## Development Checks
+## Development
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace -- -D warnings
 cargo test --workspace
-npm --prefix plugin exec vitest run
 npm --prefix plugin run typecheck
+npm --prefix plugin exec vitest run
 npm --prefix plugin run build
-npm --prefix plugin run package
-cargo build --release -p pkv-sync-server
-pwsh -File scripts/ci-smoke.ps1
 ```
 
-CI runs Rust formatting, Clippy, and tests on Linux and Windows; plugin
-tests/typecheck/build/package/audit; Docker build; and release-binary smoke
-tests. Release CI additionally builds Linux amd64 / arm64, Windows x64, the
-plugin package, the multi-arch Docker image, checksums, and the GitHub
-release.
+CI runs the full Rust matrix on Linux and Windows, plus plugin
+tests/typecheck/build/package, a Docker build, and release-binary smoke
+tests.
 
 ## License
 

@@ -1,273 +1,112 @@
 # PKV Sync
 
-自托管 Obsidian 笔记库同步：Rust 服务端、SQLite 元数据、Git 文本历史、内容寻址附件存储，以及桌面／移动端 Obsidian 插件。
+**自托管你的 Obsidian 笔记库。** PKV Sync 跑在你自己的服务器上，把手机、平板、桌面端的 Obsidian 笔记库保持同步。一个二进制、一个 SQLite 数据库、每个笔记库一个 bare git 仓库——不需要集群，不需要 S3，不需要任何托管云。装好，让 Obsidian 连上去，笔记就同步了。
 
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
 [English](./README.md) | 简体中文 | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
-## 状态
+## 特性
 
-PKV Sync 1.0 是第一个稳定版。公开 REST API、CLI 表面、存储布局、插件包、Docker 镜像和公开文档会一起按版本维护。
+- **多用户、多笔记库**同步，按设备签发令牌，每个笔记库带 push 锁与幂等重试。
+- **实时推送**。小改动通过 SSE 在亚秒级落地；轮询作为兜底保险。
+- **Git 即真相**。每个笔记库都是一个 bare git 仓库，单文件历史、统一 diff、单文件恢复开箱即用——插件端和管理后台都能用。
+- **冲突安全**。插件不会静默覆盖本地改动，冲突会以 `.conflict-*` 文件呈现，一键「保留本地」或「采纳远端」。
+- **五语言管理后台**（English、简中、繁中、日本語、한국어）：用户、设备令牌、笔记库、邀请码、活动日志、blob 垃圾回收。
+- **AI 可读**。`pkvsyncd mcp` 通过 stdio 或流式 HTTP 暴露读写 MCP 工具。
+- **故意做得无聊**。单二进制、单 SQLite 元数据库、每库一个 bare git 仓、每个附件一个内容寻址 blob。
 
-PKV Sync **暂未提供**原生端到端加密。服务端可以读取同步的笔记内容和附件。原生 per-vault E2EE 计划作为 1.x 路线图项目落地，并以“按 vault 可选启用的隐私模式”形式发布，而非全局默认——加密会牺牲服务端侧的核心 Git-native 能力（历史 diff、三路自动合并、SSE inline 内容、MCP 读写），所以默认 vault 仍是明文 Git-native，需要的用户在创建 vault 时选 E2EE。生产部署务必启用 HTTPS、严格的账号控制、加密磁盘、加密备份和主机层加固——详见 [部署加固指南](./public-docs/deployment-hardening.zh-CN.md)。
+## 用 Docker Compose 快速上手
 
-**今天就要 E2EE？用 `git-crypt` 过渡** —— 在原生 E2EE 落地前需要端到端加密的用户，可以在 vault 上叠加 [`git-crypt`](https://github.com/AGWA/git-crypt)：本地初始化 `git-crypt`，在 `.gitattributes` 里标记敏感路径，加密后的内容到达 PKV Sync 时已经是密文 blob，服务端无法解密。**路径和文件名仍为明文**（对多数威胁模型可接受；若需要包含路径在内的零知识方案，请等待 1.x 路线图上的原生 E2EE）。标准的 `git clone` 与 `pkvsyncd materialize` 流程对 `git-crypt` 加密的 vault 仍然有效，前提是客户端持有密钥。
+这是推荐路径。`deploy/caddy/` 里的 Caddy 通过 Let's Encrypt 自动签发 HTTPS；PKV Sync 在 compose 内网监听 `127.0.0.1:6710`，公网完全见不到明文 HTTP。
 
-## 稳定性与版本
+你需要：一个域名（比如 `sync.example.com`），其 A/AAAA 记录指向服务器；公网能访问到 `80` 和 `443` 端口（80 用于 ACME HTTP-01 验证）。
 
-PKV Sync 从 v1.0.0 起遵循语义化版本：
-
-- **Major（X.0.0）**：可能包含对公开 HTTP API、存储布局或 CLI 表面的不兼容变更。迁移说明会写入 `public-docs/upgrade-notes-vX.0.md`。
-- **Minor（1.X.0）**：向后兼容的功能新增。已有 endpoint、CLI 参数和存储格式继续可用。
-- **Patch（1.0.X）**：bug 修复和安全补丁。不破坏公开 API、存储、CLI 或插件兼容性。
-
-公开 REST API 契约是 `public-docs/openapi.yaml`。Admin Web UI 表单处理器以及没有列在其中的其他路由属于内部实现细节。MCP 行为记录在 `public-docs/mcp-howto.zh-CN.md`。
-
-PKV Sync 1.0 有意重置 SQLite migration 基线。全新的 1.x 数据库从 `server/migrations/0001_initial.sql` 开始，之后 1.x migration 保持追加式。由 0.x 创建的 SQLite 数据库**不支持原地升级**到 1.0.0；请按 [`public-docs/upgrade-notes-v1.0.zh-CN.md`](./public-docs/upgrade-notes-v1.0.zh-CN.md) 操作。
-
-安全披露流程见 [`SECURITY.zh-CN.md`](./SECURITY.zh-CN.md)。
-
-## 亮点
-
-- **多用户、多笔记库** Obsidian 同步，带按笔记库 push 锁和幂等 push。
-- **实时推送**——通过 Server-Sent Events 投递提交事件，小文本变更（≤ 8 KiB）直接内联在事件里，插件无需再 pull。健康网络下端到端目标亚秒级，轮询作为安全兜底保留。
-- **Git 原生**——每个笔记库在磁盘上就是一个裸 git 仓库。每文件历史、unified diff、单文件恢复在插件和管理面板里都可见。可选启用只读 `git clone https://_:<token>@host/git/<vault>` 用于离线浏览或外部镜像。
-- **AI 可读笔记库**——`pkvsyncd mcp` 通过 stdio 或无状态 Streamable HTTP 端点暴露读写 MCP 工具。
-- **选择性 `.obsidian` 同步**——新笔记库默认带一组起步 allowlist，用于主题、snippet、快捷键、应用偏好、外观和启用插件列表。插件代码和插件设置仍需用户主动 opt-in。
-- **冲突安全**——SSE 内联应用拒绝覆盖本地有未同步修改的文件；冲突落盘为保留原扩展名的 `.conflict-*` 文件，可在插件命令面板里用真 LCS 行差异预览并一键选择“保留本地”或“采纳远端”。
-- **管理面板**——用户、设备 token、笔记库、邀请码、运行时设置、活动日志、blob 垃圾回收。响应式，五语界面。
-- **安全**——Argon2id 密码哈希、原子化每 IP 登录速率限制（带突发保护）、未配置 `public_host` 时 CSRF fail-closed、无效密码与禁用账号统一返回“invalid credentials”、使用时续期的 bearer 设备 token + 重新登录时自动轮换。
-- **刻意简单**——单二进制、单 SQLite 元数据、每笔记库一个 bare git 仓库、每附件一个内容寻址 blob。**不**搞集群、不依赖 MySQL／PostgreSQL、不依赖 S3。
-- 发布 Linux amd64／arm64、Windows x64 二进制以及多架构 GHCR Docker 镜像。
-
-完整运维和用户操作请看 [管理员手册](./public-docs/admin-manual.zh-CN.md) 和 [用户手册](./public-docs/user-manual.zh-CN.md)。
-
-## 存储布局
-
-```text
-data_dir/
-  metadata.db        SQLite 元数据
-  vaults/<vault-id>/ 每个远端笔记库的裸 Git 仓库
-  blobs/<sha256>     内容寻址的二进制 blob
-```
-
-`metadata.db` 存储用户、笔记库、设备 token、邀请码、运行时设置、同步活动、blob 引用和幂等记录。Git 历史是版本化文件状态的事实源；blob 文件在被引用期间会保留，过宽限期后由 GC 清理。请用 `pkvsyncd backup` 快照数据根目录和对应的 `config.toml`。
-
-## 发布资产
-
-GitHub Release 提供：
-
-- `pkvsyncd-x86_64-unknown-linux-gnu`
-- `pkvsyncd-aarch64-unknown-linux-gnu`
-- `pkvsyncd-x86_64-pc-windows-msvc.exe`
-- `pkv-sync-plugin.zip`
-- `SHA256SUMS`
-
-Docker 镜像发布到 GHCR（多架构 `linux/amd64`、`linux/arm64`）：
-
-```bash
-docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v1.0.0
-```
-
-## 快速开始：Docker Compose
-
-这是推荐的部署路径。`deploy/caddy/` 里的 Caddy 通过 Let's Encrypt 申请并续签 HTTPS 证书；PKV Sync 只在 Compose 网络内的 `127.0.0.1:6710` 上监听，公网永远看不到明文 HTTP。
-
-**前置条件**：服务器有指向自己的 DNS A/AAAA 记录，公网可达 `80` 和 `443`（80 端口用于 ACME HTTP-01 验证和 HTTP→HTTPS 跳转）。
-
-1. **DNS 指向服务器**
-
-   ```text
-   sync.example.com A    <server IPv4>
-   sync.example.com AAAA <server IPv6，可选>
-   ```
-
-2. **生成部署密钥**
+1. 生成部署密钥：
 
    ```bash
    docker run --rm ghcr.io/cyberkurry/pkv-sync:latest genkey
    ```
 
-3. **在 `docker-compose.yml` 同目录创建 `config.toml`**
+2. 在 `docker-compose.yml` 旁放一份 `config.toml`：
 
    ```toml
    [server]
-   bind_addr     = "0.0.0.0:6710"
+   bind_addr      = "0.0.0.0:6710"
    deployment_key = "k_replace_me_with_genkey_output"
-   public_host   = "sync.example.com"   # admin POST 必备
+   public_host    = "sync.example.com"   # 必填，管理端 POST 才能通
 
    [storage]
    data_dir = "/var/lib/pkv-sync"
    db_path  = "/var/lib/pkv-sync/metadata.db"
 
    [network]
-   trusted_proxies = ["172.16.0.0/12"]   # Docker 桥接网段
-
-   [logging]
-   level  = "info"
-   format = "json"
+   trusted_proxies = ["172.16.0.0/12"]   # Docker bridge 网段
    ```
 
-   `public_host` **是关键字段**：不配置时 admin CSRF 检查会 fail-closed，所有 admin POST 都会被拒绝（详见部署加固指南）。配置后，admin CSRF 使用 `https://<public_host>` 作为公网 Origin；即使反向代理到后端时使用 HTTP，也不会因 `X-Forwarded-Proto: http` 降级。
+3. 编辑 `deploy/caddy/Caddyfile`，把 `sync.example.com` 换成你的真实域名。
 
-4. **编辑 `deploy/caddy/Caddyfile`**——把 `sync.example.com` 改成你的域名。compose 文件已经挂载好 Caddyfile 和 `caddy_data` 卷（用于 Let's Encrypt 证书持久化）。
-
-5. **启动**
+4. 启动整套服务：
 
    ```bash
    docker compose up -d
-   docker compose logs -f pkv-sync
    ```
 
-   全新数据库首次启动后，打开 setup wizard：
+   浏览器打开 `https://sync.example.com/setup`，建第一个管理员账号。
 
-   ```text
-   https://sync.example.com/setup
-   ```
+5. 在 Obsidian 里把 `pkv-sync-plugin.zip` 解压到 `<vault>/.obsidian/plugins/pkv-sync/`，启用插件，从管理后台复制分享 URL 粘进去，登录或注册，选一个笔记库。
 
-   在浏览器里创建第一个管理员账号。PKV Sync 不再把随机管理员密码输出到 stderr 或容器日志。
-
-6. **登录并连接 Obsidian**
-
-   打开 `https://sync.example.com/admin/login`，用管理员账号登录，创建第一个用户账号和笔记库，安装 `pkv-sync-plugin.zip`，然后把 Admin WebUI 里的分享 URL 粘贴到插件中并连接。
-
-**数据落在哪儿**
-
-- 服务端数据：`./data`（主机），挂到容器内 `/var/lib/pkv-sync`。维护前请用 `pkvsyncd backup` 生成快照。
-- Caddy 证书：命名卷 `caddy_data`。
-- 日志：`docker compose logs pkv-sync`（默认 JSON 格式）。
-
-**升级**
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-对于 1.x 部署，数据库 migration 会在启动时自动应用，并在 v1 基线之后保持追加式。0.x SQLite 数据库不能原地升级到 1.0.0；请按 [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md) 操作。回滚的方式是从备份还原数据目录。
-
-管理仪表盘每 24 小时检查一次 GitHub release；发现新版本时会显示更新提示。
-
-**生产加固**——详见 [部署加固指南](./public-docs/deployment-hardening.zh-CN.md)：反向代理细节（Caddy／Nginx／Traefik）、`trusted_proxies` 调优、`public_host` 语义、运行时 CSRF 行为、备份、磁盘加密、token 卫生。
-
-## 服务端 CLI
-
-```bash
-pkvsyncd genkey                                      # 生成部署密钥
-pkvsyncd -c /etc/pkv-sync/config.toml migrate up     # 应用迁移
-pkvsyncd -c /etc/pkv-sync/config.toml serve          # 启动 HTTP 服务
-pkvsyncd -c /etc/pkv-sync/config.toml user add alice [--admin]
-pkvsyncd -c /etc/pkv-sync/config.toml user passwd alice
-pkvsyncd -c /etc/pkv-sync/config.toml user list
-pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
-pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
-pkvsyncd -c /etc/pkv-sync/config.toml backup --output <dir> [--data-dir <dir>] [--gzip]
-pkvsyncd -c /etc/pkv-sync/config.toml restore --input <backup-dir> --data-dir <dir> [--force]
-pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
-pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
-pkvsyncd upgrade [--dry-run] [--yes] [--version 1.0.0]
-```
-
-默认配置路径：`/etc/pkv-sync/config.toml`。
-
-`materialize` 会遍历某个笔记库的裸 git 树，把 blob pointer 文件展开为实际二进制内容——给 `git clone` 用户或离线检视用。
-
-`backup` 使用 `VACUUM INTO` 快照 `metadata.db`，复制 `vaults/`、`blobs/` 和存在时的 `config.toml`，并写入带 pkvsyncd 版本、组件哈希、大小和数量的 `MANIFEST.json`。对停止运行的服务数据根目录做离线检查时可用 `--data-dir`；需要单个归档文件时可用 `--gzip`。
-
-`restore` 会先检查 manifest 和组件哈希，再把数据复制回 `--data-dir` 指定的目标数据目录。目标目录非空时需要 `--force`，恢复完成后会自动运行 `verify`。
-
-`verify` 会检查被引用的 blob 文件是否存在、内容 SHA-256 是否与文件名一致，报告孤立 blob，并用 `git2` 校验笔记库 git 仓库。缺失、损坏或 git 错误会返回失败；`--no-fail` 可覆盖退出码。
-
-`mcp` 通过 stdio 或 Streamable HTTP 暴露 MCP 工具。HTTP 模式会读取同一份配置文件中的部署密钥，并要求每个 `/mcp` 请求除了 bearer token 认证外，还必须带 `X-PKVSync-Deployment-Key`。
-
-`upgrade` 会下载匹配当前平台的 GitHub release 二进制到当前可执行文件旁边的 `pkvsyncd.new`（Windows 为 `pkvsyncd.new.exe`），用 `SHA256SUMS` 校验后打印 systemd／手动替换步骤。`--dry-run` 只显示计划不下载，`--yes` 跳过交互确认，`--version 1.0.0` 可指定版本。Docker 和 Kubernetes 部署应通过拉取或修改镜像 tag 升级；CLI 检测到容器环境时会输出镜像升级指引，不写入旁路二进制。
+后续更新就是 `docker compose pull && docker compose up -d`。如果要原生安装、调反向代理（Caddy／Nginx／Traefik）、了解 `public_host` 的语义、做备份还原或磁盘加密，请看[部署加固指南](./public-docs/deployment-hardening.zh-CN.md)。
 
 ## Obsidian 插件
 
-从 release 里下载 `pkv-sync-plugin.zip`，解压到 `<vault>/.obsidian/plugins/pkv-sync/`，在 Obsidian 设置里开启社区插件并启用 **PKV Sync**。从管理面板复制分享 URL（`https://sync.example.com/k_xxx/`），粘贴到插件、点 **Connect**，然后登录或注册并选择远端笔记库。
+本地文件就是真相——插件直接读写你磁盘上的 Obsidian 笔记库，不存在代理文件系统这种东西。插件设置和当前的设备令牌都存在 `<vault>/.obsidian/plugins/pkv-sync/data.json`，请把这个文件当成敏感数据。设备令牌在使用时会自动续期，90 天无活动后失效；在同一设备重新登录会轮换掉旧令牌。
 
-**本地文件就是事实源**。插件直接读写你正常的 Obsidian 笔记库目录——没有不透明的存储层，没有代理文件系统。插件设置和同步索引存在 Obsidian 的 `<vault>/.obsidian/plugins/pkv-sync/data.json` 里。
+日常使用——命令面板、文件历史、并排 diff、冲突解决、`.obsidian` 选择性同步、设备管理、插件自更新——都写在[用户手册](./public-docs/user-manual.zh-CN.md)里。
 
-`data.json` 包含当前活跃的 bearer 设备 token 和部署密钥。请把它当作敏感文件处理：不要公开发布，不要同步到不可信位置，也不要保存在明文备份中。如果怀疑泄露，请撤销该设备 token 并重新连接。
+## 关于加密
 
-设备 token 会在认证请求时续期，连续 90 天未使用才会过期。同一设备重新登录会替换原来的活跃 token；不会保留多个并存的 stale token。
+PKV Sync 1.0 **暂不**提供原生端到端加密——服务端能读到笔记内容。原生的按库 E2EE 在 1.x 路线图上，将以可选模式上线，因为加密会换掉服务端那些让 Git-native PKV 真正有用的功能（历史 diff、三方自动合并、SSE 内联推送、MCP 读写）。
 
-插件设置页包含 **更新** 区段。默认优先检查已连接 PKV Sync 服务端内置的插件 manifest，也可以回退到 GitHub release。点击 **立即更新** 会下载 `main.js`、`manifest.json` 和存在时的 `styles.css`，校验 SHA-256 后写入插件文件，并提示重新加载 Obsidian。
+在原生 E2EE 落地前，如果你需要端到端加密，可以在笔记库上叠一层 [`git-crypt`](https://github.com/AGWA/git-crypt)：被标记的路径会以密文 blob 形式到达服务端，服务端无法解密。文件名仍以明文形式存在于服务端（对大多数威胁模型来说可接受）。持有密钥的客户端依然可以用标准 `git clone` 和 `pkvsyncd materialize`。
 
-完整功能（命令面板、历史／diff modal、冲突解决、选择性同步规则、设备管理、语言和时区）详见 [用户手册](./public-docs/user-manual.zh-CN.md)。
+生产部署还应该跑在 HTTPS 后面、把 `trusted_proxies` 收紧、给数据盘加密、给备份加密——具体看[部署加固指南](./public-docs/deployment-hardening.zh-CN.md)。
 
-## 配置
+## 你在找……
 
-静态 `config.toml`（启动时读取）：
-
-| 字段 | 用途 |
+| 主题 | 文档 |
 | --- | --- |
-| `server.bind_addr` | 监听地址。反代后用 `127.0.0.1:6710`；Docker Compose 里用 `0.0.0.0:6710`。 |
-| `server.deployment_key` | 由 `pkvsyncd genkey` 生成，客户端通过 `X-PKVSync-Deployment-Key` 头发送。 |
-| `server.public_host` | 对外可见的主机名（不含协议，必要时含端口）。**admin POST 必备**，也用于分享 URL 和插件资源 URL——详见部署加固指南。 |
-| `storage.data_dir` | 数据根目录，包含 `metadata.db`、`vaults/`、`blobs/`。 |
-| `storage.db_path` | SQLite 数据库路径（通常是 `<data_dir>/metadata.db`）。 |
-| `network.trusted_proxies` | 允许设置 `X-Forwarded-For` / `X-Forwarded-Proto` 的 CIDR。 |
-| `logging.level` | tracing filter，如 `info`、`debug`。 |
-| `logging.format` | `json` 或 `pretty`。 |
-| `update_check.enabled` | 是否检查 GitHub release 并在管理仪表盘显示更新提示。离线部署可设为 `false`。 |
-| `update_check.interval_seconds` | 更新检查间隔，默认 `86400` 秒。 |
-| `update_check.repo` | 用于检查的 GitHub 仓库，默认 `cyberkurry/pkv-sync`。 |
+| 插件日常使用 | [用户手册](./public-docs/user-manual.zh-CN.md) |
+| 服务端管理与运行时设置 | [管理员手册](./public-docs/admin-manual.zh-CN.md) |
+| 所有 CLI 命令和参数 | [CLI 参考](./public-docs/cli-reference.zh-CN.md) |
+| 从 0.x 升级到 1.0 | [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md) |
+| 反向代理、TLS、备份、加固 | [部署加固](./public-docs/deployment-hardening.zh-CN.md) |
+| HTTP API 契约 | [OpenAPI 规范](./public-docs/openapi.yaml) |
+| MCP 安装与工具列表 | [MCP 操作指南](./public-docs/mcp-howto.zh-CN.md) |
+| 从 Obsidian Sync 迁移 | [迁移指南](./public-docs/migrate-from-obsidian-sync.zh-CN.md) |
+| 安全漏洞反馈 | [SECURITY.md](./SECURITY.md) |
+| 发布记录 | [CHANGELOG.md](./CHANGELOG.md) |
 
-运行时设置（注册模式、登录速率限制、最大文件大小、文本扩展名、push 去抖、SSE 内联内容上限、SSE 心跳、Git smart HTTP 开关、额外 exclude glob、历史／diff 功能开关）都在管理面板里编辑——详见 [管理员手册](./public-docs/admin-manual.zh-CN.md#运行时设置)。
+## 状态
 
-## HTTP API
+PKV Sync 1.0 是第一个稳定版。公开 REST API、CLI、存储布局、插件包、Docker 镜像作为一组同步发版，遵循 semver：1.X.Y 在公开表面保持向后兼容，OpenAPI 规范是这个兼容契约的权威来源。0.x 创建的 SQLite 库**不支持**就地升级到 1.0.0——请按 [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md)操作。
 
-所有 `/api/*` 路由都要求部署密钥 header；认证路由还要求 bearer 设备 token。完整路由表、请求／响应 schema、SSE 事件 payload 格式见 [OpenAPI 规范](./public-docs/openapi.yaml)。从 v1.0.0 起，这份 OpenAPI 文件就是 1.x 的公开 REST 兼容性契约。
+每个 GitHub release 会发布 Linux amd64/arm64 二进制、Windows x64 二进制、多架构 GHCR Docker 镜像、Obsidian 插件 zip 包，以及 `SHA256SUMS`。
 
-认证同步 API 路由使用固定窗口限流：按路由、方法、客户端 IP 和 bearer 设备 token 分桶，每 60 秒最多 600 次请求。SSE 客户端可以用 `Last-Event-ID` replay 断线期间错过的 commit；replay 有上限，超出时会收到 `lagged` 事件并应主动 pull 追赶。并发 SSE 订阅按用户限制，并保留独立的全局上限作为最后防线。
-
-`GET /api/plugin-manifest` 需要认证，返回当前服务端内置插件版本、SHA-256 校验值和插件资源下载 URL，供插件自更新使用。配置了 `public_host` 时，这些 URL 会固定到该外部主机。
-
-生产响应会包含点击劫持、MIME 嗅探、referrer 泄露和 CSP 相关安全响应头。配置了 `public_host` 时会发送 HSTS。
-
-`/metrics` 指标端点只有启用 `enable_metrics=true` 后才可用，并且仍需通过部署密钥中间件、插件 User-Agent guard 和管理员 bearer token。
-
-## 运维
-
-- 使用 `pkvsyncd backup --output /var/backups/pkv/<date>` 生成快照。
-- 定期运行 `pkvsyncd verify`，及时发现 SHA 漂移或孤立 blob。
-- 使用 `pkvsyncd restore --input /var/backups/pkv/<date> --data-dir /var/lib/pkv-sync` 从快照恢复。
-- 只有在目标数据目录可以先清空时，才对 `pkvsyncd restore` 使用 `--force`。
-- 务必跑在 HTTPS 后；把 `[network].trusted_proxies` 限制到实际代理 CIDR。
-- 关注日志里重复出现的 `401`、`403`、`409`、`429` 响应。
-- 大量删除附件后从管理面板触发 blob 垃圾回收。
-- 同步过程中断后，如果文件数／大小／blob 引用漂移，用管理面板的元数据 reconcile 修复。
-
-## 文档
-
-- [部署加固](./public-docs/deployment-hardening.zh-CN.md)
-- [管理员手册](./public-docs/admin-manual.zh-CN.md)
-- [用户手册](./public-docs/user-manual.zh-CN.md)
-- [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md)
-- [安全政策](./SECURITY.zh-CN.md)
-- [OpenAPI 规范](./public-docs/openapi.yaml)
-- [Changelog](./CHANGELOG.md)
-
-## 开发检查
+## 开发自检
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace -- -D warnings
 cargo test --workspace
-npm --prefix plugin exec vitest run
 npm --prefix plugin run typecheck
+npm --prefix plugin exec vitest run
 npm --prefix plugin run build
-npm --prefix plugin run package
-cargo build --release -p pkv-sync-server
-pwsh -File scripts/ci-smoke.ps1
 ```
 
-CI 在 Linux 和 Windows 上跑 Rust 格式化、Clippy 和测试；插件做 test／typecheck／build／package／audit；Docker 构建；以及发布二进制 smoke 测试。Release CI 还会额外构建 Linux amd64／arm64、Windows x64、插件包、多架构 Docker 镜像、checksum 和 GitHub release。
+CI 在 Linux 和 Windows 上跑完整 Rust 矩阵，加上插件的 test／typecheck／build／package、Docker 构建，以及发布二进制的冒烟测试。
 
-## License
+## 许可
 
 AGPL-3.0-only。详见 [LICENSE](./LICENSE)。

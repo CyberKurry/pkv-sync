@@ -1,131 +1,112 @@
 # PKV Sync
 
-自託管 Obsidian 筆記庫同步：Rust 服務端、SQLite 中繼資料、Git 文字歷史、內容定址附件儲存，以及桌面／行動端 Obsidian 外掛。
+**自架你的 Obsidian 筆記庫。** PKV Sync 跑在你自己的伺服器上，把手機、平板、桌機的 Obsidian 筆記庫保持同步。一份二進位、一個 SQLite 資料庫、每個筆記庫一個 bare git 倉庫——不用叢集、不用 S3、不用任何託管雲。裝好，把 Obsidian 指過去，筆記就同步了。
 
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | 繁體中文 | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
-## 狀態
+## 特性
 
-PKV Sync 1.0 是第一個穩定版。公開 REST API、CLI 表面、儲存布局、外掛包、Docker 映像和公開文件會一起按版本維護。
+- **多使用者、多筆記庫**同步，依裝置簽發 token，每個筆記庫帶 push 鎖與冪等重試。
+- **即時推送**。小修改透過 SSE 在亞秒級落地；輪詢做為兜底保險。
+- **Git 即真相**。每個筆記庫都是一個 bare git 倉庫，單檔歷史、unified diff、單檔還原開箱即用——外掛端和管理後台都能用。
+- **衝突安全**。外掛不會默默覆蓋本地修改，衝突會以 `.conflict-*` 檔案呈現，一鍵「保留本地」或「採納遠端」。
+- **五語言管理後台**（English、简中、繁中、日本語、한국어）：使用者、裝置 token、筆記庫、邀請碼、活動日誌、blob 垃圾回收。
+- **AI 可讀**。`pkvsyncd mcp` 透過 stdio 或 Streamable HTTP 暴露讀寫 MCP 工具。
+- **刻意做得無聊**。單一二進位、單一 SQLite 中繼資料庫、每庫一個 bare git 倉、每個附件一個內容定址 blob。
 
-PKV Sync **暫未提供**原生端到端加密。服務端可以讀取同步的筆記內容和附件。原生 per-vault E2EE 計畫作為 1.x 路線圖項目落地，並以「按 vault 可選啟用的隱私模式」形式發布，而非全域預設。需要今天就做內容側加密的使用者，可以參考 [`git-crypt`](./public-docs/git-crypt-howto.zh-Hant.md) 過渡方案；路徑和檔名仍會是明文。
+## 用 Docker Compose 快速上手
 
-## 穩定性與版本
+這是推薦路徑。`deploy/caddy/` 裡的 Caddy 透過 Let's Encrypt 自動簽發 HTTPS；PKV Sync 在 compose 內網監聽 `127.0.0.1:6710`，公網完全看不到明文 HTTP。
 
-PKV Sync 從 v1.0.0 起遵循語義化版本：
+你需要：一個網域（例如 `sync.example.com`），A／AAAA 記錄指向伺服器；公網能連到 `80` 和 `443` 連接埠（80 用於 ACME HTTP-01 驗證）。
 
-- **Major（X.0.0）**：可能包含對公開 HTTP API、儲存布局或 CLI 表面的不相容變更，遷移說明會寫入 `public-docs/upgrade-notes-vX.0.md`。
-- **Minor（1.X.0）**：向後相容的功能新增。已有 endpoint、CLI 參數和儲存格式繼續可用。
-- **Patch（1.0.X）**：bug 修復和安全補丁。不破壞公開 API、儲存、CLI 或外掛相容性。
+1. 產生部署金鑰：
 
-公開 REST API 契約是 [`public-docs/openapi.yaml`](./public-docs/openapi.yaml)。Admin Web UI 表單處理器以及沒有列在其中的其他路由屬於內部實作細節。MCP 行為記錄在 [`public-docs/mcp-howto.zh-Hant.md`](./public-docs/mcp-howto.zh-Hant.md)。
+   ```bash
+   docker run --rm ghcr.io/cyberkurry/pkv-sync:latest genkey
+   ```
 
-PKV Sync 1.0 有意重置 SQLite migration 基線。全新的 1.x 資料庫從 `server/migrations/0001_initial.sql` 開始，之後 1.x migration 保持追加式。由 0.x 建立的 SQLite 資料庫**不支援原地升級**到 1.0.0；請按 [`public-docs/upgrade-notes-v1.0.zh-Hant.md`](./public-docs/upgrade-notes-v1.0.zh-Hant.md) 操作。
+2. 在 `docker-compose.yml` 旁放一份 `config.toml`：
 
-安全披露流程見 [`SECURITY.zh-Hant.md`](./SECURITY.zh-Hant.md)。
+   ```toml
+   [server]
+   bind_addr      = "0.0.0.0:6710"
+   deployment_key = "k_replace_me_with_genkey_output"
+   public_host    = "sync.example.com"   # 必填，管理端 POST 才能通
 
-## 亮點
+   [storage]
+   data_dir = "/var/lib/pkv-sync"
+   db_path  = "/var/lib/pkv-sync/metadata.db"
 
-- **多使用者、多筆記庫** Obsidian 同步，帶按筆記庫 push 鎖和冪等 push。
-- **即時推送**：透過 Server-Sent Events 投遞 commit 事件，小文字變更（預設 ≤ 8 KiB）直接內嵌在事件裡，外掛無需再 pull。
-- **Git 原生**：每個筆記庫在磁碟上就是一個 bare git repository。檔案歷史、unified diff、單檔恢復和可選只讀 `git clone` 都可用。
-- **AI 可讀寫筆記庫**：`pkvsyncd mcp` 透過 stdio 或 Streamable HTTP 暴露 MCP 讀寫工具。
-- **選擇性 `.obsidian` 同步**：新筆記庫預設帶起步 allowlist；外掛程式碼和外掛設定仍需使用者主動 opt-in。
-- **衝突安全**：SSE inline apply 不覆蓋本地未同步修改；衝突會落盤為 `.conflict-*` 檔案，並可從外掛命令面板解決。
-- **Admin Web UI**：使用者、裝置 token、筆記庫、邀請碼、執行時設定、活動日誌、blob 垃圾回收和更新提示。
-- **安全基線**：Argon2id 密碼雜湊、登入速率限制、嚴格 CSRF、bearer 裝置 token 使用時續期、同裝置重新登入會替換舊 token。
-- Linux amd64／arm64、Windows x64 二進位，以及多架構 GHCR Docker 映像。
+   [network]
+   trusted_proxies = ["172.16.0.0/12"]   # Docker bridge 網段
+   ```
 
-完整操作請看 [管理員手冊](./public-docs/admin-manual.zh-Hant.md)、[使用者手冊](./public-docs/user-manual.zh-Hant.md) 和 [部署加固指南](./public-docs/deployment-hardening.zh-Hant.md)。
+3. 編輯 `deploy/caddy/Caddyfile`，把 `sync.example.com` 換成你的真實網域。
 
-## 儲存布局
+4. 把整套服務拉起來：
 
-```text
-data_dir/
-  metadata.db        SQLite 中繼資料
-  vaults/<vault-id>/ 每個遠端筆記庫的 bare Git repository
-  blobs/<sha256>     內容定址二進位 blob
-```
+   ```bash
+   docker compose up -d
+   ```
 
-`metadata.db` 儲存使用者、筆記庫、裝置 token、邀請碼、執行時設定、同步活動、blob 引用和冪等記錄。Git 歷史是版本化檔案狀態的事實來源；blob 檔案在被引用期間保留，過寬限期後由 GC 清理。請用 `pkvsyncd backup` 快照資料根目錄和對應的 `config.toml`。
+   瀏覽器打開 `https://sync.example.com/setup`，建立第一個管理員帳號。
 
-## 發布資產
+5. 在 Obsidian 裡把 `pkv-sync-plugin.zip` 解壓到 `<vault>/.obsidian/plugins/pkv-sync/`，啟用外掛，從管理後台複製分享 URL 貼進去，登入或註冊，選一個筆記庫。
 
-GitHub Release 提供 Linux amd64／arm64、Windows x64、`pkv-sync-plugin.zip` 和 `SHA256SUMS`。Docker 映像發布到 GHCR：
-
-```bash
-docker pull ghcr.io/cyberkurry/pkv-sync:latest
-docker pull ghcr.io/cyberkurry/pkv-sync:v1.0.0
-```
-
-## 快速開始：Docker Compose
-
-推薦使用 `docker-compose.yml` 搭配 `deploy/caddy/`。Caddy 申請並續簽 HTTPS 憑證；PKV Sync 在 compose 網路內監聽 `127.0.0.1:6710`。
-
-1. 將 DNS 指向伺服器，例如 `sync.example.com`。
-2. 執行 `docker run --rm ghcr.io/cyberkurry/pkv-sync:latest genkey` 產生部署金鑰。
-3. 在 `config.toml` 設定 `deployment_key`、`public_host = "sync.example.com"`、`data_dir` 和 `db_path`。
-4. 更新 `deploy/caddy/Caddyfile`，再執行 `docker compose up -d`。
-5. 全新資料庫首次啟動後，開啟 `https://sync.example.com/setup` 建立第一個管理員。
-6. 進入 Admin Web UI 建立使用者和筆記庫，安裝 `pkv-sync-plugin.zip`，再把分享 URL 貼到 Obsidian 外掛。
-
-`public_host` 是生產部署必備設定。未設定時，admin POST 會因 CSRF fail-closed 被拒絕。
-
-## 升級
-
-1.x 部署的資料庫 migration 會在啟動時自動套用，並在 v1 基線之後保持追加式。0.x SQLite 資料庫不能原地升級到 1.0.0；請先閱讀 [1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md)。
-
-二進位部署可以使用：
-
-```bash
-pkvsyncd upgrade [--dry-run] [--yes] [--version 1.0.0]
-```
-
-Docker 和 Kubernetes 部署應拉取或修改映像 tag，而不是在容器內替換二進位。
-
-## 服務端 CLI
-
-常用命令：
-
-```bash
-pkvsyncd genkey
-pkvsyncd -c /etc/pkv-sync/config.toml migrate up
-pkvsyncd -c /etc/pkv-sync/config.toml serve
-pkvsyncd -c /etc/pkv-sync/config.toml user add alice [--admin]
-pkvsyncd -c /etc/pkv-sync/config.toml materialize <vault-id> --output <dir>
-pkvsyncd -c /etc/pkv-sync/config.toml backup --output <dir> [--data-dir <dir>] [--gzip]
-pkvsyncd -c /etc/pkv-sync/config.toml restore --input <backup-dir> --data-dir <dir> [--force]
-pkvsyncd -c /etc/pkv-sync/config.toml verify [--data-dir <dir>] [--no-fail]
-pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
-```
-
-HTTP MCP 模式要求每個 `/mcp` 請求同時帶 bearer token 和 `X-PKVSync-Deployment-Key`。
+之後升級就是 `docker compose pull && docker compose up -d`。如果要原生安裝、調反向代理（Caddy／Nginx／Traefik）、了解 `public_host` 的語義、做備份還原或磁碟加密，請看[部署加固指南](./public-docs/deployment-hardening.zh-Hant.md)。
 
 ## Obsidian 外掛
 
-將 `pkv-sync-plugin.zip` 解壓到 `<vault>/.obsidian/plugins/pkv-sync/`，在 Obsidian 啟用 **PKV Sync**，貼上 Admin Web UI 的分享 URL，登入或註冊並選擇遠端筆記庫。
+本地檔案就是真相——外掛直接讀寫你磁碟上的 Obsidian 筆記庫，不存在代理檔案系統那種東西。外掛設定和當前的裝置 token 都存在 `<vault>/.obsidian/plugins/pkv-sync/data.json`，請把這個檔案當成敏感資料。裝置 token 在使用時會自動續期，90 天無活動後失效；在同一裝置重新登入會換掉舊 token。
 
-外掛直接讀寫本地 Obsidian vault。`<vault>/.obsidian/plugins/pkv-sync/data.json` 包含 bearer 裝置 token 和部署金鑰，請視為敏感檔案。外掛設定頁支援從連線中的 PKV Sync server 檢查並下載捆綁外掛更新，下載後會驗證 SHA-256。
+日常使用——命令面板、檔案歷史、並排 diff、衝突解決、`.obsidian` 選擇性同步、裝置管理、外掛自更新——都寫在[使用者手冊](./public-docs/user-manual.zh-Hant.md)裡。
 
-## HTTP API
+## 關於加密
 
-所有 `/api/*` 路由都要求部署金鑰 header；認證路由還需要 bearer 裝置 token。認證同步 API 固定視窗限流，SSE 支援 `Last-Event-ID` replay 並有使用者級和全域訂閱上限。完整契約見 [`public-docs/openapi.yaml`](./public-docs/openapi.yaml)。
+PKV Sync 1.0 **暫不**提供原生端到端加密——伺服器能讀到筆記內容。原生的按庫 E2EE 在 1.x 路線圖上，會以可選模式上線，因為加密會換掉伺服器那些讓 Git-native PKV 真正有用的功能（歷史 diff、三方自動合併、SSE 內嵌推送、MCP 讀寫）。
 
-`/metrics` 預設關閉。啟用後仍需要部署金鑰、PKV Sync User-Agent 和管理員 bearer token。
+在原生 E2EE 落地前，如果你需要端到端加密，可以在筆記庫上疊一層 [`git-crypt`](https://github.com/AGWA/git-crypt)：被標記的路徑會以密文 blob 形式到達伺服器，伺服器無法解密。檔名仍以明文形式存在於伺服器（對大多數威脅模型來說可接受）。持有金鑰的客戶端依然可以用標準 `git clone` 和 `pkvsyncd materialize`。
 
-## 文件
+正式部署還應該跑在 HTTPS 後面、把 `trusted_proxies` 收緊、給資料碟加密、給備份加密——具體看[部署加固指南](./public-docs/deployment-hardening.zh-Hant.md)。
 
-- [部署加固](./public-docs/deployment-hardening.zh-Hant.md)
-- [管理員手冊](./public-docs/admin-manual.zh-Hant.md)
-- [使用者手冊](./public-docs/user-manual.zh-Hant.md)
-- [1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md)
-- [安全政策](./SECURITY.zh-Hant.md)
-- [OpenAPI 規範](./public-docs/openapi.yaml)
-- [Changelog](./CHANGELOG.md)
+## 你在找……
 
-## 授權
+| 主題 | 文件 |
+| --- | --- |
+| 外掛日常使用 | [使用者手冊](./public-docs/user-manual.zh-Hant.md) |
+| 伺服器管理與執行時設定 | [管理員手冊](./public-docs/admin-manual.zh-Hant.md) |
+| 所有 CLI 命令與參數 | [CLI 參考](./public-docs/cli-reference.zh-Hant.md) |
+| 從 0.x 升級到 1.0 | [1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md) |
+| 反向代理、TLS、備份、加固 | [部署加固](./public-docs/deployment-hardening.zh-Hant.md) |
+| HTTP API 契約 | [OpenAPI 規範](./public-docs/openapi.yaml) |
+| MCP 安裝與工具列表 | [MCP 操作指南](./public-docs/mcp-howto.zh-Hant.md) |
+| 從 Obsidian Sync 遷移 | [遷移指南](./public-docs/migrate-from-obsidian-sync.zh-Hant.md) |
+| 安全漏洞通報 | [SECURITY.md](./SECURITY.md) |
+| 發布紀錄 | [CHANGELOG.md](./CHANGELOG.md) |
+
+## 狀態
+
+PKV Sync 1.0 是第一個穩定版。公開 REST API、CLI、儲存布局、外掛包、Docker 映像作為一組同步發版，遵循 semver：1.X.Y 在公開表面保持向後相容，OpenAPI 規範是這個相容契約的權威來源。0.x 建立的 SQLite 資料庫**不支援**就地升級到 1.0.0——請依[1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md)操作。
+
+每個 GitHub release 會發布 Linux amd64／arm64 二進位、Windows x64 二進位、多架構 GHCR Docker 映像、Obsidian 外掛 zip 包，以及 `SHA256SUMS`。
+
+## 開發自檢
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace -- -D warnings
+cargo test --workspace
+npm --prefix plugin run typecheck
+npm --prefix plugin exec vitest run
+npm --prefix plugin run build
+```
+
+CI 在 Linux 和 Windows 上跑完整 Rust 矩陣，加上外掛的 test／typecheck／build／package、Docker 構建，以及發布二進位的冒煙測試。
+
+## 授權條款
 
 AGPL-3.0-only。詳見 [LICENSE](./LICENSE)。
