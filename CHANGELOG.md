@@ -38,6 +38,17 @@ v1 SQLite baseline for fresh 1.x deployments.
 - Activity rows now label the vault column as "Vault" instead of "Detail".
 - Manual light/dark mode in the Obsidian plugin now wins over the current
   Obsidian app theme.
+- Admin Web UI and Obsidian plugin adopt a unified "Working Paper" visual
+  design: ink-on-vellum palette with a terracotta accent, monospaced
+  metadata labels, a `[PKV/SYNC]` wordmark, page-load reveal animation,
+  and a discreet colophon footer.
+- README rewritten across all five languages to lead with what PKV Sync
+  is in plain language; reference material (full CLI surface, HTTP API
+  contract, operations runbook, configuration table, versioning policy)
+  is now linked out to the existing `public-docs/*` manuals.
+- Plugin and admin language strings are self-contained per locale:
+  `zh-Hant` no longer inherits Simplified Chinese text, and `ja`/`ko` no
+  longer fall back to English on a handful of strings.
 
 ### Fixed
 
