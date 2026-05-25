@@ -149,11 +149,14 @@ mod tests {
         // Insert directly with a past timestamp so it's definitely older than the retention window.
         let past = chrono::Utc::now().timestamp() - 2 * 24 * 60 * 60;
         sqlx::query(
-            "INSERT INTO idempotency_cache (key, user_id, response_json, created_at)
-             VALUES (?, ?, ?, ?)",
+            "INSERT INTO idempotency_cache (user_id, key, vault_id, route, request_hash, response_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind("key1")
         .bind("user1")
+        .bind("key1")
+        .bind("vault1")
+        .bind("push")
+        .bind("hash1")
         .bind("{}")
         .bind(past)
         .execute(&state.pool)
@@ -170,11 +173,14 @@ mod tests {
 
         let recent = chrono::Utc::now().timestamp() - 10;
         sqlx::query(
-            "INSERT INTO idempotency_cache (key, user_id, response_json, created_at)
-             VALUES (?, ?, ?, ?)",
+            "INSERT INTO idempotency_cache (user_id, key, vault_id, route, request_hash, response_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind("recent-key")
         .bind("user1")
+        .bind("recent-key")
+        .bind("vault1")
+        .bind("push")
+        .bind("hash1")
         .bind("{}")
         .bind(recent)
         .execute(&state.pool)
