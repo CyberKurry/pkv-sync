@@ -7,6 +7,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-05-26
+
+### Fixed
+
+- Restore clearer Admin WebUI control affordances in the Working Paper design,
+  including buttons, icon actions, form controls, segmented choices, and danger
+  actions.
+- Improve Admin WebUI responsive controls and icon semantics for the sidebar,
+  mobile menu, close action, rollback action, and user avatars.
+
 ## [1.0.0] - 2026-05-25
 
 **PKV Sync 1.0** is the first stable release. It freezes the documented
