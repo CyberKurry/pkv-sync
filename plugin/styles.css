@@ -1,80 +1,110 @@
+/*
+ * PKV Sync — Obsidian Plugin stylesheet
+ * Design language: "Working Paper" — terracotta seal accent on Obsidian's
+ * native palette. Mostly inherits from Obsidian CSS variables so the plugin
+ * blends with the user's chosen theme; only adds a distinctive PKV accent.
+ */
+
+/* =====================================================================
+ * 1. Settings tab scope + tokens
+ * =================================================================== */
+
 .pkv-sync-settings-host {
-  --pkv-bg-page: var(--background-secondary, #f6f8fc);
-  --pkv-bg-panel: var(--background-primary, #ffffff);
-  --pkv-bg-control: var(--background-secondary, rgba(15, 23, 42, 0.045));
-  --pkv-bg-soft: var(--background-modifier-border, rgba(15, 23, 42, 0.075));
-  --pkv-border: var(--background-modifier-border, rgba(15, 23, 42, 0.14));
-  --pkv-border-subtle: var(--background-modifier-border, rgba(15, 23, 42, 0.09));
-  --pkv-control-height: 40px;
-  --pkv-compact-control-height: 36px;
-  --pkv-primary: #33bf7f;
-  --pkv-blue: #547fff;
-  --pkv-text: var(--text-normal, #121826);
-  --pkv-text-strong: var(--text-normal, #121826);
-  --pkv-label: var(--text-normal, #334155);
-  --pkv-muted: var(--text-muted, #64748b);
-  --pkv-faint: var(--text-faint, #8792a2);
-  --pkv-disabled: var(--text-faint, #8792a2);
-  --pkv-placeholder: var(--text-faint, #8792a2);
-  --pkv-text-muted: var(--text-muted, #64748b);
+  --pkv-mark: #b0593b;
+  --pkv-mark-hover: #95442c;
+  --pkv-mark-soft: rgba(176, 89, 59, 0.16);
+  --pkv-mark-faint: rgba(176, 89, 59, 0.08);
+  --pkv-mark-ink: #fbf9f3;
+
+  --pkv-bg-page: var(--background-secondary);
+  --pkv-bg-panel: var(--background-primary);
+  --pkv-bg-control: var(--background-modifier-form-field, var(--background-primary));
+  --pkv-bg-soft: var(--background-modifier-hover);
+  --pkv-border: var(--background-modifier-border);
+  --pkv-border-subtle: var(--background-modifier-border-hover, var(--background-modifier-border));
+
+  --pkv-text: var(--text-normal);
+  --pkv-text-strong: var(--text-normal);
+  --pkv-label: var(--text-normal);
+  --pkv-muted: var(--text-muted);
+  --pkv-faint: var(--text-faint);
+  --pkv-disabled: var(--text-faint);
+  --pkv-placeholder: var(--text-faint);
+
+  --pkv-ok: var(--color-green, #3f6b3f);
+  --pkv-warn: var(--color-orange, #a87a1f);
+  --pkv-err: var(--color-red, #9b3434);
+
+  --pkv-control-h: 36px;
+  --pkv-control-h-sm: 30px;
+
+  --pkv-radius-1: 4px;
+  --pkv-radius-2: 6px;
+  --pkv-radius-3: 10px;
+
+  --pkv-tracking-meta: 0.08em;
+  --pkv-font-meta: var(--font-monospace);
+  --pkv-font-body: var(--font-interface);
+
   --pkv-mobile-chrome-offset: 96px;
   --pkv-mobile-top-offset: 0px;
+
   color-scheme: light dark;
   min-height: 100%;
   box-sizing: border-box;
   padding: 0 !important;
   background: var(--pkv-bg-page);
+  color: var(--pkv-text);
 }
 
-body.theme-light .pkv-sync-settings-host,
-body.theme-light .pkv-sync-settings-host.is-light-override,
-body.theme-dark .pkv-sync-settings-host.is-light-override,
+/* Hard light override (user picked "light" in plugin settings) */
 .pkv-sync-settings-host.is-light-override {
-  --pkv-bg-page: #f6f8fc;
-  --pkv-bg-panel: #ffffff;
-  --pkv-bg-control: rgba(15, 23, 42, 0.045);
-  --pkv-bg-soft: rgba(15, 23, 42, 0.075);
-  --pkv-border: rgba(15, 23, 42, 0.14);
-  --pkv-border-subtle: rgba(15, 23, 42, 0.09);
-  --pkv-primary: #166534;
-  --pkv-blue: #547fff;
-  --pkv-text: #334155;
-  --pkv-text-strong: #121826;
-  --pkv-label: #334155;
-  --pkv-muted: #64748b;
-  --pkv-faint: #8792a2;
-  --pkv-disabled: #8792a2;
-  --pkv-placeholder: #8792a2;
-  --pkv-text-muted: #64748b;
+  --pkv-bg-page: #f7f4ed;
+  --pkv-bg-panel: #fbf9f3;
+  --pkv-bg-control: #efeadf;
+  --pkv-bg-soft: rgba(26, 24, 18, 0.06);
+  --pkv-border: rgba(26, 24, 18, 0.14);
+  --pkv-border-subtle: rgba(26, 24, 18, 0.09);
+  --pkv-text: #1a1812;
+  --pkv-text-strong: #1a1812;
+  --pkv-label: #1a1812;
+  --pkv-muted: #4a4538;
+  --pkv-faint: #7a7568;
+  --pkv-disabled: #b8b1a0;
+  --pkv-placeholder: #b8b1a0;
   color-scheme: light;
 }
 
-body.theme-dark .pkv-sync-settings-host,
-body.theme-light .pkv-sync-settings-host.is-dark-override,
-body.theme-dark .pkv-sync-settings-host.is-dark-override,
+/* Hard dark override */
 .pkv-sync-settings-host.is-dark-override {
-  --pkv-bg-page: #0f111c;
-  --pkv-bg-panel: #161928;
-  --pkv-bg-control: rgba(255, 255, 255, 0.055);
-  --pkv-bg-soft: rgba(255, 255, 255, 0.08);
-  --pkv-border: rgba(200, 203, 208, 0.17);
-  --pkv-border-subtle: rgba(200, 203, 208, 0.11);
-  --pkv-primary: #54d18c;
-  --pkv-blue: #8b9cf7;
-  --pkv-text: #c8cbd0;
-  --pkv-text-strong: #ffffff;
-  --pkv-label: #c8cbd0;
-  --pkv-muted: #8a8f9e;
-  --pkv-faint: #6b7280;
-  --pkv-disabled: #6b7280;
-  --pkv-placeholder: #6b7280;
-  --pkv-text-muted: #8a8f9e;
+  --pkv-bg-page: #13110d;
+  --pkv-bg-panel: #1a1814;
+  --pkv-bg-control: #22201a;
+  --pkv-bg-soft: rgba(235, 229, 211, 0.07);
+  --pkv-border: rgba(235, 229, 211, 0.16);
+  --pkv-border-subtle: rgba(235, 229, 211, 0.1);
+  --pkv-mark: #d68565;
+  --pkv-mark-hover: #e5997c;
+  --pkv-mark-soft: rgba(214, 133, 101, 0.16);
+  --pkv-mark-faint: rgba(214, 133, 101, 0.08);
+  --pkv-mark-ink: #1a1814;
+  --pkv-text: #ebe5d3;
+  --pkv-text-strong: #ebe5d3;
+  --pkv-label: #ebe5d3;
+  --pkv-muted: #8e8876;
+  --pkv-faint: #4f4a3e;
+  --pkv-disabled: #4f4a3e;
+  --pkv-placeholder: #4f4a3e;
   color-scheme: dark;
 }
 
 .pkv-sync-settings-host.is-phone {
   --pkv-mobile-chrome-offset: 112px;
 }
+
+/* =====================================================================
+ * 2. App shell
+ * =================================================================== */
 
 .pkv-sync-app {
   display: block;
@@ -90,61 +120,82 @@ body.theme-dark .pkv-sync-settings-host.is-dark-override,
   border-radius: 0;
   background: var(--pkv-bg-panel);
   color: var(--pkv-text);
-  padding: 40px 32px 48px;
-  font-family: var(--font-interface);
+  padding: 32px 28px 40px;
+  font-family: var(--pkv-font-body);
+  font-size: 14px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
+
+/* =====================================================================
+ * 3. Header / wordmark
+ * =================================================================== */
 
 .pkv-sync-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 26px;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--pkv-border-subtle);
+  margin-bottom: 4px;
 }
 
 .pkv-sync-logo {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  background: var(--pkv-blue);
-  color: #FFF;
+  align-items: baseline;
+  gap: 0;
+  font-family: var(--pkv-font-meta);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--pkv-mark);
+  user-select: none;
 }
 
 .pkv-sync-logo svg {
-  width: 16px;
-  height: 16px;
-  stroke-width: 3;
+  display: none;
+}
+
+.pkv-sync-logo::before {
+  content: "[PKV";
+  color: var(--pkv-mark);
+}
+
+.pkv-sync-logo::after {
+  content: "/SYNC]";
+  color: var(--pkv-mark);
 }
 
 .pkv-sync-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
   min-width: 0;
 }
 
 .pkv-sync-title {
-  color: var(--pkv-text-strong);
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.2;
+  display: none;
 }
 
 .pkv-sync-header-detail {
-  margin-top: 4px;
-  font-size: 14px;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
+  letter-spacing: var(--pkv-tracking-meta);
+  text-transform: uppercase;
+  color: var(--pkv-muted);
+  margin: 0;
+  flex: 1;
 }
 
 .pkv-sync-header-detail.is-muted {
-  color: var(--pkv-muted);
+  color: var(--pkv-faint);
 }
 
 .pkv-sync-header-detail.is-success {
-  color: var(--pkv-primary);
+  color: var(--pkv-ok);
 }
 
 .pkv-sync-time-toggle,
@@ -152,112 +203,118 @@ body.theme-dark .pkv-sync-settings-host.is-dark-override,
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: 100%;
-  height: auto;
-  margin: 0;
-  border: 0;
+  padding: 4px 8px;
   background: transparent;
-  color: inherit;
-  font: inherit;
-  line-height: inherit;
-  padding: 0;
-  box-shadow: none;
+  border: 1px solid var(--pkv-border-subtle);
+  border-radius: var(--pkv-radius-1);
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
+  letter-spacing: var(--pkv-tracking-meta);
+  text-transform: uppercase;
+  color: var(--pkv-muted);
   cursor: pointer;
+  box-shadow: none;
+  transition: border-color 80ms ease, color 80ms ease;
 }
 
 .pkv-sync-time-toggle span:first-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .pkv-sync-time-caret {
-  width: 0;
-  height: 0;
-  flex: 0 0 auto;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid var(--pkv-primary);
-  transform-origin: 45% 50%;
-  transition: transform 120ms ease;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 140ms ease;
 }
 
 .pkv-sync-time-caret.is-open {
-  transform: rotate(90deg);
+  transform: rotate(-135deg);
 }
 
 .pkv-sync-time-detail {
-  margin-top: 5px;
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
   color: var(--pkv-muted);
-  font-size: 12px;
-  line-height: 1.2;
+  margin: 4px 0 0;
 }
+
+/* =====================================================================
+ * 4. Layout primitives
+ * =================================================================== */
 
 .pkv-sync-divider {
   height: 1px;
-  margin: -18px 0 24px 44px;
-  background: var(--pkv-border);
+  background: var(--pkv-border-subtle);
+  border: 0;
+  margin: 12px 0 4px;
 }
 
 .pkv-sync-inline-field {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 26px 0 40px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .pkv-sync-section-label {
-  margin: 0 0 18px;
-  color: var(--pkv-faint);
-  font-size: 12px;
+  display: block;
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
   font-weight: 500;
-  line-height: 1.2;
-  letter-spacing: 0;
+  letter-spacing: var(--pkv-tracking-meta);
   text-transform: uppercase;
+  color: var(--pkv-muted);
+  margin: 4px 0 6px;
 }
 
 .pkv-sync-field {
-  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .pkv-sync-label {
   display: block;
-  margin-bottom: 8px;
-  color: var(--pkv-label);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
-  line-height: 1.2;
+  color: var(--pkv-label);
+  margin-bottom: 2px;
 }
+
+/* =====================================================================
+ * 5. Form controls
+ * =================================================================== */
 
 .pkv-sync-input,
 .pkv-sync-settings-host input.pkv-sync-input,
 .pkv-sync-settings-host select.pkv-sync-input {
   width: 100%;
-  height: var(--pkv-control-height);
-  box-sizing: border-box;
-  border: 1px solid var(--pkv-border);
-  border-radius: 6px;
-  outline: none;
-  background-color: var(--pkv-bg-control);
-  color: var(--pkv-text);
-  font-size: 14px;
-  line-height: var(--pkv-control-height);
+  height: var(--pkv-control-h);
   padding: 0 12px;
-  box-shadow: none;
+  background: var(--pkv-bg-control);
+  color: var(--pkv-text);
+  border: 1px solid var(--pkv-border);
+  border-radius: var(--pkv-radius-2);
+  font-family: var(--pkv-font-body);
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: border-color 80ms ease;
 }
 
 .pkv-sync-input::placeholder {
   color: var(--pkv-placeholder);
-  opacity: 1;
 }
 
 .pkv-sync-input:focus,
 .pkv-sync-settings-host input.pkv-sync-input:focus,
 .pkv-sync-settings-host select.pkv-sync-input:focus {
-  border-color: var(--pkv-primary);
-  box-shadow: none;
+  outline: none;
+  border-color: var(--pkv-mark);
+  box-shadow: 0 0 0 3px var(--pkv-mark-faint);
 }
 
 .pkv-sync-select-wrap {
@@ -265,106 +322,95 @@ body.theme-dark .pkv-sync-settings-host.is-dark-override,
 }
 
 .pkv-sync-select-wrap::after {
-  position: absolute;
-  top: 50%;
-  right: 12px;
-  width: 0;
-  height: 0;
-  border-left: 3px solid transparent;
-  border-right: 3px solid transparent;
-  border-top: 4px solid var(--pkv-muted);
   content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-right: 1px solid var(--pkv-muted);
+  border-bottom: 1px solid var(--pkv-muted);
+  transform: translateY(-75%) rotate(45deg);
   pointer-events: none;
-  transform: translateY(-30%);
 }
 
 .pkv-sync-select,
 .pkv-sync-settings-host select.pkv-sync-select {
   appearance: none;
-  padding-right: 26px;
+  padding-right: 32px;
 }
 
 .pkv-sync-language-select {
-  width: min(240px, 100%);
-  min-width: 180px;
-  flex: 0 1 240px;
+  min-width: 140px;
 }
 
 .pkv-sync-language-select .pkv-sync-select {
-  height: var(--pkv-compact-control-height);
-  font-size: 13px;
-  line-height: var(--pkv-compact-control-height);
-  padding-left: 12px;
-  padding-right: 28px;
+  width: 100%;
 }
 
 .pkv-sync-theme-button,
 .pkv-sync-settings-host button.pkv-sync-theme-button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  flex: 0 0 auto;
-  min-width: 116px;
-  height: var(--pkv-compact-control-height);
-  box-sizing: border-box;
-  border: 1px solid var(--pkv-border);
-  border-radius: 999px;
-  background: var(--pkv-bg-panel);
-  color: var(--pkv-text);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
+  height: var(--pkv-control-h);
   padding: 0 14px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  background: var(--pkv-bg-control);
+  color: var(--pkv-text);
+  border: 1px solid var(--pkv-border);
+  border-radius: var(--pkv-radius-2);
+  font-family: var(--pkv-font-body);
+  font-size: 13px;
   cursor: pointer;
+  box-shadow: none;
+  transition: border-color 80ms ease;
 }
 
 .pkv-sync-theme-button:hover,
 .pkv-sync-settings-host button.pkv-sync-theme-button:hover {
-  border-color: var(--pkv-primary);
-  color: var(--pkv-text-strong);
+  border-color: var(--pkv-mark);
 }
 
-.pkv-sync-theme-button[data-theme-mode="light"] {
-  color: var(--pkv-primary);
-}
-
+.pkv-sync-theme-button[data-theme-mode="light"],
 .pkv-sync-theme-button[data-theme-mode="dark"] {
-  border-color: var(--pkv-blue);
+  border-color: var(--pkv-border);
 }
 
 .pkv-sync-theme-button.is-dark {
-  color: var(--pkv-blue);
+  /* informational class only */
 }
 
 .pkv-sync-theme-icon,
 .pkv-sync-theme-icon svg {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+  width: 14px;
+  height: 14px;
+  color: var(--pkv-muted);
 }
 
 .pkv-sync-theme-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
+  letter-spacing: var(--pkv-tracking-meta);
+  text-transform: uppercase;
+  color: var(--pkv-muted);
 }
+
+/* =====================================================================
+ * 6. Buttons
+ * =================================================================== */
 
 .pkv-sync-button-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .pkv-sync-allowlist-actions {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  gap: 8px;
   flex-wrap: wrap;
-  gap: 12px;
+  margin-top: 8px;
 }
 
 .pkv-sync-button,
@@ -372,248 +418,267 @@ body.theme-dark .pkv-sync-settings-host.is-dark-override,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-width: 0;
-  height: var(--pkv-control-height);
-  box-sizing: border-box;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
+  gap: 6px;
+  height: var(--pkv-control-h);
   padding: 0 14px;
-  white-space: nowrap;
-  box-shadow: none;
+  font-family: var(--pkv-font-body);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--pkv-border);
+  background: var(--pkv-bg-panel);
+  color: var(--pkv-text);
+  border-radius: var(--pkv-radius-2);
   cursor: pointer;
+  box-shadow: none;
+  transition: background 80ms ease, border-color 80ms ease, color 80ms ease;
+  white-space: nowrap;
 }
 
 .pkv-sync-panel > .pkv-sync-button {
-  width: 100%;
-  margin-top: 4px;
+  align-self: flex-start;
 }
 
 .pkv-sync-panel > .pkv-sync-change-server {
-  width: auto;
-  margin: -8px 0 22px 44px;
+  align-self: flex-start;
 }
 
 .pkv-sync-panel > .pkv-sync-button + .pkv-sync-section-label,
 .pkv-sync-button-row + .pkv-sync-section-label {
-  margin-top: 28px;
+  margin-top: 16px;
 }
 
 .pkv-sync-button.is-primary {
-  border-color: var(--pkv-primary);
-  background: var(--pkv-primary);
-  color: #FFF;
+  background: var(--pkv-mark);
+  color: var(--pkv-mark-ink);
+  border-color: var(--pkv-mark);
 }
 
 .pkv-sync-button.is-secondary {
-  border-color: var(--pkv-border);
   background: var(--pkv-bg-panel);
-  color: var(--pkv-text-strong);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  color: var(--pkv-text);
+  border-color: var(--pkv-border);
 }
 
 .pkv-sync-button.is-ghost {
-  min-height: var(--pkv-compact-control-height);
-  height: var(--pkv-compact-control-height);
-  border-color: var(--pkv-border);
-  background: var(--pkv-bg-panel);
+  background: transparent;
+  color: var(--pkv-muted);
+  border-color: transparent;
+}
+
+.pkv-sync-button.is-ghost:hover {
   color: var(--pkv-text);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 0 12px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  background: var(--pkv-mark-faint);
 }
 
 .pkv-sync-button:hover,
 .pkv-sync-settings-host button.pkv-sync-button:hover {
-  filter: brightness(1.08);
+  border-color: var(--pkv-mark);
+}
+
+.pkv-sync-button.is-primary:hover {
+  background: var(--pkv-mark-hover);
+  border-color: var(--pkv-mark-hover);
+  color: var(--pkv-mark-ink);
 }
 
 .pkv-sync-button:disabled,
 .pkv-sync-settings-host button.pkv-sync-button:disabled {
-  cursor: default;
-  filter: none;
-  opacity: 1;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .pkv-sync-button-icon,
 .pkv-sync-button-icon svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
+/* =====================================================================
+ * 7. Sync status body
+ * =================================================================== */
+
 .pkv-sync-synced-body {
-  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .pkv-sync-loading {
+  font-family: var(--pkv-font-meta);
+  font-size: 12px;
+  letter-spacing: var(--pkv-tracking-meta);
+  text-transform: uppercase;
   color: var(--pkv-muted);
-  font-size: 13px;
 }
 
 .pkv-sync-user-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
   align-items: center;
-  gap: 14px;
-  min-height: 70px;
-  box-sizing: border-box;
-  border-radius: 8px;
+  padding: 12px;
   background: var(--pkv-bg-control);
-  padding: 16px;
+  border: 1px solid var(--pkv-border-subtle);
+  border-radius: var(--pkv-radius-3);
 }
 
 .pkv-sync-avatar {
-  display: flex;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 36px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--pkv-bg-soft);
-  color: var(--pkv-primary);
-  font-size: 14px;
-  font-weight: 700;
+  border-radius: 999px;
+  background: var(--pkv-mark);
+  color: var(--pkv-mark-ink);
+  font-family: var(--pkv-font-meta);
+  font-weight: 600;
+  font-size: 13px;
+  flex-shrink: 0;
 }
 
 .pkv-sync-user-meta {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  flex: 1 1 auto;
 }
 
 .pkv-sync-user-name {
-  color: var(--pkv-text-strong);
   font-size: 14px;
-  font-weight: 700;
-  line-height: 1.2;
+  font-weight: 600;
+  color: var(--pkv-text-strong);
+  line-height: 1.3;
 }
 
 .pkv-sync-user-server,
 .pkv-sync-vault-summary {
-  margin-top: 4px;
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
   color: var(--pkv-muted);
-  font-size: 12px;
-  line-height: 1.2;
+  letter-spacing: var(--pkv-tracking-meta);
 }
 
 .pkv-sync-user-card + .pkv-sync-section-label,
 .pkv-sync-sync-now + .pkv-sync-section-label {
-  margin-top: 22px;
+  margin-top: 16px;
 }
 
 .pkv-sync-checkbox-row {
-  margin: 18px 0 22px;
-  color: var(--pkv-text);
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .pkv-sync-checkbox-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  line-height: 1.3;
+  font-size: 13px;
+  color: var(--pkv-text);
 }
+
+/* =====================================================================
+ * 8. Vault rows
+ * =================================================================== */
 
 .pkv-sync-vault-row {
   display: grid;
   grid-template-columns: 8px 1fr auto;
   align-items: center;
   gap: 12px;
-  min-height: 65px;
-  box-sizing: border-box;
-  margin-bottom: 12px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--pkv-bg-control);
-  padding: 14px 14px 14px 13px;
+  padding: 12px 14px;
+  border: 1px solid var(--pkv-border-subtle);
+  border-radius: var(--pkv-radius-3);
+  background: var(--pkv-bg-panel);
+  transition: border-color 80ms ease, background 80ms ease;
 }
 
 .pkv-sync-vault-row.is-active {
-  border-color: var(--pkv-primary);
+  border-color: var(--pkv-mark-soft);
+  background: var(--pkv-mark-faint);
 }
 
 .pkv-sync-vault-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  background: var(--pkv-disabled);
+  border-radius: 999px;
+  background: var(--pkv-faint);
+  flex-shrink: 0;
 }
 
 .pkv-sync-vault-row.is-active .pkv-sync-vault-dot {
-  background: var(--pkv-primary);
+  background: var(--pkv-mark);
 }
 
 .pkv-sync-vault-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
 .pkv-sync-vault-name {
-  color: var(--pkv-text-strong);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 1.2;
+  color: var(--pkv-text-strong);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .pkv-sync-vault-row .pkv-sync-button {
-  height: var(--pkv-compact-control-height);
+  height: var(--pkv-control-h-sm);
+  padding: 0 10px;
   font-size: 12px;
 }
 
 .pkv-sync-vault-row .pkv-sync-button.is-primary {
-  border-color: transparent;
-  background: var(--pkv-bg-panel);
-  color: var(--pkv-primary);
+  background: var(--pkv-mark);
+  color: var(--pkv-mark-ink);
+  border-color: var(--pkv-mark);
 }
 
 .pkv-sync-vault-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  justify-self: end;
+  gap: 6px;
   flex-wrap: wrap;
-  gap: 8px;
+  justify-content: flex-end;
 }
 
 .pkv-sync-vault-actions .pkv-sync-button {
-  min-width: 72px;
-  height: var(--pkv-compact-control-height);
-  border-radius: 6px;
-  font-size: 13px;
-  padding: 0 12px;
+  height: var(--pkv-control-h-sm);
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .pkv-sync-vault-actions .pkv-sync-button.is-ghost {
-  border: 1px solid var(--pkv-border-subtle, rgba(120, 120, 128, 0.24));
-  color: var(--pkv-text);
-  background: var(--pkv-bg-panel);
+  color: var(--pkv-muted);
 }
 
 .pkv-sync-vault-actions .pkv-sync-button.is-primary {
-  border-color: var(--pkv-border-subtle);
+  /* primary stays terracotta */
 }
 
 .pkv-sync-vault-settings {
-  display: grid;
-  gap: 10px;
-  margin: 4px 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--pkv-bg-control);
+  border: 1px solid var(--pkv-border-subtle);
+  border-radius: var(--pkv-radius-3);
 }
 
 .pkv-sync-vault-settings .pkv-sync-section-label,
 .pkv-sync-vault-settings .pkv-sync-field {
-  margin-bottom: 0;
+  margin: 0;
 }
 
 .pkv-sync-field-hint {
-  margin-top: 8px;
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
   color: var(--pkv-muted);
-  font-size: 12px;
-  line-height: 1.35;
+  margin: 2px 0 0;
+  line-height: 1.5;
 }
 
 .pkv-sync-vault-settings .pkv-sync-allowlist-actions {
@@ -621,324 +686,394 @@ body.theme-dark .pkv-sync-settings-host.is-dark-override,
 }
 
 .pkv-sync-allowlist-actions .pkv-sync-button {
-  flex: 0 0 auto;
-  min-width: 112px;
-  height: var(--pkv-compact-control-height);
-  font-size: 13px;
-  padding: 0 16px;
+  height: var(--pkv-control-h-sm);
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .pkv-sync-create-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-columns: 1fr auto;
   gap: 8px;
-  margin: 0 0 20px;
+  align-items: stretch;
 }
 
 .pkv-sync-create-row .pkv-sync-input {
-  height: var(--pkv-compact-control-height);
-  line-height: var(--pkv-compact-control-height);
+  height: var(--pkv-control-h);
 }
 
 .pkv-sync-create-row .pkv-sync-button {
-  height: var(--pkv-compact-control-height);
-  font-size: 12px;
-  min-width: 112px;
-  padding: 0 16px;
+  height: var(--pkv-control-h);
 }
+
+/* =====================================================================
+ * 9. Sync now action
+ * =================================================================== */
 
 .pkv-sync-sync-now,
 .pkv-sync-synced-body > .pkv-sync-sync-now {
-  width: 100%;
-  height: 44px;
-  margin: 0;
+  align-self: flex-start;
 }
+
+/* =====================================================================
+ * 10. Conflicts (settings)
+ * =================================================================== */
 
 .pkv-sync-conflict-row {
   display: flex;
   align-items: center;
-  gap: 14px;
-  min-height: 58px;
-  box-sizing: border-box;
-  margin-bottom: 22px;
-  border-radius: 8px;
-  background: var(--pkv-bg-control);
-  padding: 14px 16px;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--pkv-border-subtle);
+  border-radius: var(--pkv-radius-3);
+  background: var(--pkv-bg-panel);
 }
 
 .pkv-sync-conflict-meta {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   min-width: 0;
-  flex: 1 1 auto;
 }
 
 .pkv-sync-conflict-title {
-  color: var(--pkv-text-strong);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.2;
+  color: var(--pkv-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pkv-sync-conflict-summary {
-  margin-top: 4px;
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
   color: var(--pkv-muted);
-  font-size: 12px;
-  line-height: 1.2;
 }
 
 .pkv-sync-conflict-row .pkv-sync-button {
-  flex: 0 0 auto;
-  min-width: 120px;
+  height: var(--pkv-control-h-sm);
+  padding: 0 10px;
+  font-size: 12px;
 }
 
+/* =====================================================================
+ * 11. Update card
+ * =================================================================== */
+
 .pkv-sync-update-card {
-  display: grid;
-  gap: 12px;
-  box-sizing: border-box;
-  margin-bottom: 22px;
-  border-radius: 8px;
-  background: var(--pkv-bg-control);
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--pkv-mark-soft);
+  border-left: 3px solid var(--pkv-mark);
+  border-radius: 0 var(--pkv-radius-3) var(--pkv-radius-3) 0;
+  background: var(--pkv-mark-faint);
 }
 
 .pkv-sync-update-title {
+  font-size: 13px;
+  font-weight: 600;
   color: var(--pkv-text-strong);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.25;
 }
 
 .pkv-sync-update-meta {
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
   color: var(--pkv-muted);
-  font-size: 12px;
-  line-height: 1.25;
 }
 
 .pkv-sync-update-banner {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: 8px;
-  border: 1px solid var(--pkv-primary);
-  border-radius: 8px;
-  background: var(--pkv-bg-panel);
-  padding: 12px;
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
+  color: var(--pkv-mark);
+  letter-spacing: var(--pkv-tracking-meta);
+  text-transform: uppercase;
 }
 
 .pkv-sync-vault-settings .pkv-sync-textarea,
 .pkv-sync-textarea {
-  min-height: 76px;
-  line-height: 1.45;
-  padding-top: 10px;
-  padding-bottom: 10px;
+  width: 100%;
+  min-height: 80px;
+  padding: 8px 12px;
+  background: var(--pkv-bg-control);
+  border: 1px solid var(--pkv-border);
+  border-radius: var(--pkv-radius-2);
+  color: var(--pkv-text);
+  font-family: var(--pkv-font-meta);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
 }
 
+/* =====================================================================
+ * 12. Devices
+ * =================================================================== */
+
 .pkv-sync-device-list {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .pkv-sync-device-card {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr);
+  grid-template-columns: 8px 1fr auto;
   align-items: center;
-  gap: 12px;
-  min-height: 44px;
-  box-sizing: border-box;
-  border: 1px solid var(--pkv-border-subtle);
-  border-radius: 8px;
-  background: var(--pkv-bg-control);
+  gap: 10px;
   padding: 10px 12px;
+  border: 1px solid var(--pkv-border-subtle);
+  border-radius: var(--pkv-radius-3);
+  background: var(--pkv-bg-panel);
 }
 
 .pkv-sync-device-status {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  background: var(--pkv-disabled);
+  border-radius: 999px;
+  background: var(--pkv-faint);
 }
 
 .pkv-sync-device-card.is-current .pkv-sync-device-status {
-  background: var(--pkv-primary);
+  background: var(--pkv-mark);
 }
 
 .pkv-sync-device-name {
-  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--pkv-text);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .pkv-sync-device-badge {
-  margin-left: 8px;
-  color: var(--pkv-primary);
-  font-size: 12px;
-  font-weight: 600;
+  font-family: var(--pkv-font-meta);
+  font-size: 10px;
+  letter-spacing: var(--pkv-tracking-meta);
+  text-transform: uppercase;
+  color: var(--pkv-muted);
 }
 
+/* =====================================================================
+ * 13. State helpers
+ * =================================================================== */
+
 .pkv-sync-error {
-  color: var(--text-error);
-  font-size: 13px;
+  padding: 8px 12px;
+  background: rgba(155, 52, 52, 0.1);
+  border-left: 2px solid var(--pkv-err);
+  color: var(--pkv-err);
+  font-size: 12px;
+  border-radius: 0 var(--pkv-radius-1) var(--pkv-radius-1) 0;
 }
 
 .pkv-sync-error-action {
-  width: 100%;
-  margin-top: 16px;
+  margin-top: 6px;
 }
 
 .pkv-sync-muted {
   color: var(--pkv-muted);
+  font-size: 12px;
 }
 
 .pkv-sync-success {
-  color: var(--pkv-primary);
+  padding: 8px 12px;
+  background: rgba(63, 107, 63, 0.1);
+  border-left: 2px solid var(--pkv-ok);
+  color: var(--pkv-ok);
+  font-size: 12px;
+  border-radius: 0 var(--pkv-radius-1) var(--pkv-radius-1) 0;
 }
+
+/* =====================================================================
+ * 14. Modals — history / diff / restore / conflict / delete
+ * =================================================================== */
 
 .pkvsync-history-modal,
 .pkvsync-diff-modal,
 .pkvsync-restore-modal {
+  --pkv-mark: #b0593b;
+  --pkv-mark-hover: #95442c;
+  --pkv-mark-soft: rgba(176, 89, 59, 0.16);
+  --pkv-mark-faint: rgba(176, 89, 59, 0.08);
+  --pkv-mark-ink: #fbf9f3;
+  --pkv-font-meta: var(--font-monospace);
+  --pkv-tracking-meta: 0.08em;
+  padding: 4px 2px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   color: var(--text-normal);
+  font-family: var(--font-interface);
+}
+
+body.theme-dark .pkvsync-history-modal,
+body.theme-dark .pkvsync-diff-modal,
+body.theme-dark .pkvsync-restore-modal {
+  --pkv-mark: #d68565;
+  --pkv-mark-hover: #e5997c;
+  --pkv-mark-soft: rgba(214, 133, 101, 0.18);
+  --pkv-mark-faint: rgba(214, 133, 101, 0.08);
+  --pkv-mark-ink: #1a1814;
 }
 
 .modal:has(.pkvsync-history-modal) {
-  width: min(860px, 92vw);
+  max-width: 720px;
 }
 
 .modal:has(.pkvsync-diff-modal) {
-  width: min(1120px, 94vw);
+  max-width: 920px;
 }
 
 .pkvsync-history-header {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .pkvsync-history-heading {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-normal);
   margin: 0;
-  font-size: 24px;
-  line-height: 1.2;
 }
 
 .pkvsync-history-path {
-  overflow-wrap: anywhere;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-secondary);
-  padding: 8px 10px;
+  font-family: var(--pkv-font-meta);
+  font-size: 11px;
+  letter-spacing: var(--pkv-tracking-meta);
   color: var(--text-muted);
-  font-family: var(--font-monospace);
-  font-size: 13px;
-  line-height: 1.35;
+  word-break: break-all;
+  margin: 0;
 }
 
 .pkvsync-history-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
 .pkvsync-history-row {
   display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
   gap: 12px;
-  align-items: stretch;
+  padding: 10px 12px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
-  background: var(--background-primary);
-  padding: 14px;
+  background: var(--background-secondary);
+  transition: border-color 80ms ease, background 80ms ease;
 }
 
-.pkvsync-history-row.is-deleted {
-  opacity: 0.76;
+.pkvsync-history-row:hover {
+  border-color: var(--pkv-mark-soft);
+  background: var(--pkv-mark-faint);
+}
+
+.pkvsync-history-row.is-deleted .pkvsync-history-title {
+  text-decoration: line-through;
+  color: var(--text-muted);
 }
 
 .pkvsync-history-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
 }
 
 .pkvsync-history-title-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .pkvsync-history-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-weight: 600;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pkvsync-history-change {
-  flex: 0 0 auto;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 999px;
-  padding: 2px 8px;
+  display: inline-flex;
+  font-family: var(--pkv-font-meta);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: var(--pkv-tracking-meta);
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
   color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.3;
-  text-transform: capitalize;
 }
 
 .pkvsync-history-change.is-added {
-  color: var(--color-green);
+  background: rgba(63, 107, 63, 0.15);
+  color: var(--color-green, #3f6b3f);
 }
 
 .pkvsync-history-change.is-deleted {
-  color: var(--color-red);
+  background: rgba(155, 52, 52, 0.15);
+  color: var(--color-red, #9b3434);
 }
 
 .pkvsync-history-details {
   display: flex;
+  gap: 10px;
   flex-wrap: wrap;
-  gap: 6px 12px;
-  margin-top: 8px;
+  font-family: var(--pkv-font-meta);
+  font-size: 10px;
+  letter-spacing: var(--pkv-tracking-meta);
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.25;
 }
 
 .pkvsync-history-device,
 .pkvsync-history-time,
 .pkvsync-history-commit {
-  min-width: 0;
+  white-space: nowrap;
 }
 
 .pkvsync-history-commit {
-  font-family: var(--font-monospace);
+  text-transform: uppercase;
 }
 
 .pkvsync-history-actions,
 .pkvsync-diff-actions,
 .pkvsync-restore-actions {
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
+  flex-wrap: wrap;
   justify-content: flex-end;
 }
 
 .pkvsync-history-actions {
-  justify-content: flex-start;
-  border-top: 1px solid var(--background-modifier-border);
-  padding-top: 12px;
+  flex-direction: row;
 }
 
 .pkvsync-diff-range {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 12px 0;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .pkvsync-diff-range-field {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
-  color: var(--text-muted);
-  font-size: 12px;
 }
 
 .pkvsync-diff-range-field select {
@@ -951,113 +1086,108 @@ body.theme-dark .pkv-sync-settings-host.is-dark-override,
 .pkvsync-diff-binary,
 .pkvsync-diff-warning,
 .pkvsync-restore-warning {
+  padding: 12px 14px;
   border-radius: 8px;
-  background: var(--background-secondary);
-  padding: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .pkvsync-diff-warning,
 .pkvsync-restore-warning {
-  color: var(--text-error);
+  background: rgba(168, 122, 31, 0.1);
+  border-left: 2px solid var(--color-orange, #a87a1f);
+  color: var(--color-orange, #a87a1f);
 }
 
 .pkvsync-diff {
-  max-height: 60vh;
-  overflow: auto;
+  font-family: var(--pkv-font-meta);
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
-  background: var(--background-primary-alt);
   padding: 12px;
-  line-height: 1.45;
-  white-space: pre;
+  overflow: auto;
+  max-height: 60vh;
 }
 
 .pkvsync-diff span {
   display: block;
-  min-height: 1.35em;
 }
 
 .pkvsync-diff-split {
-  max-height: 60vh;
-  overflow: auto;
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--pkv-font-meta);
+  font-size: 12px;
+  background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
-  background: var(--background-primary-alt);
-  font-family: var(--font-monospace);
-  font-size: 13px;
-  line-height: 1.45;
+  overflow: hidden;
+  max-height: 60vh;
 }
 
 .pkvsync-diff-split-header,
 .pkvsync-diff-split-row {
   display: grid;
-  grid-template-columns: 64px minmax(260px, 1fr) 64px minmax(260px, 1fr);
-  min-width: 760px;
+  grid-template-columns: 48px 1fr 48px 1fr;
 }
 
 .pkvsync-diff-split-header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  background: var(--background-modifier-hover);
+  font-family: var(--pkv-font-meta);
+  font-size: 10px;
+  letter-spacing: var(--pkv-tracking-meta);
+  text-transform: uppercase;
   color: var(--text-muted);
-  font-family: var(--font-interface);
-  font-size: 12px;
-  font-weight: 600;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .pkvsync-diff-header-cell,
 .pkvsync-diff-line-no,
 .pkvsync-diff-cell {
-  min-height: 24px;
-  padding: 3px 8px;
+  padding: 2px 8px;
 }
 
 .pkvsync-diff-line-no {
+  text-align: right;
+  color: var(--text-faint);
   user-select: none;
   border-right: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-faint);
-  text-align: right;
 }
 
 .pkvsync-diff-cell {
-  overflow-wrap: anywhere;
-  border-right: 1px solid var(--background-modifier-border);
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .pkvsync-diff-split-row.is-full {
-  grid-template-columns: 1fr;
-  padding: 5px 10px;
-  border-top: 1px solid var(--background-modifier-border);
-  border-bottom: 1px solid var(--background-modifier-border);
-  color: var(--text-muted);
+  grid-template-columns: 48px 1fr;
 }
 
 .pkvsync-diff-split-row.is-hunk {
-  background: rgba(59, 130, 246, 0.16);
-  color: #1d4ed8;
+  background: var(--background-modifier-hover);
+  font-style: italic;
 }
 
 .pkvsync-diff-split-row.is-meta {
-  background: var(--background-secondary);
+  color: var(--text-muted);
 }
 
 .pkvsync-diff-add {
-  background: rgba(34, 197, 94, 0.16);
-  color: #1f8f4d;
+  background: rgba(63, 107, 63, 0.12);
+  color: var(--color-green, #3f6b3f);
 }
 
 .pkvsync-diff-del {
-  background: rgba(239, 68, 68, 0.14);
-  color: #b42323;
+  background: rgba(155, 52, 52, 0.12);
+  color: var(--color-red, #9b3434);
 }
 
 .pkvsync-diff-hunk {
-  background: rgba(59, 130, 246, 0.16);
-  color: #1d4ed8;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .pkvsync-diff-meta,
@@ -1066,224 +1196,252 @@ body.theme-dark .pkv-sync-settings-host.is-dark-override,
 }
 
 .pkvsync-diff-empty {
-  background: var(--background-primary);
-  color: var(--text-faint);
+  text-align: center;
+  padding: 24px;
+  color: var(--text-muted);
 }
 
 .pkvsync-button {
-  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
   border-radius: 6px;
-  padding: 0 12px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: var(--font-interface);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: none;
+  transition: border-color 80ms ease, background 80ms ease, color 80ms ease;
 }
 
 .pkvsync-button.is-danger {
-  color: var(--text-on-accent);
-  background: var(--color-red);
+  color: var(--color-red, #9b3434);
+  border-color: rgba(155, 52, 52, 0.3);
+}
+
+.pkvsync-button.is-danger:hover {
+  background: rgba(155, 52, 52, 0.1);
 }
 
 .pkvsync-button.is-secondary {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
+  /* default look */
 }
 
 .pkvsync-button.is-ghost {
   background: transparent;
+  border-color: transparent;
   color: var(--text-muted);
+}
+
+.pkvsync-button.is-ghost:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pkvsync-button:hover {
+  border-color: var(--pkv-mark);
 }
 
 .pkvsync-input {
   width: 100%;
-  box-sizing: border-box;
-  min-height: 36px;
-  padding: 6px 10px;
+  height: 32px;
+  padding: 0 10px;
+  background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
-  background: var(--background-primary);
+  font-family: var(--font-interface);
+  font-size: 13px;
   color: var(--text-normal);
-  font-size: 14px;
-  margin-top: 8px;
-  margin-bottom: 8px;
+  box-sizing: border-box;
 }
 
 .pkvsync-input:focus {
   outline: none;
-  border-color: var(--interactive-accent);
+  border-color: var(--pkv-mark);
+  box-shadow: 0 0 0 3px var(--pkv-mark-faint);
 }
 
 .pkvsync-delete-vault-modal {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 4px 2px;
+  gap: 16px;
+  padding: 4px 2px 8px;
 }
 
 .pkvsync-delete-vault-modal h2 {
-  margin: 0 0 4px;
-  font-size: 18px;
-  line-height: 1.3;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-normal);
 }
 
 .pkvsync-delete-vault-body {
-  color: var(--text-normal);
   font-size: 13px;
   line-height: 1.5;
+  color: var(--text-normal);
 }
 
 .pkvsync-delete-vault-prompt {
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .pkvsync-delete-vault-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 8px;
 }
 
 .pkvsync-conflicts-list-modal,
 .pkvsync-conflict-resolve-modal {
+  --pkv-mark: #b0593b;
+  --pkv-mark-soft: rgba(176, 89, 59, 0.16);
+  --pkv-mark-faint: rgba(176, 89, 59, 0.08);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 4px 2px;
+  gap: 16px;
+  padding: 4px 2px 8px;
+  color: var(--text-normal);
+  font-family: var(--font-interface);
 }
 
 .pkvsync-conflicts-list-modal h2,
 .pkvsync-conflict-resolve-modal h2 {
-  margin: 0 0 4px;
-  font-size: 18px;
-  line-height: 1.3;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
 }
 
 .modal:has(.pkvsync-conflict-resolve-modal) {
-  width: min(960px, 92vw);
+  max-width: 720px;
 }
 
 .pkvsync-conflicts-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-height: 60vh;
   overflow-y: auto;
 }
 
 .pkvsync-conflicts-empty {
-  color: var(--text-muted);
-  font-style: italic;
-  padding: 20px 0;
   text-align: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .pkvsync-conflict-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-secondary);
+  border-radius: 8px;
   cursor: pointer;
-  transition: background 0.12s ease;
+  background: var(--background-secondary);
+  transition: border-color 80ms ease, background 80ms ease;
 }
 
 .pkvsync-conflict-row:hover {
-  background: var(--background-modifier-hover);
+  border-color: var(--pkv-mark-soft);
+  background: var(--pkv-mark-faint);
 }
 
 .pkvsync-conflict-path {
-  flex: 1 1 auto;
+  flex: 1;
   font-family: var(--font-monospace);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-normal);
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pkvsync-conflict-resolve-body {
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .pkvsync-conflict-diff {
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  max-height: 60vh;
-  overflow: auto;
-  background: var(--background-primary);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .pkvsync-conflict-kind {
-  padding: 10px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-secondary);
+  font-family: var(--font-monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.4;
+  background: var(--background-modifier-hover);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .pkvsync-merge-marker-preview {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  max-height: 60vh;
-  overflow: auto;
-  background: var(--background-primary);
   font-family: var(--font-monospace);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 11px;
+  line-height: 1.55;
+  background: var(--background-secondary);
+  padding: 6px 0;
+  max-height: 50vh;
+  overflow: auto;
 }
 
 .pkvsync-merge-marker-row {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  min-height: 22px;
+  grid-template-columns: 48px 1fr;
 }
 
 .pkvsync-merge-marker-line-no {
-  padding: 2px 8px;
-  border-right: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-faint);
   text-align: right;
+  padding: 0 8px;
+  color: var(--text-faint);
   user-select: none;
+  border-right: 1px solid var(--background-modifier-border);
 }
 
 .pkvsync-merge-marker-text {
-  padding: 2px 10px;
+  padding: 0 10px;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .pkvsync-merge-marker-local,
 .pkvsync-merge-marker-remote,
 .pkvsync-merge-marker-separator {
-  color: var(--text-normal);
   font-weight: 600;
 }
 
 .pkvsync-merge-marker-local {
-  background: rgba(var(--color-red-rgb), 0.14);
+  color: var(--color-green, #3f6b3f);
 }
 
 .pkvsync-merge-marker-remote {
-  background: rgba(var(--color-green-rgb), 0.14);
+  color: var(--color-red, #9b3434);
 }
 
 .pkvsync-merge-marker-separator {
-  background: rgba(var(--color-yellow-rgb), 0.16);
+  color: var(--text-muted);
 }
 
 .pkvsync-conflict-binary {
-  padding: 14px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: 13px;
+  padding: 12px;
   text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 8px;
 }
 
 .pkvsync-conflict-actions {
@@ -1291,7 +1449,12 @@ body.theme-dark .pkv-sync-settings-host.is-dark-override,
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+  flex-wrap: wrap;
 }
+
+/* =====================================================================
+ * 15. Responsive
+ * =================================================================== */
 
 @media (max-width: 520px) {
   .pkv-sync-settings-host {
@@ -1299,7 +1462,8 @@ body.theme-dark .pkv-sync-settings-host.is-dark-override,
   }
 
   .pkv-sync-panel {
-    padding: 32px 24px 40px;
+    padding: 24px 18px 32px;
+    gap: 16px;
   }
 
   .pkv-sync-button-row {
@@ -1359,6 +1523,7 @@ body.theme-dark .pkv-sync-settings-host.is-dark-override,
 
   .pkvsync-history-title-row {
     flex-direction: column;
+    align-items: flex-start;
   }
 
   .pkvsync-history-actions,
