@@ -204,7 +204,7 @@ async fn set_language_query(
 }
 
 fn set_language_cookie(policy: &AdminCookiePolicy, cookies: &Cookies, lang: &str) {
-    if let Some(lang) = crate::admin::i18n::AdminLang::parse(&lang) {
+    if let Some(lang) = crate::admin::i18n::AdminLang::parse(lang) {
         cookies.add(crate::admin::i18n::language_cookie(lang, policy.secure));
     }
 }
