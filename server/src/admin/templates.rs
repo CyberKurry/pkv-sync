@@ -411,13 +411,19 @@ mod tests {
     #[test]
     fn admin_css_uses_designer_shell_tokens() {
         let css = include_str!("../../static/admin.css");
+        // Light is the default; explicit dark override and an OS-preference
+        // fallback must both exist so dark mode works in either picker.
         assert!(css.contains("color-scheme: light"));
+        assert!(css.contains("color-scheme: dark"));
+        assert!(css.contains("[data-theme=\"dark\"]"));
         assert!(css.contains("@media (prefers-color-scheme: dark)"));
-        assert!(css.contains("#0f111c"));
-        assert!(css.contains("#141623"));
-        assert!(css.contains("#161928"));
+        // Core layout primitives must still be present.
         assert!(css.contains(".app-shell"));
         assert!(css.contains(".sidebar-nav"));
+        // Design token namespace.
+        assert!(css.contains("--pkv-paper"));
+        assert!(css.contains("--pkv-ink"));
+        assert!(css.contains("--pkv-mark"));
     }
 
     #[test]
@@ -473,15 +479,22 @@ mod tests {
     #[test]
     fn admin_shell_is_fluid_and_has_mobile_drawer_tokens() {
         let css = include_str!("../../static/admin.css");
+        // The shell must not pin a magic max width that breaks ultrawide /
+        // narrow layouts.
         assert!(!css.contains("min(1440px"));
         assert!(!css.contains("min(900px"));
         assert!(!css.contains("1057px"));
-        assert!(css.contains("width: 100vw"));
+        assert!(!css.contains("width: min(100%, 1057px"));
+        assert!(!css.contains("width: min(100%, 900px"));
+        // Sticky full-height sidebar that turns into a slide-out drawer on
+        // small screens.
+        assert!(css.contains(".sidebar"));
         assert!(css.contains("height: 100vh"));
         assert!(css.contains(".sidebar-toggle"));
         assert!(css.contains(".mobile-menu-button"));
-        assert!(!css.contains("width: min(100%, 1057px"));
-        assert!(!css.contains("width: min(100%, 900px"));
+        assert!(css.contains(".sidebar-scrim"));
+        // The mobile breakpoint must repack the shell into a single column.
+        assert!(css.contains("grid-template-columns: 1fr;"));
     }
 
     #[test]
@@ -517,7 +530,6 @@ mod tests {
         assert!(!layout.contains("<script>"));
         assert!(css.contains(".theme-toggle-button"));
         assert!(css.contains(".theme-toggle-icon"));
-        assert!(css.contains("[data-theme-mode=\"dark\"]"));
         assert!(js.contains("pkv-admin-theme"));
         assert!(js.contains("dataset.theme"));
         assert!(js.contains("data-theme-toggle"));
@@ -654,8 +666,10 @@ mod tests {
         assert!(css.contains(".user-profile-panel"));
         assert!(css.contains(".user-action-grid"));
         assert!(css.contains(".tokens-table"));
-        assert!(css.contains(".page-bar {\n    display: grid;"));
-        assert!(css.contains(".user-profile-head {\n    display: grid;"));
+        // The detail layout must split into two columns on wide screens.
+        assert!(css.contains(".user-detail-layout {\n    display: grid;"));
+        // The user-action grid must be a multi-column grid for dense actions.
+        assert!(css.contains(".user-action-grid {\n    display: grid;"));
     }
 
     #[test]
