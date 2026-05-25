@@ -61,7 +61,7 @@ The web panel includes:
 - Activity log with real user and action filters for sync, vault lifecycle,
   and read-only browsing rows
 - Blob garbage collection trigger
-- English and Simplified Chinese language switch
+- English, Simplified Chinese, Traditional Chinese, Japanese, and Korean language switch
 
 Timestamps, durations, byte sizes, uptime, and activity data are rendered in
 human-readable form. The default timezone is `Asia/Shanghai` and can be changed
@@ -201,10 +201,16 @@ return `429` with `error.code = "rate_limited"`.
 **Sync & Storage**
 - Max file size (default `100 MiB`).
 - Supported text extensions — files outside this list are treated as binary
-  blobs.
+  blobs. The list is shown read-only in the Admin WebUI; edit it via the
+  `text_extensions` runtime config row (or by editing the SQLite `runtime_config`
+  table directly) if you need to change it.
 - Extra exclude globs — admin-tunable patterns that augment the built-in
   `.obsidian/`, `.trash/`, `.conflict-*`, `.git/` exclusion list.
 - History UI and diff endpoint toggles.
+- **Auto-merge text** (`enable_auto_merge`, default on): when enabled, the
+  server attempts a three-way line merge before writing a conflict file.
+  Disjoint edits merge cleanly; overlapping edits still produce a conflict
+  file with merge markers.
 - **Push debounce** (`push_debounce_ms`, default `250`): how long the plugin
   waits after a local edit settles before pushing. Lower values reduce
   end-to-end latency; higher values batch more keystrokes per push.
@@ -269,7 +275,7 @@ download the verified release binary next to the current executable as
 from `SHA256SUMS` and prints the systemd/manual swap steps. It does not hot
 replace the running process.
 
-Use `pkvsyncd upgrade --version 1.0.0` to target a specific release. If the
+Use `pkvsyncd upgrade --version 1.0.1` to target a specific release. If the
 command cannot find a matching asset or checksum, follow the manual GitHub
 release download path and verify `SHA256SUMS` yourself.
 
@@ -298,6 +304,13 @@ writing a side-by-side binary.
   incidents. It checks referenced blob files, reports orphan blobs, validates
   vault git repos with `git2`, and exits non-zero for missing, corrupt, or git
   errors. `--no-fail` keeps the report but forces a success exit code.
+- Use `pkvsyncd materialize <vault-id> -o <dir>` to export a vault's HEAD
+  as a plain file tree (text files as-is, binary blobs resolved from the
+  blob store). Useful for offline export, ad-hoc audit, or cold migration.
+  Pair with `--at <commit-sha>` to materialize a historical commit.
+- Run `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` to expose the
+  read/write MCP server over Streamable HTTP for AI tooling, or
+  `pkvsyncd mcp --vault <id>` for a stdio-only single-vault session.
 - Run blob garbage collection after large attachment deletions.
 - Check the dashboard update banner or GitHub releases before maintenance.
 - Watch logs and activity for repeated `401`, `403`, `404`, `409`, and `429`

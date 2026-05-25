@@ -52,7 +52,7 @@ Web パネルには次が含まれます。
 - General、Security、Sync & Storage、Network に分かれた実行時設定
 - 同期、vault ライフサイクル、読み取り専用閲覧行を対象に、実ユーザーとアクションでフィルターできるアクティビティログ
 - Blob ガベージコレクションのトリガー
-- 英語と簡体字中国語の言語切替
+- 英語、簡体字中国語、繁体字中国語、日本語、韓国語の言語切替
 
 タイムスタンプ、期間、バイトサイズ、稼働時間、アクティビティデータは人間が読みやすい形式で表示されます。既定のタイムゾーンは `Asia/Shanghai` で、設定から変更できます。
 
@@ -138,9 +138,10 @@ Settings ページは SQLite に保存された値を編集します。変更は
 
 **Sync & Storage**
 - 最大ファイルサイズ（既定 `100 MiB`）
-- 対応テキスト拡張子 — 一覧外のファイルはバイナリ blob として扱われます
+- 対応テキスト拡張子 — 一覧外のファイルはバイナリ blob として扱われます。この一覧は Admin WebUI では読み取り専用で表示されます。変更が必要な場合は、`text_extensions` runtime config 行を編集するか、SQLite の `runtime_config` テーブルを直接編集してください。
 - 追加 exclude glob — 組み込みの `.obsidian/`、`.trash/`、`.conflict-*`、`.git/` 除外リストを補う管理者調整可能なパターン
 - 履歴 UI と diff エンドポイントの切替
+- **Auto-merge text**（`enable_auto_merge`、既定オン）: 有効時、サーバーは衝突ファイルを書き出す前に 3-way ライン merge を試みます。重ならない編集はクリーンに merge され、重なる編集は引き続き merge マーカー入りの衝突ファイルになります。
 - **Push debounce**（`push_debounce_ms`、既定 `250`）: ローカル編集が落ち着いてから push するまでの待機時間。小さくするとエンドツーエンド遅延が減り、大きくすると 1 回の push でより多くの入力をまとめられます
 - **Inline SSE content cap**（`inline_content_max_bytes`、既定 `8192`、最大 `65536`）: このサイズまでのテキスト変更は SSE イベント内で送信され、受信プラグインは別途 pull せずに適用できます。大きいファイルは pull にフォールバックします
 - **SSE heartbeat**（`sse_heartbeat_seconds`、既定 `30`）: アイドル SSE 接続がリバースプロキシで切断されないようにするイベントストリームの keep-alive。並行 SSE 購読は既定でユーザーごとに 16、全体上限は 1024 です。
@@ -180,6 +181,8 @@ https://sync.example.com/k_xxx/
 - `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` を運用スナップショットに使用します。出力ディレクトリは存在しないか空である必要があります。コマンドは `VACUUM INTO` で SQLite をスナップショットし、`vaults/`、`blobs/`、存在する場合は `config.toml` をコピーし、pkvsyncd バージョン、コンポーネント hash、サイズ、数を含む `MANIFEST.json` を書き込みます。
 - `pkvsyncd restore --input <backup-dir> --data-dir <dir>` で、存在しないか空のデータディレクトリに復元します。先に消去してよい対象であることを確認した場合のみ `--force` を追加してください。restore はコピー前に manifest hash を検証し、完了後に verify を実行します。
 - メンテナンス後またはホストストレージ障害後に `pkvsyncd verify [--data-dir <dir>]` を実行します。参照される blob ファイルを確認し、孤立 blob を報告し、`git2` で vault git リポジトリを検証し、欠落、破損、git エラーでは非ゼロ終了します。`--no-fail` はレポートを残したまま成功終了コードを強制します。
+- `pkvsyncd materialize <vault-id> -o <dir>` で vault の HEAD を平坦なファイルツリーとしてエクスポートします（テキストファイルはそのまま、バイナリ blob は blob ストアから解決されます）。オフラインエクスポート、臨時監査、コールドマイグレーションに有用です。`--at <commit-sha>` と組み合わせると、過去の commit を materialize できます。
+- AI ツール向けに read/write MCP サーバーを Streamable HTTP で公開するには `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` を実行します。単一 vault 専用の stdio セッションには `pkvsyncd mcp --vault <id>` を使用します。
 - 大量の添付ファイル削除後は blob ガベージコレクションを実行します。
 - ログとアクティビティで `401`、`403`、`404`、`409`、`429` の繰り返し応答を監視します。
 - サーバーバイナリ、プラグインパッケージ、Docker イメージ、リバースプロキシ、ホスト OS を更新状態に保ちます。

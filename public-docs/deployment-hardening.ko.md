@@ -150,6 +150,15 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
+대시보드는 24시간마다 GitHub releases를 확인하고 새 PKV Sync 릴리스가 있으면 배너를 표시합니다. 에어갭 호스트에서는 `[update_check] enabled = false`로 비활성화하세요. 확인 주기와 소스 저장소도 설정할 수 있습니다.
+
+```toml
+[update_check]
+enabled = true                          # default
+interval_seconds = 86400                # default 24h
+repo = "cyberkurry/pkv-sync"            # GitHub repo to query
+```
+
 ## public_host(admin POST 필수)
 
 `[server].public_host`를 scheme 없이, 운영자가 admin panel에 접근하는 외부에서 보이는 hostname(비표준이면 port 포함)으로 설정합니다. 예: `sync.example.com` 또는 `pkv.local:8443`. admin CSRF 검사는 이 값에서 예상 origin을 도출합니다. `public_host`가 설정된 경우 예상 origin은 `https://<public_host>`로 고정되며, reverse proxy가 보내는 `X-Forwarded-Proto`가 admin CSRF 검사를 backend HTTP로 downgrade하지 않습니다.
@@ -173,10 +182,14 @@ PKV Sync는 프로덕션 server stack에 다음 response headers를 추가합니
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: same-origin`
-- `Content-Security-Policy` with `frame-ancestors 'none'`, `default-src 'self'`, `object-src 'none'`, `form-action 'self'`, self-hosted images/styles
-- `public_host` 설정 시 `Strict-Transport-Security`
+- `Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'`
+- `public_host` 설정 시 `Strict-Transport-Security: max-age=31536000; includeSubDomains`
 
 TLS termination과 `public_host`를 일치시키세요. HSTS는 server가 HTTPS public deployment로 설정된 경우에만 전송됩니다.
+
+### 종단 간 암호화 안내
+
+PKV Sync 1.0은 종단 간 암호화가 아닙니다. 서버 관리자와 서버 파일 시스템 접근 권한이 있는 누구나 동기화된 vault 내용을 읽을 수 있습니다. 네이티브 vault별 E2EE는 1.x 로드맵에 있습니다. 오늘 서버로부터의 기밀성이 필요한 운영자는 임시 vault별 암호화 계층으로 [`git-crypt-howto.md`](./git-crypt-howto.md)를 따르세요. 이 모드에서는 파일 이름이 서버에 그대로 보이며, 파일 내용만 클라이언트 측에서 암호화됩니다.
 
 ## Reverse Proxy Notes
 

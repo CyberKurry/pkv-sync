@@ -148,6 +148,15 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
+儀表板每 24 小時檢查一次 GitHub releases，發現較新的 PKV Sync 版本時會顯示橫幅。離線主機可用 `[update_check] enabled = false` 停用。檢查間隔和來源倉庫也可設定：
+
+```toml
+[update_check]
+enabled = true                          # 預設
+interval_seconds = 86400                # 預設 24 小時
+repo = "cyberkurry/pkv-sync"            # 查詢的 GitHub 倉庫
+```
+
 ## public_host（admin POST 必備）
 
 將 `[server].public_host` 設定為運維實際存取 admin 面板使用的外部主機名稱（不含協定，必要時含連接埠），例如 `sync.example.com` 或 `pkv.local:8443`。admin CSRF 檢查依據該值計算期望 Origin。設定 `public_host` 後，期望 Origin 固定為 `https://<public_host>`；反向代理傳入的 `X-Forwarded-Proto` 不會把 admin CSRF 校驗降級到後端 HTTP。
@@ -171,10 +180,14 @@ PKV Sync 會在生產服務端棧中加入這些回應標頭：
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: same-origin`
-- `Content-Security-Policy`，包含 `frame-ancestors 'none'`、`default-src 'self'`、`object-src 'none'`、`form-action 'self'` 以及自託管圖片／樣式
-- 在設定了 `public_host` 時加入 `Strict-Transport-Security`
+- `Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'`
+- 在設定了 `public_host` 時加入 `Strict-Transport-Security: max-age=31536000; includeSubDomains`
 
 請讓 TLS 終止和 `public_host` 保持一致。只有當服務端被設定為 HTTPS 對外發布時，才會發送 HSTS。
+
+### 關於端到端加密
+
+PKV Sync 1.0 不提供端到端加密：伺服器系統管理員以及任何可存取伺服器檔案系統的人都能讀取已同步的筆記庫內容。原生的按筆記庫 E2EE 已列入 1.x 規劃。今天就需要對伺服器保密的維運者，可依 [`git-crypt-howto.md`](./git-crypt-howto.md) 套用按筆記庫的過渡性加密層。該模式下檔名仍對伺服器可見，只有檔案內容會在用戶端加密。
 
 ## 反向代理注意事項
 

@@ -162,7 +162,15 @@ docker compose logs -f pkv-sync
 
 The dashboard checks GitHub releases once every 24 hours and shows a banner
 when a newer PKV Sync release is available. Disable this for air-gapped hosts
-with `[update_check] enabled = false`.
+with `[update_check] enabled = false`. The check interval and source repository
+are also configurable:
+
+```toml
+[update_check]
+enabled = true                          # default
+interval_seconds = 86400                # default 24h
+repo = "cyberkurry/pkv-sync"            # GitHub repo to query
+```
 
 ## public_host (required for admin POST)
 
@@ -199,12 +207,20 @@ PKV Sync adds these response headers to the production server stack:
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: same-origin`
-- `Content-Security-Policy` with `frame-ancestors 'none'`, `default-src 'self'`,
-  `object-src 'none'`, `form-action 'self'`, and self-hosted images/styles
-- `Strict-Transport-Security` when `public_host` is configured
+- `Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'`
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains` when `public_host` is configured
 
 Keep TLS termination and `public_host` aligned. HSTS is only emitted when the
 server is configured as an HTTPS public deployment.
+
+### About end-to-end encryption
+
+PKV Sync 1.0 is not end-to-end encrypted: the server administrator and anyone
+with server filesystem access can read synced vault contents. Native per-vault
+E2EE is on the 1.x roadmap. Operators who need confidentiality from the
+server today should follow [`git-crypt-howto.md`](./git-crypt-howto.md) as an
+interim per-vault encryption layer. Filenames remain visible to the server in
+that mode; only file contents are encrypted client-side.
 
 ## Reverse Proxy Notes
 

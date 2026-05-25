@@ -148,7 +148,14 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
-仪表盘默认每 24 小时检查一次 GitHub release；发现新版本时会显示提示。离线部署可用 `[update_check] enabled = false` 关闭。
+仪表盘默认每 24 小时检查一次 GitHub release；发现新版本时会显示提示。离线部署可用 `[update_check] enabled = false` 关闭。检查间隔和源仓库也可配置：
+
+```toml
+[update_check]
+enabled = true                          # 默认
+interval_seconds = 86400                # 默认 24 小时
+repo = "cyberkurry/pkv-sync"            # 查询的 GitHub 仓库
+```
 
 ## public_host(admin POST 必备)
 
@@ -173,10 +180,14 @@ PKV Sync 会在生产服务端栈里添加这些响应头:
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: same-origin`
-- `Content-Security-Policy`，包含 `frame-ancestors 'none'`、`default-src 'self'`、`object-src 'none'`、`form-action 'self'` 以及自托管图片／样式
-- 在配置了 `public_host` 时添加 `Strict-Transport-Security`
+- `Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'`
+- 在配置了 `public_host` 时添加 `Strict-Transport-Security: max-age=31536000; includeSubDomains`
 
 请让 TLS 终止和 `public_host` 保持一致。只有当服务端被配置为 HTTPS 对外发布时，才会发送 HSTS。
+
+### 关于端到端加密
+
+PKV Sync 1.0 不是端到端加密的：服务端管理员以及具备服务端文件系统访问权限的人都可以读取同步的仓库内容。原生按笔记库 E2EE 列在 1.x 路线图中。如果当前需要对服务端保密，请按 [`git-crypt-howto.md`](./git-crypt-howto.md) 作为过渡期的按笔记库加密层。该模式下文件名仍对服务端可见，只有文件内容在客户端加密。
 
 ## 反向代理注意事项
 

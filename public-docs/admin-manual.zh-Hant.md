@@ -50,7 +50,7 @@ https://sync.example.com/admin/login
 - 執行階段設定，分為 General、Security、Sync & Storage、Network
 - 活動日誌，支援按使用者和動作真實篩選 push/pull 以及筆記庫生命週期記錄
 - Blob 垃圾回收觸發
-- 英文和簡體中文語言切換
+- 英文、簡體中文、繁體中文、日文和韓文語言切換
 
 時間戳、持續時間、位元組大小、執行時間和活動資料都會以人類可讀形式顯示。預設時區是 `Asia/Shanghai`，可在設定中修改。
 
@@ -136,9 +136,10 @@ Blob 檔案是內容定址的，可能會保留到垃圾回收確認其超過寬
 
 **同步與儲存**
 - 最大檔案大小（預設 `100 MiB`）
-- 支援的文字副檔名 — 清單外的檔案按二進位 blob 處理
+- 支援的文字副檔名 — 清單外的檔案按二進位 blob 處理。該清單在 Admin WebUI 中為唯讀；如需修改，請透過 `text_extensions` 執行階段設定列（或直接編輯 SQLite `runtime_config` 表）。
 - 額外 exclude glob — 管理員可調，補充內建的 `.obsidian/`、`.trash/`、`.conflict-*`、`.git/` 排除清單
 - 歷史介面和 diff 端點開關
+- **自動合併文字**（`enable_auto_merge`，預設開啟）：啟用後，伺服器會在寫入衝突檔案前先嘗試三向行級合併。互不重疊的編輯可乾淨合併；重疊編輯仍會產生帶合併標記的衝突檔案。
 - **Push 去抖**（`push_debounce_ms`，預設 `250`）：本機編輯穩定到推送之間的延遲。變小可縮短端到端延遲，變大可每次 push 合併更多按鍵
 - **SSE 內聯內容上限**（`inline_content_max_bytes`，預設 `8192`，上限 `65536`）：此尺寸以內的文字變更隨 SSE 事件直接下發，接收端外掛無需再 pull；超過則降級走 pull
 - **SSE 心跳**（`sse_heartbeat_seconds`，預設 `30`）：事件流保活，避免閒置 SSE 連線被反向代理切斷。並發 SSE 訂閱預設按使用者限制為 16，並保留 1024 的全域上限。
@@ -178,6 +179,8 @@ https://sync.example.com/k_xxx/
 - 使用 `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` 產生維運快照。輸出目錄必須不存在或為空；命令會用 `VACUUM INTO` 快照 SQLite，複製 `vaults/`、`blobs/` 和存在時的 `config.toml`，並寫入帶 pkvsyncd 版本、元件雜湊、大小和數量的 `MANIFEST.json`。
 - 使用 `pkvsyncd restore --input <backup-dir> --data-dir <dir>` 恢復到不存在或為空的資料目錄。只有確認目標可以先清空時才加 `--force`；恢復會先校驗 manifest 雜湊，複製完成後自動執行 verify。
 - 維護後或主機儲存異常後執行 `pkvsyncd verify [--data-dir <dir>]`。它會檢查被引用的 blob 檔案，報告孤立 blob，用 `git2` 校驗筆記庫 git 倉庫，並在缺失、損壞或 git 錯誤時返回失敗。`--no-fail` 會保留報告但強制返回成功退出碼。
+- 使用 `pkvsyncd materialize <vault-id> -o <dir>` 將筆記庫的 HEAD 匯出為普通檔案樹（文字檔案原樣寫出，二進位 blob 從 blob 儲存解析）。可用於離線匯出、臨時稽核或冷遷移。搭配 `--at <commit-sha>` 可實體化特定歷史提交。
+- 執行 `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` 透過 Streamable HTTP 對 AI 工具開放讀寫 MCP 伺服器；或執行 `pkvsyncd mcp --vault <id>` 啟動僅 stdio 的單筆記庫工作階段。
 - 大量刪除附件後執行 blob 垃圾回收。
 - 關注日誌和活動中重複出現的 `401`、`403`、`404`、`409` 和 `429` 回應。
 - 保持服務端二進位、外掛包、Docker 映像、反向代理和主機系統及時更新。
