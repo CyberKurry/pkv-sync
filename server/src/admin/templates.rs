@@ -68,9 +68,18 @@ pub struct UsersTemplate {
 pub struct UserAdminView {
     pub id: String,
     pub username: String,
+    pub avatar_label: String,
     pub is_admin: bool,
     pub is_active: bool,
     pub created_at: String,
+}
+
+pub fn avatar_label(username: &str) -> String {
+    username
+        .chars()
+        .next()
+        .map(|ch| ch.to_uppercase().collect())
+        .unwrap_or_else(|| "?".into())
 }
 
 #[derive(Debug, Clone)]
@@ -543,6 +552,59 @@ mod tests {
     }
 
     #[test]
+    fn admin_css_keeps_working_paper_controls_polished() {
+        let css = include_str!("../../static/admin.css");
+        let sprite = include_str!("../../static/lucide-icons.svg");
+        assert!(sprite.contains(r#"fill="none""#));
+        assert!(sprite.contains(r#"stroke="currentColor""#));
+        assert!(sprite.contains(r#"stroke-width="2""#));
+        let symbol_re = regex::Regex::new(r#"<symbol[^>]*id="([^"]+)"[^>]*>"#).unwrap();
+        for cap in symbol_re.captures_iter(sprite) {
+            let symbol = cap.get(0).unwrap().as_str();
+            assert!(
+                symbol.contains(r#"fill="none""#),
+                "icon {} is not self-contained",
+                &cap[1]
+            );
+            assert!(
+                symbol.contains(r#"stroke="currentColor""#),
+                "icon {} is not self-contained",
+                &cap[1]
+            );
+            assert!(
+                symbol.contains(r#"stroke-width="2""#),
+                "icon {} is not self-contained",
+                &cap[1]
+            );
+        }
+        assert!(css.contains(".admin-icon,\n.nav-icon"));
+        assert!(css.contains("stroke: currentColor;"));
+        assert!(css.contains("fill: none;"));
+        assert!(css.contains("stroke-width: 2;"));
+        assert!(css.contains(".nav-icon {\n    width: 18px;"));
+        assert!(css.contains(".metric-head .admin-icon {\n    width: 30px;"));
+        assert!(css.contains(".page-bar h1 {\n    font-family: var(--pkv-font-body);"));
+        assert!(css.contains(".panel-header h2 {\n    font-family: var(--pkv-font-body);"));
+        assert!(css.contains("letter-spacing: 0;"));
+        assert!(css.contains(".activity-panel .panel-header"));
+        assert!(css.contains(".theme-toggle-button span"));
+        assert!(css.contains(".user-card .icon-button"));
+        assert!(css.contains(".login-form input"));
+        assert!(css
+            .contains(".form-panel label:not(.check-row),\n.settings-form label:not(.check-row)"));
+        assert!(!css.contains(".field-search::before"));
+        assert!(css.contains(".field-search .admin-icon"));
+        assert!(css.contains(".settings-section h2 {\n    font-family: var(--pkv-font-body);"));
+        assert!(css.contains(".danger-row {\n    display: flex;"));
+        assert!(css.contains(".settings-tabs a {\n    display: inline-flex;"));
+        assert!(css.contains(".toolbar {\n    display: flex;\n    justify-content: flex-start;"));
+        assert!(css.contains(".card-actions {\n    display: flex;"));
+        assert!(css.contains(".segmented input:checked + span"));
+        assert!(css.contains(".input-with-unit > span,\n.input-with-unit > small"));
+        assert!(css.contains("min-height: 44px;"));
+    }
+
+    #[test]
     fn dashboard_template_uses_lucide_sprite_and_mobile_toggle() {
         let html = DashboardTemplate {
             t: AdminText::en(),
@@ -571,14 +633,18 @@ mod tests {
         assert!(html.contains("class=\"mobile-menu-button\""));
         assert!(html.contains("/admin/static/lucide-icons.svg#gauge"));
         assert!(html.contains("/admin/static/lucide-icons.svg#users-round"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#monitor"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#user-plus"));
         assert!(html.contains("/admin/static/lucide-icons.svg#menu"));
         assert!(!html.contains("<path d=\"M4 13.5a8 8"));
+        assert!(!html.contains("/admin/static/lucide-icons.svg#server"));
     }
 
     fn user(id: &str, username: &str, is_admin: bool) -> UserAdminView {
         UserAdminView {
             id: id.into(),
             username: username.into(),
+            avatar_label: avatar_label(username),
             is_admin,
             is_active: true,
             created_at: "1970-01-01 00:00:01".into(),
@@ -608,6 +674,9 @@ mod tests {
         assert!(html.contains("/admin/static/lucide-icons.svg#filter"));
         assert!(html.contains("/admin/static/lucide-icons.svg#x"));
         assert!(html.contains("/admin/static/lucide-icons.svg#square-pen"));
+        assert!(html.contains(
+            "class=\"avatar avatar-small\" aria-hidden=\"true\">A</span><strong>admin</strong>"
+        ));
     }
 
     #[test]
@@ -632,6 +701,8 @@ mod tests {
         assert!(html.contains("<h1>User Details</h1>"));
         assert!(html.contains("/admin/static/lucide-icons.svg#ban"));
         assert!(html.contains("/admin/static/lucide-icons.svg#key-round"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#shield"));
+        assert!(html.contains("class=\"user-profile-avatar\" aria-hidden=\"true\">A</span>"));
         assert!(!html.contains("User: admin"));
         assert!(!html.contains("+00:00 UTC"));
         assert!(!html.contains("+08:00 CST"));
@@ -709,6 +780,7 @@ mod tests {
         assert!(html.contains("pks_device_token"));
         assert!(html.contains("Create token"));
         assert!(html.contains("/admin/static/lucide-icons.svg#ban"));
+        assert!(html.contains("name=\"device_name\" type=\"text\""));
     }
 
     #[test]
@@ -741,6 +813,7 @@ mod tests {
         assert!(html.contains("/admin/static/lucide-icons.svg#folder-open"));
         assert!(html.contains("/admin/vaults/v1/settings"));
         assert!(include_str!("../../static/lucide-icons.svg").contains("id=\"folder-open\""));
+        assert!(html.contains("name=\"name\" type=\"text\""));
     }
 
     #[test]
@@ -762,6 +835,7 @@ mod tests {
         assert!(html.contains(".obsidian/app.json"));
         assert!(html.contains("name=\"apply_starter\""));
         assert!(html.contains("/admin/static/lucide-icons.svg#save"));
+        assert!(!html.contains("success-gradient"));
     }
 
     #[test]
@@ -823,6 +897,9 @@ mod tests {
         assert!(html.contains("Save"));
         assert!(html.contains("name=\"enable_auto_merge\""));
         assert!(html.contains("/admin/static/lucide-icons.svg#trash-2"));
+        assert!(html.contains("name=\"server_name\" type=\"text\""));
+        assert!(html.contains("value=\"100 MB\" disabled"));
+        assert!(!html.contains("success-gradient"));
     }
 
     #[test]

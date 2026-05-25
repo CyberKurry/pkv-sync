@@ -3,7 +3,7 @@
 {% block nav_settings %}is-active{% endblock %}
 {% block page_title %}{{ t.settings }}{% endblock %}
 {% block header_actions %}
-<button class="primary success-gradient" form="settings-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>Save Changes</button>
+<button class="primary" form="settings-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>Save Changes</button>
 {% endblock %}
 {% block content %}
 <div class="settings-layout">
@@ -18,7 +18,7 @@
     <section id="general" class="panel settings-section">
       <h2>General Settings</h2>
       <p class="section-note">Configure your server name, timezone, and registration settings.</p>
-      <label>{{ t.server_name }} <input name="server_name" value="{{ cfg.server_name }}" required></label>
+      <label>{{ t.server_name }} <input name="server_name" type="text" value="{{ cfg.server_name }}" required></label>
       <label>{{ t.timezone }}
         <select name="timezone">
           <option value="Asia/Shanghai" {% if cfg.timezone.as_str() == "Asia/Shanghai" %}selected{% endif %}>Asia/Shanghai</option>
@@ -53,8 +53,8 @@
     <section id="sync-storage" class="panel settings-section">
       <h2>Sync &amp; Storage</h2>
       <p class="section-note">Configure sync, SSE, Git integration, and storage settings.</p>
-      <label>Max File Size <span class="input-with-unit"><input value="{{ max_file_size_display }}" disabled><small>runtime</small></span></label>
-      <label>Text File Extensions <input value="{{ text_extensions_display }}" disabled></label>
+      <label>Max File Size <span class="input-with-unit"><input type="text" value="{{ max_file_size_display }}" disabled><small>runtime</small></span></label>
+      <label>Text File Extensions <input type="text" value="{{ text_extensions_display }}" disabled></label>
       <label class="check-row"><input name="enable_history_ui" type="checkbox" {% if cfg.enable_history_ui %}checked{% endif %}> Enable file history UI and API</label>
       <label class="check-row"><input name="enable_diff_endpoint" type="checkbox" {% if cfg.enable_diff_endpoint %}checked{% endif %}> Enable unified diff endpoint</label>
       <label class="check-row"><input name="enable_git_smart_http" type="checkbox" {% if cfg.enable_git_smart_http %}checked{% endif %} {% if !git_available %}disabled{% endif %}> Enable Git smart HTTP{% if !git_available %} <small class="hint">(git binary not found)</small>{% endif %}</label>
@@ -79,8 +79,8 @@
       <h2>Network</h2>
       <p class="section-note">Network bind address, public host, and trusted proxy ranges are read from config.toml at startup.</p>
       <div class="form-grid">
-        <label>Public Host <input value="Configured in config.toml" disabled></label>
-        <label>Trusted Proxies <input value="Configured in config.toml" disabled></label>
+        <label>Public Host <input type="text" value="Configured in config.toml" disabled></label>
+        <label>Trusted Proxies <input type="text" value="Configured in config.toml" disabled></label>
       </div>
     </section>
   </form>

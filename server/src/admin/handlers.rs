@@ -1,11 +1,11 @@
 use crate::admin::session::{self, AdminSession};
 use crate::admin::templates::{
-    ActivityFilterUser, ActivityTemplate, ActivityView, DashboardTemplate, DeviceTokenAdminView,
-    DevicesTemplate, DiffRowView, InviteAdminView, InvitesTemplate, LoginTemplate,
-    SettingsTemplate, SetupTemplate, TokenAdminView, UserAdminView, UserDetailTemplate,
-    UserOptionView, UsersTemplate, VaultAdminView, VaultBrowserView, VaultDiffTemplate,
-    VaultFileEntryView, VaultFileViewTemplate, VaultFilesTemplate, VaultHistoryEntryView,
-    VaultHistoryTemplate, VaultSettingsTemplate, VaultsTemplate,
+    avatar_label, ActivityFilterUser, ActivityTemplate, ActivityView, DashboardTemplate,
+    DeviceTokenAdminView, DevicesTemplate, DiffRowView, InviteAdminView, InvitesTemplate,
+    LoginTemplate, SettingsTemplate, SetupTemplate, TokenAdminView, UserAdminView,
+    UserDetailTemplate, UserOptionView, UsersTemplate, VaultAdminView, VaultBrowserView,
+    VaultDiffTemplate, VaultFileEntryView, VaultFileViewTemplate, VaultFilesTemplate,
+    VaultHistoryEntryView, VaultHistoryTemplate, VaultSettingsTemplate, VaultsTemplate,
 };
 use crate::api::error::ApiError;
 use crate::auth::LoginRateLimiter;
@@ -120,6 +120,7 @@ fn fmt_opt_ts(timestamp: Option<i64>, timezone: &str) -> Option<String> {
 fn user_view(user: User, timezone: &str) -> UserAdminView {
     UserAdminView {
         id: user.id,
+        avatar_label: avatar_label(&user.username),
         username: user.username,
         is_admin: user.is_admin,
         is_active: user.is_active,

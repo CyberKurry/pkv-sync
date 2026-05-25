@@ -32,7 +32,7 @@
     {% for u in users %}
       <tr>
         <td>
-          <span class="identity-cell"><span class="avatar avatar-small">{{ u.username }}</span><strong>{{ u.username }}</strong></span>
+          <span class="identity-cell"><span class="avatar avatar-small" aria-hidden="true">{{ u.avatar_label }}</span><strong>{{ u.username }}</strong></span>
         </td>
         <td>{% if u.is_active %}<span class="status active">Active</span>{% else %}<span class="status muted">Inactive</span>{% endif %}</td>
         <td>—</td>
@@ -54,7 +54,7 @@
     <h2>{{ t.create_user }}</h2>
   </div>
   <div class="form-grid">
-    <label>{{ t.username }} <input name="username" autocomplete="off" required></label>
+    <label>{{ t.username }} <input name="username" type="text" autocomplete="off" required></label>
     <label>{{ t.password }} <input name="password" type="password" autocomplete="new-password" required></label>
     <label class="check-row"><input type="checkbox" name="is_admin" value="true"> {{ t.admin }}</label>
   </div>

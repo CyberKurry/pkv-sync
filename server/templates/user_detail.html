@@ -21,7 +21,7 @@
 <div class="user-detail-layout">
   <section class="panel user-profile-panel">
     <div class="user-profile-head">
-      <span class="user-profile-avatar">{{ user.username }}</span>
+      <span class="user-profile-avatar" aria-hidden="true">{{ user.avatar_label }}</span>
       <div class="user-profile-title">
         <span class="metric-label">{{ t.user }}</span>
         <h2>{{ user.username }}</h2>
@@ -61,7 +61,7 @@
 
       <form method="post" action="/admin/users/{{ user.id }}/admin" class="panel form-panel action-panel">
         <div class="action-panel-head">
-          <span class="action-icon"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#user-plus"></use></svg></span>
+          <span class="action-icon"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg></span>
           <h2>{{ t.admin }}</h2>
         </div>
         <p class="section-note">{% if user.is_admin %}Admin privileges{% else %}Standard user{% endif %}</p>
@@ -73,7 +73,7 @@
     <form method="post" action="/admin/users/{{ user.id }}/tokens" class="panel form-panel create-token-panel">
       <div class="panel-header"><h2>{{ t.create_device_token }}</h2></div>
       <div class="form-grid single-action-form">
-        <label>{{ t.device_name }} <input name="device_name" autocomplete="off" required></label>
+        <label>{{ t.device_name }} <input name="device_name" type="text" autocomplete="off" required></label>
         <button class="primary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#key-round"></use></svg>{{ t.create_token }}</button>
       </div>
     </form>
