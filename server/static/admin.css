@@ -695,8 +695,15 @@ samp {
 
 .header-filter-form {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--pkv-space-2);
     align-items: center;
+}
+
+.header-filter-form > select {
+    flex: 1 1 160px;
+    min-width: 160px;
+    max-width: 240px;
 }
 
 /* =====================================================================
@@ -934,6 +941,22 @@ textarea:focus {
     outline: none;
     border-color: var(--pkv-mark);
     background: var(--pkv-paper);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+    color: var(--pkv-ink-mute);
+    background-color: var(--pkv-paper-raised);
+    border-color: var(--pkv-paper-edge);
+    cursor: not-allowed;
+    opacity: 0.72;
+}
+
+input:disabled:hover,
+select:disabled:hover,
+textarea:disabled:hover {
+    border-color: var(--pkv-paper-edge);
 }
 
 input[type="checkbox"],
@@ -2008,6 +2031,11 @@ textarea {
     font-size: var(--pkv-text-sm);
 }
 
+.danger-row .danger {
+    min-height: 36px;
+    padding-inline: var(--pkv-space-4);
+}
+
 .action-panel {
     padding: var(--pkv-space-4) var(--pkv-space-5);
 }
@@ -2338,6 +2366,12 @@ textarea {
     pointer-events: none;
 }
 
+.segmented label:hover > span,
+.segmented input:focus-visible + span {
+    color: var(--pkv-ink);
+    background: var(--pkv-paper);
+}
+
 .segmented .active,
 .segmented a.active,
 .segmented button.active,
@@ -2387,25 +2421,27 @@ textarea {
         position: absolute;
         top: var(--pkv-space-3);
         right: var(--pkv-space-3);
-        width: 32px;
-        height: 32px;
+        width: 44px;
+        height: 44px;
         align-items: center;
         justify-content: center;
-        background: transparent;
-        color: var(--pkv-ink-mute);
+        background: var(--pkv-paper-raised);
+        color: var(--pkv-ink);
         cursor: pointer;
+        border: var(--pkv-rule-hair);
         border-radius: var(--pkv-radius-2);
     }
 
     .mobile-menu-button {
         display: inline-flex;
-        width: 32px;
-        height: 32px;
+        width: 44px;
+        height: 44px;
         align-items: center;
         justify-content: center;
-        background: transparent;
-        color: var(--pkv-ink-mute);
+        background: var(--pkv-paper-raised);
+        color: var(--pkv-ink);
         cursor: pointer;
+        border: var(--pkv-rule-hair);
         border-radius: var(--pkv-radius-2);
     }
 

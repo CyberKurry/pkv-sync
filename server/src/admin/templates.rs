@@ -598,9 +598,17 @@ mod tests {
         assert!(css.contains(".danger-row {\n    display: flex;"));
         assert!(css.contains(".settings-tabs a {\n    display: inline-flex;"));
         assert!(css.contains(".toolbar {\n    display: flex;\n    justify-content: flex-start;"));
+        assert!(css.contains(".header-filter-form {\n    display: flex;\n    flex-wrap: wrap;"));
+        assert!(css.contains(".header-filter-form > select"));
         assert!(css.contains(".card-actions {\n    display: flex;"));
         assert!(css.contains(".segmented input:checked + span"));
+        assert!(css.contains(".segmented label:hover > span"));
+        assert!(css.contains(".segmented input:focus-visible + span"));
         assert!(css.contains(".input-with-unit > span,\n.input-with-unit > small"));
+        assert!(css.contains("input:disabled,\nselect:disabled,\ntextarea:disabled"));
+        assert!(css.contains(".danger-row .danger"));
+        assert!(css.contains(".sidebar-close {\n        display: inline-flex;"));
+        assert!(css.contains("width: 44px;\n        height: 44px;"));
         assert!(css.contains("min-height: 44px;"));
     }
 
@@ -972,6 +980,38 @@ mod tests {
         assert!(html.contains("<summary>ID</summary>"));
         assert!(html.contains("PKVSync-Plugin"));
         assert!(html.contains("/admin/static/lucide-icons.svg#filter"));
+        let css = include_str!("../../static/admin.css").replace("\r\n", "\n");
+        assert!(css.contains(".header-filter-form {\n    display: flex;\n    flex-wrap: wrap;"));
+    }
+
+    #[test]
+    fn vault_history_rollback_uses_history_icon_not_redo_icon() {
+        let html = VaultHistoryTemplate {
+            t: AdminText::en(),
+            vault: VaultBrowserView {
+                id: "v1".into(),
+                name: "main".into(),
+                owner_username: "admin".into(),
+            },
+            path: "note.md".into(),
+            entries: vec![VaultHistoryEntryView {
+                commit: "abcdef123456".into(),
+                short_commit: "abcdef1".into(),
+                parent: Some("parent1".into()),
+                message: "Update note".into(),
+                timestamp: "1970-01-01 00:00:01".into(),
+                author_device: "desktop".into(),
+                change_type: "modified".into(),
+                view_url: "/view".into(),
+                diff_url: "/diff".into(),
+                rollback_url: "/rollback".into(),
+            }],
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("Rollback"));
+        assert!(html.contains("/admin/static/lucide-icons.svg#history"));
+        assert!(!html.contains("/admin/static/lucide-icons.svg#rotate-cw\"></use></svg>Rollback"));
     }
 
     #[test]
