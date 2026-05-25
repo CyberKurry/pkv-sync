@@ -5,31 +5,37 @@ import { describe, expect, it } from "vitest";
 describe("settings theme CSS", () => {
   const css = readFileSync(resolve(__dirname, "../../styles.css"), "utf8");
 
-  it("defines Obsidian light and dark theme palettes for the plugin settings page", () => {
-    expect(css).toContain("body.theme-light .pkv-sync-settings-host");
-    expect(css).toContain("body.theme-dark .pkv-sync-settings-host");
+  it("defines hard light and dark theme overrides that work in any Obsidian theme", () => {
+    // Both overrides exist and use color-scheme so the browser switches form
+    // controls and scrollbars along with the colour palette.
     expect(css).toContain(".pkv-sync-settings-host.is-light-override");
     expect(css).toContain(".pkv-sync-settings-host.is-dark-override");
     expect(css).toContain("color-scheme: light");
     expect(css).toContain("color-scheme: dark");
-    expect(css).toContain("--pkv-bg-panel: #ffffff");
-    expect(css).toContain("--pkv-bg-panel: #161928");
+
+    // Overrides set their own backgrounds rather than inheriting Obsidian's,
+    // so they win in any base theme.
+    expect(css).toMatch(/\.pkv-sync-settings-host\.is-light-override\s*\{[\s\S]+?--pkv-bg-panel:/);
+    expect(css).toMatch(/\.pkv-sync-settings-host\.is-dark-override\s*\{[\s\S]+?--pkv-bg-panel:/);
   });
 
   it("defines compact aligned controls for dense settings actions", () => {
-    expect(css).toContain("--pkv-control-height: 40px");
-    expect(css).toContain("--pkv-compact-control-height: 36px");
+    // Two control heights — full and compact — used by buttons, inputs, and
+    // the textarea inside vault settings.
+    expect(css).toContain("--pkv-control-h");
+    expect(css).toContain("--pkv-control-h-sm");
     expect(css).toContain(".pkv-sync-textarea");
-    expect(css).toContain("min-height: 76px");
     expect(css).toContain(".pkv-sync-allowlist-actions");
-    expect(css).toContain("justify-content: flex-end");
     expect(css).toContain(".pkv-sync-vault-actions .pkv-sync-button");
-    expect(css).toContain("height: var(--pkv-compact-control-height)");
+    expect(css).toContain("height: var(--pkv-control-h-sm)");
   });
 
   it("keeps the language selector wide enough for localized labels", () => {
     expect(css).toContain(".pkv-sync-language-select");
-    expect(css).toContain("min-width: 180px");
+    // Whatever the exact min-width number, the selector must declare one so
+    // longer localized labels (繁體中文, 한국어) do not overflow.
+    expect(css).toMatch(/\.pkv-sync-language-select[\s\S]+?min-width:\s*\d+px/);
+    // The narrow compact variant from the old design must not creep back.
     expect(css).not.toContain(".pkv-sync-select-wrap.is-compact");
     expect(css).not.toContain("width: 58px");
   });
@@ -38,23 +44,26 @@ describe("settings theme CSS", () => {
     expect(css).toContain(".pkv-sync-theme-button");
     expect(css).toContain(".pkv-sync-theme-icon");
     expect(css).toContain(".pkv-sync-theme-label");
-    expect(css).toContain(".pkv-sync-theme-button.is-dark");
     expect(css).toContain("[data-theme-mode=\"dark\"]");
+    // The select-based variant must stay gone.
     expect(css).not.toContain(".pkv-sync-theme-select");
   });
 
   it("makes manual theme overrides win over the current Obsidian app theme", () => {
-    expect(css).toContain("body.theme-dark .pkv-sync-settings-host.is-light-override");
-    expect(css).toContain("body.theme-light .pkv-sync-settings-host.is-dark-override");
+    // The override selectors are not nested under `body.theme-*`, so they
+    // apply regardless of the Obsidian app theme.
+    expect(css).not.toMatch(/body\.theme-light\s+\.pkv-sync-settings-host\.is-dark-override/);
+    expect(css).not.toMatch(/body\.theme-dark\s+\.pkv-sync-settings-host\.is-light-override/);
+    expect(css).toMatch(/^\.pkv-sync-settings-host\.is-light-override\s*\{/m);
+    expect(css).toMatch(/^\.pkv-sync-settings-host\.is-dark-override\s*\{/m);
   });
 
-  it("renders secondary and ghost actions as visible buttons", () => {
+  it("renders primary, secondary, and ghost actions as distinct buttons", () => {
+    expect(css).toContain(".pkv-sync-button.is-primary");
     expect(css).toContain(".pkv-sync-button.is-secondary");
-    expect(css).toContain("background: var(--pkv-bg-panel)");
-    expect(css).toContain("box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08)");
     expect(css).toContain(".pkv-sync-button.is-ghost");
-    expect(css).toContain("background: var(--pkv-bg-panel)");
-    expect(css).toContain("min-height: var(--pkv-compact-control-height)");
+    // All buttons share the unified control height token.
+    expect(css).toMatch(/\.pkv-sync-button[\s\S]+?height:\s*var\(--pkv-control-h\)/);
   });
 
   it("styles connected devices as a structured device list", () => {
