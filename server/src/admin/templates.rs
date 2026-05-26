@@ -1197,7 +1197,11 @@ mod tests {
         .render()
         .unwrap();
         assert!(!html.contains("data-pkv-colophon-now"));
-        assert!(html.contains(&format!("PKV/SYNC</span>\n        <span class=\"colophon-dot\">·</span>\n        <span class=\"colophon-version\">v{}", env!("CARGO_PKG_VERSION"))));
+        assert!(html.contains(r#"<span class="colophon-mark">PKV/SYNC</span>"#));
+        assert!(html.contains(&format!(
+            r#"<span class="colophon-version">v{}"#,
+            env!("CARGO_PKG_VERSION")
+        )));
     }
 
     #[test]
