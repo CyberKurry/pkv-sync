@@ -30,6 +30,7 @@ const POINTER_VERSION: u64 = 1;
 /// Returns an error if the output directory exists and is not empty, the vault
 /// is not found, the commit SHA is invalid, or any blob file is missing.
 pub fn run(config: &Config, vault_id: &str, output: &Path, at: Option<&str>) -> anyhow::Result<()> {
+    validate_vault_id(vault_id)?;
     if output.exists() && fs::read_dir(output)?.next().is_some() {
         anyhow::bail!(
             "output directory exists and is not empty: {}",
@@ -57,6 +58,18 @@ pub fn run(config: &Config, vault_id: &str, output: &Path, at: Option<&str>) -> 
     let tree = commit.tree()?;
 
     walk_tree(&repo, &tree, output, &blobs_dir, Path::new(""))?;
+    Ok(())
+}
+
+fn validate_vault_id(vault_id: &str) -> anyhow::Result<()> {
+    if vault_id.is_empty()
+        || vault_id.len() > 128
+        || !vault_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        anyhow::bail!("invalid vault id: {vault_id}");
+    }
     Ok(())
 }
 

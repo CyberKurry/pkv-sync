@@ -291,6 +291,39 @@ async fn materialize_rejects_unknown_vault() {
 }
 
 #[tokio::test]
+async fn materialize_rejects_vault_id_path_traversal() {
+    let (state, _tmp) = setup_state().await;
+    let store = Git2VaultStore::new(state.data_dir.join("outside-vaults"));
+
+    store.ensure_repo("escaped").await.unwrap();
+    store
+        .commit_changes(
+            "escaped",
+            None,
+            &[FileChange::Upsert {
+                path: "escaped.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"escaped".to_vec(),
+                },
+            }],
+            "escaped",
+        )
+        .await
+        .unwrap();
+
+    let cfg = make_config(&state.data_dir);
+    let out_dir = tempfile::tempdir().unwrap();
+    let result = materialize::run(&cfg, "../outside-vaults/escaped", out_dir.path(), None);
+
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("invalid vault id"),
+        "unexpected error: {err_msg}"
+    );
+}
+
+#[tokio::test]
 async fn materialize_blob_missing_from_storage() {
     let (state, _tmp) = setup_state().await;
     let store = Git2VaultStore::new(state.default_vault_root());
