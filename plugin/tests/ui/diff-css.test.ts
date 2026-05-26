@@ -7,17 +7,18 @@ describe("diff CSS", () => {
 
   it("gives split diff modals a GitHub-like wide viewport", () => {
     expect(css).toMatch(
-      /\.modal:has\(\.pkvsync-diff-modal\),\s*\.modal:has\(\.pkvsync-conflict-resolve-modal\)\s*\{[\s\S]+?width:\s*min\(96vw,\s*1280px\)/
+      /\.modal:has\(\.pkvsync-diff-modal\),\s*\.modal:has\(\.pkvsync-conflict-resolve-modal\)\s*\{[\s\S]+?width:\s*min\(98vw,\s*1680px\)/
     );
     expect(css).toMatch(
-      /\.modal:has\(\.pkvsync-diff-modal\),\s*\.modal:has\(\.pkvsync-conflict-resolve-modal\)\s*\{[\s\S]+?max-width:\s*min\(96vw,\s*1280px\)/
+      /\.modal:has\(\.pkvsync-diff-modal\),\s*\.modal:has\(\.pkvsync-conflict-resolve-modal\)\s*\{[\s\S]+?max-width:\s*min\(98vw,\s*1680px\)/
     );
   });
 
   it("keeps split diff columns readable instead of squeezing text", () => {
     expect(css).toMatch(
-      /\.pkvsync-diff-split-header,\s*\.pkvsync-diff-split-row\s*\{[\s\S]+?grid-template-columns:\s*56px minmax\(420px,\s*1fr\) 56px minmax\(420px,\s*1fr\)/
+      /\.pkvsync-diff-split-header,\s*\.pkvsync-diff-split-row\s*\{[\s\S]+?grid-template-columns:\s*64px minmax\(560px,\s*1fr\) 64px minmax\(560px,\s*1fr\)/
     );
+    expect(css).toMatch(/\.pkvsync-diff-split-header,\s*\.pkvsync-diff-split-row\s*\{[\s\S]+?min-width:\s*1248px/);
     expect(css).toMatch(/\.pkvsync-diff-split\s*\{[\s\S]+?overflow:\s*auto/);
     expect(css).toMatch(/\.pkvsync-diff-cell\s*\{[\s\S]+?white-space:\s*pre-wrap/);
     expect(css).toMatch(/\.pkvsync-diff-cell\s*\{[\s\S]+?overflow-wrap:\s*anywhere/);

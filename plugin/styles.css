@@ -928,8 +928,8 @@ body.theme-dark .pkvsync-restore-modal {
 
 .modal:has(.pkvsync-diff-modal),
 .modal:has(.pkvsync-conflict-resolve-modal) {
-  width: min(96vw, 1280px);
-  max-width: min(96vw, 1280px);
+  width: min(98vw, 1680px);
+  max-width: min(98vw, 1680px);
 }
 
 .pkvsync-diff-modal,
@@ -1138,8 +1138,8 @@ body.theme-dark .pkvsync-restore-modal {
 .pkvsync-diff-split-header,
 .pkvsync-diff-split-row {
   display: grid;
-  grid-template-columns: 56px minmax(420px, 1fr) 56px minmax(420px, 1fr);
-  min-width: 952px;
+  grid-template-columns: 64px minmax(560px, 1fr) 64px minmax(560px, 1fr);
+  min-width: 1248px;
 }
 
 .pkvsync-diff-split-header {
@@ -1177,7 +1177,7 @@ body.theme-dark .pkvsync-restore-modal {
 }
 
 .pkvsync-diff-split-row.is-full {
-  grid-template-columns: 56px minmax(896px, 1fr);
+  grid-template-columns: 64px minmax(1184px, 1fr);
 }
 
 .pkvsync-diff-split-row.is-hunk {
