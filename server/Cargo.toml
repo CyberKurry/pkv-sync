@@ -50,7 +50,6 @@ tar = "0.4"
 askama = "0.12"
 tower-cookies = "0.10"
 sysinfo = "0.30"
-html-escape = "0.2"
 similar = "2"
 tokio-stream.workspace = true
 globset = "0.4"

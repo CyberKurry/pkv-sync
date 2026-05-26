@@ -6,10 +6,11 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use dashmap::DashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const WINDOW_SECS: u64 = 60;
+const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
 pub const SYNC_API_REQUESTS_PER_WINDOW: u32 = 600;
 pub const MCP_HTTP_REQUESTS_PER_WINDOW: u32 = 120;
 
@@ -18,6 +19,7 @@ pub struct RequestRateLimiter {
     inner: Arc<DashMap<String, Window>>,
     max_requests: u32,
     window: Duration,
+    last_pruned: Arc<Mutex<Instant>>,
 }
 
 #[derive(Clone)]
@@ -32,6 +34,7 @@ impl RequestRateLimiter {
             inner: Arc::new(DashMap::new()),
             max_requests: max_requests.max(1),
             window,
+            last_pruned: Arc::new(Mutex::new(Instant::now())),
         }
     }
 
@@ -51,6 +54,7 @@ impl RequestRateLimiter {
 
     pub fn check(&self, key: String) -> Result<(), Duration> {
         let now = Instant::now();
+        self.prune_stale_if_due(now);
         let mut entry = self.inner.entry(key).or_insert(Window {
             started: now,
             count: 0,
@@ -65,6 +69,43 @@ impl RequestRateLimiter {
         }
         entry.count += 1;
         Ok(())
+    }
+
+    pub fn prune_stale(&self) -> usize {
+        let now = Instant::now();
+        self.prune_stale_at(now)
+    }
+
+    fn prune_stale_if_due(&self, now: Instant) {
+        let Ok(mut last_pruned) = self.last_pruned.try_lock() else {
+            return;
+        };
+        if now.duration_since(*last_pruned) < PRUNE_INTERVAL {
+            return;
+        }
+        *last_pruned = now;
+        drop(last_pruned);
+        self.prune_stale_at(now);
+    }
+
+    fn prune_stale_at(&self, now: Instant) -> usize {
+        let stale = self
+            .inner
+            .iter()
+            .filter_map(|entry| {
+                (now.duration_since(entry.started) >= self.window).then(|| entry.key().clone())
+            })
+            .collect::<Vec<_>>();
+        let removed = stale.len();
+        for key in stale {
+            self.inner.remove(&key);
+        }
+        removed
+    }
+
+    #[cfg(test)]
+    fn entry_count_for_tests(&self) -> usize {
+        self.inner.len()
     }
 }
 
@@ -141,5 +182,18 @@ mod tests {
 
         assert_eq!(first.status(), StatusCode::OK);
         assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[test]
+    fn prune_stale_removes_expired_windows_without_touching_active_entries() {
+        let limiter = RequestRateLimiter::new(10, Duration::from_millis(20));
+        limiter.check("expired".into()).unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        limiter.check("active".into()).unwrap();
+
+        assert_eq!(limiter.entry_count_for_tests(), 2);
+        assert_eq!(limiter.prune_stale(), 1);
+        assert_eq!(limiter.entry_count_for_tests(), 1);
+        assert!(limiter.check("expired".into()).is_ok());
     }
 }

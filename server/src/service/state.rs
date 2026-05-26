@@ -182,6 +182,12 @@ impl AppState {
             .store(limit.max(1), Ordering::Release);
     }
 
+    #[cfg(test)]
+    pub fn set_sse_global_ceiling_for_tests(&self, ceiling: usize) {
+        self.sse_global_ceiling
+            .store(ceiling.max(1), Ordering::Release);
+    }
+
     pub fn try_acquire_sse_subscriber(&self, user_id: &str) -> Option<SseSubscriberGuard> {
         let user_id = user_id.to_string();
         let per_user_limit = self.sse_per_user_limit.load(Ordering::Acquire).max(1);
@@ -212,9 +218,7 @@ impl AppState {
         loop {
             let current = self.sse_global_count.load(Ordering::Acquire);
             if current >= global_ceiling {
-                if let Some(count) = self.sse_per_user_counts.get(&user_id) {
-                    count.fetch_sub(1, Ordering::AcqRel);
-                }
+                release_sse_per_user_count(&self.sse_per_user_counts, &user_id);
                 return None;
             }
             if self
@@ -279,6 +283,11 @@ impl AppState {
     pub fn vault_push_lock_count_for_tests(&self) -> usize {
         self.push_locks.len()
     }
+
+    #[cfg(test)]
+    pub fn sse_per_user_count_entries_for_tests(&self) -> usize {
+        self.sse_per_user_counts.len()
+    }
 }
 
 pub struct SseSubscriberGuard {
@@ -290,11 +299,18 @@ pub struct SseSubscriberGuard {
 
 impl Drop for SseSubscriberGuard {
     fn drop(&mut self) {
-        if let Some(count) = self.per_user_counts.get(&self.user_id) {
-            count.fetch_sub(1, Ordering::AcqRel);
-        }
+        release_sse_per_user_count(&self.per_user_counts, &self.user_id);
         self.global_count.fetch_sub(1, Ordering::AcqRel);
         self.metrics.sse_subscribers.dec();
+    }
+}
+
+fn release_sse_per_user_count(counts: &DashMap<String, AtomicUsize>, user_id: &str) {
+    if let Some(count) = counts.get(user_id) {
+        if count.fetch_sub(1, Ordering::AcqRel) == 1 {
+            drop(count);
+            counts.remove_if(user_id, |_, count| count.load(Ordering::Acquire) == 0);
+        }
     }
 }
 
@@ -366,5 +382,41 @@ mod tests {
         })
         .await
         .expect("one vault's held push lock must not block distinct vault locks");
+    }
+
+    #[tokio::test]
+    async fn sse_per_user_count_entry_is_removed_when_last_guard_drops() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+
+        let guard = state
+            .try_acquire_sse_subscriber("user-1")
+            .expect("first subscriber should be accepted");
+
+        assert_eq!(state.sse_per_user_count_entries_for_tests(), 1);
+        drop(guard);
+        assert_eq!(state.sse_per_user_count_entries_for_tests(), 0);
+    }
+
+    #[tokio::test]
+    async fn sse_global_limit_rollback_removes_rejected_user_count_entry() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+        state.set_sse_global_ceiling_for_tests(1);
+
+        let _held = state
+            .try_acquire_sse_subscriber("user-1")
+            .expect("first subscriber should fill global ceiling");
+
+        assert!(state.try_acquire_sse_subscriber("user-2").is_none());
+        assert_eq!(state.sse_per_user_count_entries_for_tests(), 1);
     }
 }

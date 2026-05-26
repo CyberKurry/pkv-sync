@@ -7,6 +7,7 @@ use uuid::Uuid;
 pub struct User {
     pub id: String,
     pub username: String,
+    #[serde(skip_serializing)]
     pub password_hash: String,
     pub is_admin: bool,
     pub is_active: bool,
@@ -426,5 +427,23 @@ mod tests {
             .unwrap();
         repo.delete(&u.id).await.unwrap();
         assert!(repo.find_by_id(&u.id).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn serialized_user_does_not_include_password_hash() {
+        let user = User {
+            id: "u1".into(),
+            username: "alice".into(),
+            password_hash: "secret-hash".into(),
+            is_admin: false,
+            is_active: true,
+            created_at: 123,
+            last_login_at: None,
+        };
+
+        let json = serde_json::to_value(&user).unwrap();
+
+        assert!(json.get("password_hash").is_none());
+        assert!(!json.to_string().contains("secret-hash"));
     }
 }
