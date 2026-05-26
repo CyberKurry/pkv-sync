@@ -9,12 +9,12 @@ use crate::admin::templates::{
 };
 use crate::api::error::ApiError;
 use crate::auth::LoginRateLimiter;
-use crate::auth::{password, token, AuthenticatedUser};
+use crate::auth::{password, token};
 use crate::db::repos::{
     InviteRepo, NewActivity, NewToken, NewUser, RegistrationMode, RuntimeConfigRepo,
     SyncActivityRepo, TokenRepo, TokenRow, User, UserRepo, Vault, VaultRepo,
 };
-use crate::middleware::real_ip::ClientIp;
+use crate::middleware::real_ip::{ClientIp, ForwardedFromTrustedProxy};
 use crate::service::auth::validate_username;
 use crate::service::AppState;
 use crate::storage::git::{Git2VaultStore, GitVaultStore, StoredFile, TreeEntry};
@@ -28,10 +28,12 @@ use axum::Router;
 use chrono::{NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use rand::{rngs::OsRng, RngCore};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::IpAddr;
-use tower_cookies::Cookies;
+use subtle::ConstantTimeEq;
+use tower_cookies::{Cookie, Cookies};
 
 const URL_PATH: &AsciiSet = &CONTROLS
     .add(b' ')
@@ -46,6 +48,7 @@ const URL_PATH: &AsciiSet = &CONTROLS
     .add(b'}');
 const URL_QUERY: &AsciiSet = &URL_PATH.add(b'&').add(b'=').add(b'+');
 const ADMIN_ACTIVITY_LIMIT: i64 = 30;
+const SETUP_CSRF_COOKIE: &str = "pkv_setup_csrf";
 
 #[derive(Clone)]
 pub struct AdminCookiePolicy {
@@ -266,21 +269,60 @@ struct SetupForm {
     username: String,
     password: String,
     confirm: String,
+    setup_csrf: Option<String>,
+}
+
+fn generate_setup_csrf() -> String {
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    format!("sc_{}", hex::encode(bytes))
+}
+
+fn setup_csrf_cookie(token: String, secure: bool) -> Cookie<'static> {
+    let mut cookie = Cookie::new(SETUP_CSRF_COOKIE, token);
+    cookie.set_http_only(true);
+    cookie.set_secure(secure);
+    cookie.set_same_site(tower_cookies::cookie::SameSite::Lax);
+    cookie.set_path("/setup");
+    cookie
+}
+
+fn expired_setup_csrf_cookie(secure: bool) -> Cookie<'static> {
+    let mut cookie = Cookie::new(SETUP_CSRF_COOKIE, "");
+    cookie.set_secure(secure);
+    cookie.set_path("/setup");
+    cookie.make_removal();
+    cookie
+}
+
+fn setup_csrf_matches(cookies: &Cookies, form_token: &str) -> bool {
+    let Some(cookie_token) = cookies.get(SETUP_CSRF_COOKIE) else {
+        return false;
+    };
+    let cookie_value = cookie_token.value();
+    if cookie_value.is_empty() || form_token.is_empty() || cookie_value.len() != form_token.len() {
+        return false;
+    }
+    cookie_value.as_bytes().ct_eq(form_token.as_bytes()).into()
 }
 
 async fn setup_get(
     State(state): State<AppState>,
+    Extension(cookie_policy): Extension<AdminCookiePolicy>,
     headers: HeaderMap,
     cookies: Cookies,
 ) -> Response {
     if !state.is_setup_pending().await {
         return StatusCode::NOT_FOUND.into_response();
     }
+    let setup_csrf = generate_setup_csrf();
+    cookies.add(setup_csrf_cookie(setup_csrf.clone(), cookie_policy.secure));
     Html(
         SetupTemplate {
             t: admin_text(&headers, &cookies),
             error: None,
             username_value: String::new(),
+            setup_csrf,
             version: env!("CARGO_PKG_VERSION"),
         }
         .render()
@@ -292,6 +334,8 @@ async fn setup_get(
 async fn setup_post(
     State(state): State<AppState>,
     Extension(ClientIp(ip)): Extension<ClientIp>,
+    Extension(cookie_policy): Extension<AdminCookiePolicy>,
+    forwarded_from_trusted_proxy: Option<Extension<ForwardedFromTrustedProxy>>,
     headers: HeaderMap,
     cookies: Cookies,
     Form(form): Form<SetupForm>,
@@ -303,12 +347,24 @@ async fn setup_post(
     if state.setup_limiter.check(format!("setup:{ip}")).is_err() {
         return Err(ApiError::too_many("too many setup attempts"));
     }
+    let same_origin = crate::admin::csrf::same_origin_parts(
+        &headers,
+        Some(&cookie_policy),
+        forwarded_from_trusted_proxy
+            .as_ref()
+            .is_some_and(|Extension(trusted)| trusted.0),
+    );
+    if !same_origin && !setup_csrf_matches(&cookies, form.setup_csrf.as_deref().unwrap_or("")) {
+        return Ok((StatusCode::FORBIDDEN, "csrf validation failed").into_response());
+    }
 
     let username = match validate_setup_username(&form.username) {
         Ok(username) => username,
         Err(SetupUsernameValidationError::Invalid) => {
             return Ok(setup_error(
                 t,
+                &cookies,
+                cookie_policy.secure,
                 t.setup_username_invalid,
                 form.username,
                 StatusCode::BAD_REQUEST,
@@ -320,7 +376,14 @@ async fn setup_post(
             SetupPasswordValidationError::Mismatch => t.setup_password_mismatch,
             SetupPasswordValidationError::TooWeak => t.setup_password_too_weak,
         };
-        return Ok(setup_error(t, message, username, StatusCode::BAD_REQUEST));
+        return Ok(setup_error(
+            t,
+            &cookies,
+            cookie_policy.secure,
+            message,
+            username,
+            StatusCode::BAD_REQUEST,
+        ));
     }
     if state.users.count_admins().await? > 0 {
         state.mark_setup_complete().await;
@@ -350,6 +413,7 @@ async fn setup_post(
         return Ok(StatusCode::NOT_FOUND.into_response());
     }
     state.mark_setup_complete().await;
+    cookies.add(expired_setup_csrf_cookie(cookie_policy.secure));
     tracing::info!(username = %username, "first admin created via setup wizard");
     Ok(Redirect::to(&format!(
         "/admin/login?setup=complete&u={}",
@@ -360,10 +424,14 @@ async fn setup_post(
 
 fn setup_error(
     t: crate::admin::i18n::AdminText,
+    cookies: &Cookies,
+    secure_cookie: bool,
     message: &'static str,
     username_value: String,
     status: StatusCode,
 ) -> Response {
+    let setup_csrf = generate_setup_csrf();
+    cookies.add(setup_csrf_cookie(setup_csrf.clone(), secure_cookie));
     (
         status,
         Html(
@@ -371,6 +439,7 @@ fn setup_error(
                 t,
                 error: Some(message),
                 username_value,
+                setup_csrf,
                 version: env!("CARGO_PKG_VERSION"),
             }
             .render()
@@ -1377,8 +1446,14 @@ async fn rollback_vault_form(
 ) -> Result<Redirect, ApiError> {
     ensure_admin_history_enabled(&state).await?;
     let (_vault, _vault_view) = admin_vault(&state, &id).await?;
-    let user = admin_session_auth_user(&state, &session).await?;
-    crate::service::vault::rollback_to_commit(&state, &user, &id, &form.commit)
+    let device_id = format!("admin-web-{}", session.user.id);
+    let actor = crate::service::vault::RollbackActor {
+        user_id: &session.user.id,
+        is_admin: session.user.is_admin,
+        token_id: None,
+        device_id: &device_id,
+    };
+    crate::service::vault::rollback_to_commit_as(&state, actor, &id, &form.commit)
         .await
         .map_err(rollback_error_to_api)?;
 
@@ -1395,41 +1470,6 @@ async fn rollback_vault_form(
         })
         .unwrap_or_else(|| format!("/admin/vaults/{}/files", url_path(&id)));
     Ok(Redirect::to(&next))
-}
-
-async fn admin_session_auth_user(
-    state: &AppState,
-    session: &AdminSession,
-) -> Result<AuthenticatedUser, ApiError> {
-    let device_id = format!("admin-web-{}", session.user.id);
-    let token_row = state
-        .tokens
-        .list_for_user(&session.user.id)
-        .await?
-        .into_iter()
-        .find(|row| row.revoked_at.is_none() && row.device_id == device_id);
-    let token_row = match token_row {
-        Some(token_row) => token_row,
-        None => {
-            let raw = token::generate();
-            state
-                .tokens
-                .create(NewToken {
-                    user_id: &session.user.id,
-                    token_hash: &token::hash(&raw),
-                    device_id: &device_id,
-                    device_name: "Admin WebUI",
-                })
-                .await?
-        }
-    };
-    Ok(AuthenticatedUser {
-        user_id: session.user.id.clone(),
-        username: session.user.username.clone(),
-        is_admin: session.user.is_admin,
-        token_id: token_row.id,
-        device_id: token_row.device_id,
-    })
 }
 
 fn rollback_error_to_api(err: crate::service::vault::RollbackError) -> ApiError {

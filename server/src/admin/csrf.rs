@@ -1,5 +1,5 @@
 use axum::extract::Request;
-use axum::http::{header, Method, StatusCode};
+use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
@@ -14,21 +14,32 @@ fn requires_check(req: &Request) -> bool {
     !matches!(
         req.method(),
         &Method::GET | &Method::HEAD | &Method::OPTIONS
-    ) && req.uri().path() != "/admin/login"
+    ) && !matches!(req.uri().path(), "/admin/login" | "/setup")
 }
 
-fn same_origin(req: &Request) -> bool {
-    let Some(expected) = expected_origins(req) else {
+pub(crate) fn same_origin(req: &Request) -> bool {
+    same_origin_parts(
+        req.headers(),
+        req.extensions()
+            .get::<crate::admin::handlers::AdminCookiePolicy>(),
+        req.extensions()
+            .get::<crate::middleware::real_ip::ForwardedFromTrustedProxy>()
+            .is_some_and(|trusted| trusted.0),
+    )
+}
+
+pub(crate) fn same_origin_parts(
+    headers: &HeaderMap,
+    policy: Option<&crate::admin::handlers::AdminCookiePolicy>,
+    forwarded_from_trusted_proxy: bool,
+) -> bool {
+    let Some(expected) = expected_origins(headers, policy, forwarded_from_trusted_proxy) else {
         return false;
     };
-    if let Some(origin) = req
-        .headers()
-        .get(header::ORIGIN)
-        .and_then(|h| h.to_str().ok())
-    {
+    if let Some(origin) = headers.get(header::ORIGIN).and_then(|h| h.to_str().ok()) {
         return expected.iter().any(|value| origin == value);
     }
-    req.headers()
+    headers
         .get(header::REFERER)
         .and_then(|h| h.to_str().ok())
         .is_some_and(|referer| {
@@ -38,10 +49,11 @@ fn same_origin(req: &Request) -> bool {
         })
 }
 
-fn expected_origins(req: &Request) -> Option<Vec<String>> {
-    let policy = req
-        .extensions()
-        .get::<crate::admin::handlers::AdminCookiePolicy>();
+fn expected_origins(
+    headers: &HeaderMap,
+    policy: Option<&crate::admin::handlers::AdminCookiePolicy>,
+    forwarded_from_trusted_proxy: bool,
+) -> Option<Vec<String>> {
     // Fail closed: a CSRF check that relies on the request's own Host header
     // for its expected origin is brittle (host header injection through
     // misconfigured proxies, ambiguous virtual-host setups). Require an
@@ -59,7 +71,7 @@ fn expected_origins(req: &Request) -> Option<Vec<String>> {
     let proto = if policy.is_some_and(|p| p.secure) {
         "https"
     } else {
-        trusted_forwarded_proto(req).unwrap_or("http")
+        trusted_forwarded_proto(headers, forwarded_from_trusted_proxy).unwrap_or("http")
     };
     Some(vec![format!("{proto}://{host}")])
 }
@@ -76,15 +88,14 @@ fn normalize_public_host(public_host: &str) -> Option<&str> {
     )
 }
 
-fn trusted_forwarded_proto(req: &Request) -> Option<&'static str> {
-    if !req
-        .extensions()
-        .get::<crate::middleware::real_ip::ForwardedFromTrustedProxy>()
-        .is_some_and(|trusted| trusted.0)
-    {
+fn trusted_forwarded_proto(
+    headers: &HeaderMap,
+    forwarded_from_trusted_proxy: bool,
+) -> Option<&'static str> {
+    if !forwarded_from_trusted_proxy {
         return None;
     }
-    req.headers()
+    headers
         .get("x-forwarded-proto")
         .and_then(|h| h.to_str().ok())
         .and_then(|v| v.split(',').next())

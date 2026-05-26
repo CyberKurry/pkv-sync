@@ -49,6 +49,7 @@
       </div>
       {% if let Some(e) = error %}<p class="error">{{ e }}</p>{% endif %}
       <form method="post" action="/setup" class="login-form">
+        <input name="setup_csrf" type="hidden" value="{{ setup_csrf }}">
         <label>{{ t.setup_username_label }} <input name="username" type="text" autocomplete="username" value="{{ username_value }}" placeholder="{{ t.setup_username_placeholder }}"></label>
         <label>{{ t.setup_password_label }} <input name="password" type="password" autocomplete="new-password" placeholder="{{ t.password_placeholder }}"></label>
         <label>{{ t.setup_confirm_label }} <input name="confirm" type="password" autocomplete="new-password" placeholder="{{ t.confirm_password_placeholder }}"></label>

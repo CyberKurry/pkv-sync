@@ -20,6 +20,7 @@ pub struct SetupTemplate<'a> {
     pub t: AdminText,
     pub error: Option<&'a str>,
     pub username_value: String,
+    pub setup_csrf: String,
     pub version: &'static str,
 }
 
@@ -352,6 +353,7 @@ mod tests {
             t: AdminText::zh_cn(),
             error: None,
             username_value: String::new(),
+            setup_csrf: "csrf".into(),
             version: env!("CARGO_PKG_VERSION"),
         }
         .render()
@@ -1420,6 +1422,7 @@ mod tests {
             t: AdminText::en(),
             error: None,
             username_value: String::new(),
+            setup_csrf: "csrf".into(),
             version: env!("CARGO_PKG_VERSION"),
         }
         .render()

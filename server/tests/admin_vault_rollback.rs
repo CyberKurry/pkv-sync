@@ -223,17 +223,25 @@ async fn admin_post_rollback_moves_head_records_activity_and_redirects_to_histor
         }
     );
 
-    let (action, commit_hash, details): (String, String, String) = sqlx::query_as(
-        "SELECT action, commit_hash, details
+    let (action, commit_hash, token_id, details): (String, String, Option<String>, String) =
+        sqlx::query_as(
+            "SELECT action, commit_hash, token_id, details
          FROM sync_activity WHERE vault_id = ? AND action = 'vault_rollback'",
-    )
-    .bind(&vault.id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap();
+        )
+        .bind(&vault.id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    let (admin_web_tokens,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM tokens WHERE device_id LIKE 'admin-web-%'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
     let details: serde_json::Value = serde_json::from_str(&details).unwrap();
     assert_eq!(action, "vault_rollback");
     assert_eq!(commit_hash, first);
+    assert!(token_id.is_none());
+    assert_eq!(admin_web_tokens, 0);
     assert_eq!(details["from_commit"], second);
     assert_eq!(details["to_commit"], first);
 }

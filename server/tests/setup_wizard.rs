@@ -54,6 +54,30 @@ fn app_with_public_host(
     server::build_app(state, &cfg, limiter)
 }
 
+fn app_without_public_host(state: AppState, data_dir: std::path::PathBuf) -> Router {
+    let cfg = Config {
+        server: ServerConfig {
+            bind_addr: "127.0.0.1:6710".parse().unwrap(),
+            deployment_key: "k_test_setup".into(),
+            public_host: None,
+        },
+        storage: StorageConfig {
+            data_dir,
+            db_path: std::path::PathBuf::from("metadata.db"),
+        },
+        network: NetworkConfig {
+            trusted_proxies: vec!["127.0.0.1/32".parse::<IpNet>().unwrap()],
+        },
+        logging: LoggingConfig::default(),
+        update_check: pkv_sync_server::config::UpdateCheckConfig {
+            enabled: false,
+            ..Default::default()
+        },
+    };
+    let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
+    server::build_app(state, &cfg, limiter)
+}
+
 fn app_with_state(state: AppState, data_dir: std::path::PathBuf) -> Router {
     app_with_public_host(state, data_dir, "127.0.0.1:6710")
 }
@@ -98,6 +122,13 @@ async fn read_body(resp: Response<Body>) -> String {
         .await
         .unwrap();
     String::from_utf8(bytes.to_vec()).unwrap()
+}
+
+fn extract_setup_csrf(body: &str) -> String {
+    let marker = "name=\"setup_csrf\" type=\"hidden\" value=\"";
+    let start = body.find(marker).expect("setup csrf hidden input") + marker.len();
+    let end = body[start..].find('"').expect("setup csrf value end");
+    body[start..start + end].to_string()
 }
 
 #[tokio::test]
@@ -185,6 +216,94 @@ async fn setup_post_accepts_https_origin_when_trusted_proxy_reports_http_proto()
 
     assert_eq!(create.status(), StatusCode::SEE_OTHER);
     assert_eq!(state.users.count_admins().await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn setup_post_without_public_host_accepts_setup_csrf_token() {
+    let (state, tmp) = fresh_state().await;
+    let app = app_without_public_host(state.clone(), tmp.path().to_path_buf());
+    let setup = app
+        .clone()
+        .oneshot(request(Method::GET, "/setup", Body::empty()))
+        .await
+        .unwrap();
+    assert_eq!(setup.status(), StatusCode::OK);
+    let cookie = setup
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("setup csrf cookie")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let token = extract_setup_csrf(&read_body(setup).await);
+    let mut req = request(
+        Method::POST,
+        "/setup",
+        Body::from(format!(
+            "username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}&setup_csrf={token}"
+        )),
+    );
+    req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, cookie.parse().unwrap());
+
+    let create = app.oneshot(req).await.unwrap();
+
+    assert_eq!(create.status(), StatusCode::SEE_OTHER);
+    assert_eq!(state.users.count_admins().await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn setup_post_without_public_host_rejects_missing_setup_csrf_token() {
+    let (state, tmp) = fresh_state().await;
+    let app = app_without_public_host(state.clone(), tmp.path().to_path_buf());
+    let resp = app
+        .oneshot(form_request_with_origin(
+            "/setup",
+            format!("username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}"),
+            "https://attacker.test",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(state.users.count_admins().await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn non_setup_admin_post_without_public_host_still_fails_closed() {
+    let (state, tmp) = fresh_state().await;
+    let admin = state
+        .users
+        .create(NewUser {
+            username: "admin".into(),
+            password_hash: pkv_sync_server::auth::password::hash(STRONG_PASSWORD).unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
+    state.mark_setup_complete().await;
+    let session_id = pkv_sync_server::admin::session::create_session(&state, &admin.id)
+        .await
+        .unwrap();
+    let app = app_without_public_host(state, tmp.path().to_path_buf());
+    let mut req = request(Method::POST, "/admin/gc", Body::empty());
+    req.headers_mut().insert(
+        header::COOKIE,
+        format!("pkv_admin_session={session_id}").parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert(header::ORIGIN, "http://127.0.0.1:6710".parse().unwrap());
+
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

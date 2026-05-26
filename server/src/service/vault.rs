@@ -23,9 +23,37 @@ pub enum RollbackError {
     Internal(String),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RollbackActor<'a> {
+    pub user_id: &'a str,
+    pub is_admin: bool,
+    pub token_id: Option<&'a str>,
+    pub device_id: &'a str,
+}
+
+impl<'a> From<&'a crate::auth::AuthenticatedUser> for RollbackActor<'a> {
+    fn from(user: &'a crate::auth::AuthenticatedUser) -> Self {
+        Self {
+            user_id: &user.user_id,
+            is_admin: user.is_admin,
+            token_id: Some(user.token_id.as_str()),
+            device_id: user.device_id.as_str(),
+        }
+    }
+}
+
 pub async fn rollback_to_commit(
     state: &AppState,
     user: &crate::auth::AuthenticatedUser,
+    vault_id: &str,
+    target_commit: &str,
+) -> Result<RollbackResult, RollbackError> {
+    rollback_to_commit_as(state, RollbackActor::from(user), vault_id, target_commit).await
+}
+
+pub async fn rollback_to_commit_as(
+    state: &AppState,
+    actor: RollbackActor<'_>,
     vault_id: &str,
     target_commit: &str,
 ) -> Result<RollbackResult, RollbackError> {
@@ -35,7 +63,7 @@ pub async fn rollback_to_commit(
         .await
         .map_err(rollback_db_error)?
         .ok_or(RollbackError::NotFound)?;
-    if !user.is_admin && vault.user_id != user.user_id {
+    if !actor.is_admin && vault.user_id != actor.user_id {
         return Err(RollbackError::Forbidden);
     }
 
@@ -75,13 +103,13 @@ pub async fn rollback_to_commit(
     let from = from_commit
         .clone()
         .ok_or_else(|| RollbackError::Internal("missing source head".into()))?;
-    record_rollback_activity(state, user, vault_id, &from, target_commit).await?;
+    record_rollback_activity(state, actor, vault_id, &from, target_commit).await?;
     state.events.publish(
         vault_id,
         VaultEvent {
             commit: target_commit.to_string(),
             parent: Some(from.clone()),
-            source_device_id: user.device_id.clone(),
+            source_device_id: actor.device_id.to_string(),
             at: chrono::Utc::now().timestamp(),
             kind: EventKind::Rollback {
                 from_commit: from,
@@ -100,7 +128,7 @@ pub async fn rollback_to_commit(
 
 async fn record_rollback_activity(
     state: &AppState,
-    user: &crate::auth::AuthenticatedUser,
+    actor: RollbackActor<'_>,
     vault_id: &str,
     from_commit: &str,
     to_commit: &str,
@@ -113,9 +141,9 @@ async fn record_rollback_activity(
     state
         .activities
         .insert(NewActivity {
-            user_id: &user.user_id,
+            user_id: actor.user_id,
             vault_id: Some(vault_id),
-            token_id: Some(user.token_id.as_str()),
+            token_id: actor.token_id,
             action: "vault_rollback",
             commit_hash: Some(to_commit),
             client_ip: None,
