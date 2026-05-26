@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
-{% block title %}Vault Settings - {{ t.admin_title }}{% endblock %}
+{% block title %}{{ t.vault_settings }} - {{ t.admin_title }}{% endblock %}
 {% block nav_vaults %}is-active{% endblock %}
-{% block page_title %}Vault Settings{% endblock %}
+{% block page_title %}{{ t.vault_settings }}{% endblock %}
 {% block header_actions %}
 <a class="secondary action-button" href="/admin/vaults"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-left"></use></svg> {{ t.vaults }}</a>
-<button class="primary" form="vault-settings-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>Save</button>
+<button class="primary" form="vault-settings-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>{{ t.save }}</button>
 {% endblock %}
 {% block content %}
 <section class="panel settings-section">
@@ -16,13 +16,13 @@
   </div>
 
   <form id="vault-settings-form" method="post" action="/admin/vaults/{{ vault.id }}/settings" class="settings-form">
-    <label>Extra sync globs
+    <label>{{ t.extra_sync_globs }}
       <textarea name="extra_sync_globs" rows="8" placeholder=".obsidian/themes/**&#10;.obsidian/snippets/**&#10;.obsidian/app.json">{{ extra_sync_globs_display }}</textarea>
-      <small class="hint">One glob per line. These paths are allowed to sync in addition to the default protected paths.</small>
+      <small class="hint">{{ t.extra_sync_globs_hint }}</small>
     </label>
     <div class="vault-settings-actions">
-      <button class="primary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>Save</button>
-      <button class="secondary" name="apply_starter" value="1"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#rotate-cw"></use></svg>Apply starter allowlist</button>
+      <button class="primary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>{{ t.save }}</button>
+      <button class="secondary" name="apply_starter" value="1"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#rotate-cw"></use></svg>{{ t.apply_starter_allowlist }}</button>
     </div>
   </form>
 </section>

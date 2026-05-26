@@ -3,6 +3,7 @@ use axum::extract::ConnectInfo;
 use axum::http::{header, Method, Request, Response, StatusCode};
 use axum::Router;
 use ipnet::IpNet;
+use pkv_sync_server::admin::i18n::AdminText;
 use pkv_sync_server::auth::{password, LoginRateLimiter};
 use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
 use pkv_sync_server::db::pool;
@@ -153,7 +154,7 @@ async fn get_vault_settings_renders_current_extra_sync_globs() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let body = read_body(resp).await;
-    assert!(body.contains("Vault Settings"));
+    assert!(body.contains(AdminText::en().vault_settings));
     assert!(body.contains("main"));
     assert!(body.contains("notes/**"));
     assert!(body.contains(".obsidian/app.json"));

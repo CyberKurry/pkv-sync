@@ -1,26 +1,26 @@
 {% extends "layout.html" %}
 {% block title %}{{ t.activity }} - {{ t.admin_title }}{% endblock %}
 {% block nav_activity %}is-active{% endblock %}
-{% block page_title %}Activity Log{% endblock %}
+{% block page_title %}{{ t.activity }}{% endblock %}
 {% block header_actions %}
 <form method="get" action="/admin/activity" class="header-filter-form">
-  <select name="user_id" aria-label="Filter users" onchange="this.form.submit()">
-    <option value="" {% if selected_user_id.is_empty() %}selected{% endif %}>All Users</option>
+  <select name="user_id" aria-label="{{ t.filter_users }}" onchange="this.form.submit()">
+    <option value="" {% if selected_user_id.is_empty() %}selected{% endif %}>{{ t.all_users }}</option>
     {% for user in users %}
     <option value="{{ user.id }}" {% if user.id == selected_user_id %}selected{% endif %}>{{ user.username }}</option>
     {% endfor %}
   </select>
-  <select name="action" aria-label="Filter actions" onchange="this.form.submit()">
-    <option value="" {% if selected_action.is_empty() %}selected{% endif %}>All Actions</option>
-    <option value="push" {% if selected_action == "push" %}selected{% endif %}>Push</option>
-    <option value="pull" {% if selected_action == "pull" %}selected{% endif %}>Pull</option>
-    <option value="create_vault" {% if selected_action == "create_vault" %}selected{% endif %}>Create vault</option>
-    <option value="delete_vault" {% if selected_action == "delete_vault" %}selected{% endif %}>Delete vault</option>
-    <option value="view_commit" {% if selected_action == "view_commit" %}selected{% endif %}>View commit</option>
-    <option value="view_history" {% if selected_action == "view_history" %}selected{% endif %}>View history</option>
-    <option value="view_diff" {% if selected_action == "view_diff" %}selected{% endif %}>View diff</option>
+  <select name="action" aria-label="{{ t.filter_actions }}" onchange="this.form.submit()">
+    <option value="" {% if selected_action.is_empty() %}selected{% endif %}>{{ t.all_actions }}</option>
+    <option value="push" {% if selected_action == "push" %}selected{% endif %}>{{ t.push_action }}</option>
+    <option value="pull" {% if selected_action == "pull" %}selected{% endif %}>{{ t.pull_action }}</option>
+    <option value="create_vault" {% if selected_action == "create_vault" %}selected{% endif %}>{{ t.create_vault_action }}</option>
+    <option value="delete_vault" {% if selected_action == "delete_vault" %}selected{% endif %}>{{ t.delete_vault_action }}</option>
+    <option value="view_commit" {% if selected_action == "view_commit" %}selected{% endif %}>{{ t.view_commit_action }}</option>
+    <option value="view_history" {% if selected_action == "view_history" %}selected{% endif %}>{{ t.view_history_action }}</option>
+    <option value="view_diff" {% if selected_action == "view_diff" %}selected{% endif %}>{{ t.view_diff_action }}</option>
   </select>
-  <noscript><button class="secondary small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#filter"></use></svg>Apply</button></noscript>
+  <noscript><button class="secondary small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#filter"></use></svg>{{ t.apply }}</button></noscript>
 </form>
 {% endblock %}
 {% block content %}

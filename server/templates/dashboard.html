@@ -20,32 +20,32 @@
 
 <section class="metric-grid dashboard-metrics">
   <article class="metric-card">
-    <div class="metric-head"><span>{{ t.cpu }} Usage</span><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#cpu"></use></svg></div>
+    <div class="metric-head"><span>{{ t.cpu }}</span><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#cpu"></use></svg></div>
     <p class="metric-value">{{ cpu_display }}%</p>
-    <p class="metric-note">{{ cpu_cores_display }} • Idle</p>
+    <p class="metric-note">{{ cpu_cores_display }} · {{ t.sync_status_idle }}</p>
   </article>
   <article class="metric-card">
     <div class="metric-head"><span>{{ t.memory }}</span><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#memory-stick"></use></svg></div>
     <p class="metric-value">{{ memory_display }}</p>
-    <p class="metric-note">of {{ memory_total_display }} total</p>
+    <p class="metric-note">{{ t.total }} {{ memory_total_display }}</p>
   </article>
   <article class="metric-card">
-    <div class="metric-head"><span>{{ t.disk }} Usage</span><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#hard-drive"></use></svg></div>
+    <div class="metric-head"><span>{{ t.disk }}</span><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#hard-drive"></use></svg></div>
     <p class="metric-value">{{ disk_used_display }}</p>
-    <p class="metric-note">of {{ disk_total_display }} total</p>
+    <p class="metric-note">{{ t.total }} {{ disk_total_display }}</p>
   </article>
   <article class="metric-card">
     <div class="metric-head"><span>{{ t.uptime }}</span><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#clock"></use></svg></div>
     <p class="metric-value">{{ uptime_display }}</p>
-    <p class="metric-note">Since last restart</p>
+    <p class="metric-note">{{ t.since_last_restart }}</p>
   </article>
 </section>
 
 <section class="dashboard-grid">
   <article class="panel activity-panel">
     <div class="panel-header">
-      <h2>Recent Activity</h2>
-      <a href="/admin/activity">View All<svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-right"></use></svg></a>
+      <h2>{{ t.activity }}</h2>
+      <a href="/admin/activity">{{ t.view_all }}<svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-right"></use></svg></a>
     </div>
     <div class="activity-list">
       {% for a in recent_activities %}
@@ -56,24 +56,24 @@
       </div>
       {% endfor %}
       {% if recent_activities.len() == 0 %}
-      <p class="empty-state">No recent activity</p>
+      <p class="empty-state">{{ t.no_recent_activity }}</p>
       {% endif %}
     </div>
   </article>
 
   <aside class="dashboard-side">
     <article class="metric-card tall-card">
-      <span class="metric-label">Active {{ t.users }}</span>
+      <span class="metric-label">{{ t.active_users }}</span>
       <p class="metric-value">{{ users }}</p>
-      <p class="metric-note">of {{ users }} registered</p>
+      <p class="metric-note">{{ t.all_users }}: {{ users }}</p>
     </article>
     <article class="metric-card tall-card">
-      <span class="metric-label">Total {{ t.vaults }}</span>
+      <span class="metric-label">{{ t.total_vaults }}</span>
       <p class="metric-value">{{ vaults }}</p>
-      <p class="metric-note">tracked by this server</p>
+      <p class="metric-note">{{ t.vaults }}</p>
     </article>
     <article class="metric-card status-card status-card-{{ sync_status_state }}">
-      <span class="metric-label">Sync Status</span>
+      <span class="metric-label">{{ t.sync_status_label }}</span>
       <p class="status-line">
         <span class="event-dot"></span>
         {% if sync_status_state == "live" %}{{ t.sync_status_live }}{% else if sync_status_state == "idle" %}{{ t.sync_status_idle }}{% else %}{{ t.sync_status_quiet }}{% endif %}

@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}{{ t.devices }} - {{ t.admin_title }}{% endblock %}
 {% block nav_devices %}is-active{% endblock %}
-{% block page_title %}Device Tokens{% endblock %}
+{% block page_title %}{{ t.device_tokens }}{% endblock %}
 {% block header_actions %}
 <a class="primary action-button" href="#create-token">
   <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#key-round"></use></svg>
@@ -19,11 +19,11 @@
 
 <section class="panel table-panel devices-table">
   <table class="data-table">
-    <thead><tr><th>Token</th><th>{{ t.user }}</th><th>{{ t.device }}</th><th>Device ID</th><th>{{ t.created }}</th><th>{{ t.last_used }}</th><th>Status</th><th class="align-right">Actions</th></tr></thead>
+    <thead><tr><th>{{ t.token_fingerprint }}</th><th>{{ t.user }}</th><th>{{ t.device }}</th><th>{{ t.device_id }}</th><th>{{ t.created }}</th><th>{{ t.last_used }}</th><th>{{ t.status }}</th><th class="align-right">{{ t.actions }}</th></tr></thead>
     <tbody>
     {% for token in tokens %}
       <tr>
-        <td><code>{{ token.id }}</code></td>
+        <td><code>{{ token.fingerprint }}</code></td>
         <td>{{ token.username }}</td>
         <td>{{ token.device_name }}</td>
         <td><code>{{ token.device_id }}</code></td>
@@ -34,7 +34,7 @@
           {% if let Some(_ts) = token.revoked_at %}
           <span class="muted-text">—</span>
           {% else %}
-          <form method="post" action="/admin/devices/{{ token.id }}/revoke" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#ban"></use></svg>{{ t.revoke }}</button></form>
+          <form method="post" action="/admin/devices/{{ token.fingerprint }}/revoke" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#ban"></use></svg>{{ t.revoke }}</button></form>
           {% endif %}
         </td>
       </tr>

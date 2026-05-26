@@ -659,9 +659,9 @@ samp {
  * =================================================================== */
 
 .page-bar {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    justify-content: space-between;
     gap: var(--pkv-space-4);
     padding: var(--pkv-space-5) var(--pkv-space-6) var(--pkv-space-4);
     border-bottom: var(--pkv-rule-hair);
@@ -675,6 +675,7 @@ samp {
     align-items: center;
     gap: var(--pkv-space-3);
     min-width: 0;
+    max-width: 100%;
 }
 
 .page-bar h1 {
@@ -684,13 +685,17 @@ samp {
     line-height: var(--pkv-leading-snug);
     letter-spacing: 0;
     margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .page-actions {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: var(--pkv-space-2);
     flex-wrap: wrap;
+    min-width: 0;
 }
 
 .header-filter-form {
@@ -698,10 +703,12 @@ samp {
     flex-wrap: wrap;
     gap: var(--pkv-space-2);
     align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
 }
 
 .header-filter-form > select {
-    flex: 1 1 160px;
+    flex: 0 1 180px;
     min-width: 160px;
     max-width: 240px;
 }
@@ -2311,6 +2318,8 @@ textarea {
 .toolbar > button,
 .toolbar > a {
     flex: 0 0 auto;
+    min-height: 40px;
+    padding: var(--pkv-space-2) var(--pkv-space-4);
 }
 
 .card-actions {
@@ -2463,7 +2472,23 @@ textarea {
     }
 
     .page-bar {
+        grid-template-columns: 1fr;
         padding: var(--pkv-space-4);
+    }
+
+    .page-actions {
+        justify-content: flex-start;
+        width: 100%;
+    }
+
+    .header-filter-form {
+        justify-content: flex-start;
+        width: 100%;
+    }
+
+    .header-filter-form > select {
+        flex: 1 1 180px;
+        max-width: none;
     }
 }
 

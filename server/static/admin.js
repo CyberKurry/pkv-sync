@@ -58,20 +58,6 @@
 
   applyTheme(normalizeMode(localStorage.getItem(storageKey)));
 
-  function paintColophon() {
-    var nodes = document.querySelectorAll("[data-pkv-colophon-now]");
-    if (!nodes.length) return;
-    var now = new Date();
-    var pad = function (n) { return n < 10 ? "0" + n : "" + n; };
-    var stamp =
-      now.getFullYear() +
-      "-" + pad(now.getMonth() + 1) +
-      "-" + pad(now.getDate()) +
-      " " + pad(now.getHours()) +
-      ":" + pad(now.getMinutes());
-    nodes.forEach(function (node) { node.textContent = stamp; });
-  }
-
   document.addEventListener("DOMContentLoaded", function () {
     var languageSelects = document.querySelectorAll("[data-language-select]");
     languageSelects.forEach(function (languageSelect) {
@@ -91,8 +77,5 @@
         renderThemeButtons(mode);
       });
     });
-
-    paintColophon();
-    setInterval(paintColophon, 60000);
   });
 })();

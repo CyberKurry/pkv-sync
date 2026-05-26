@@ -3,11 +3,11 @@
 {% block nav_vaults %}is-active{% endblock %}
 {% block page_title %}{{ path }}{% endblock %}
 {% block header_actions %}
-<a class="secondary action-button" href="/admin/vaults/{{ vault.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg> Files</a>
-<a class="secondary action-button" href="{{ history_url }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#history"></use></svg> History</a>
+<a class="secondary action-button" href="/admin/vaults/{{ vault.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg> {{ t.files }}</a>
+<a class="secondary action-button" href="{{ history_url }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#history"></use></svg> {{ t.history }}</a>
 {% if enable_diff_endpoint %}
 {% if let Some(url) = diff_url %}
-<a class="secondary action-button" href="{{ url }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#git-compare"></use></svg> Diff with previous</a>
+<a class="secondary action-button" href="{{ url }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#git-compare"></use></svg> {{ t.diff_with_previous }}</a>
 {% endif %}
 {% endif %}
 {% endblock %}
@@ -18,10 +18,10 @@
     <span class="muted-text">{{ size_display }}</span>
   </div>
   {% if let Some(commit) = at %}
-  <p class="section-note">Viewing commit <code>{{ commit }}</code></p>
+  <p class="section-note">{{ t.viewing_commit }} <code>{{ commit }}</code></p>
   {% endif %}
   {% if binary %}
-  <p class="empty-state">Binary file preview is not available.</p>
+  <p class="empty-state">{{ t.binary_file_preview_unavailable }}</p>
   {% else %}
   <pre class="file-preview">{{ content }}</pre>
   {% endif %}

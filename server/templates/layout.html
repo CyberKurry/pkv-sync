@@ -17,11 +17,11 @@
           <span class="brand-bracket">[</span><span class="brand-word brand-word-1">PKV</span><span class="brand-slash">/</span><span class="brand-word brand-word-2">SYNC</span><span class="brand-bracket">]</span>
         </span>
       </a>
-      <label class="sidebar-close" for="admin-sidebar-toggle" aria-label="Close navigation">
+      <label class="sidebar-close" for="admin-sidebar-toggle" aria-label="{{ t.close_navigation }}">
         <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#x"></use></svg>
       </label>
 
-      <nav class="sidebar-nav" aria-label="Admin navigation">
+      <nav class="sidebar-nav" aria-label="{{ t.admin_navigation }}">
         <a href="/admin" class="nav-link {% block nav_dashboard %}{% endblock %}">
           <svg class="nav-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#gauge"></use></svg>
           <span>{{ t.dashboard }}</span>
@@ -98,7 +98,7 @@
     <section class="main-panel">
       <header class="page-bar">
         <div class="page-title-row">
-          <label class="mobile-menu-button" for="admin-sidebar-toggle" aria-label="Open navigation">
+          <label class="mobile-menu-button" for="admin-sidebar-toggle" aria-label="{{ t.open_navigation }}">
             <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#menu"></use></svg>
           </label>
           <h1>{% block page_title %}{{ t.admin_title }}{% endblock %}</h1>
@@ -111,7 +111,7 @@
       <footer class="colophon" data-pkv-colophon>
         <span class="colophon-mark">PKV/SYNC</span>
         <span class="colophon-dot">·</span>
-        <span class="colophon-now" data-pkv-colophon-now></span>
+        <span class="colophon-version">v{{ t.app_version }}</span>
       </footer>
     </section>
   </div>

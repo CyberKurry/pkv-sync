@@ -72,6 +72,8 @@ pub struct UserAdminView {
     pub is_admin: bool,
     pub is_active: bool,
     pub created_at: String,
+    pub vault_count: i64,
+    pub last_sync_at: Option<String>,
 }
 
 pub fn avatar_label(username: &str) -> String {
@@ -101,6 +103,7 @@ pub struct UserDetailTemplate {
 #[derive(Debug, Clone)]
 pub struct TokenAdminView {
     pub id: String,
+    pub fingerprint: String,
     pub device_name: String,
     pub created_at: String,
     pub last_used_at: Option<String>,
@@ -119,6 +122,7 @@ pub struct DevicesTemplate {
 #[derive(Debug, Clone)]
 pub struct DeviceTokenAdminView {
     pub id: String,
+    pub fingerprint: String,
     pub user_id: String,
     pub username: String,
     pub device_id: String,
@@ -613,6 +617,21 @@ mod tests {
     }
 
     #[test]
+    fn admin_css_keeps_page_header_actions_from_crushing_title() {
+        let css = include_str!("../../static/admin.css").replace("\r\n", "\n");
+        assert!(css.contains(".page-bar {\n    display: grid;"));
+        assert!(css.contains("grid-template-columns: minmax(0, 1fr) auto;"));
+        assert!(css.contains(".page-title-row {\n    display: flex;"));
+        assert!(css.contains(".page-bar h1 {\n    font-family: var(--pkv-font-body);"));
+        assert!(css.contains("overflow-wrap: anywhere;"));
+        assert!(css.contains(".page-actions {\n    display: flex;"));
+        assert!(css.contains("justify-content: flex-end;"));
+        assert!(css.contains(".header-filter-form {\n    display: flex;\n    flex-wrap: wrap;"));
+        assert!(css.contains(".page-bar {\n        grid-template-columns: 1fr;"));
+        assert!(css.contains(".page-actions {\n        justify-content: flex-start;"));
+    }
+
+    #[test]
     fn dashboard_template_uses_lucide_sprite_and_mobile_toggle() {
         let html = DashboardTemplate {
             t: AdminText::en(),
@@ -656,6 +675,8 @@ mod tests {
             is_admin,
             is_active: true,
             created_at: "1970-01-01 00:00:01".into(),
+            vault_count: 0,
+            last_sync_at: None,
         }
     }
 
@@ -685,6 +706,40 @@ mod tests {
         assert!(html.contains(
             "class=\"avatar avatar-small\" aria-hidden=\"true\">A</span><strong>admin</strong>"
         ));
+        assert!(
+            !html.contains("<td>—</td>"),
+            "users table must show real vault and sync state instead of decorative dashes"
+        );
+    }
+
+    #[test]
+    fn users_template_uses_selected_admin_language() {
+        let html = UsersTemplate {
+            t: AdminText::zh_cn(),
+            users: vec![user("u1", "cross", false)],
+            query: String::new(),
+            status: String::new(),
+            message: None,
+        }
+        .render()
+        .unwrap();
+        for leaked in [
+            "User Management",
+            "Search users",
+            "All Status",
+            ">Status<",
+            ">Active<",
+            ">Inactive<",
+            ">Actions<",
+            ">Apply<",
+            ">Clear<",
+            "No users match",
+        ] {
+            assert!(
+                !html.contains(leaked),
+                "Simplified Chinese users page leaked English UI text: {leaked}"
+            );
+        }
     }
 
     #[test]
@@ -693,7 +748,8 @@ mod tests {
             t: AdminText::en(),
             user: user("u1", "admin", true),
             tokens: vec![TokenAdminView {
-                id: "t1".into(),
+                id: "7067c8ad2ef34dc69eae6c08f03932fd".into(),
+                fingerprint: "7067c8ad...32fd".into(),
                 device_name: "desktop".into(),
                 created_at: "1970-01-01 00:00:01".into(),
                 last_used_at: Some("1970-01-01 00:00:02".into()),
@@ -723,7 +779,8 @@ mod tests {
             t: AdminText::en(),
             user: user("u1", "admin", true),
             tokens: vec![TokenAdminView {
-                id: "t1".into(),
+                id: "7067c8ad2ef34dc69eae6c08f03932fd".into(),
+                fingerprint: "7067c8ad...32fd".into(),
                 device_name: "desktop".into(),
                 created_at: "1970-01-01 00:00:01".into(),
                 last_used_at: None,
@@ -767,11 +824,13 @@ mod tests {
 
     #[test]
     fn devices_template_renders_rows() {
+        let stored_token_id = "7067c8ad2ef34dc69eae6c08f03932fd";
         let html = DevicesTemplate {
             t: AdminText::en(),
             users: vec![user_option("u1", "admin")],
             tokens: vec![DeviceTokenAdminView {
-                id: "t1".into(),
+                id: stored_token_id.into(),
+                fingerprint: "7067c8ad...32fd".into(),
                 user_id: "u1".into(),
                 username: "admin".into(),
                 device_id: "device-a".into(),
@@ -789,6 +848,34 @@ mod tests {
         assert!(html.contains("Create token"));
         assert!(html.contains("/admin/static/lucide-icons.svg#ban"));
         assert!(html.contains("name=\"device_name\" type=\"text\""));
+        assert!(
+            !html.contains(stored_token_id),
+            "device list must not show the full stored token identifier"
+        );
+    }
+
+    #[test]
+    fn devices_template_uses_selected_admin_language() {
+        let html = DevicesTemplate {
+            t: AdminText::zh_cn(),
+            users: vec![user_option("u1", "cross")],
+            tokens: Vec::new(),
+            created_token: None,
+        }
+        .render()
+        .unwrap();
+        for leaked in [
+            "Device Tokens",
+            ">Token<",
+            ">Device ID<",
+            ">Status<",
+            ">Actions<",
+        ] {
+            assert!(
+                !html.contains(leaked),
+                "Simplified Chinese devices page leaked English UI text: {leaked}"
+            );
+        }
     }
 
     #[test]
@@ -825,6 +912,45 @@ mod tests {
     }
 
     #[test]
+    fn vaults_template_uses_selected_admin_language() {
+        let html = VaultsTemplate {
+            t: AdminText::zh_cn(),
+            vaults: vec![VaultAdminView {
+                id: "v1".into(),
+                user_id: "u1".into(),
+                owner_username: "admin".into(),
+                name: "main".into(),
+                created_at: "1970-01-01 00:00:01".into(),
+                last_sync_at: None,
+                size_display: "0 B".into(),
+                size_bytes: 0,
+                file_count: 0,
+            }],
+            users: vec![user_option("u1", "admin")],
+            message: None,
+            total_vaults: 1,
+            total_size_display: "0 B".into(),
+            synced_today: 0,
+            enable_history_ui: true,
+        }
+        .render()
+        .unwrap();
+        for leaked in [
+            "Total Vaults",
+            "Total Storage",
+            "Synced Today",
+            ">Idle<",
+            "Browse files",
+            ">Settings<",
+        ] {
+            assert!(
+                !html.contains(leaked),
+                "Simplified Chinese vaults page leaked English UI text: {leaked}"
+            );
+        }
+    }
+
+    #[test]
     fn vault_settings_template_renders_current_globs() {
         let html = VaultSettingsTemplate {
             t: AdminText::en(),
@@ -837,13 +963,102 @@ mod tests {
         }
         .render()
         .unwrap();
-        assert!(html.contains("Vault Settings"));
+        assert!(html.contains(AdminText::en().vault_settings));
         assert!(html.contains("main"));
         assert!(html.contains("notes/**"));
         assert!(html.contains(".obsidian/app.json"));
         assert!(html.contains("name=\"apply_starter\""));
         assert!(html.contains("/admin/static/lucide-icons.svg#save"));
         assert!(!html.contains("success-gradient"));
+    }
+
+    #[test]
+    fn vault_browser_templates_use_selected_admin_language() {
+        let vault = VaultBrowserView {
+            id: "v1".into(),
+            name: "main".into(),
+            owner_username: "admin".into(),
+        };
+
+        let settings = VaultSettingsTemplate {
+            t: AdminText::zh_cn(),
+            vault: vault.clone(),
+            extra_sync_globs_display: "notes/**".into(),
+        }
+        .render()
+        .unwrap();
+        let files = VaultFilesTemplate {
+            t: AdminText::zh_cn(),
+            vault: vault.clone(),
+            files: vec![VaultFileEntryView {
+                path: "note.md".into(),
+                name: "note.md".into(),
+                size_display: "1 KB".into(),
+                kind: "file".into(),
+                view_url: "/view".into(),
+            }],
+        }
+        .render()
+        .unwrap();
+        let file_view = VaultFileViewTemplate {
+            t: AdminText::zh_cn(),
+            vault: vault.clone(),
+            path: "note.md".into(),
+            at: Some("abcdef1".into()),
+            size_display: "1 KB".into(),
+            binary: true,
+            content: String::new(),
+            history_url: "/history".into(),
+            diff_url: Some("/diff".into()),
+            enable_diff_endpoint: true,
+        }
+        .render()
+        .unwrap();
+        let history = VaultHistoryTemplate {
+            t: AdminText::zh_cn(),
+            vault: vault.clone(),
+            path: "note.md".into(),
+            entries: Vec::new(),
+        }
+        .render()
+        .unwrap();
+        let diff = VaultDiffTemplate {
+            t: AdminText::zh_cn(),
+            vault,
+            path: "note.md".into(),
+            from: Some("parent".into()),
+            to: "head".into(),
+            from_label: "parent".into(),
+            to_label: "head".into(),
+            binary: true,
+            truncated: true,
+            rows: Vec::new(),
+        }
+        .render()
+        .unwrap();
+        let html = format!("{settings}{files}{file_view}{history}{diff}");
+        for leaked in [
+            "Vault Settings",
+            "Extra sync globs",
+            "Apply starter allowlist",
+            "No files in this vault yet",
+            ">Path<",
+            ">Kind<",
+            ">View<",
+            ">Files<",
+            ">History<",
+            "Diff with previous",
+            "Viewing commit",
+            "Binary file preview is not available",
+            "No history for this file yet",
+            "Large diff truncated",
+            "Diff preview is not available",
+        ] {
+            assert!(
+                !html.contains(leaked),
+                "Simplified Chinese vault browser UI leaked English text: {leaked}"
+            );
+        }
     }
 
     #[test]
@@ -908,6 +1123,81 @@ mod tests {
         assert!(html.contains("name=\"server_name\" type=\"text\""));
         assert!(html.contains("value=\"100 MB\" disabled"));
         assert!(!html.contains("success-gradient"));
+    }
+
+    #[test]
+    fn settings_template_uses_selected_admin_language() {
+        let html = SettingsTemplate {
+            t: AdminText::zh_cn(),
+            cfg: RuntimeConfig {
+                registration_mode: RegistrationMode::InviteOnly,
+                server_name: "Vault Hub".into(),
+                timezone: "UTC".into(),
+                login_failure_threshold: 5,
+                login_window_seconds: 60,
+                login_lock_seconds: 120,
+                max_file_size: 100 * 1024 * 1024,
+                text_extensions: RuntimeConfig::default().text_extensions.clone(),
+                enable_history_ui: true,
+                enable_diff_endpoint: true,
+                extra_exclude_globs: vec![],
+                inline_content_max_bytes: 8192,
+                sse_heartbeat_seconds: 30,
+                push_debounce_ms: 250,
+                enable_git_smart_http: false,
+                enable_metrics: false,
+                enable_auto_merge: true,
+            },
+            max_file_size_display: "100 MB".into(),
+            text_extensions_display: "md, txt".into(),
+            extra_exclude_globs_display: String::new(),
+            git_available: true,
+        }
+        .render()
+        .unwrap();
+        for leaked in [
+            "Save Changes",
+            "General Settings",
+            "Configure your server name",
+            "Security",
+            "Configure admin login protection",
+            "Sync &amp; Storage",
+            "Network",
+        ] {
+            assert!(
+                !html.contains(leaked),
+                "Simplified Chinese settings page leaked English UI text: {leaked}"
+            );
+        }
+    }
+
+    #[test]
+    fn admin_shell_footer_uses_version_not_browser_clock() {
+        let html = DashboardTemplate {
+            t: AdminText::en(),
+            username: "admin".into(),
+            users: 1,
+            vaults: 2,
+            cpu_percent: 3.0,
+            cpu_display: "3".into(),
+            cpu_cores_display: "1 core".into(),
+            memory_display: "10 MB".into(),
+            memory_total_display: "20 MB".into(),
+            disk_used_display: "1 GB".into(),
+            disk_total_display: "2 GB".into(),
+            uptime_display: "5s".into(),
+            update_status: None,
+            current_version: env!("CARGO_PKG_VERSION"),
+            last_update_check_display: String::new(),
+            sse_subscribers: 0,
+            last_sync_activity_display: String::new(),
+            sync_status_state: "quiet",
+            recent_activities: Vec::new(),
+        }
+        .render()
+        .unwrap();
+        assert!(!html.contains("data-pkv-colophon-now"));
+        assert!(html.contains(&format!("PKV/SYNC</span>\n        <span class=\"colophon-dot\">·</span>\n        <span class=\"colophon-version\">v{}", env!("CARGO_PKG_VERSION"))));
     }
 
     #[test]

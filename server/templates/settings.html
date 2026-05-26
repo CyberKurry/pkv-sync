@@ -3,21 +3,21 @@
 {% block nav_settings %}is-active{% endblock %}
 {% block page_title %}{{ t.settings }}{% endblock %}
 {% block header_actions %}
-<button class="primary" form="settings-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>Save Changes</button>
+<button class="primary action-button" form="settings-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>{{ t.save_changes }}</button>
 {% endblock %}
 {% block content %}
 <div class="settings-layout">
-  <aside class="settings-tabs" aria-label="Settings sections">
-    <a class="is-active" href="#general"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#settings"></use></svg>General</a>
-    <a href="#security"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg>Security</a>
-    <a href="#sync-storage"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#refresh-cw"></use></svg>Sync</a>
-    <a href="#network"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#network"></use></svg>Network</a>
+  <aside class="settings-tabs" aria-label="{{ t.settings_sections }}">
+    <a class="is-active" href="#general"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#settings"></use></svg>{{ t.general }}</a>
+    <a href="#security"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg>{{ t.security }}</a>
+    <a href="#sync-storage"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#refresh-cw"></use></svg>{{ t.sync }}</a>
+    <a href="#network"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#network"></use></svg>{{ t.network }}</a>
   </aside>
 
   <form id="settings-form" method="post" action="/admin/settings" class="settings-form">
     <section id="general" class="panel settings-section">
-      <h2>General Settings</h2>
-      <p class="section-note">Configure your server name, timezone, and registration settings.</p>
+      <h2>{{ t.general_settings }}</h2>
+      <p class="section-note">{{ t.settings_general_note }}</p>
       <label>{{ t.server_name }} <input name="server_name" type="text" value="{{ cfg.server_name }}" required></label>
       <label>{{ t.timezone }}
         <select name="timezone">
@@ -34,15 +34,15 @@
         </select>
       </label>
       <div class="segmented" role="group" aria-label="{{ t.registration_mode }}">
-        <label><input type="radio" name="registration_mode" value="disabled" {% if cfg.registration_mode.as_str() == "disabled" %}checked{% endif %}><span>Disabled</span></label>
-        <label><input type="radio" name="registration_mode" value="invite_only" {% if cfg.registration_mode.as_str() == "invite_only" %}checked{% endif %}><span>Invite Only</span></label>
-        <label><input type="radio" name="registration_mode" value="open" {% if cfg.registration_mode.as_str() == "open" %}checked{% endif %}><span>Open</span></label>
+        <label><input type="radio" name="registration_mode" value="disabled" {% if cfg.registration_mode.as_str() == "disabled" %}checked{% endif %}><span>{{ t.registration_disabled }}</span></label>
+        <label><input type="radio" name="registration_mode" value="invite_only" {% if cfg.registration_mode.as_str() == "invite_only" %}checked{% endif %}><span>{{ t.registration_invite_only }}</span></label>
+        <label><input type="radio" name="registration_mode" value="open" {% if cfg.registration_mode.as_str() == "open" %}checked{% endif %}><span>{{ t.registration_open }}</span></label>
       </div>
     </section>
 
     <section id="security" class="panel settings-section">
-      <h2>Security</h2>
-      <p class="section-note">Configure admin login protection.</p>
+      <h2>{{ t.security }}</h2>
+      <p class="section-note">{{ t.settings_security_note }}</p>
       <div class="form-grid">
         <label>{{ t.login_failure_threshold }} <input name="login_failure_threshold" type="number" min="1" value="{{ cfg.login_failure_threshold }}" required></label>
         <label>{{ t.login_window_seconds }} <input name="login_window_seconds" type="number" min="1" value="{{ cfg.login_window_seconds }}" required></label>
@@ -51,36 +51,36 @@
     </section>
 
     <section id="sync-storage" class="panel settings-section">
-      <h2>Sync &amp; Storage</h2>
-      <p class="section-note">Configure sync, SSE, Git integration, and storage settings.</p>
-      <label>Max File Size <span class="input-with-unit"><input type="text" value="{{ max_file_size_display }}" disabled><small>runtime</small></span></label>
-      <label>Text File Extensions <input type="text" value="{{ text_extensions_display }}" disabled></label>
-      <label class="check-row"><input name="enable_history_ui" type="checkbox" {% if cfg.enable_history_ui %}checked{% endif %}> Enable file history UI and API</label>
-      <label class="check-row"><input name="enable_diff_endpoint" type="checkbox" {% if cfg.enable_diff_endpoint %}checked{% endif %}> Enable unified diff endpoint</label>
-      <label class="check-row"><input name="enable_git_smart_http" type="checkbox" {% if cfg.enable_git_smart_http %}checked{% endif %} {% if !git_available %}disabled{% endif %}> Enable Git smart HTTP{% if !git_available %} <small class="hint">(git binary not found)</small>{% endif %}</label>
-      <label class="check-row"><input name="enable_metrics" type="checkbox" {% if cfg.enable_metrics %}checked{% endif %}> Enable Prometheus metrics at <code>/metrics</code></label>
-      <label class="check-row"><input name="enable_auto_merge" type="checkbox" {% if cfg.enable_auto_merge %}checked{% endif %}> Try three-way line merge before creating conflict files</label>
+      <h2>{{ t.sync_storage }}</h2>
+      <p class="section-note">{{ t.settings_sync_storage_note }}</p>
+      <label>{{ t.max_file_size }} <span class="input-with-unit"><input type="text" value="{{ max_file_size_display }}" disabled><small>{{ t.runtime_label }}</small></span></label>
+      <label>{{ t.text_file_extensions }} <input type="text" value="{{ text_extensions_display }}" disabled></label>
+      <label class="check-row"><input name="enable_history_ui" type="checkbox" {% if cfg.enable_history_ui %}checked{% endif %}> {{ t.enable_history_ui }}</label>
+      <label class="check-row"><input name="enable_diff_endpoint" type="checkbox" {% if cfg.enable_diff_endpoint %}checked{% endif %}> {{ t.enable_diff_endpoint }}</label>
+      <label class="check-row"><input name="enable_git_smart_http" type="checkbox" {% if cfg.enable_git_smart_http %}checked{% endif %} {% if !git_available %}disabled{% endif %}> {{ t.enable_git_smart_http }}{% if !git_available %} <small class="hint">({{ t.git_binary_not_found }})</small>{% endif %}</label>
+      <label class="check-row"><input name="enable_metrics" type="checkbox" {% if cfg.enable_metrics %}checked{% endif %}> {{ t.enable_metrics }}</label>
+      <label class="check-row"><input name="enable_auto_merge" type="checkbox" {% if cfg.enable_auto_merge %}checked{% endif %}> {{ t.enable_auto_merge }}</label>
       <div class="form-grid">
-        <label>SSE Heartbeat <span class="input-with-unit"><input name="sse_heartbeat_seconds" type="number" min="10" value="{{ cfg.sse_heartbeat_seconds }}" required><small>sec</small></span></label>
-        <label>Push Debounce <span class="input-with-unit"><input name="push_debounce_ms" type="number" min="1" value="{{ cfg.push_debounce_ms }}" required><small>ms</small></span></label>
-        <label>Inline Content Limit <span class="input-with-unit"><input name="inline_content_max_bytes" type="number" min="1" value="{{ cfg.inline_content_max_bytes }}" required><small>bytes</small></span></label>
+        <label>{{ t.sse_heartbeat }} <span class="input-with-unit"><input name="sse_heartbeat_seconds" type="number" min="10" value="{{ cfg.sse_heartbeat_seconds }}" required><small>{{ t.seconds_short }}</small></span></label>
+        <label>{{ t.push_debounce }} <span class="input-with-unit"><input name="push_debounce_ms" type="number" min="1" value="{{ cfg.push_debounce_ms }}" required><small>{{ t.milliseconds_short }}</small></span></label>
+        <label>{{ t.inline_content_limit }} <span class="input-with-unit"><input name="inline_content_max_bytes" type="number" min="1" value="{{ cfg.inline_content_max_bytes }}" required><small>{{ t.bytes_label }}</small></span></label>
       </div>
       <label>{{ t.extra_exclude_globs }}
         <textarea name="extra_exclude_globs" rows="4" placeholder="*.tmp&#10;build/**&#10;**/__pycache__/**">{{ extra_exclude_globs_display }}</textarea>
         <small>{{ t.extra_exclude_globs_hint }}</small>
       </label>
       <div class="danger-row">
-        <span><strong>Blob Garbage Collection</strong><small>Reclaim orphaned SHA-256 blobs</small></span>
+        <span><strong>{{ t.blob_gc_title }}</strong><small>{{ t.blob_gc_note }}</small></span>
         <button class="danger small" form="gc-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#trash-2"></use></svg>{{ t.run_blob_gc }}</button>
       </div>
     </section>
 
     <section id="network" class="panel settings-section">
-      <h2>Network</h2>
-      <p class="section-note">Network bind address, public host, and trusted proxy ranges are read from config.toml at startup.</p>
+      <h2>{{ t.network }}</h2>
+      <p class="section-note">{{ t.settings_network_note }}</p>
       <div class="form-grid">
-        <label>Public Host <input type="text" value="Configured in config.toml" disabled></label>
-        <label>Trusted Proxies <input type="text" value="Configured in config.toml" disabled></label>
+        <label>{{ t.public_host }} <input type="text" value="{{ t.configured_in_config }}" disabled></label>
+        <label>{{ t.trusted_proxies }} <input type="text" value="{{ t.configured_in_config }}" disabled></label>
       </div>
     </section>
   </form>

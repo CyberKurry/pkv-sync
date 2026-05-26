@@ -9,9 +9,9 @@
 {% if let Some(m) = message %}<p class="success">{{ m }}</p>{% endif %}
 
 <section class="metric-grid three">
-  <article class="metric-card compact-card"><span class="metric-label">Total {{ t.vaults }}</span><p class="metric-value">{{ total_vaults }}</p></article>
-  <article class="metric-card compact-card"><span class="metric-label">Total Storage</span><p class="metric-value">{{ total_size_display }}</p></article>
-  <article class="metric-card compact-card"><span class="metric-label">Synced Today</span><p class="metric-value">{{ synced_today }}</p></article>
+  <article class="metric-card compact-card"><span class="metric-label">{{ t.total_vaults }}</span><p class="metric-value">{{ total_vaults }}</p></article>
+  <article class="metric-card compact-card"><span class="metric-label">{{ t.total_storage }}</span><p class="metric-value">{{ total_size_display }}</p></article>
+  <article class="metric-card compact-card"><span class="metric-label">{{ t.synced_today }}</span><p class="metric-value">{{ synced_today }}</p></article>
 </section>
 
 <section class="vault-card-grid">
@@ -19,15 +19,15 @@
   <article class="vault-card">
     <div class="vault-card-head">
       <h2>{{ v.name }}</h2>
-      {% if let Some(_ts) = v.last_sync_at %}<span class="badge badge-green">{{ t.active }}</span>{% else %}<span class="badge badge-muted">Idle</span>{% endif %}
+      {% if let Some(_ts) = v.last_sync_at %}<span class="badge badge-green">{{ t.active }}</span>{% else %}<span class="badge badge-muted">{{ t.sync_status_idle }}</span>{% endif %}
     </div>
     <p class="vault-meta"><span>{{ v.owner_username }}</span><span>{{ v.size_display }}</span><span>{% if let Some(ts) = v.last_sync_at %}{{ ts }}{% else %}—{% endif %}</span></p>
     <p class="vault-id">ID {{ v.id }}</p>
     <div class="card-actions">
       {% if enable_history_ui %}
-      <a class="secondary small" href="/admin/vaults/{{ v.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg>Browse files</a>
+      <a class="secondary small" href="/admin/vaults/{{ v.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg>{{ t.browse_files }}</a>
       {% endif %}
-      <a class="secondary small" href="/admin/vaults/{{ v.id }}/settings"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#settings"></use></svg>Settings</a>
+      <a class="secondary small" href="/admin/vaults/{{ v.id }}/settings"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#settings"></use></svg>{{ t.vault_settings }}</a>
       <form method="post" action="/admin/vaults/{{ v.id }}/reconcile" class="inline"><button class="secondary small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#rotate-cw"></use></svg>{{ t.reconcile }}</button></form>
       <form method="post" action="/admin/vaults/{{ v.id }}/delete" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#trash-2"></use></svg>{{ t.delete }}</button></form>
     </div>

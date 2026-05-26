@@ -117,6 +117,23 @@ fn fmt_opt_ts(timestamp: Option<i64>, timezone: &str) -> Option<String> {
     timestamp.map(|ts| fmt_ts(ts, timezone))
 }
 
+fn token_fingerprint(id: &str) -> String {
+    let trimmed = id.trim();
+    if trimmed.chars().count() <= 12 {
+        return trimmed.to_string();
+    }
+    let prefix: String = trimmed.chars().take(8).collect();
+    let suffix: String = trimmed
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{prefix}...{suffix}")
+}
+
 fn user_view(user: User, timezone: &str) -> UserAdminView {
     UserAdminView {
         id: user.id,
@@ -125,6 +142,8 @@ fn user_view(user: User, timezone: &str) -> UserAdminView {
         is_admin: user.is_admin,
         is_active: user.is_active,
         created_at: fmt_ts(user.created_at, timezone),
+        vault_count: 0,
+        last_sync_at: None,
     }
 }
 
@@ -137,6 +156,7 @@ fn user_option_view(user: User) -> UserOptionView {
 
 fn token_view(token: TokenRow, timezone: &str) -> TokenAdminView {
     TokenAdminView {
+        fingerprint: token_fingerprint(&token.id),
         id: token.id,
         device_name: token.device_name,
         created_at: fmt_ts(token.created_at, timezone),
@@ -588,6 +608,8 @@ async fn dashboard(
     ))
 }
 
+type UserAdminRow = (String, String, bool, bool, i64, i64, Option<i64>);
+
 async fn users_page(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -601,21 +623,7 @@ async fn users_page(
         Some("active" | "inactive" | "admin") => filters.status.unwrap_or_default(),
         _ => String::new(),
     };
-    let query_lc = query.to_lowercase();
-    let users: Vec<UserAdminView> = state
-        .users
-        .list()
-        .await?
-        .into_iter()
-        .filter(|u| query_lc.is_empty() || u.username.to_lowercase().contains(&query_lc))
-        .filter(|u| match status.as_str() {
-            "active" => u.is_active,
-            "inactive" => !u.is_active,
-            "admin" => u.is_admin,
-            _ => true,
-        })
-        .map(|u| user_view(u, &timezone))
-        .collect();
+    let users = list_admin_users(&state, &timezone, &query, &status).await?;
     Ok(Html(
         UsersTemplate {
             t: admin_text(&headers, &cookies),
@@ -627,6 +635,51 @@ async fn users_page(
         .render()
         .unwrap(),
     ))
+}
+
+async fn list_admin_users(
+    state: &AppState,
+    timezone: &str,
+    query: &str,
+    status: &str,
+) -> Result<Vec<UserAdminView>, ApiError> {
+    let query_lc = query.to_lowercase();
+    let rows: Vec<UserAdminRow> = sqlx::query_as(
+        "SELECT u.id, u.username, u.is_admin, u.is_active, u.created_at,
+                COUNT(v.id) AS vault_count, MAX(v.last_sync_at) AS last_sync_at
+         FROM users u
+         LEFT JOIN vaults v ON v.user_id = u.id
+         GROUP BY u.id, u.username, u.is_admin, u.is_active, u.created_at
+         ORDER BY u.username",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter(|(_, username, _, _, _, _, _)| {
+            query_lc.is_empty() || username.to_lowercase().contains(&query_lc)
+        })
+        .filter(|(_, _, is_admin, is_active, _, _, _)| match status {
+            "active" => *is_active,
+            "inactive" => !*is_active,
+            "admin" => *is_admin,
+            _ => true,
+        })
+        .map(
+            |(id, username, is_admin, is_active, created_at, vault_count, last_sync_at)| {
+                UserAdminView {
+                    id,
+                    avatar_label: avatar_label(&username),
+                    username,
+                    is_admin,
+                    is_active,
+                    created_at: fmt_ts(created_at, timezone),
+                    vault_count,
+                    last_sync_at: fmt_opt_ts(last_sync_at, timezone),
+                }
+            },
+        )
+        .collect())
 }
 
 #[derive(Default, Deserialize)]
@@ -845,18 +898,36 @@ async fn set_admin_form(
 async fn revoke_token_form(
     State(state): State<AppState>,
     _session: AdminSession,
-    Path((id, token_id)): Path<(String, String)>,
+    Path((id, token_fingerprint)): Path<(String, String)>,
 ) -> Result<Redirect, ApiError> {
     let tokens = state.tokens.list_for_user(&id).await?;
-    if !tokens.iter().any(|token| token.id == token_id) {
-        return Err(ApiError::not_found("token not found"));
-    }
+    let token_id = resolve_token_fingerprint(
+        tokens.iter().map(|token| token.id.as_str()),
+        &token_fingerprint,
+    )?;
     state
         .tokens
-        .revoke(&token_id, chrono::Utc::now().timestamp())
+        .revoke(token_id, chrono::Utc::now().timestamp())
         .await?;
     tracing::info!(user_id = %id, token_id = %token_id, "admin revoked device token");
     Ok(Redirect::to(&format!("/admin/users/{id}")))
+}
+
+fn resolve_token_fingerprint<'a>(
+    token_ids: impl Iterator<Item = &'a str>,
+    fingerprint: &str,
+) -> Result<&'a str, ApiError> {
+    let mut matches = token_ids.filter(|id| token_fingerprint(id) == fingerprint);
+    let Some(token_id) = matches.next() else {
+        return Err(ApiError::not_found("token not found"));
+    };
+    if matches.next().is_some() {
+        return Err(ApiError::conflict(
+            "ambiguous_token_fingerprint",
+            "token fingerprint is ambiguous",
+        ));
+    }
+    Ok(token_id)
 }
 
 type DeviceTokenAdminRow = (
@@ -938,11 +1009,16 @@ async fn create_device_token_form(
 async fn revoke_device_token_form(
     State(state): State<AppState>,
     _session: AdminSession,
-    Path(token_id): Path<String>,
+    Path(token_fingerprint): Path<String>,
 ) -> Result<Redirect, ApiError> {
+    let tokens = list_admin_device_tokens(&state).await?;
+    let token_id = resolve_token_fingerprint(
+        tokens.iter().map(|token| token.id.as_str()),
+        &token_fingerprint,
+    )?;
     state
         .tokens
-        .revoke(&token_id, chrono::Utc::now().timestamp())
+        .revoke(token_id, chrono::Utc::now().timestamp())
         .await?;
     tracing::info!(token_id = %token_id, "admin revoked device token from devices page");
     Ok(Redirect::to("/admin/devices"))
@@ -971,15 +1047,19 @@ async fn list_admin_device_tokens(state: &AppState) -> Result<Vec<DeviceTokenAdm
                 created_at,
                 last_used_at,
                 revoked_at,
-            )| DeviceTokenAdminView {
-                id,
-                user_id,
-                username,
-                device_id,
-                device_name,
-                created_at: fmt_ts(created_at, &timezone),
-                last_used_at: fmt_opt_ts(last_used_at, &timezone),
-                revoked_at: fmt_opt_ts(revoked_at, &timezone),
+            )| {
+                let fingerprint = token_fingerprint(&id);
+                DeviceTokenAdminView {
+                    id,
+                    fingerprint,
+                    user_id,
+                    username,
+                    device_id,
+                    device_name,
+                    created_at: fmt_ts(created_at, &timezone),
+                    last_used_at: fmt_opt_ts(last_used_at, &timezone),
+                    revoked_at: fmt_opt_ts(revoked_at, &timezone),
+                }
             },
         )
         .collect())

@@ -1,9 +1,9 @@
 {% extends "layout.html" %}
-{% block title %}{{ path }} Diff - {{ t.admin_title }}{% endblock %}
+{% block title %}{{ path }} {{ t.diff }} - {{ t.admin_title }}{% endblock %}
 {% block nav_vaults %}is-active{% endblock %}
-{% block page_title %}{{ path }} Diff{% endblock %}
+{% block page_title %}{{ path }} {{ t.diff }}{% endblock %}
 {% block header_actions %}
-<a class="secondary action-button" href="/admin/vaults/{{ vault.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg> Files</a>
+<a class="secondary action-button" href="/admin/vaults/{{ vault.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg> {{ t.files }}</a>
 {% endblock %}
 {% block content %}
 <section class="panel diff-panel">
@@ -12,12 +12,12 @@
     <span class="muted-text">{% if let Some(from) = from %}{{ from }}..{% endif %}{{ to }}</span>
   </div>
   {% if truncated %}
-  <p class="warning">Large diff truncated to keep the page responsive.</p>
+  <p class="warning">{{ t.large_diff_truncated }}</p>
   {% endif %}
   {% if binary %}
-  <p class="empty-state">Binary file. Diff preview is not available.</p>
+  <p class="empty-state">{{ t.binary_diff_preview_unavailable }}</p>
   {% else %}
-  <div class="diff-split" role="table" aria-label="Diff">
+  <div class="diff-split" role="table" aria-label="{{ t.diff }}">
     <div class="diff-split-head" role="row">
       <span class="diff-line-no" aria-hidden="true"></span>
       <span class="diff-head-cell">{{ from_label }}</span>

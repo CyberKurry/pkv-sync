@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
-{% block title %}{{ vault.name }} Files - {{ t.admin_title }}{% endblock %}
+{% block title %}{{ vault.name }} {{ t.files }} - {{ t.admin_title }}{% endblock %}
 {% block nav_vaults %}is-active{% endblock %}
-{% block page_title %}{{ vault.name }} Files{% endblock %}
+{% block page_title %}{{ vault.name }} {{ t.files }}{% endblock %}
 {% block header_actions %}
 <a class="secondary action-button" href="/admin/vaults"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-left"></use></svg> {{ t.vaults }}</a>
 {% endblock %}
@@ -12,17 +12,17 @@
     <span class="muted-text">{{ vault.owner_username }}</span>
   </div>
   {% if files.is_empty() %}
-  <p class="empty-state">No files in this vault yet.</p>
+  <p class="empty-state">{{ t.no_files_in_vault }}</p>
   {% else %}
   <table class="data-table file-table">
-    <thead><tr><th>Path</th><th>{{ t.size }}</th><th>Kind</th><th></th></tr></thead>
+    <thead><tr><th>{{ t.path }}</th><th>{{ t.size }}</th><th>{{ t.kind }}</th><th></th></tr></thead>
     <tbody>
     {% for file in files %}
       <tr>
         <td><a class="file-link" href="{{ file.view_url }}">{{ file.path }}</a></td>
         <td>{{ file.size_display }}</td>
         <td><span class="pill pill-blue">{{ file.kind }}</span></td>
-        <td class="align-right"><a class="table-action" href="{{ file.view_url }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#eye"></use></svg>View</a></td>
+        <td class="align-right"><a class="table-action" href="{{ file.view_url }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#eye"></use></svg>{{ t.view }}</a></td>
       </tr>
     {% endfor %}
     </tbody>

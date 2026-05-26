@@ -28,8 +28,8 @@
       </div>
     </div>
     <div class="user-status-stack">
-      {% if user.is_active %}<span class="status active">{{ t.active }}</span>{% else %}<span class="status muted">Inactive</span>{% endif %}
-      {% if user.is_admin %}<span class="pill pill-blue">{{ t.admin }}</span>{% else %}<span class="badge badge-muted">Standard</span>{% endif %}
+      {% if user.is_active %}<span class="status active">{{ t.active }}</span>{% else %}<span class="status muted">{{ t.inactive }}</span>{% endif %}
+      {% if user.is_admin %}<span class="pill pill-blue">{{ t.admin }}</span>{% else %}<span class="badge badge-muted">{{ t.standard_user }}</span>{% endif %}
     </div>
     <dl class="detail-list">
       <div class="detail-row"><dt>{{ t.username }}</dt><dd>{{ user.username }}</dd></div>
@@ -54,7 +54,7 @@
           <span class="action-icon"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg></span>
           <h2>{{ t.active }}</h2>
         </div>
-        <p class="section-note">{% if user.is_active %}Active account{% else %}Inactive account{% endif %}</p>
+        <p class="section-note">{% if user.is_active %}{{ t.active_account }}{% else %}{{ t.inactive_account }}{% endif %}</p>
         <input type="hidden" name="active" value="{% if user.is_active %}false{% else %}true{% endif %}">
         <button class="{% if user.is_active %}danger{% else %}primary{% endif %}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#{% if user.is_active %}ban{% else %}shield{% endif %}"></use></svg>{% if user.is_active %}{{ t.disable }}{% else %}{{ t.enable }}{% endif %}</button>
       </form>
@@ -64,7 +64,7 @@
           <span class="action-icon"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg></span>
           <h2>{{ t.admin }}</h2>
         </div>
-        <p class="section-note">{% if user.is_admin %}Admin privileges{% else %}Standard user{% endif %}</p>
+        <p class="section-note">{% if user.is_admin %}{{ t.admin_privileges }}{% else %}{{ t.standard_user }}{% endif %}</p>
         <input type="hidden" name="admin" value="{% if user.is_admin %}false{% else %}true{% endif %}">
         <button class="secondary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg>{% if user.is_admin %}{{ t.demote }}{% else %}{{ t.promote }}{% endif %}</button>
       </form>
@@ -83,11 +83,11 @@
 <section class="panel table-panel tokens-table">
   <div class="panel-header"><h2>{{ t.tokens }}</h2></div>
   <table class="data-table">
-    <thead><tr><th>Token</th><th>{{ t.device }}</th><th>{{ t.created }}</th><th>{{ t.last_used }}</th><th>Status</th><th class="align-right">Actions</th></tr></thead>
+    <thead><tr><th>{{ t.token_fingerprint }}</th><th>{{ t.device }}</th><th>{{ t.created }}</th><th>{{ t.last_used }}</th><th>{{ t.status }}</th><th class="align-right">{{ t.actions }}</th></tr></thead>
     <tbody>
     {% for token in tokens %}
       <tr>
-        <td><code>{{ token.id }}</code></td>
+        <td><code>{{ token.fingerprint }}</code></td>
         <td>{{ token.device_name }}</td>
         <td>{{ token.created_at }}</td>
         <td>{% if let Some(ts) = token.last_used_at %}{{ ts }}{% else %}<span class="muted-text">-</span>{% endif %}</td>
@@ -96,7 +96,7 @@
           {% if let Some(_ts) = token.revoked_at %}
           <span class="muted-text">-</span>
           {% else %}
-          <form method="post" action="/admin/users/{{ user.id }}/tokens/{{ token.id }}/revoke" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#ban"></use></svg>{{ t.revoke }}</button></form>
+          <form method="post" action="/admin/users/{{ user.id }}/tokens/{{ token.fingerprint }}/revoke" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#ban"></use></svg>{{ t.revoke }}</button></form>
           {% endif %}
         </td>
       </tr>

@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}{{ t.users }} - {{ t.admin_title }}{% endblock %}
 {% block nav_users %}is-active{% endblock %}
-{% block page_title %}User Management{% endblock %}
+{% block page_title %}{{ t.user_management }}{% endblock %}
 {% block header_actions %}
 <a class="primary action-button" href="#create-user"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#user-plus"></use></svg> {{ t.create_user }}</a>
 {% endblock %}
@@ -11,39 +11,39 @@
 <form method="get" action="/admin/users" class="toolbar">
   <label class="search-box field-search">
     <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#search"></use></svg>
-    <input name="q" type="search" value="{{ query }}" placeholder="Search users..." aria-label="Search users">
+    <input name="q" type="search" value="{{ query }}" placeholder="{{ t.search_users }}" aria-label="{{ t.search_users }}">
   </label>
-  <select name="status" aria-label="Filter users" onchange="this.form.submit()">
-    <option value="" {% if status.is_empty() %}selected{% endif %}>All Status</option>
+  <select name="status" aria-label="{{ t.filter_users }}" onchange="this.form.submit()">
+    <option value="" {% if status.is_empty() %}selected{% endif %}>{{ t.all_status }}</option>
     <option value="active" {% if status == "active" %}selected{% endif %}>{{ t.active }}</option>
-    <option value="inactive" {% if status == "inactive" %}selected{% endif %}>Inactive</option>
+    <option value="inactive" {% if status == "inactive" %}selected{% endif %}>{{ t.inactive }}</option>
     <option value="admin" {% if status == "admin" %}selected{% endif %}>{{ t.admin }}</option>
   </select>
-  <button class="secondary small" type="submit"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#filter"></use></svg>Apply</button>
+  <button class="secondary" type="submit"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#filter"></use></svg>{{ t.apply }}</button>
   {% if !query.is_empty() || !status.is_empty() %}
-  <a class="secondary small" href="/admin/users"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#x"></use></svg>Clear</a>
+  <a class="secondary" href="/admin/users"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#x"></use></svg>{{ t.clear }}</a>
   {% endif %}
 </form>
 
 <section class="panel table-panel users-table">
   <table class="data-table">
-    <thead><tr><th>{{ t.username }}</th><th>Status</th><th>{{ t.vaults }}</th><th>{{ t.last_sync }}</th><th>{{ t.created }}</th><th>{{ t.admin }}</th><th class="align-right">Actions</th></tr></thead>
+    <thead><tr><th>{{ t.username }}</th><th>{{ t.status }}</th><th>{{ t.vaults }}</th><th>{{ t.last_sync }}</th><th>{{ t.created }}</th><th>{{ t.admin }}</th><th class="align-right">{{ t.actions }}</th></tr></thead>
     <tbody>
     {% for u in users %}
       <tr>
         <td>
           <span class="identity-cell"><span class="avatar avatar-small" aria-hidden="true">{{ u.avatar_label }}</span><strong>{{ u.username }}</strong></span>
         </td>
-        <td>{% if u.is_active %}<span class="status active">Active</span>{% else %}<span class="status muted">Inactive</span>{% endif %}</td>
-        <td>—</td>
-        <td>—</td>
+        <td>{% if u.is_active %}<span class="status active">{{ t.active }}</span>{% else %}<span class="status muted">{{ t.inactive }}</span>{% endif %}</td>
+        <td>{{ u.vault_count }}</td>
+        <td>{% if let Some(ts) = u.last_sync_at %}{{ ts }}{% else %}<span class="muted-text">{{ t.never_synced }}</span>{% endif %}</td>
         <td>{{ u.created_at }}</td>
         <td>{% if u.is_admin %}<span class="pill pill-blue">{{ t.admin }}</span>{% else %}<span class="muted-text">—</span>{% endif %}</td>
         <td class="align-right"><a class="table-action" href="/admin/users/{{ u.id }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#square-pen"></use></svg>{{ t.details }}</a></td>
       </tr>
     {% endfor %}
     {% if users.len() == 0 %}
-      <tr><td colspan="7"><p class="empty-state">No users match the current filters</p></td></tr>
+      <tr><td colspan="7"><p class="empty-state">{{ t.no_users_match }}</p></td></tr>
     {% endif %}
     </tbody>
   </table>
