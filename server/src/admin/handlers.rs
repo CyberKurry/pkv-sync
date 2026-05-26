@@ -1174,6 +1174,13 @@ struct DiffQuery {
     from: Option<String>,
 }
 
+struct AdminViewRequest {
+    headers: HeaderMap,
+    cookies: Cookies,
+    session: AdminSession,
+    client_ip: IpAddr,
+}
+
 async fn vault_files_page(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1205,6 +1212,7 @@ async fn vault_files_page(
 
 async fn vault_file_view_page(
     State(state): State<AppState>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     headers: HeaderMap,
     cookies: Cookies,
     session: AdminSession,
@@ -1212,25 +1220,47 @@ async fn vault_file_view_page(
     Query(query): Query<FileViewQuery>,
 ) -> Result<Html<String>, ApiError> {
     ensure_admin_history_enabled(&state).await?;
-    vault_file_view_html(state, headers, cookies, session, id, path, query).await
+    vault_file_view_html(
+        state,
+        AdminViewRequest {
+            headers,
+            cookies,
+            session,
+            client_ip,
+        },
+        id,
+        path,
+        query,
+    )
+    .await
 }
 
 async fn vault_file_history_page(
     State(state): State<AppState>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     headers: HeaderMap,
     cookies: Cookies,
     session: AdminSession,
     Path((id, path)): Path<(String, String)>,
 ) -> Result<Html<String>, ApiError> {
     ensure_admin_history_enabled(&state).await?;
-    vault_file_history_html(state, headers, cookies, session, id, &path).await
+    vault_file_history_html(
+        state,
+        AdminViewRequest {
+            headers,
+            cookies,
+            session,
+            client_ip,
+        },
+        id,
+        &path,
+    )
+    .await
 }
 
 async fn vault_file_view_html(
     state: AppState,
-    headers: HeaderMap,
-    cookies: Cookies,
-    session: AdminSession,
+    request: AdminViewRequest,
     id: String,
     path: String,
     query: FileViewQuery,
@@ -1263,10 +1293,19 @@ async fn vault_file_view_html(
             url_query(to)
         )
     });
-    record_admin_view(&state, &session, &id, "view_commit", Some(&path), &headers).await?;
+    record_admin_view(
+        &state,
+        &request.session,
+        &id,
+        "view_commit",
+        Some(&path),
+        &request.headers,
+        request.client_ip,
+    )
+    .await?;
     Ok(Html(
         VaultFileViewTemplate {
-            t: admin_text(&headers, &cookies),
+            t: admin_text(&request.headers, &request.cookies),
             vault: vault_view,
             path,
             at: query.at,
@@ -1284,9 +1323,7 @@ async fn vault_file_view_html(
 
 async fn vault_file_history_html(
     state: AppState,
-    headers: HeaderMap,
-    cookies: Cookies,
-    session: AdminSession,
+    request: AdminViewRequest,
     id: String,
     path: &str,
 ) -> Result<Html<String>, ApiError> {
@@ -1301,10 +1338,19 @@ async fn vault_file_history_html(
         .into_iter()
         .map(|commit| history_entry_view(&id, &path, commit, &timezone))
         .collect();
-    record_admin_view(&state, &session, &id, "view_history", Some(&path), &headers).await?;
+    record_admin_view(
+        &state,
+        &request.session,
+        &id,
+        "view_history",
+        Some(&path),
+        &request.headers,
+        request.client_ip,
+    )
+    .await?;
     Ok(Html(
         VaultHistoryTemplate {
-            t: admin_text(&headers, &cookies),
+            t: admin_text(&request.headers, &request.cookies),
             vault: vault_view,
             path,
             entries,
@@ -1316,6 +1362,7 @@ async fn vault_file_history_html(
 
 async fn vault_diff_page(
     State(state): State<AppState>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     headers: HeaderMap,
     cookies: Cookies,
     session: AdminSession,
@@ -1351,6 +1398,7 @@ async fn vault_diff_page(
         "view_diff",
         Some(&diff.path),
         &headers,
+        client_ip,
     )
     .await?;
     Ok(Html(
@@ -2083,8 +2131,10 @@ async fn record_admin_view(
     action: &str,
     path: Option<&str>,
     headers: &HeaderMap,
+    client_ip: IpAddr,
 ) -> Result<(), ApiError> {
     let details = path.map(|path| serde_json::json!({ "path": path }).to_string());
+    let client_ip = client_ip.to_string();
     let user_agent = headers
         .get(header::USER_AGENT)
         .and_then(|value| value.to_str().ok());
@@ -2096,7 +2146,7 @@ async fn record_admin_view(
             token_id: None,
             action,
             commit_hash: None,
-            client_ip: None,
+            client_ip: Some(&client_ip),
             user_agent,
             details: details.as_deref(),
         })

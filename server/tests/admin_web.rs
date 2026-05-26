@@ -517,16 +517,25 @@ async fn admin_can_browse_vault_files_history_and_diff_read_only() {
     assert!(!diff_body.contains("Restore"));
     assert!(!diff_body.contains("Rollback"));
 
-    let actions: Vec<(String,)> =
-        sqlx::query_as("SELECT action FROM sync_activity WHERE vault_id = ? ORDER BY id")
-            .bind(&vault.id)
-            .fetch_all(&state.pool)
-            .await
-            .unwrap();
-    let actions: Vec<String> = actions.into_iter().map(|(action,)| action).collect();
-    assert!(actions.contains(&"view_commit".to_string()));
-    assert!(actions.contains(&"view_history".to_string()));
-    assert!(actions.contains(&"view_diff".to_string()));
+    let actions: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT action, client_ip FROM sync_activity WHERE vault_id = ? ORDER BY id",
+    )
+    .bind(&vault.id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap();
+    assert!(actions.iter().any(|(action, _)| action == "view_commit"));
+    assert!(actions.iter().any(|(action, _)| action == "view_history"));
+    assert!(actions.iter().any(|(action, _)| action == "view_diff"));
+    for action in ["view_commit", "view_history", "view_diff"] {
+        assert!(
+            actions
+                .iter()
+                .any(|(stored_action, client_ip)| stored_action == action
+                    && client_ip.as_deref() == Some("127.0.0.1")),
+            "{action} should record the admin client IP"
+        );
+    }
 }
 
 #[tokio::test]

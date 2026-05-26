@@ -1354,6 +1354,7 @@ pub fn detect(headers: &HeaderMap, cookies: &Cookies) -> AdminLang {
 
 pub fn language_cookie(lang: AdminLang, secure: bool) -> Cookie<'static> {
     let mut cookie = Cookie::new(COOKIE_NAME, lang.as_str());
+    cookie.set_http_only(true);
     cookie.set_secure(secure);
     cookie.set_same_site(tower_cookies::cookie::SameSite::Lax);
     cookie.set_path("/admin");
@@ -1374,5 +1375,18 @@ mod tests {
         assert_eq!(AdminLang::parse("ja-JP"), Some(AdminLang::Ja));
         assert_eq!(AdminLang::parse("ko-KR"), Some(AdminLang::Ko));
         assert_eq!(AdminLang::parse("fr"), None);
+    }
+
+    #[test]
+    fn language_cookie_is_http_only() {
+        let cookie = language_cookie(AdminLang::ZhCn, true);
+
+        assert_eq!(cookie.http_only(), Some(true));
+        assert_eq!(cookie.secure(), Some(true));
+        assert_eq!(cookie.path(), Some("/admin"));
+        assert_eq!(
+            cookie.same_site(),
+            Some(tower_cookies::cookie::SameSite::Lax)
+        );
     }
 }

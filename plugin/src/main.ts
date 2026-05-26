@@ -540,13 +540,8 @@ export default class PKVSyncPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("modify", scheduleForFile));
     this.registerEvent(this.app.vault.on("create", scheduleForFile));
     this.registerEvent(this.app.vault.on("delete", scheduleForFile));
-    this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => {
-        this.pushDebouncer?.trigger();
-      })
-    );
     this.registerDomEvent(window, "blur", () => {
-      void this.engine?.syncNow();
+      this.pushDebouncer?.trigger();
     });
   }
 
