@@ -47,8 +47,7 @@ function isLoopbackHost(hostname: string): boolean {
   if (
     host === "localhost" ||
     host.endsWith(".localhost") ||
-    host === "::1" ||
-    host === "0.0.0.0"
+    host === "::1"
   ) {
     return true;
   }
