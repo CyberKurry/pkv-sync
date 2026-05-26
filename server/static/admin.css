@@ -2189,6 +2189,16 @@ textarea {
     font-size: var(--pkv-text-sm);
 }
 
+.panel-warning {
+    background: var(--pkv-warn-soft);
+    border-color: var(--pkv-warn);
+    border-left: 3px solid var(--pkv-warn);
+}
+
+.panel-warning .panel-header h2 {
+    color: var(--pkv-warn);
+}
+
 .muted {
     color: var(--pkv-ink-mute);
 }

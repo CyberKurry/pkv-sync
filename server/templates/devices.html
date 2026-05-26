@@ -10,7 +10,7 @@
 {% endblock %}
 {% block content %}
 {% if let Some(token) = created_token %}
-<section class="panel warning">
+<section class="panel panel-warning">
   <div class="panel-header"><h2>{{ t.new_device_token }}</h2></div>
   <p class="muted-text">{{ t.copy_token_now }}</p>
   <p><code class="token-code">{{ token }}</code></p>

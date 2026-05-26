@@ -655,6 +655,7 @@ mod tests {
         assert!(css.contains("width: 44px;\n        height: 44px;"));
         assert!(css.contains("min-height: 44px;"));
         assert!(css.contains(".table-panel {\n    padding: 0;\n    overflow-x: auto;"));
+        assert!(css.contains(".panel-warning {"));
         assert!(css.contains(".file-link {"));
         assert!(css.contains(".hint {"));
         assert!(css.contains(".diff-split {\n    display: grid;"));
@@ -865,6 +866,8 @@ mod tests {
         .render()
         .unwrap();
         assert!(html.contains("pks_abc"));
+        assert!(html.contains("class=\"panel panel-warning\""));
+        assert!(!html.contains("class=\"panel warning\""));
     }
 
     #[test]
@@ -890,6 +893,8 @@ mod tests {
         .unwrap();
         assert!(html.contains("MacBook Pro"));
         assert!(html.contains("pks_device_token"));
+        assert!(html.contains("class=\"panel panel-warning\""));
+        assert!(!html.contains("class=\"panel warning\""));
         assert!(html.contains("Create token"));
         assert!(html.contains("/admin/static/lucide-icons.svg#ban"));
         assert!(html.contains("name=\"device_name\" type=\"text\""));
