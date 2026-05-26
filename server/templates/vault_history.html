@@ -18,7 +18,7 @@
     {% for entry in entries %}
     <article class="history-row">
       <div class="history-row-main">
-        <h2>{{ entry.short_commit }}</h2>
+        <strong class="row-title">{{ entry.short_commit }}</strong>
         <p>{{ entry.timestamp }} · {{ entry.author_device }} · {{ entry.change_type }}</p>
         <p class="muted-text">{{ entry.message }}</p>
       </div>

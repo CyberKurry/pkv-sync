@@ -1,13 +1,13 @@
 {% extends "layout.html" %}
 {% block title %}{{ t.invites }} - {{ t.admin_title }}{% endblock %}
 {% block nav_invites %}is-active{% endblock %}
-{% block page_title %}Invite Codes{% endblock %}
+{% block page_title %}{{ t.invite_codes }}{% endblock %}
 {% block header_actions %}
 <a class="primary action-button" href="#create-invite"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#plus"></use></svg> {{ t.create_invite }}</a>
 {% endblock %}
 {% block content %}
 <section class="metric-grid three">
-  <article class="metric-card compact-card"><span class="metric-label">Pending Invites</span><p class="metric-value">{{ pending_invites }}</p></article>
+  <article class="metric-card compact-card"><span class="metric-label">{{ t.pending_invites }}</span><p class="metric-value">{{ pending_invites }}</p></article>
   <article class="metric-card compact-card"><span class="metric-label">{{ t.used }}</span><p class="metric-value">{{ used_invites }}</p></article>
   <article class="metric-card compact-card"><span class="metric-label">{{ t.revoked }}</span><p class="metric-value">{{ revoked_invites }}</p></article>
 </section>
@@ -16,22 +16,22 @@
   {% for i in invites %}
   <article class="invite-row">
     <div>
-      <h2>{{ i.code }}</h2>
-      <p>{% if let Some(ts) = i.expires_at %}{{ t.expires }}: {{ ts }}{% else %}Never expires{% endif %}</p>
+      <strong class="row-title">{{ i.code }}</strong>
+      <p>{% if let Some(ts) = i.expires_at %}{{ t.expires }}: {{ ts }}{% else %}{{ t.never_expires }}{% endif %}</p>
       <p>{{ t.created }}: {{ i.created_at }}</p>
     </div>
     <div class="invite-actions">
       {% if let Some(_used) = i.used_at %}
       <span class="badge badge-green">{{ t.used }}</span>
       {% else %}
-      <span class="badge badge-orange">Pending</span>
+      <span class="badge badge-orange">{{ t.pending }}</span>
       <form method="post" action="/admin/invites/{{ i.code }}/delete" class="inline"><button class="danger small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#trash-2"></use></svg>{{ t.delete }}</button></form>
       {% endif %}
     </div>
   </article>
   {% endfor %}
   {% if invites.len() == 0 %}
-  <p class="empty-state">No pending invite codes</p>
+  <p class="empty-state">{{ t.no_pending_invites }}</p>
   {% endif %}
 </section>
 

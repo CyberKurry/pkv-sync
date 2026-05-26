@@ -337,6 +337,44 @@ mod tests {
     }
 
     #[test]
+    fn login_and_setup_templates_do_not_leak_english_placeholders_in_chinese() {
+        let login_html = LoginTemplate {
+            t: AdminText::zh_cn(),
+            error: None,
+            success: None,
+            setup_required: false,
+            username_value: String::new(),
+            version: env!("CARGO_PKG_VERSION"),
+        }
+        .render()
+        .unwrap();
+        let setup_html = SetupTemplate {
+            t: AdminText::zh_cn(),
+            error: None,
+            username_value: String::new(),
+            version: env!("CARGO_PKG_VERSION"),
+        }
+        .render()
+        .unwrap();
+
+        for leaked in [
+            "Enter your username",
+            "Sign in to your admin panel",
+            "placeholder=\"Password\"",
+            "placeholder=\"admin\"",
+            "绠€浣撲腑鏂",
+            "绻侀珨涓",
+            "鏃ユ湰",
+            "頃滉淡",
+        ] {
+            assert!(
+                !login_html.contains(leaked) && !setup_html.contains(leaked),
+                "localized auth templates leaked English placeholder: {leaked}"
+            );
+        }
+    }
+
+    #[test]
     fn dashboard_template_renders() {
         let html = DashboardTemplate {
             t: AdminText::en(),
@@ -614,6 +652,11 @@ mod tests {
         assert!(css.contains(".sidebar-close {\n        display: inline-flex;"));
         assert!(css.contains("width: 44px;\n        height: 44px;"));
         assert!(css.contains("min-height: 44px;"));
+        assert!(css.contains(".table-panel {\n    padding: 0;\n    overflow-x: auto;"));
+        assert!(css.contains(".file-link {"));
+        assert!(css.contains(".hint {"));
+        assert!(css.contains(".diff-split {\n    display: grid;"));
+        assert!(css.contains(".diff-split-row {\n    display: grid;"));
     }
 
     #[test]
@@ -968,6 +1011,11 @@ mod tests {
         assert!(html.contains("notes/**"));
         assert!(html.contains(".obsidian/app.json"));
         assert!(html.contains("name=\"apply_starter\""));
+        assert!(html.contains(
+            "type=\"submit\" form=\"vault-settings-form\" name=\"action\" value=\"save\""
+        ));
+        assert!(html.contains("type=\"submit\" name=\"action\" value=\"save\""));
+        assert!(html.contains("type=\"submit\" name=\"apply_starter\" value=\"1\""));
         assert!(html.contains("/admin/static/lucide-icons.svg#save"));
         assert!(!html.contains("success-gradient"));
     }
@@ -1081,6 +1129,37 @@ mod tests {
         assert!(html.contains("Create invite"));
         assert!(html.contains("type=\"datetime-local\""));
         assert!(html.contains("/admin/static/lucide-icons.svg#plus"));
+    }
+
+    #[test]
+    fn invites_template_uses_selected_admin_language() {
+        let html = InvitesTemplate {
+            t: AdminText::zh_cn(),
+            invites: vec![InviteAdminView {
+                code: "inv_abc".into(),
+                created_at: "1970-01-01 00:00:01 +00:00 UTC".into(),
+                expires_at: None,
+                used_at: None,
+            }],
+            pending_invites: 1,
+            used_invites: 0,
+            revoked_invites: 0,
+        }
+        .render()
+        .unwrap();
+
+        for leaked in [
+            "Invite Codes",
+            "Pending Invites",
+            "Never expires",
+            "Pending",
+            "No pending invite codes",
+        ] {
+            assert!(
+                !html.contains(leaked),
+                "Simplified Chinese invites UI leaked English text: {leaked}"
+            );
+        }
     }
 
     #[test]
@@ -1304,6 +1383,8 @@ mod tests {
         .render()
         .unwrap();
         assert!(html.contains("Rollback"));
+        assert!(html.contains("<strong class=\"row-title\">abcdef1</strong>"));
+        assert!(!html.contains("<h2>abcdef1</h2>"));
         assert!(html.contains("/admin/static/lucide-icons.svg#history"));
         assert!(!html.contains("/admin/static/lucide-icons.svg#rotate-cw\"></use></svg>Rollback"));
     }

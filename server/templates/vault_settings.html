@@ -4,7 +4,7 @@
 {% block page_title %}{{ t.vault_settings }}{% endblock %}
 {% block header_actions %}
 <a class="secondary action-button" href="/admin/vaults"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-left"></use></svg> {{ t.vaults }}</a>
-<button class="primary" form="vault-settings-form"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>{{ t.save }}</button>
+<button class="primary" type="submit" form="vault-settings-form" name="action" value="save"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>{{ t.save }}</button>
 {% endblock %}
 {% block content %}
 <section class="panel settings-section">
@@ -21,8 +21,8 @@
       <small class="hint">{{ t.extra_sync_globs_hint }}</small>
     </label>
     <div class="vault-settings-actions">
-      <button class="primary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>{{ t.save }}</button>
-      <button class="secondary" name="apply_starter" value="1"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#rotate-cw"></use></svg>{{ t.apply_starter_allowlist }}</button>
+      <button class="primary" type="submit" name="action" value="save"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#save"></use></svg>{{ t.save }}</button>
+      <button class="secondary" type="submit" name="apply_starter" value="1"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#rotate-cw"></use></svg>{{ t.apply_starter_allowlist }}</button>
     </div>
   </form>
 </section>
