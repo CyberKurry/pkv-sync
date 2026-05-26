@@ -16,6 +16,7 @@ class MemoryAdapter implements PluginFileAdapter {
   writes: Array<{ path: string; data: string }> = [];
   files = new Map<string, string>();
   removed: string[] = [];
+  directories = new Set<string>();
 
   async read(path: string): Promise<string> {
     const value = this.files.get(path);
@@ -31,6 +32,20 @@ class MemoryAdapter implements PluginFileAdapter {
   async remove(path: string): Promise<void> {
     this.removed.push(path);
     this.files.delete(path);
+  }
+
+  async mkdir(path: string): Promise<void> {
+    this.directories.add(path);
+  }
+}
+
+class DirectoryRequiredAdapter extends MemoryAdapter {
+  async write(path: string, data: string): Promise<void> {
+    const parent = path.split("/").slice(0, -1).join("/");
+    if (parent && !this.directories.has(parent)) {
+      throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+    }
+    await super.write(path, data);
   }
 }
 
@@ -83,7 +98,10 @@ function responseText(text: string): {
   };
 }
 
-function service(adapter = new MemoryAdapter()): UpdateCheckService {
+function service(
+  adapter = new MemoryAdapter(),
+  options: Partial<ConstructorParameters<typeof UpdateCheckService>[0]> = {}
+): UpdateCheckService {
   const api = new ApiClient({
     serverUrl: "https://sync.example.com",
     deploymentKey: "k_abc",
@@ -94,7 +112,8 @@ function service(adapter = new MemoryAdapter()): UpdateCheckService {
     api,
     adapter,
     configDir: ".obsidian",
-    currentVersion: "0.8.0"
+    currentVersion: "0.8.0",
+    ...options
   });
 }
 
@@ -244,6 +263,34 @@ describe("plugin update check", () => {
     ]);
     expect(adapter.files.get(".obsidian/plugins/pkv-sync/main.js")).toBe(main);
     expect(adapter.removed).toContain(".obsidian/plugins/pkv-sync/.main.js.new");
+  });
+
+  it("creates the manifest plugin directory before staging update files", async () => {
+    const adapter = new DirectoryRequiredAdapter();
+    const main = "console.log('0.8.1')";
+    const manifest = '{"version":"0.8.1"}';
+    requestUrlMock
+      .mockResolvedValueOnce(responseText(main))
+      .mockResolvedValueOnce(responseText(manifest));
+    const update = {
+      version: "0.8.1",
+      source: "server" as const,
+      releaseNotesUrl: "https://example.com/release",
+      mainJsUrl: "https://example.com/main.js",
+      mainJsSha256: await sha256Text(main),
+      manifestJsonUrl: "https://example.com/manifest.json",
+      manifestJsonSha256: await sha256Text(manifest),
+      stylesCssUrl: null,
+      stylesCssSha256: null
+    };
+
+    await service(adapter, { pluginDir: ".obsidian/plugins/custom-folder" }).applyUpdate(update);
+
+    expect(adapter.directories.has(".obsidian/plugins/custom-folder")).toBe(true);
+    expect(adapter.files.get(".obsidian/plugins/custom-folder/main.js")).toBe(main);
+    expect(adapter.writes[0]?.path).toBe(
+      ".obsidian/plugins/custom-folder/.main.js.new"
+    );
   });
 
   it("rolls back from backup when post-write verification fails", async () => {

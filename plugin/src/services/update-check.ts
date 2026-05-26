@@ -20,12 +20,14 @@ export interface PluginFileAdapter {
   read(path: string): Promise<string>;
   write(path: string, data: string): Promise<void>;
   remove(path: string): Promise<void>;
+  mkdir?(path: string): Promise<void>;
 }
 
 interface RecoverPendingUpdateOptions {
   adapter: PluginFileAdapter;
   configDir: string;
   pluginId: string;
+  pluginDir?: string;
 }
 
 interface UpdateCheckOptions {
@@ -34,6 +36,7 @@ interface UpdateCheckOptions {
   configDir: string;
   currentVersion: string;
   pluginId?: string;
+  pluginDir?: string;
   githubRepo?: string;
 }
 
@@ -216,24 +219,17 @@ export class UpdateCheckService {
   }
 
   private async writePluginFile(fileName: string, content: string): Promise<void> {
-    const target = resolvePluginAssetPath(
-      this.options.configDir,
-      this.pluginId,
-      fileName
-    );
-    const temp = resolvePluginAssetPath(
-      this.options.configDir,
-      this.pluginId,
-      `.${fileName}.new`
-    );
-    const backup = resolvePluginAssetPath(
-      this.options.configDir,
-      this.pluginId,
-      `.${fileName}.bak`
-    );
-    const expected = resolvePluginAssetPath(
-      this.options.configDir,
-      this.pluginId,
+    const pluginDir = pluginDirectory({
+      configDir: this.options.configDir,
+      pluginId: this.pluginId,
+      pluginDir: this.options.pluginDir
+    });
+    await ensureDirectory(this.options.adapter, pluginDir);
+    const target = resolvePluginAssetPathInDirectory(pluginDir, fileName);
+    const temp = resolvePluginAssetPathInDirectory(pluginDir, `.${fileName}.new`);
+    const backup = resolvePluginAssetPathInDirectory(pluginDir, `.${fileName}.bak`);
+    const expected = resolvePluginAssetPathInDirectory(
+      pluginDir,
       `.${fileName}.sha256`
     );
     const expectedSha256 = await sha256Text(content);
@@ -289,6 +285,13 @@ export function resolvePluginAssetPath(
   pluginId: string,
   fileName: string
 ): string {
+  return resolvePluginAssetPathInDirectory(
+    fallbackPluginDirectory(configDir, pluginId),
+    fileName
+  );
+}
+
+function resolvePluginAssetPathInDirectory(pluginDir: string, fileName: string): string {
   if (
     fileName.includes("/") ||
     fileName.includes("\\") ||
@@ -296,7 +299,7 @@ export function resolvePluginAssetPath(
   ) {
     throw new Error(`unsafe plugin asset path: ${fileName}`);
   }
-  return `${trimSlashes(configDir)}/plugins/${pluginId}/${fileName}`;
+  return `${trimSlashes(pluginDir)}/${fileName}`;
 }
 
 function normalizeStableVersion(value: string): string | null {
@@ -339,28 +342,47 @@ export function extractSha256(notes: string, fileName: string): string | null {
 }
 
 function trimSlashes(value: string): string {
-  return value.replace(/\/+$/g, "");
+  return value.replace(/[\\/]+$/g, "");
+}
+
+function fallbackPluginDirectory(configDir: string, pluginId: string): string {
+  return `${trimSlashes(configDir)}/plugins/${pluginId}`;
+}
+
+function pluginDirectory(options: {
+  configDir: string;
+  pluginId: string;
+  pluginDir?: string;
+}): string {
+  const dir = options.pluginDir?.trim();
+  return dir ? trimSlashes(dir) : fallbackPluginDirectory(options.configDir, options.pluginId);
+}
+
+async function ensureDirectory(
+  adapter: PluginFileAdapter,
+  path: string
+): Promise<void> {
+  if (!adapter.mkdir) return;
+  try {
+    await adapter.mkdir(path);
+  } catch (error) {
+    if (!isAlreadyExistsError(error)) throw error;
+  }
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(EEXIST|already exists|exists)\b/i.test(message);
 }
 
 async function recoverPendingFile(
   options: RecoverPendingUpdateOptions,
   fileName: string
 ): Promise<void> {
-  const target = resolvePluginAssetPath(
-    options.configDir,
-    options.pluginId,
-    fileName
-  );
-  const temp = resolvePluginAssetPath(
-    options.configDir,
-    options.pluginId,
-    `.${fileName}.new`
-  );
-  const expected = resolvePluginAssetPath(
-    options.configDir,
-    options.pluginId,
-    `.${fileName}.sha256`
-  );
+  const dir = pluginDirectory(options);
+  const target = resolvePluginAssetPathInDirectory(dir, fileName);
+  const temp = resolvePluginAssetPathInDirectory(dir, `.${fileName}.new`);
+  const expected = resolvePluginAssetPathInDirectory(dir, `.${fileName}.sha256`);
 
   let staged: string;
   let expectedSha256: string;

@@ -80,7 +80,8 @@ export default class PKVSyncPlugin extends Plugin {
     await recoverPendingUpdate({
       adapter: this.pluginFileAdapter(),
       configDir: this.app.vault.configDir,
-      pluginId: this.manifest.id || "pkv-sync"
+      pluginId: this.manifest.id || "pkv-sync",
+      pluginDir: this.manifest.dir
     });
     this.settings = readPluginSettings(await this.loadData());
     let shouldSaveSettings = false;
@@ -426,7 +427,8 @@ export default class PKVSyncPlugin extends Plugin {
       adapter: this.pluginFileAdapter(),
       configDir: this.app.vault.configDir,
       currentVersion: this.manifest.version,
-      pluginId: this.manifest.id || "pkv-sync"
+      pluginId: this.manifest.id || "pkv-sync",
+      pluginDir: this.manifest.dir
     });
   }
 
@@ -435,7 +437,8 @@ export default class PKVSyncPlugin extends Plugin {
     return {
       read: (path) => adapter.read(path),
       write: (path, data) => adapter.write(path, data),
-      remove: (path) => adapter.remove(path)
+      remove: (path) => adapter.remove(path),
+      mkdir: (path) => adapter.mkdir(path)
     };
   }
 
