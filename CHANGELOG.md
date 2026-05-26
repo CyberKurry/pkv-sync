@@ -7,6 +7,20 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-05-26
+
+### Fixed
+
+- Polish localized Admin WebUI surfaces across the five supported languages,
+  including page headers, vault/user/detail views, settings forms, and token
+  management copy.
+- Show Admin footer version information instead of a live clock, and remove the
+  unused footer clock updater.
+- Keep device token secrets one-time only: existing token rows now show stable
+  fingerprints instead of raw token material.
+- Replace decorative placeholder marks in Admin user/device lists with useful
+  vault count and last-sync metadata.
+
 ## [1.0.1] - 2026-05-26
 
 ### Fixed
