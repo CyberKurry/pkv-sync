@@ -7,6 +7,20 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-05-27
+
+### Fixed
+
+- Harden setup CSRF, admin rollback identity handling, activity metadata,
+  resource pruning, user serialization, and CLI materialize vault ID
+  validation.
+- Restore Admin WebUI styling and usability details after the Working Paper
+  refresh, including localized templates, warning panels, table scrolling,
+  focus shapes, dashboard collection behavior, and activity IP masking.
+- Improve Obsidian plugin behavior and review ergonomics: clear unload sync
+  timeouts, debounce blur syncs, reject unsafe unspecified HTTP server URLs,
+  and enlarge split diff modals for code-review-style reading.
+
 ## [1.0.2] - 2026-05-26
 
 ### Fixed
