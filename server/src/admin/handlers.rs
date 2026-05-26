@@ -1997,7 +1997,7 @@ mod tests {
 
     #[test]
     fn masks_client_ips_for_admin_activity_views() {
-        assert_eq!(mask_client_ip("203.0.113.42"), "203.*.*.42");
+        assert_eq!(mask_client_ip("203.0.113.42"), "203.0.113.*");
         assert_eq!(
             mask_client_ip("2001:db8:85a3::8a2e:370:7334"),
             "2001:db8:*:*:*:*:370:7334"
@@ -2522,7 +2522,7 @@ fn mask_client_ip(value: &str) -> String {
     match value.parse::<IpAddr>() {
         Ok(IpAddr::V4(addr)) => {
             let octets = addr.octets();
-            format!("{}.*.*.{}", octets[0], octets[3])
+            format!("{}.{}.{}.*", octets[0], octets[1], octets[2])
         }
         Ok(IpAddr::V6(addr)) => {
             let segments = addr.segments();

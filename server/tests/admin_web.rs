@@ -1046,7 +1046,7 @@ async fn activity_page_masks_client_ips_and_limits_recent_rows() {
     assert!(body.contains("PKVSync-Plugin/limited-30"));
     assert!(body.contains("PKVSync-Plugin/limited-29"));
     assert!(!body.contains("PKVSync-Plugin/limited-00"));
-    assert!(body.contains("203.*.*.42"));
+    assert!(body.contains("203.0.113.*"));
     assert!(!body.contains("203.0.113.42"));
     assert!(body.contains("2001:db8:*:*:*:*:370:7334"));
     assert!(!body.contains("2001:db8:85a3::8a2e:370:7334"));
