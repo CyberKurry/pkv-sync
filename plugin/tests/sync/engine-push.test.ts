@@ -38,6 +38,7 @@ describe("SyncEngine push", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("pushes changed text and updates index", async () => {
@@ -312,6 +313,38 @@ describe("SyncEngine push", () => {
     expect(api.push).toHaveBeenCalledWith("v", null, [
       { kind: "text", path: "pending.md", content: "pending" }
     ], "d");
+  });
+
+  it("clears unload timeout when sync finishes before the timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+    const idx = new FakeIndex({ lastSyncedCommit: null, files: {} });
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: null,
+        changed_since: false
+      }),
+      pull: vi.fn(),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: new FakeVault([]) as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.flushOnUnload(1500);
+
+    expect(clearTimeoutSpy).toHaveBeenCalled();
   });
 
   it("pulls latest head and retries once after head_mismatch", async () => {

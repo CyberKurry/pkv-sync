@@ -96,10 +96,19 @@ export class SyncEngine {
   }
 
   async flushOnUnload(timeoutMs: number): Promise<void> {
-    await Promise.race([
-      this.syncNow(),
-      new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs))
-    ]);
+    let timeoutId: number | undefined;
+    try {
+      await Promise.race([
+        this.syncNow(),
+        new Promise<void>((resolve) => {
+          timeoutId = window.setTimeout(resolve, timeoutMs);
+        })
+      ]);
+    } finally {
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+    }
   }
 
   startEventSubscription(): void {
