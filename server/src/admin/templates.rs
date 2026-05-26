@@ -648,6 +648,15 @@ mod tests {
         assert!(css.contains(".segmented input:checked + span"));
         assert!(css.contains(".segmented label:hover > span"));
         assert!(css.contains(".segmented input:focus-visible + span"));
+        assert!(
+            !css.contains("    border-radius: var(--pkv-radius-1);\n    transition: box-shadow")
+        );
+        assert!(css.contains(
+            ".pill:focus-visible,\n.avatar:focus-visible,\n.avatar-small:focus-visible,\n.user-profile-avatar:focus-visible"
+        ));
+        assert!(css.contains("border-radius: var(--pkv-radius-pill);"));
+        assert!(css.contains(".icon-button:focus-visible"));
+        assert!(css.contains("border-radius: var(--pkv-radius-2);"));
         assert!(css.contains(".input-with-unit > span,\n.input-with-unit > small"));
         assert!(css.contains("input:disabled,\nselect:disabled,\ntextarea:disabled"));
         assert!(css.contains(".danger-row .danger"));

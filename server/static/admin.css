@@ -253,8 +253,18 @@ samp {
 *:focus-visible {
     outline: none;
     box-shadow: var(--pkv-focus-ring);
-    border-radius: var(--pkv-radius-1);
     transition: box-shadow var(--pkv-dur-1) var(--pkv-ease);
+}
+
+.pill:focus-visible,
+.avatar:focus-visible,
+.avatar-small:focus-visible,
+.user-profile-avatar:focus-visible {
+    border-radius: var(--pkv-radius-pill);
+}
+
+.icon-button:focus-visible {
+    border-radius: var(--pkv-radius-2);
 }
 
 @media (prefers-reduced-motion: reduce) {
