@@ -32,6 +32,7 @@ use rand::{rngs::OsRng, RngCore};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::path::{Path as FsPath, PathBuf};
 use subtle::ConstantTimeEq;
 use tower_cookies::{Cookie, Cookies};
 
@@ -617,7 +618,7 @@ async fn dashboard(
     let (vaults,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM vaults")
         .fetch_one(&state.pool)
         .await?;
-    let metrics = crate::admin::system::collect(&state.data_dir);
+    let metrics = collect_dashboard_metrics(state.data_dir.clone()).await?;
     let t = admin_text(&headers, &cookies);
     let uptime_seconds = crate::server::uptime_seconds();
     let recent_activities = list_admin_activities(&state, 5, &ActivityFilters::default()).await?;
@@ -677,6 +678,24 @@ async fn dashboard(
     ))
 }
 
+async fn collect_dashboard_metrics(
+    data_dir: PathBuf,
+) -> Result<crate::admin::system::SystemMetrics, ApiError> {
+    collect_dashboard_metrics_with(data_dir, crate::admin::system::collect).await
+}
+
+async fn collect_dashboard_metrics_with<F>(
+    data_dir: PathBuf,
+    collect: F,
+) -> Result<crate::admin::system::SystemMetrics, ApiError>
+where
+    F: FnOnce(&FsPath) -> crate::admin::system::SystemMetrics + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || collect(&data_dir))
+        .await
+        .map_err(|_| ApiError::internal("dashboard metrics task panicked"))
+}
+
 type UserAdminRow = (String, String, bool, bool, i64, i64, Option<i64>);
 
 async fn users_page(
@@ -712,28 +731,25 @@ async fn list_admin_users(
     query: &str,
     status: &str,
 ) -> Result<Vec<UserAdminView>, ApiError> {
-    let query_lc = query.to_lowercase();
-    let rows: Vec<UserAdminRow> = sqlx::query_as(
+    let query = query.trim();
+    let has_query = !query.is_empty();
+    let filter_sql = admin_user_filter_sql(has_query, status);
+    let sql = format!(
         "SELECT u.id, u.username, u.is_admin, u.is_active, u.created_at,
                 COUNT(v.id) AS vault_count, MAX(v.last_sync_at) AS last_sync_at
          FROM users u
          LEFT JOIN vaults v ON v.user_id = u.id
+         {filter_sql}
          GROUP BY u.id, u.username, u.is_admin, u.is_active, u.created_at
-         ORDER BY u.username",
-    )
-    .fetch_all(&state.pool)
-    .await?;
+         ORDER BY u.username"
+    );
+    let mut sql_query = sqlx::query_as::<_, UserAdminRow>(&sql);
+    if has_query {
+        sql_query = sql_query.bind(admin_user_search_pattern(query));
+    }
+    let rows: Vec<UserAdminRow> = sql_query.fetch_all(&state.pool).await?;
     Ok(rows
         .into_iter()
-        .filter(|(_, username, _, _, _, _, _)| {
-            query_lc.is_empty() || username.to_lowercase().contains(&query_lc)
-        })
-        .filter(|(_, _, is_admin, is_active, _, _, _)| match status {
-            "active" => *is_active,
-            "inactive" => !*is_active,
-            "admin" => *is_admin,
-            _ => true,
-        })
         .map(
             |(id, username, is_admin, is_active, created_at, vault_count, last_sync_at)| {
                 UserAdminView {
@@ -749,6 +765,40 @@ async fn list_admin_users(
             },
         )
         .collect())
+}
+
+fn admin_user_filter_sql(has_query: bool, status: &str) -> String {
+    let mut filters = Vec::new();
+    if has_query {
+        filters.push("LOWER(u.username) LIKE ? ESCAPE '\\'");
+    }
+    match status {
+        "active" => filters.push("u.is_active = 1"),
+        "inactive" => filters.push("u.is_active = 0"),
+        "admin" => filters.push("u.is_admin = 1"),
+        _ => {}
+    }
+    if filters.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", filters.join(" AND "))
+    }
+}
+
+fn admin_user_search_pattern(query: &str) -> String {
+    let mut pattern = String::with_capacity(query.len() + 2);
+    pattern.push('%');
+    for ch in query.trim().to_lowercase().chars() {
+        match ch {
+            '%' | '_' | '\\' => {
+                pattern.push('\\');
+                pattern.push(ch);
+            }
+            _ => pattern.push(ch),
+        }
+    }
+    pattern.push('%');
+    pattern
 }
 
 #[derive(Default, Deserialize)]
@@ -1979,6 +2029,57 @@ mod tests {
         assert_eq!(rows[2].class, "diff-modify");
         assert_eq!(rows[2].left_text, "old subtitle");
         assert_eq!(rows[2].right_text, "new subtitle");
+    }
+
+    #[test]
+    fn admin_user_filters_are_pushed_into_sql() {
+        assert_eq!(
+            admin_user_filter_sql(true, "active"),
+            " WHERE LOWER(u.username) LIKE ? ESCAPE '\\' AND u.is_active = 1"
+        );
+        assert_eq!(
+            admin_user_filter_sql(true, "inactive"),
+            " WHERE LOWER(u.username) LIKE ? ESCAPE '\\' AND u.is_active = 0"
+        );
+        assert_eq!(
+            admin_user_filter_sql(false, "admin"),
+            " WHERE u.is_admin = 1"
+        );
+    }
+
+    #[test]
+    fn admin_user_search_escapes_like_wildcards() {
+        assert_eq!(admin_user_search_pattern("Bo_B%"), "%bo\\_b\\%%");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn dashboard_metrics_collection_runs_off_async_thread() {
+        let caller_thread = std::thread::current().id();
+        let worker_thread = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let observed_thread = worker_thread.clone();
+
+        let metrics = collect_dashboard_metrics_with(PathBuf::from("."), move |_| {
+            *observed_thread.lock().unwrap() = Some(std::thread::current().id());
+            crate::admin::system::SystemMetrics {
+                cpu_percent: 0.0,
+                cpu_cores: 1.0,
+                memory_used_mb: 1,
+                memory_total_mb: 2,
+                disk_used_bytes: 3,
+                disk_total_bytes: 4,
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(metrics.disk_total_bytes, 4);
+        assert_ne!(
+            worker_thread
+                .lock()
+                .unwrap()
+                .expect("worker thread recorded"),
+            caller_thread
+        );
     }
 
     async fn admin_login_test_app(
