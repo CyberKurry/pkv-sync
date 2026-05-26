@@ -553,7 +553,7 @@ mod tests {
 
     #[test]
     fn admin_css_keeps_working_paper_controls_polished() {
-        let css = include_str!("../../static/admin.css");
+        let css = include_str!("../../static/admin.css").replace("\r\n", "\n");
         let sprite = include_str!("../../static/lucide-icons.svg");
         assert!(sprite.contains(r#"fill="none""#));
         assert!(sprite.contains(r#"stroke="currentColor""#));
