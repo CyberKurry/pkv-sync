@@ -26,7 +26,11 @@ impl TextClassifier {
 
     pub fn is_text_path(&self, path: &str) -> bool {
         path.rsplit_once('.')
-            .map(|(_, ext)| self.extensions.contains(&ext.to_ascii_lowercase()))
+            .map(|(_, ext)| {
+                self.extensions
+                    .iter()
+                    .any(|known| known.eq_ignore_ascii_case(ext))
+            })
             .unwrap_or(false)
     }
 }
@@ -50,5 +54,18 @@ mod tests {
         let c = TextClassifier::new(["foo"]);
         assert!(c.is_text_path("x.foo"));
         assert!(!c.is_text_path("x.md"));
+    }
+
+    #[test]
+    fn text_path_lookup_does_not_allocate_lowercase_extension() {
+        let source = include_str!("text_kind.rs");
+        let fn_start = source
+            .find("pub fn is_text_path")
+            .expect("is_text_path implementation exists");
+        let test_start = source.find("#[cfg(test)]").expect("test module exists");
+        let implementation = &source[fn_start..test_start];
+
+        assert!(!implementation.contains("ext.to_ascii_lowercase()"));
+        assert!(implementation.contains("eq_ignore_ascii_case"));
     }
 }

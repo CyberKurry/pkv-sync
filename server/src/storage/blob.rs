@@ -86,7 +86,7 @@ pub fn is_sha256_hex(s: &str) -> bool {
 #[async_trait]
 impl BlobStore for LocalFsBlobStore {
     async fn has(&self, hash: &str) -> BlobResult<bool> {
-        Ok(self.path_for(hash)?.exists())
+        Ok(tokio::fs::try_exists(self.path_for(hash)?).await?)
     }
 
     async fn put_verified(&self, expected_hash: &str, bytes: Bytes) -> BlobResult<()> {
@@ -100,7 +100,7 @@ impl BlobStore for LocalFsBlobStore {
         }
 
         let path = self.path_for(expected_hash)?;
-        if path.exists() {
+        if tokio::fs::try_exists(&path).await? {
             return Ok(());
         }
         if let Some(parent) = path.parent() {
@@ -117,15 +117,16 @@ impl BlobStore for LocalFsBlobStore {
 
     async fn get(&self, hash: &str) -> BlobResult<Option<Bytes>> {
         let path = self.path_for(hash)?;
-        if !path.exists() {
-            return Ok(None);
+        match tokio::fs::read(path).await {
+            Ok(bytes) => Ok(Some(Bytes::from(bytes))),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(err.into()),
         }
-        Ok(Some(Bytes::from(tokio::fs::read(path).await?)))
     }
 
     async fn list_hashes(&self) -> BlobResult<HashSet<String>> {
         let mut set = HashSet::new();
-        if !self.root.exists() {
+        if !tokio::fs::try_exists(&self.root).await? {
             return Ok(set);
         }
         for entry in walkdir::WalkDir::new(&self.root)
@@ -144,11 +145,11 @@ impl BlobStore for LocalFsBlobStore {
 
     async fn delete(&self, hash: &str) -> BlobResult<bool> {
         let p = self.path_for(hash)?;
-        if !p.exists() {
-            return Ok(false);
+        match tokio::fs::remove_file(p).await {
+            Ok(()) => Ok(true),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(err.into()),
         }
-        tokio::fs::remove_file(p).await?;
-        Ok(true)
     }
 }
 
@@ -200,5 +201,18 @@ mod tests {
         assert!(is_sha256_hex(&"A".repeat(64)));
         assert!(!is_sha256_hex(&"a".repeat(63)));
         assert!(!is_sha256_hex(&"g".repeat(64)));
+    }
+
+    #[test]
+    fn async_blob_methods_do_not_use_blocking_exists_checks() {
+        let source = include_str!("blob.rs");
+        let impl_start = source
+            .find("impl BlobStore for LocalFsBlobStore")
+            .expect("blob store impl exists");
+        let test_start = source.find("#[cfg(test)]").expect("test module exists");
+        let impl_source = &source[impl_start..test_start];
+
+        assert!(!impl_source.contains(".exists()"));
+        assert!(impl_source.contains("tokio::fs::try_exists"));
     }
 }
