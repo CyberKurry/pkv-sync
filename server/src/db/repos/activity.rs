@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use serde::Serialize;
 use sqlx::SqlitePool;
 
+const CLEANUP_DELETE_BATCH_SIZE: i64 = 10_000;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct NewActivity<'a> {
     pub user_id: &'a str,
@@ -53,11 +55,32 @@ impl SyncActivityRepo for SqliteSyncActivityRepo {
     }
 
     async fn delete_older_than(&self, ts: i64) -> Result<u64, sqlx::Error> {
-        let r = sqlx::query("DELETE FROM sync_activity WHERE timestamp < ?")
-            .bind(ts)
-            .execute(&self.pool)
-            .await?;
-        Ok(r.rows_affected())
+        delete_older_than_batched(&self.pool, ts, CLEANUP_DELETE_BATCH_SIZE).await
+    }
+}
+
+async fn delete_older_than_batched(
+    pool: &SqlitePool,
+    ts: i64,
+    batch_size: i64,
+) -> Result<u64, sqlx::Error> {
+    let mut total = 0;
+    loop {
+        let r = sqlx::query(
+            "DELETE FROM sync_activity
+             WHERE id IN (
+               SELECT id FROM sync_activity WHERE timestamp < ? ORDER BY timestamp LIMIT ?
+             )",
+        )
+        .bind(ts)
+        .bind(batch_size)
+        .execute(pool)
+        .await?;
+        let deleted = r.rows_affected();
+        total += deleted;
+        if deleted < batch_size as u64 {
+            return Ok(total);
+        }
     }
 }
 
@@ -104,5 +127,40 @@ mod tests {
                 .unwrap(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn delete_old_activity_runs_in_batches_and_keeps_recent_rows() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let users = SqliteUserRepo::new(p.clone());
+        let u = users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        for ts in [1_i64, 2, 3, 100] {
+            sqlx::query(
+                "INSERT INTO sync_activity (user_id, action, timestamp) VALUES (?, 'push', ?)",
+            )
+            .bind(&u.id)
+            .bind(ts)
+            .execute(&p)
+            .await
+            .unwrap();
+        }
+
+        let deleted = delete_older_than_batched(&p, 10, 2).await.unwrap();
+
+        assert_eq!(deleted, 3);
+        let rows: Vec<(i64,)> =
+            sqlx::query_as("SELECT timestamp FROM sync_activity ORDER BY timestamp")
+                .fetch_all(&p)
+                .await
+                .unwrap();
+        assert_eq!(rows, vec![(100,)]);
     }
 }

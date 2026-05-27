@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 
+const CLEANUP_DELETE_BATCH_SIZE: i64 = 10_000;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdempotencyEntry {
     pub vault_id: String,
@@ -95,11 +97,32 @@ impl IdempotencyRepo for SqliteIdempotencyRepo {
     }
 
     async fn delete_older_than(&self, ts: i64) -> Result<u64, sqlx::Error> {
-        let r = sqlx::query("DELETE FROM idempotency_cache WHERE created_at < ?")
-            .bind(ts)
-            .execute(&self.pool)
-            .await?;
-        Ok(r.rows_affected())
+        delete_older_than_batched(&self.pool, ts, CLEANUP_DELETE_BATCH_SIZE).await
+    }
+}
+
+async fn delete_older_than_batched(
+    pool: &SqlitePool,
+    ts: i64,
+    batch_size: i64,
+) -> Result<u64, sqlx::Error> {
+    let mut total = 0;
+    loop {
+        let r = sqlx::query(
+            "DELETE FROM idempotency_cache
+             WHERE rowid IN (
+               SELECT rowid FROM idempotency_cache WHERE created_at < ? ORDER BY created_at LIMIT ?
+             )",
+        )
+        .bind(ts)
+        .bind(batch_size)
+        .execute(pool)
+        .await?;
+        let deleted = r.rows_affected();
+        total += deleted;
+        if deleted < batch_size as u64 {
+            return Ok(total);
+        }
     }
 }
 
@@ -129,6 +152,35 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[tokio::test]
+    async fn delete_old_idempotency_entries_runs_in_batches_and_keeps_recent_rows() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        for idx in 0..4 {
+            sqlx::query(
+                "INSERT INTO idempotency_cache
+                 (user_id, key, vault_id, route, request_hash, response_json, created_at)
+                 VALUES ('u', ?, 'v', 'push', ?, '{}', ?)",
+            )
+            .bind(format!("k{idx}"))
+            .bind(format!("hash{idx}"))
+            .bind(if idx < 3 { idx as i64 } else { 100 })
+            .execute(&p)
+            .await
+            .unwrap();
+        }
+
+        let deleted = delete_older_than_batched(&p, 10, 2).await.unwrap();
+
+        assert_eq!(deleted, 3);
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT key FROM idempotency_cache ORDER BY created_at")
+                .fetch_all(&p)
+                .await
+                .unwrap();
+        assert_eq!(rows, vec![("k3".into(),)]);
     }
 
     #[tokio::test]
