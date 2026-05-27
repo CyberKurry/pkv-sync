@@ -181,14 +181,13 @@ async fn login_page(
         .get("setup")
         .filter(|value| value.as_str() == "complete")
         .map(|_| t.setup_success);
-    let username_value = params.get("u").cloned().unwrap_or_default();
     Html(
         LoginTemplate {
             t,
             error: None,
             success,
             setup_required: state.is_setup_pending().await,
-            username_value,
+            username_value: String::new(),
             version: env!("CARGO_PKG_VERSION"),
         }
         .render()
@@ -417,11 +416,7 @@ async fn setup_post(
     state.mark_setup_complete().await;
     cookies.add(expired_setup_csrf_cookie(cookie_policy.secure));
     tracing::info!(username = %username, "first admin created via setup wizard");
-    Ok(Redirect::to(&format!(
-        "/admin/login?setup=complete&u={}",
-        url_query(&username)
-    ))
-    .into_response())
+    Ok(Redirect::to("/admin/login?setup=complete").into_response())
 }
 
 fn setup_error(

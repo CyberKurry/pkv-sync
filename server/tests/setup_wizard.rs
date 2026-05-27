@@ -158,7 +158,7 @@ async fn setup_wizard_creates_first_admin_and_seals() {
     assert_eq!(create.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         create.headers().get(header::LOCATION).unwrap(),
-        "/admin/login?setup=complete&u=newadmin"
+        "/admin/login?setup=complete"
     );
     assert_eq!(state.users.count_admins().await.unwrap(), 1);
     assert!(!state.is_setup_pending().await);

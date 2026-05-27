@@ -736,6 +736,22 @@ async fn dashboard_requires_session() {
 }
 
 #[tokio::test]
+async fn login_page_does_not_prefill_username_from_query() {
+    let resp = app()
+        .await
+        .oneshot(request(
+            Method::GET,
+            "/admin/login?u=leaked-admin",
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = read_body(resp).await;
+    assert!(!body.contains("leaked-admin"));
+}
+
+#[tokio::test]
 async fn dashboard_rejects_disabled_admin_session_like_missing_session() {
     let (app, state) = app_with_state().await;
     let admin = state

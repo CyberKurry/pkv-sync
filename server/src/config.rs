@@ -133,8 +133,35 @@ impl Config {
     pub fn load(path: &std::path::Path) -> Result<Self, ConfigError> {
         let raw =
             std::fs::read_to_string(path).map_err(|e| ConfigError::Read(path.to_path_buf(), e))?;
-        toml::from_str(&raw).map_err(ConfigError::Parse)
+        let cfg: Self = toml::from_str(&raw).map_err(ConfigError::Parse)?;
+        cfg.validate()?;
+        Ok(cfg)
     }
+
+    fn validate(&self) -> Result<(), ConfigError> {
+        if !valid_update_check_repo(&self.update_check.repo) {
+            return Err(ConfigError::Invalid(
+                "update_check.repo must be in owner/repo format using ASCII letters, digits, '.', '_', or '-'"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn valid_update_check_repo(repo: &str) -> bool {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return false;
+    };
+    if owner.is_empty() || name.is_empty() || name.contains('/') || repo.trim() != repo {
+        return false;
+    }
+    owner
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -143,6 +170,8 @@ pub enum ConfigError {
     Read(PathBuf, std::io::Error),
     #[error("parsing config: {0}")]
     Parse(#[from] toml::de::Error),
+    #[error("invalid config: {0}")]
+    Invalid(String),
 }
 
 #[cfg(test)]
@@ -327,6 +356,32 @@ mod tests {
         assert!(!cfg.update_check.enabled);
         assert_eq!(cfg.update_check.interval_seconds, 172_800);
         assert_eq!(cfg.update_check.repo, "example/fork");
+    }
+
+    #[test]
+    fn rejects_invalid_update_check_repo_format() {
+        let f = write_temp(
+            r#"
+            [server]
+            bind_addr = "127.0.0.1:6710"
+            deployment_key = "k_test"
+
+            [storage]
+            data_dir = "/x"
+            db_path = "/x/y"
+
+            [network]
+            trusted_proxies = []
+
+            [update_check]
+            repo = "https://example.com/cyberkurry/pkv-sync"
+            "#,
+        );
+        let err = Config::load(f.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("update_check.repo"),
+            "expected update_check.repo validation error, got: {err}"
+        );
     }
 
     #[test]
