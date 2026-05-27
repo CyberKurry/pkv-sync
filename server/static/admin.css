@@ -721,6 +721,14 @@ samp {
     flex: 0 1 180px;
     min-width: 160px;
     max-width: 240px;
+    min-height: 38px;
+    font-size: var(--pkv-text-sm);
+    cursor: pointer;
+}
+
+.header-filter-form > select:hover {
+    background-color: var(--pkv-paper);
+    border-color: var(--pkv-ink-faint);
 }
 
 /* =====================================================================

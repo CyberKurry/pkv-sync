@@ -56,14 +56,30 @@
     return modes[(index + 1) % modes.length];
   }
 
+  function submitClosestForm(control) {
+    var form = control.closest("form");
+    if (!form) return;
+    if (typeof form.requestSubmit === "function") {
+      form.requestSubmit();
+      return;
+    }
+    form.submit();
+  }
+
   applyTheme(normalizeMode(localStorage.getItem(storageKey)));
 
   document.addEventListener("DOMContentLoaded", function () {
     var languageSelects = document.querySelectorAll("[data-language-select]");
     languageSelects.forEach(function (languageSelect) {
       languageSelect.addEventListener("change", function () {
-        var form = languageSelect.closest("form");
-        if (form) form.submit();
+        submitClosestForm(languageSelect);
+      });
+    });
+
+    var autoSubmitFilters = document.querySelectorAll("[data-auto-submit-filter]");
+    autoSubmitFilters.forEach(function (filter) {
+      filter.addEventListener("change", function () {
+        submitClosestForm(filter);
       });
     });
 

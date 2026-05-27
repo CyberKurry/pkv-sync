@@ -1369,8 +1369,12 @@ mod tests {
         assert!(html.contains("<summary>ID</summary>"));
         assert!(html.contains("PKVSync-Plugin"));
         assert!(html.contains("/admin/static/lucide-icons.svg#filter"));
+        assert!(html.contains("data-auto-submit-filter"));
+        assert!(!html.contains("onchange="));
         let css = include_str!("../../static/admin.css").replace("\r\n", "\n");
         assert!(css.contains(".header-filter-form {\n    display: flex;\n    flex-wrap: wrap;"));
+        let js = include_str!("../../static/admin.js");
+        assert!(js.contains("querySelectorAll(\"[data-auto-submit-filter]\")"));
     }
 
     #[test]

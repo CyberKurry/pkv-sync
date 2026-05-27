@@ -4,13 +4,13 @@
 {% block page_title %}{{ t.activity }}{% endblock %}
 {% block header_actions %}
 <form method="get" action="/admin/activity" class="header-filter-form">
-  <select name="user_id" aria-label="{{ t.filter_users }}" onchange="this.form.submit()">
+  <select name="user_id" aria-label="{{ t.filter_users }}" data-auto-submit-filter>
     <option value="" {% if selected_user_id.is_empty() %}selected{% endif %}>{{ t.all_users }}</option>
     {% for user in users %}
     <option value="{{ user.id }}" {% if user.id == selected_user_id %}selected{% endif %}>{{ user.username }}</option>
     {% endfor %}
   </select>
-  <select name="action" aria-label="{{ t.filter_actions }}" onchange="this.form.submit()">
+  <select name="action" aria-label="{{ t.filter_actions }}" data-auto-submit-filter>
     <option value="" {% if selected_action.is_empty() %}selected{% endif %}>{{ t.all_actions }}</option>
     <option value="push" {% if selected_action == "push" %}selected{% endif %}>{{ t.push_action }}</option>
     <option value="pull" {% if selected_action == "pull" %}selected{% endif %}>{{ t.pull_action }}</option>
