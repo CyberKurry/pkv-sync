@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
 const MAX_PUSH_CHANGES: usize = 1000;
+const MAX_SSE_INLINE_PUSH_BYTES: usize = 64 * 1024;
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
 const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
 const POINTER_VERSION: u64 = 1;
@@ -527,6 +528,7 @@ async fn push_with_request_metadata_internal(
         .collect();
     let mut blob_availability = None;
     let inline_max = runtime_cfg.inline_content_max_bytes as usize;
+    let mut inline_budget = SseInlineBudget::new(inline_max);
     let mut event_changes = Vec::new();
     let mut text_changes = 0u64;
     let mut blob_changes = 0u64;
@@ -554,19 +556,12 @@ async fn push_with_request_metadata_internal(
                         "non-text path sent as text",
                     ));
                 }
-                let content_len = content.len();
                 let event_path = p.clone();
-                if content_len <= inline_max {
-                    event_changes.push(EventChange::TextInline {
-                        path: event_path,
-                        content: content.clone(),
-                    });
-                } else {
-                    event_changes.push(EventChange::TextRef {
-                        path: event_path,
-                        size: content_len as u64,
-                    });
-                }
+                event_changes.push(text_event_with_budget(
+                    &event_path,
+                    &content,
+                    &mut inline_budget,
+                ));
                 git_changes.push(FileChange::Upsert {
                     path: p,
                     file: StoredFile::Text {
@@ -816,6 +811,7 @@ async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, Ap
 async fn try_auto_merge_push(input: AutoMergePushInput<'_>) -> Result<Option<PushResp>, ApiError> {
     let git = Git2VaultStore::new(input.state.default_vault_root());
     let inline_max = input.runtime_cfg.inline_content_max_bytes as usize;
+    let mut inline_budget = SseInlineBudget::new(inline_max);
     let mut git_changes = Vec::new();
     let mut event_changes = Vec::new();
     let mut clean_merges = 0;
@@ -867,7 +863,11 @@ async fn try_auto_merge_push(input: AutoMergePushInput<'_>) -> Result<Option<Pus
             &remote_bytes,
         ) {
             MergeOutcome::Clean(merged) => {
-                event_changes.push(text_event(&normalized, &merged, inline_max));
+                event_changes.push(text_event_with_budget(
+                    &normalized,
+                    &merged,
+                    &mut inline_budget,
+                ));
                 git_changes.push(FileChange::Upsert {
                     path: normalized,
                     file: StoredFile::Text {
@@ -878,7 +878,11 @@ async fn try_auto_merge_push(input: AutoMergePushInput<'_>) -> Result<Option<Pus
             }
             MergeOutcome::Conflicted(marked) => {
                 let conflict_path = conflict_path_for(&normalized, conflict_device_name);
-                event_changes.push(text_event(&conflict_path, &marked, inline_max));
+                event_changes.push(text_event_with_budget(
+                    &conflict_path,
+                    &marked,
+                    &mut inline_budget,
+                ));
                 git_changes.push(FileChange::Upsert {
                     path: conflict_path,
                     file: StoredFile::Text {
@@ -889,7 +893,11 @@ async fn try_auto_merge_push(input: AutoMergePushInput<'_>) -> Result<Option<Pus
             }
             MergeOutcome::Binary => {
                 let conflict_path = conflict_path_for(&normalized, conflict_device_name);
-                event_changes.push(text_event(&conflict_path, &content, inline_max));
+                event_changes.push(text_event_with_budget(
+                    &conflict_path,
+                    &content,
+                    &mut inline_budget,
+                ));
                 git_changes.push(FileChange::Upsert {
                     path: conflict_path,
                     file: StoredFile::Text {
@@ -968,8 +976,23 @@ async fn read_merge_text(
     }
 }
 
-fn text_event(path: &str, content: &str, inline_max: usize) -> EventChange {
-    if content.len() <= inline_max {
+struct SseInlineBudget {
+    per_file_max: usize,
+    remaining: usize,
+}
+
+impl SseInlineBudget {
+    fn new(per_file_max: usize) -> Self {
+        Self {
+            per_file_max,
+            remaining: MAX_SSE_INLINE_PUSH_BYTES,
+        }
+    }
+}
+
+fn text_event_with_budget(path: &str, content: &str, budget: &mut SseInlineBudget) -> EventChange {
+    if content.len() <= budget.per_file_max && content.len() <= budget.remaining {
+        budget.remaining = budget.remaining.saturating_sub(content.len());
         EventChange::TextInline {
             path: path.to_string(),
             content: content.to_string(),

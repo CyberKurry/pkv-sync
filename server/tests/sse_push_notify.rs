@@ -118,6 +118,51 @@ async fn push_large_text_emits_text_ref() {
 }
 
 #[tokio::test]
+async fn push_caps_total_inline_text_in_single_event() {
+    let (state, user, vid, _tmp) = setup().await;
+    let mut rx = state.events.subscribe(&vid);
+    let content = "x".repeat(8192);
+
+    push(
+        &state,
+        &user,
+        &vid,
+        None,
+        None,
+        PushReq {
+            device_name: None,
+            changes: (0..9)
+                .map(|idx| PushChange::Text {
+                    path: format!("note-{idx}.md"),
+                    content: content.clone(),
+                })
+                .collect(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let event = rx.try_recv().unwrap();
+    let inline_bytes: usize = event
+        .changes
+        .iter()
+        .map(|change| match change {
+            EventChange::TextInline { content, .. } => content.len(),
+            _ => 0,
+        })
+        .sum();
+    let ref_count = event
+        .changes
+        .iter()
+        .filter(|change| matches!(change, EventChange::TextRef { .. }))
+        .count();
+
+    assert_eq!(event.changes.len(), 9);
+    assert_eq!(inline_bytes, 64 * 1024);
+    assert_eq!(ref_count, 1);
+}
+
+#[tokio::test]
 async fn push_blob_emits_blob_event() {
     let (state, user, vid, _tmp) = setup().await;
     let mut rx = state.events.subscribe(&vid);
