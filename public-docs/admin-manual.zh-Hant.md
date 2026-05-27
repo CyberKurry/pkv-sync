@@ -47,12 +47,27 @@ https://sync.example.com/admin/login
 - 筆記庫卡片：所有者、檔案數、大小、上次同步、元資料修復、刪除操作和按筆記庫同步設定
 - 唯讀筆記庫檔案瀏覽器，支援檔案預覽、單檔案歷史時間線和 unified diff 渲染
 - 邀請碼建立，可選過期時間、活躍邀請碼清單，以及刪除未使用邀請碼
-- 執行階段設定，分為 General、Security、Sync & Storage、Network
+- 執行階段設定，分為 General、Security、Sync & Storage、Network，並包含更新檢查開關和間隔
 - 活動日誌，支援按使用者和動作真實篩選 push/pull 以及筆記庫生命週期記錄
 - Blob 垃圾回收觸發
 - 英文、簡體中文、繁體中文、日文和韓文語言切換
 
 時間戳、持續時間、位元組大小、執行時間和活動資料都會以人類可讀形式顯示。預設時區是 `Asia/Shanghai`，可在設定中修改。
+
+## 更新通知
+
+PKV Sync 預設每 24 小時檢查一次 GitHub release。發現新的服務端版本時，儀表板會顯示提示，包含目前版本、最新版本、發行說明連結和簡短摘要。
+
+`config.toml` 中的 `[update_check].enabled` 和 `[update_check].interval_seconds` 只在全新資料庫首次啟動時寫入執行階段設定。之後以 Admin WebUI 的 Settings 頁面為準：在 **Network** 區段切換更新檢查或調整間隔，背景任務會在下一輪讀取新的執行階段值。如果目前已關閉更新檢查，重新開啟後約 60 秒內生效。`[update_check].repo` 仍保留為靜態 `config.toml` 欄位，供離線鏡像部署使用。
+
+```toml
+[update_check]
+enabled = false
+interval_seconds = 86400
+repo = "cyberkurry/pkv-sync"
+```
+
+更新檢查只提供資訊。PKV Sync 不會自動替換正在執行的服務端二進位或容器映像。
 
 ## 使用者管理
 
@@ -145,6 +160,8 @@ Blob 檔案是內容定址的，可能會保留到垃圾回收確認其超過寬
 - **SSE 心跳**（`sse_heartbeat_seconds`，預設 `30`）：事件流保活，避免閒置 SSE 連線被反向代理切斷。並發 SSE 訂閱預設按使用者限制為 16，並保留 1024 的全域上限。
 - **Git smart HTTP**（`enable_git_smart_http`，預設關）：開啟後授權裝置可 `git clone https://_:<token>@host/git/<vault-id>`。伺服器還需要 `PATH` 中有 `git` 二進位；公開的 `/api/config` 能力兩個條件都滿足才顯示為可用
 
+**網路與更新檢查** — `public_host`、監聽位址、可信代理以及 `[update_check].repo` 在啟動時從 `config.toml` 讀取。更新檢查的啟用狀態和間隔是保存在 SQLite 中的執行階段設定；允許範圍為 60 秒到 30 天。
+
 ## 活動日誌
 
 活動日誌記錄 push、pull、create_vault、delete_vault、view_commit、view_history、view_diff 等同步、筆記庫生命週期與唯讀瀏覽操作，包括：
@@ -176,11 +193,11 @@ https://sync.example.com/k_xxx/
 
 ## 維護清單
 
-- 使用 `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` 產生維運快照。輸出目錄必須不存在或為空；命令會用 `VACUUM INTO` 快照 SQLite，複製 `vaults/`、`blobs/` 和存在時的 `config.toml`，並寫入帶 pkvsyncd 版本、元件雜湊、大小和數量的 `MANIFEST.json`。
+- 使用 `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` 產生維運快照。輸出目錄必須不存在或為空；命令會用 `VACUUM INTO` 快照 SQLite，複製 `vaults/` 和 `blobs/`，並寫入帶 pkvsyncd 版本、元件雜湊、大小和數量的 `MANIFEST.json`。預設備份會省略 `config.toml`；只有在你明確要保存並保護部署金鑰和其他本機秘密時，才加入 `--include-config`。
 - 使用 `pkvsyncd restore --input <backup-dir> --data-dir <dir>` 恢復到不存在或為空的資料目錄。只有確認目標可以先清空時才加 `--force`；恢復會先校驗 manifest 雜湊，複製完成後自動執行 verify。
 - 維護後或主機儲存異常後執行 `pkvsyncd verify [--data-dir <dir>]`。它會檢查被引用的 blob 檔案，報告孤立 blob，用 `git2` 校驗筆記庫 git 倉庫，並在缺失、損壞或 git 錯誤時返回失敗。`--no-fail` 會保留報告但強制返回成功退出碼。
 - 使用 `pkvsyncd materialize <vault-id> -o <dir>` 將筆記庫的 HEAD 匯出為普通檔案樹（文字檔案原樣寫出，二進位 blob 從 blob 儲存解析）。可用於離線匯出、臨時稽核或冷遷移。搭配 `--at <commit-sha>` 可實體化特定歷史提交。
-- 執行 `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` 透過 Streamable HTTP 對 AI 工具開放讀寫 MCP 伺服器；或執行 `pkvsyncd mcp --vault <id>` 啟動僅 stdio 的單筆記庫工作階段。
+- 設定 `[mcp].embed_in_serve = true` 可在主 `pkvsyncd serve` 端口的 `/mcp` 開放讀寫 MCP Streamable HTTP endpoint；也可以執行 `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` 作為獨立 MCP 進程。使用 `pkvsyncd mcp --vault <id>` 可啟動僅 stdio 的單筆記庫工作階段。
 - 大量刪除附件後執行 blob 垃圾回收。
 - 關注日誌和活動中重複出現的 `401`、`403`、`404`、`409` 和 `429` 回應。
 - 保持服務端二進位、外掛包、Docker 映像、反向代理和主機系統及時更新。

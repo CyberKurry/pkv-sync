@@ -49,12 +49,27 @@ Web パネルには次が含まれます。
 - 所有者、ファイル数、サイズ、最終同期、reconcile、削除操作、vault ごとの同期設定を持つ vault カード
 - ファイルプレビュー、ファイル別履歴タイムライン、unified diff レンダリング付きの読み取り専用 vault ファイルブラウザー
 - 任意の有効期限付き招待の作成、アクティブな招待一覧、未使用招待の削除
-- General、Security、Sync & Storage、Network に分かれた実行時設定
+- General、Security、Sync & Storage、Network に分かれた実行時設定。更新確認の有効化と間隔も含まれます
 - 同期、vault ライフサイクル、読み取り専用閲覧行を対象に、実ユーザーとアクションでフィルターできるアクティビティログ
 - Blob ガベージコレクションのトリガー
 - 英語、簡体字中国語、繁体字中国語、日本語、韓国語の言語切替
 
 タイムスタンプ、期間、バイトサイズ、稼働時間、アクティビティデータは人間が読みやすい形式で表示されます。既定のタイムゾーンは `Asia/Shanghai` で、設定から変更できます。
+
+## 更新通知
+
+PKV Sync は既定で 24 時間ごとに GitHub release を確認します。新しいサーバー版がある場合、ダッシュボードに現在のバージョン、最新バージョン、release notes リンク、短い抜粋を含むバナーが表示されます。
+
+`config.toml` の `[update_check].enabled` と `[update_check].interval_seconds` は、新しいデータベースの初回起動時にランタイム設定へ seed されます。その後は Admin WebUI の Settings ページが優先されます。**Network** セクションで更新確認を切り替えたり間隔を変更したりでき、バックグラウンドタスクは次のサイクルで新しいランタイム値を読み直します。現在無効な場合、再有効化は約 60 秒以内に反映されます。`[update_check].repo` は、エアギャップ mirror デプロイメント用の静的な `config.toml` フィールドのままです。
+
+```toml
+[update_check]
+enabled = false
+interval_seconds = 86400
+repo = "cyberkurry/pkv-sync"
+```
+
+更新確認は情報提供のみです。PKV Sync は実行中のサーバーバイナリやコンテナイメージを自動的に置き換えません。
 
 ## ユーザー管理
 
@@ -147,6 +162,8 @@ Settings ページは SQLite に保存された値を編集します。変更は
 - **SSE heartbeat**（`sse_heartbeat_seconds`、既定 `30`）: アイドル SSE 接続がリバースプロキシで切断されないようにするイベントストリームの keep-alive。並行 SSE 購読は既定でユーザーごとに 16、全体上限は 1024 です。
 - **Git smart HTTP**（`enable_git_smart_http`、既定オフ）: 有効時、認可済み装置は `git clone https://_:<token>@host/git/<vault-id>` を使用できます。サーバーには `PATH` 内の `git` バイナリも必要で、公開 `/api/config` capability は両方の条件を反映します。
 
+**Network and update checks** — `public_host`、bind address、trusted proxies、`[update_check].repo` は起動時に `config.toml` から読み込まれます。更新確認の有効化と間隔は SQLite に保存されるランタイム設定です。許可範囲は 60 秒から 30 日です。
+
 ## アクティビティ
 
 アクティビティログは push、pull、create_vault、delete_vault、view_commit、view_history、view_diff などの同期、vault ライフサイクル、読み取り専用閲覧操作を記録します。含まれる項目:
@@ -178,11 +195,11 @@ https://sync.example.com/k_xxx/
 
 ## メンテナンスチェックリスト
 
-- `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` を運用スナップショットに使用します。出力ディレクトリは存在しないか空である必要があります。コマンドは `VACUUM INTO` で SQLite をスナップショットし、`vaults/`、`blobs/`、存在する場合は `config.toml` をコピーし、pkvsyncd バージョン、コンポーネント hash、サイズ、数を含む `MANIFEST.json` を書き込みます。
+- `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` を運用スナップショットに使用します。出力ディレクトリは存在しないか空である必要があります。コマンドは `VACUUM INTO` で SQLite をスナップショットし、`vaults/` と `blobs/` をコピーし、pkvsyncd バージョン、コンポーネント hash、サイズ、数を含む `MANIFEST.json` を書き込みます。デフォルトでは `config.toml` を省略します。デプロイメントキーやその他のローカル秘密を保存して保護するつもりがある場合だけ、`--include-config` を追加してください。
 - `pkvsyncd restore --input <backup-dir> --data-dir <dir>` で、存在しないか空のデータディレクトリに復元します。先に消去してよい対象であることを確認した場合のみ `--force` を追加してください。restore はコピー前に manifest hash を検証し、完了後に verify を実行します。
 - メンテナンス後またはホストストレージ障害後に `pkvsyncd verify [--data-dir <dir>]` を実行します。参照される blob ファイルを確認し、孤立 blob を報告し、`git2` で vault git リポジトリを検証し、欠落、破損、git エラーでは非ゼロ終了します。`--no-fail` はレポートを残したまま成功終了コードを強制します。
 - `pkvsyncd materialize <vault-id> -o <dir>` で vault の HEAD を平坦なファイルツリーとしてエクスポートします（テキストファイルはそのまま、バイナリ blob は blob ストアから解決されます）。オフラインエクスポート、臨時監査、コールドマイグレーションに有用です。`--at <commit-sha>` と組み合わせると、過去の commit を materialize できます。
-- AI ツール向けに read/write MCP サーバーを Streamable HTTP で公開するには `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` を実行します。単一 vault 専用の stdio セッションには `pkvsyncd mcp --vault <id>` を使用します。
+- `[mcp].embed_in_serve = true` を設定すると、メインの `pkvsyncd serve` ポートの `/mcp` で read/write MCP Streamable HTTP endpoint を公開できます。独立 MCP プロセスとして `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` を実行することもできます。単一 vault 専用の stdio セッションには `pkvsyncd mcp --vault <id>` を使用します。
 - 大量の添付ファイル削除後は blob ガベージコレクションを実行します。
 - ログとアクティビティで `401`、`403`、`404`、`409`、`429` の繰り返し応答を監視します。
 - サーバーバイナリ、プラグインパッケージ、Docker イメージ、リバースプロキシ、ホスト OS を更新状態に保ちます。

@@ -23,8 +23,8 @@ English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md
   conflicts surface as `.conflict-*` files with a one-click resolver.
 - **Admin panel** in five languages (English, 简中, 繁中, 日本語, 한국어)
   for users, device tokens, vaults, invites, activity, and blob GC.
-- **AI-readable vaults.** `pkvsyncd mcp` exposes read/write MCP tools
-  over stdio or streaming HTTP.
+- **AI-readable vaults.** MCP exposes read/write tools over stdio,
+  standalone Streamable HTTP, or an embedded `/mcp` route on `pkvsyncd serve`.
 - **Boring on purpose.** Single binary, single SQLite metadata DB, one
   bare git repo per vault, one content-addressed blob per attachment.
 
@@ -58,6 +58,9 @@ internet (port 80 is needed for ACME HTTP-01 validation).
 
    [network]
    trusted_proxies = ["172.16.0.0/12"]   # Docker bridge network
+
+   [mcp]
+   embed_in_serve = false                # true mounts /mcp on this server
    ```
 
 3. Edit `deploy/caddy/Caddyfile` and replace `sync.example.com` with your
@@ -80,6 +83,16 @@ Updating is `docker compose pull && docker compose up -d`. For native
 installs, reverse-proxy tuning (Caddy / Nginx / Traefik), `public_host`
 semantics, backup / restore, and disk encryption, read the
 [deployment hardening guide](./public-docs/deployment-hardening.md).
+
+## MCP deployment modes
+
+PKV Sync exposes the MCP Streamable HTTP transport in two ways. Embedded mode
+is opt-in: set `[mcp].embed_in_serve = true` and `pkvsyncd serve` mounts
+`/mcp` on the main server port, sharing the same TLS termination, reverse
+proxy, deployment key, and bearer token enforcement. Standalone mode keeps the
+existing separate process: `pkvsyncd mcp --transport http --bind
+127.0.0.1:6711`, useful for air-gapped MCP, dedicated bind addresses, or
+independent scaling.
 
 ## Obsidian plugin
 

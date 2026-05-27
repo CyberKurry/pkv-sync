@@ -30,13 +30,16 @@ pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 
 ## Streamable HTTP transport
 
-当客户端连接一个已经运行的本地或内网 MCP 端点时，使用 HTTP。
+当客户端连接一个已经运行的本地或内网 MCP 端点时，使用 HTTP。PKV Sync 提供两种 HTTP 部署模式：
+
+- **内嵌模式**：在 `config.toml` 中设置 `[mcp].embed_in_serve = true`，`pkvsyncd serve` 会在主服务端口挂载 `/mcp`。
+- **独立模式**：运行单独的 MCP 进程，适合专用监听地址、隔离 MCP 或独立扩缩容：
 
 ```bash
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
 ```
 
-端点为：
+端点路径始终是 `/mcp`；内嵌模式使用主服务 origin，独立模式使用单独的监听地址：
 
 ```text
 POST http://127.0.0.1:6711/mcp

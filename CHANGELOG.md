@@ -7,6 +7,32 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-05-28
+
+### Added
+
+- Add opt-in embedded MCP HTTP transport for `pkvsyncd serve`; set
+  `[mcp].embed_in_serve = true` to mount `/mcp` on the main server port while
+  keeping the same deployment-key and bearer-token checks.
+
+### Changed
+
+- Make update-check enabled state and interval runtime-editable from the Admin
+  WebUI. `config.toml` still seeds fresh databases, while `[update_check].repo`
+  remains a static deployment setting.
+- Omit `config.toml` from CLI backups by default; use `--include-config` only
+  when the backup location protects deployment keys and local secrets.
+
+### Fixed
+
+- Preserve committed push metadata and blob references when post-commit
+  metadata repair hits transient failures.
+- Revalidate MCP SSE bearer tokens during long-lived streams.
+- Cap inline SSE payloads, avoid SSE counter underflow, coordinate scheduled
+  reconcile with vault push locks, and time out stuck vault push locks.
+- Reduce setup/login metadata leakage, prune limiters off the async runtime,
+  and hide disabled-account state from Git HTTP authentication.
+
 ## [1.0.5] - 2026-05-27
 
 ### Performance

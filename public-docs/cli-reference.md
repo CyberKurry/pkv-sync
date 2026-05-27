@@ -181,7 +181,7 @@ Snapshot server data into a portable backup directory.
 ### Synopsis
 
 ```text
-pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip]
+pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 ```
 
 ### Options
@@ -189,6 +189,7 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip]
 - `-o, --output <DIR>`: backup output directory (must not exist or be empty).
 - `--data-dir <DIR>`: data directory override for offline operations. Defaults to `[storage].data_dir` from the loaded config.
 - `--gzip`: also create a `.tar.gz` archive next to the backup directory.
+- `--include-config`: include the loaded `config.toml` in the backup. By default backups omit config because it can contain deployment keys and other local secrets.
 
 ### Description
 
@@ -197,6 +198,9 @@ every vault's bare git repository, and the blob store, into a self-contained
 directory with a `MANIFEST.json`. The HTTP server may continue running during
 backup; vault pushes are momentarily quiesced per-vault while their repos are
 copied.
+
+By default, backups omit `config.toml`; add `--include-config` only when you
+intend to store the config and protect its secrets.
 
 ### Example
 
@@ -292,6 +296,8 @@ are rate-limited at 60 writes per minute per `(token, vault)`.
 `http` mode requires every request to carry the server deployment key header,
 just like the regular sync API.
 
+This subcommand remains the standalone MCP process. To serve the same Streamable HTTP transport from the main server port, set `[mcp].embed_in_serve = true` and use `pkvsyncd serve`.
+
 ### Examples
 
 ```bash
@@ -316,7 +322,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: show the selected release, asset, and target path without downloading anything.
 - `--yes`: skip the interactive confirmation prompt.
-- `--version <VERSION>`: download a specific release such as `1.0.5` instead of the latest release.
+- `--version <VERSION>`: download a specific release such as `1.0.6` instead of the latest release.
 
 ### Description
 
@@ -340,5 +346,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # Download a specific release
-pkvsyncd upgrade --yes --version 1.0.5
+pkvsyncd upgrade --yes --version 1.0.6
 ```

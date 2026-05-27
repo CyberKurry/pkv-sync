@@ -144,7 +144,7 @@ Obsidian 플러그인은 활성 토큰과 배포 키를 `<vault>/.obsidian/plugi
 
 ## MCP 접근
 
-관리자가 `pkvsyncd mcp` 명령을 활성화한 경우, AI 도구는 bearer 기기 토큰을 사용하여 MCP를 통해 Vault에 접근할 수 있습니다. MCP는 Vault 목록, 파일 목록, HEAD 또는 특정 commit에서의 파일 읽기, 간단한 텍스트 검색, 그리고 낙관적 동시성으로 보호되는 명시적 쓰기/삭제 도구를 제공합니다. stdio 및 Streamable HTTP 설정 예시는 [`mcp-howto.md`](./mcp-howto.md)를 참조하십시오.
+관리자가 MCP를 활성화한 경우(메인 서버의 `/mcp`에 내장하거나 `pkvsyncd mcp` 명령으로 실행), AI 도구는 bearer 기기 토큰을 사용하여 Vault에 접근할 수 있습니다. MCP는 Vault 목록, 파일 목록, HEAD 또는 특정 commit에서의 파일 읽기, 간단한 텍스트 검색, 그리고 낙관적 동시성으로 보호되는 명시적 쓰기/삭제 도구를 제공합니다. stdio 및 Streamable HTTP 설정 예시는 [`mcp-howto.md`](./mcp-howto.md)를 참조하십시오.
 
 ## 명령
 

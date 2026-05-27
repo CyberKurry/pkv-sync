@@ -148,14 +148,16 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
-儀表板每 24 小時檢查一次 GitHub releases，發現較新的 PKV Sync 版本時會顯示橫幅。離線主機可用 `[update_check] enabled = false` 停用。檢查間隔和來源倉庫也可設定：
+儀表板每 24 小時檢查一次 GitHub releases，發現較新的 PKV Sync 版本時會顯示橫幅。全新資料庫首次啟動時，`enabled` 和 `interval_seconds` 會寫入執行階段設定；之後可在 Admin WebUI Settings 中修改，無需重啟。來源倉庫仍保留為靜態 `config.toml` 欄位，供離線鏡像部署使用：
 
 ```toml
 [update_check]
-enabled = true                          # 預設
-interval_seconds = 86400                # 預設 24 小時
-repo = "cyberkurry/pkv-sync"            # 查詢的 GitHub 倉庫
+enabled = true                          # 僅作為首次啟動種子
+interval_seconds = 86400                # 僅作為首次啟動種子
+repo = "cyberkurry/pkv-sync"            # 靜態查詢的 GitHub 倉庫
 ```
+
+若要讓離線主機在初始化後保持安靜，請在 Admin WebUI 執行階段設定中關閉更新檢查，或用 `enabled = false` 作為全新部署的初始種子。
 
 ## public_host（admin POST 必備）
 

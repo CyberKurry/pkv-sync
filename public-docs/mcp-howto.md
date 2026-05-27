@@ -34,13 +34,19 @@ pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ## Streamable HTTP transport
 
 Use HTTP when the client connects to an already running local or internal MCP
-endpoint.
+endpoint. PKV Sync offers two HTTP deployment modes:
+
+- **Embedded**: set `[mcp].embed_in_serve = true` in `config.toml`, then
+  `pkvsyncd serve` mounts `/mcp` on the main server port.
+- **Standalone**: run a separate MCP process, useful for dedicated bind
+  addresses, air-gapped MCP, or independent scaling:
 
 ```bash
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
 ```
 
-The endpoint is:
+The endpoint path is always `/mcp`; use the main server origin for embedded
+mode or the standalone bind address for standalone mode:
 
 ```text
 POST http://127.0.0.1:6711/mcp

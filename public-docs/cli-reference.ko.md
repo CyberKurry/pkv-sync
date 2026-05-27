@@ -162,7 +162,7 @@ pkvsyncd materialize 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c -o ./my-vault-old --at abc
 ### 개요
 
 ```text
-pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip]
+pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 ```
 
 ### 옵션
@@ -170,10 +170,13 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip]
 - `-o, --output <DIR>`: 백업 출력 디렉터리입니다(존재하지 않거나 비어 있어야 합니다).
 - `--data-dir <DIR>`: 오프라인 작업을 위한 데이터 디렉터리 오버라이드입니다. 기본값은 로드된 설정의 `[storage].data_dir`입니다.
 - `--gzip`: 백업 디렉터리 옆에 `.tar.gz` 아카이브도 함께 생성합니다.
+- `--include-config`: 로드한 `config.toml`을 백업에 포함합니다. 기본 백업은 배포 키와 로컬 비밀이 들어 있을 수 있어 config를 제외합니다.
 
 ### 설명
 
 SQLite 데이터베이스(VACUUM INTO를 통해 원본을 차단하지 않음), 모든 볼트의 bare git 저장소, 그리고 blob 저장소를 `MANIFEST.json`이 포함된 자체 완결형 디렉터리로 스냅숏합니다. 백업 중에도 HTTP 서버는 계속 실행될 수 있으며, 볼트 push는 해당 저장소가 복사되는 동안 볼트 단위로 잠시 정지됩니다.
+
+기본적으로 백업은 `config.toml`을 생략합니다. 설정을 저장하고 그 안의 비밀을 보호하려는 경우에만 `--include-config`를 추가하세요.
 
 ### 예시
 
@@ -260,6 +263,8 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 
 `http` 모드는 일반 동기화 API와 마찬가지로 모든 요청에 서버 배포 키 헤더를 포함해야 합니다.
 
+
+이 서브커맨드는 계속 독립 MCP 프로세스입니다. 같은 Streamable HTTP transport를 메인 서버 포트에서 제공하려면 `[mcp].embed_in_serve = true`를 설정하고 `pkvsyncd serve`를 사용하세요.
 ### 예시
 
 ```bash
@@ -284,7 +289,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: 아무것도 다운로드하지 않고 선택된 릴리스, 에셋, 대상 경로를 표시합니다.
 - `--yes`: 대화형 확인 프롬프트를 건너뜁니다.
-- `--version <VERSION>`: 최신 릴리스 대신 `1.0.5` 같은 특정 릴리스를 다운로드합니다.
+- `--version <VERSION>`: 최신 릴리스 대신 `1.0.6` 같은 특정 릴리스를 다운로드합니다.
 
 ### 설명
 
@@ -302,5 +307,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 특정 릴리스 다운로드
-pkvsyncd upgrade --yes --version 1.0.5
+pkvsyncd upgrade --yes --version 1.0.6
 ```

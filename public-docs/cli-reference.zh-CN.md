@@ -162,7 +162,7 @@ pkvsyncd materialize 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c -o ./my-vault-old --at abc
 ### 概述
 
 ```text
-pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip]
+pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 ```
 
 ### 选项
@@ -170,10 +170,13 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip]
 - `-o, --output <DIR>`：备份输出目录（必须不存在或为空）。
 - `--data-dir <DIR>`：用于离线运维的 data 目录覆盖项。默认使用加载的配置中的 `[storage].data_dir`。
 - `--gzip`：在备份目录旁额外生成一个 `.tar.gz` 归档文件。
+- `--include-config`：把已加载的 `config.toml` 一并写入备份。默认备份会省略配置文件，因为其中可能包含部署密钥和本机秘密。
 
 ### 说明
 
 将 SQLite 数据库（通过 VACUUM INTO，因此源库不会被阻塞）、每个保险库的裸 git 仓库以及 blob 存储，快照到一个带有 `MANIFEST.json` 的自包含目录中。备份期间 HTTP 服务器可以继续运行；在复制各个保险库仓库时，对应保险库的 push 会被短暂静止。
+
+默认情况下，备份会省略 `config.toml`；只有在你明确要保存配置并保护其中秘密时，才添加 `--include-config`。
 
 ### 示例
 
@@ -260,6 +263,8 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 
 `http` 模式要求每个请求都携带服务器部署密钥请求头，与常规同步 API 一致。
 
+
+这个子命令仍然是独立 MCP 进程。若要把同一个 Streamable HTTP transport 挂到主服务端口，请设置 `[mcp].embed_in_serve = true` 并运行 `pkvsyncd serve`。
 ### 示例
 
 ```bash
@@ -284,7 +289,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`：显示所选的发行版、资产和目标路径，但不下载任何文件。
 - `--yes`：跳过交互式确认提示。
-- `--version <VERSION>`：下载指定版本（例如 `1.0.5`），而不是最新发行版。
+- `--version <VERSION>`：下载指定版本（例如 `1.0.6`），而不是最新发行版。
 
 ### 说明
 
@@ -302,5 +307,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 下载指定版本
-pkvsyncd upgrade --yes --version 1.0.5
+pkvsyncd upgrade --yes --version 1.0.6
 ```

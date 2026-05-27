@@ -26,8 +26,7 @@
 - **管理パネル**は 5 言語対応（English、简中、繁中、日本語、한국어）。
   ユーザー、デバイストークン、ボールト、招待、アクティビティ、blob GC を
   ここから操作します。
-- **AI から読めるボールト**。`pkvsyncd mcp` が stdio または Streamable HTTP
-  上で read/write の MCP ツールを公開します。
+- **AI から読める vault**。MCP は stdio、独立した Streamable HTTP、または `pkvsyncd serve` に埋め込まれた `/mcp` ルートで read/write tools を公開します。
 - **退屈なつくりは意図的**。バイナリひとつ、SQLite メタデータ DB ひとつ、
   ボールトごとに bare Git リポジトリひとつ、添付ごとに content-addressed な
   blob ひとつ。
@@ -62,6 +61,9 @@
 
    [network]
    trusted_proxies = ["172.16.0.0/12"]   # Docker ブリッジネットワーク
+
+   [mcp]
+   embed_in_serve = false                # true でこのサーバーに /mcp をマウント
    ```
 
 3. `deploy/caddy/Caddyfile` を編集し、`sync.example.com` を実際のドメインに
@@ -84,6 +86,16 @@
 インストール、リバースプロキシのチューニング（Caddy / Nginx / Traefik）、
 `public_host` の意味、バックアップ／リストア、ディスク暗号化については
 [デプロイ強化ガイド](./public-docs/deployment-hardening.ja.md) を参照してください。
+
+## MCP デプロイモード
+
+PKV Sync は MCP Streamable HTTP transport を 2 通りで公開できます。埋め込み
+モードは明示的に有効化します。`[mcp].embed_in_serve = true` を設定すると、
+`pkvsyncd serve` がメインサーバーポートに `/mcp` をマウントし、同じ TLS
+終端、リバースプロキシ、デプロイメントキー、bearer token 検証を共有します。
+スタンドアロンモードは従来どおり別プロセスです: `pkvsyncd mcp --transport
+http --bind 127.0.0.1:6711`。MCP を隔離したい場合、専用 bind address を使う
+場合、または独立してスケールしたい場合に便利です。
 
 ## Obsidian プラグイン
 

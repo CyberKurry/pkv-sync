@@ -150,14 +150,16 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
-대시보드는 24시간마다 GitHub releases를 확인하고 새 PKV Sync 릴리스가 있으면 배너를 표시합니다. 에어갭 호스트에서는 `[update_check] enabled = false`로 비활성화하세요. 확인 주기와 소스 저장소도 설정할 수 있습니다.
+대시보드는 24시간마다 GitHub releases를 확인하고 새 PKV Sync 릴리스가 있으면 배너를 표시합니다. 새 데이터베이스의 첫 시작 때 `enabled`와 `interval_seconds`는 런타임 설정으로 seed됩니다. 이후에는 Admin WebUI Settings에서 재시작 없이 변경할 수 있습니다. 소스 저장소는 에어갭 mirror 배포를 위한 정적 `config.toml` 필드로 유지됩니다.
 
 ```toml
 [update_check]
-enabled = true                          # default
-interval_seconds = 86400                # default 24h
-repo = "cyberkurry/pkv-sync"            # GitHub repo to query
+enabled = true                          # first-boot seed only
+interval_seconds = 86400                # first-boot seed only
+repo = "cyberkurry/pkv-sync"            # static GitHub repo to query
 ```
+
+설정 후 에어갭 host를 조용히 유지하려면 Admin WebUI 런타임 설정에서 업데이트 확인을 끄거나, 새 배포의 seed로 `enabled = false`를 설정하세요.
 
 ## public_host(admin POST 필수)
 

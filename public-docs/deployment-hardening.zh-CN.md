@@ -148,14 +148,16 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
-仪表盘默认每 24 小时检查一次 GitHub release；发现新版本时会显示提示。离线部署可用 `[update_check] enabled = false` 关闭。检查间隔和源仓库也可配置：
+仪表盘默认每 24 小时检查一次 GitHub release；发现新版本时会显示提示。全新数据库首次启动时，`enabled` 和 `interval_seconds` 会写入运行时设置；之后可在 Admin WebUI Settings 中修改，无需重启。源仓库仍保留为静态 `config.toml` 字段，供离线镜像部署使用：
 
 ```toml
 [update_check]
-enabled = true                          # 默认
-interval_seconds = 86400                # 默认 24 小时
-repo = "cyberkurry/pkv-sync"            # 查询的 GitHub 仓库
+enabled = true                          # 仅作为首次启动种子
+interval_seconds = 86400                # 仅作为首次启动种子
+repo = "cyberkurry/pkv-sync"            # 静态查询的 GitHub 仓库
 ```
+
+若要让离线主机在初始化后保持安静，请在 Admin WebUI 运行时设置中关闭更新检查，或用 `enabled = false` 作为全新部署的初始种子。
 
 ## public_host(admin POST 必备)
 

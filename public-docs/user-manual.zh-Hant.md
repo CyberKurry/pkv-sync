@@ -144,7 +144,7 @@ Obsidian 外掛會將活躍權杖與部署密鑰儲存於 `<vault>/.obsidian/plu
 
 ## MCP 存取
 
-如果你的管理員啟用了 `pkvsyncd mcp` 指令，AI 工具可透過 MCP 使用 bearer 裝置權杖存取你的筆記庫。MCP 提供筆記庫列舉、檔案列舉、在 HEAD 或指定 commit 讀取檔案、簡易文字搜尋，以及由樂觀並行控制守護的明確寫入／刪除工具。stdio 與 Streamable HTTP 的設定範例請見 [`mcp-howto.md`](./mcp-howto.md)。
+如果你的管理員啟用了 MCP（內嵌在主服務 `/mcp`，或透過 `pkvsyncd mcp` 指令執行），AI 工具可透過 bearer 裝置權杖存取你的筆記庫。MCP 提供筆記庫列舉、檔案列舉、在 HEAD 或指定 commit 讀取檔案、簡易文字搜尋，以及由樂觀並行控制守護的明確寫入／刪除工具。stdio 與 Streamable HTTP 的設定範例請見 [`mcp-howto.md`](./mcp-howto.md)。
 
 ## 指令
 

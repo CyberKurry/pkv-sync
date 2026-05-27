@@ -14,7 +14,7 @@
 - **Git 即真相**。每个笔记库都是一个 bare git 仓库，单文件历史、统一 diff、单文件恢复开箱即用——插件端和管理后台都能用。
 - **冲突安全**。插件不会静默覆盖本地改动，冲突会以 `.conflict-*` 文件呈现，一键「保留本地」或「采纳远端」。
 - **五语言管理后台**（English、简中、繁中、日本語、한국어）：用户、设备令牌、笔记库、邀请码、活动日志、blob 垃圾回收。
-- **AI 可读**。`pkvsyncd mcp` 通过 stdio 或流式 HTTP 暴露读写 MCP 工具。
+- **AI 可读**。MCP 通过 stdio、独立 Streamable HTTP，或 `pkvsyncd serve` 内嵌的 `/mcp` 路由暴露读写工具。
 - **故意做得无聊**。单二进制、单 SQLite 元数据库、每库一个 bare git 仓、每个附件一个内容寻址 blob。
 
 ## 用 Docker Compose 快速上手
@@ -43,6 +43,9 @@
 
    [network]
    trusted_proxies = ["172.16.0.0/12"]   # Docker bridge 网段
+
+   [mcp]
+   embed_in_serve = false                # true 会在本服务上挂载 /mcp
    ```
 
 3. 编辑 `deploy/caddy/Caddyfile`，把 `sync.example.com` 换成你的真实域名。
@@ -58,6 +61,10 @@
 5. 在 Obsidian 里把 `pkv-sync-plugin.zip` 解压到 `<vault>/.obsidian/plugins/pkv-sync/`，启用插件，从管理后台复制分享 URL 粘进去，登录或注册，选一个笔记库。
 
 后续更新就是 `docker compose pull && docker compose up -d`。如果要原生安装、调反向代理（Caddy／Nginx／Traefik）、了解 `public_host` 的语义、做备份还原或磁盘加密，请看[部署加固指南](./public-docs/deployment-hardening.zh-CN.md)。
+
+## MCP 部署模式
+
+PKV Sync 提供两种 MCP Streamable HTTP 部署方式。内嵌模式需要显式开启：设置 `[mcp].embed_in_serve = true` 后，`pkvsyncd serve` 会在主服务端口挂载 `/mcp`，复用同一套 TLS 终止、反向代理、部署密钥和 bearer 令牌校验。独立模式保留原有单独进程：`pkvsyncd mcp --transport http --bind 127.0.0.1:6711`，适合隔离 MCP、专用监听地址或独立扩缩容。
 
 ## Obsidian 插件
 

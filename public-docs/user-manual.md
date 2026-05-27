@@ -198,11 +198,12 @@ then connect again.
 
 ## MCP Access
 
-If your administrator enables the `pkvsyncd mcp` command, AI tools can access
-your vault through MCP using a bearer device token. MCP offers vault listing,
-file listing, file reads at HEAD or a commit, simple text search, and explicit
-write/delete tools guarded by optimistic concurrency. See
-[`mcp-howto.md`](./mcp-howto.md) for stdio and Streamable HTTP setup examples.
+If your administrator enables MCP, either embedded at `/mcp` on the main server
+or through the `pkvsyncd mcp` command, AI tools can access your vault using a
+bearer device token. MCP offers vault listing, file listing, file reads at HEAD
+or a commit, simple text search, and explicit write/delete tools guarded by
+optimistic concurrency. See [`mcp-howto.md`](./mcp-howto.md) for stdio and
+Streamable HTTP setup examples.
 
 ## Commands
 

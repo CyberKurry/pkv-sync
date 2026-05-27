@@ -161,16 +161,21 @@ docker compose logs -f pkv-sync
 ```
 
 The dashboard checks GitHub releases once every 24 hours and shows a banner
-when a newer PKV Sync release is available. Disable this for air-gapped hosts
-with `[update_check] enabled = false`. The check interval and source repository
-are also configurable:
+when a newer PKV Sync release is available. On a fresh database,
+`enabled` and `interval_seconds` seed runtime settings; after first boot,
+change them from Admin WebUI Settings without restarting. The source repository
+stays static in `config.toml` for air-gapped mirror deployments:
 
 ```toml
 [update_check]
-enabled = true                          # default
-interval_seconds = 86400                # default 24h
-repo = "cyberkurry/pkv-sync"            # GitHub repo to query
+enabled = true                          # first-boot seed only
+interval_seconds = 86400                # first-boot seed only
+repo = "cyberkurry/pkv-sync"            # static GitHub repo to query
 ```
+
+To keep an air-gapped host quiet after setup, disable update checks from the
+Admin WebUI Runtime Settings page, or seed a fresh deployment with
+`enabled = false`.
 
 ## public_host (required for admin POST)
 

@@ -144,7 +144,7 @@ Obsidian 插件会将当前的令牌和部署密钥保存在 `<vault>/.obsidian/
 
 ## MCP 访问
 
-如果你的管理员启用了 `pkvsyncd mcp` 命令，AI 工具就可以通过 MCP 使用 bearer 设备令牌访问你的笔记库。MCP 提供笔记库列表、文件列表、按 HEAD 或某次 commit 读取文件、简单文本搜索，以及受乐观并发保护的显式写入/删除工具。stdio 与 Streamable HTTP 的配置示例请见 [`mcp-howto.md`](./mcp-howto.md)。
+如果你的管理员启用了 MCP（内嵌在主服务 `/mcp`，或通过 `pkvsyncd mcp` 命令运行），AI 工具就可以通过 bearer 设备令牌访问你的笔记库。MCP 提供笔记库列表、文件列表、按 HEAD 或某次 commit 读取文件、简单文本搜索，以及受乐观并发保护的显式写入/删除工具。stdio 与 Streamable HTTP 的配置示例请见 [`mcp-howto.md`](./mcp-howto.md)。
 
 ## 命令
 

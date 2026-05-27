@@ -58,6 +58,7 @@ The web panel includes:
 - Invite creation with optional expiration, active invite listing, and deletion
   for unused invites
 - Runtime settings grouped as General, Security, Sync & Storage, and Network
+  (including update checks)
 - Activity log with real user and action filters for sync, vault lifecycle,
   and read-only browsing rows
 - Blob garbage collection trigger
@@ -73,11 +74,19 @@ PKV Sync checks GitHub releases once every 24 hours by default. When a newer
 server release exists, the dashboard shows a banner with the current version,
 latest version, release notes link, and a short excerpt.
 
-Air-gapped deployments can disable the check in static config:
+`[update_check].enabled` and `[update_check].interval_seconds` in
+`config.toml` seed fresh databases on first boot. After that, the Admin WebUI
+Settings page is authoritative: toggle update checks or change the interval
+from **Network**, and the background task re-reads those runtime values on its
+next cycle. If checks are disabled, re-enabling takes effect within about 60
+seconds. `[update_check].repo` remains a static `config.toml` value for
+air-gapped mirror deployments.
 
 ```toml
 [update_check]
 enabled = false
+interval_seconds = 86400
+repo = "cyberkurry/pkv-sync"
 ```
 
 The check is informational only. PKV Sync never replaces the running server
@@ -232,6 +241,11 @@ return `429` with `error.code = "rate_limited"`.
   deployment key middleware, plugin User-Agent guard, and an admin bearer
   token.
 
+**Network and update checks** — `public_host`, bind address, trusted proxies,
+and `[update_check].repo` are read from `config.toml` at startup. Update-check
+enabled/disabled state and interval are runtime settings stored in SQLite; the
+allowed interval range is 60 seconds to 30 days.
+
 ## Activity
 
 The activity log records sync, vault lifecycle, and read-only browsing
@@ -275,7 +289,7 @@ download the verified release binary next to the current executable as
 from `SHA256SUMS` and prints the systemd/manual swap steps. It does not hot
 replace the running process.
 
-Use `pkvsyncd upgrade --version 1.0.5` to target a specific release. If the
+Use `pkvsyncd upgrade --version 1.0.6` to target a specific release. If the
 command cannot find a matching asset or checksum, follow the manual GitHub
 release download path and verify `SHA256SUMS` yourself.
 
@@ -293,9 +307,11 @@ writing a side-by-side binary.
 
 - Use `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` for
   operational snapshots. The output directory must be absent or empty; the
-  command snapshots SQLite with `VACUUM INTO`, copies `vaults/`, `blobs/`, and
-  `config.toml` when present, and writes `MANIFEST.json` with the pkvsyncd
-  version plus component hashes, sizes, and counts.
+  command snapshots SQLite with `VACUUM INTO`, copies `vaults/` and `blobs/`,
+  and writes `MANIFEST.json` with the pkvsyncd version plus component hashes,
+  sizes, and counts. Backups omit `config.toml` by default; add
+  `--include-config` only when you intend to store and protect deployment keys
+  and other local secrets.
 - Use `pkvsyncd restore --input <backup-dir> --data-dir <dir>` to restore into
   an absent or empty data directory. Add `--force` only when the target may be
   cleared first; restore checks manifest hashes before copying and runs verify
@@ -308,9 +324,11 @@ writing a side-by-side binary.
   as a plain file tree (text files as-is, binary blobs resolved from the
   blob store). Useful for offline export, ad-hoc audit, or cold migration.
   Pair with `--at <commit-sha>` to materialize a historical commit.
-- Run `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` to expose the
-  read/write MCP server over Streamable HTTP for AI tooling, or
-  `pkvsyncd mcp --vault <id>` for a stdio-only single-vault session.
+- Set `[mcp].embed_in_serve = true` to expose the read/write MCP Streamable
+  HTTP endpoint at `/mcp` on the main `pkvsyncd serve` port, or run
+  `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` as a standalone MCP
+  process. Use `pkvsyncd mcp --vault <id>` for a stdio-only single-vault
+  session.
 - Run blob garbage collection after large attachment deletions.
 - Check the dashboard update banner or GitHub releases before maintenance.
 - Watch logs and activity for repeated `401`, `403`, `404`, `409`, and `429`

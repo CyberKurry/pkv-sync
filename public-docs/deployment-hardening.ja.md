@@ -150,14 +150,16 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
-ダッシュボードは 24 時間ごとに GitHub releases を確認し、新しい PKV Sync release が利用可能なときに banner を表示します。エアギャップ host ではこれを `[update_check] enabled = false` で無効にします。確認間隔とソースリポジトリも設定可能です。
+ダッシュボードは 24 時間ごとに GitHub releases を確認し、新しい PKV Sync release が利用可能なときに banner を表示します。新しいデータベースの初回起動時、`enabled` と `interval_seconds` はランタイム設定に seed されます。その後は Admin WebUI Settings から再起動なしで変更できます。ソースリポジトリは、エアギャップ mirror デプロイメント用の静的な `config.toml` フィールドのままです。
 
 ```toml
 [update_check]
-enabled = true                          # default
-interval_seconds = 86400                # default 24h
-repo = "cyberkurry/pkv-sync"            # GitHub repo to query
+enabled = true                          # first-boot seed only
+interval_seconds = 86400                # first-boot seed only
+repo = "cyberkurry/pkv-sync"            # static GitHub repo to query
 ```
+
+セットアップ後にエアギャップ host を静かに保つには、Admin WebUI のランタイム設定で更新確認を無効化するか、新規デプロイの seed として `enabled = false` を設定してください。
 
 ## public_host（admin POST に必須）
 
