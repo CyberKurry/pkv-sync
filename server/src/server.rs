@@ -352,8 +352,11 @@ pub async fn run_with_listener_and_state(
         interval.tick().await;
         loop {
             interval.tick().await;
-            let (login_removed, mcp_removed) =
-                prune_stale_limiters(&cleanup_limiter, &cleanup_limiter_state);
+            let (login_removed, mcp_removed) = prune_stale_limiters_blocking(
+                cleanup_limiter.clone(),
+                cleanup_limiter_state.clone(),
+            )
+            .await;
             if login_removed > 0 {
                 tracing::debug!(
                     removed = login_removed,
@@ -384,6 +387,18 @@ pub async fn run_with_listener_and_state(
 
 fn prune_stale_limiters(limiter: &LoginRateLimiter, state: &AppState) -> (usize, usize) {
     (limiter.prune_stale(), state.mcp_write_limiter.prune_stale())
+}
+
+async fn prune_stale_limiters_blocking(
+    limiter: LoginRateLimiter,
+    state: AppState,
+) -> (usize, usize) {
+    tokio::task::spawn_blocking(move || prune_stale_limiters(&limiter, &state))
+        .await
+        .unwrap_or_else(|err| {
+            tracing::warn!(error = %err, "failed to prune stale limiter entries");
+            (0, 0)
+        })
 }
 
 /// Run the server until shutdown.
@@ -443,13 +458,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn limiter_cleanup_prunes_mcp_write_limiter_entries() {
+    async fn limiter_cleanup_prunes_stale_entries_off_runtime_thread() {
         let pool = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
             .await
             .unwrap();
+        let limiter = LoginRateLimiter::new(1, Duration::from_millis(5), Duration::from_millis(5));
+        limiter.record_failure("127.0.0.1".parse().unwrap());
         state
             .mcp_write_limiter
             .update_config(1, Duration::from_millis(5));
@@ -459,11 +476,9 @@ mod tests {
             .unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;
 
-        let (_login_removed, mcp_removed) = prune_stale_limiters(
-            &LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60)),
-            &state,
-        );
+        let (login_removed, mcp_removed) = prune_stale_limiters_blocking(limiter, state).await;
 
+        assert_eq!(login_removed, 1);
         assert_eq!(mcp_removed, 1);
     }
 
