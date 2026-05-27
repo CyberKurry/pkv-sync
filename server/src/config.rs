@@ -12,6 +12,8 @@ pub struct Config {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub update_check: UpdateCheckConfig,
+    #[serde(default)]
+    pub mcp: McpConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -52,6 +54,12 @@ pub struct UpdateCheckConfig {
     pub interval_seconds: u64,
     #[serde(default = "default_update_check_repo")]
     pub repo: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct McpConfig {
+    #[serde(default)]
+    pub embed_in_serve: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -319,5 +327,48 @@ mod tests {
         assert!(!cfg.update_check.enabled);
         assert_eq!(cfg.update_check.interval_seconds, 172_800);
         assert_eq!(cfg.update_check.repo, "example/fork");
+    }
+
+    #[test]
+    fn config_defaults_mcp_embed_to_false_when_section_absent() {
+        let f = write_temp(
+            r#"
+            [server]
+            bind_addr = "127.0.0.1:6710"
+            deployment_key = "k_test"
+
+            [storage]
+            data_dir = "/x"
+            db_path = "/x/y"
+
+            [network]
+            trusted_proxies = []
+            "#,
+        );
+        let cfg = Config::load(f.path()).unwrap();
+        assert!(!cfg.mcp.embed_in_serve);
+    }
+
+    #[test]
+    fn config_accepts_mcp_embed_true() {
+        let f = write_temp(
+            r#"
+            [server]
+            bind_addr = "127.0.0.1:6710"
+            deployment_key = "k_test"
+
+            [storage]
+            data_dir = "/x"
+            db_path = "/x/y"
+
+            [network]
+            trusted_proxies = []
+
+            [mcp]
+            embed_in_serve = true
+            "#,
+        );
+        let cfg = Config::load(f.path()).unwrap();
+        assert!(cfg.mcp.embed_in_serve);
     }
 }

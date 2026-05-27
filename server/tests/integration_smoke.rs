@@ -49,6 +49,7 @@ async fn start_test_server() -> TestServer {
             enabled: false,
             ..Default::default()
         },
+        mcp: Default::default(),
     });
     let pool = pool::connect(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();

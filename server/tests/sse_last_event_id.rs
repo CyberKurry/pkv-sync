@@ -52,6 +52,7 @@ async fn start_test_server() -> (TestServer, AppState, String, String, String) {
             enabled: false,
             ..Default::default()
         },
+        mcp: Default::default(),
     });
 
     let db = pool::connect(&cfg.storage.db_path).await.unwrap();

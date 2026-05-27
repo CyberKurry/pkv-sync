@@ -49,6 +49,7 @@ async fn test_app() -> (Router, AppState, String) {
             enabled: false,
             ..Default::default()
         },
+        mcp: Default::default(),
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
     (server::build_app(state.clone(), &cfg, limiter), state, key)

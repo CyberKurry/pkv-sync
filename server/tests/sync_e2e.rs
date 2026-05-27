@@ -50,6 +50,7 @@ async fn start_server_with_seeded_user() -> TestServer {
             enabled: false,
             ..Default::default()
         },
+        mcp: Default::default(),
     });
 
     let db = pool::connect(&cfg.storage.db_path).await.unwrap();

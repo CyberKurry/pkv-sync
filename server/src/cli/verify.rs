@@ -104,6 +104,7 @@ pub fn config_for_data_dir(data_dir: &Path) -> Config {
         },
         logging: LoggingConfig::default(),
         update_check: Default::default(),
+        mcp: Default::default(),
     }
 }
 

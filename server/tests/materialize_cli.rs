@@ -57,6 +57,7 @@ fn make_config(data_dir: &Path) -> Config {
             enabled: false,
             ..Default::default()
         },
+        mcp: Default::default(),
     }
 }
 
