@@ -989,7 +989,7 @@ async fn settings_update_applies_live_login_limiter() {
         Method::POST,
         "/admin/settings",
         Body::from(
-            "server_name=Test&timezone=Asia%2FShanghai&registration_mode=disabled&login_failure_threshold=1&login_window_seconds=60&login_lock_seconds=60&extra_exclude_globs=&sse_heartbeat_seconds=30&push_debounce_ms=250&inline_content_max_bytes=8192",
+            "server_name=Test&timezone=Asia%2FShanghai&registration_mode=disabled&login_failure_threshold=1&login_window_seconds=60&login_lock_seconds=60&extra_exclude_globs=&sse_heartbeat_seconds=30&push_debounce_ms=250&inline_content_max_bytes=8192&update_check_interval_seconds=86400",
         ),
     );
     settings_req.headers_mut().insert(
@@ -1026,6 +1026,76 @@ async fn settings_update_applies_live_login_limiter() {
     );
     let locked_resp = app.oneshot(good_login).await.unwrap();
     assert_eq!(locked_resp.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn settings_page_and_post_manage_update_check_runtime_config() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+
+    let mut page_req = request(Method::GET, "/admin/settings", Body::empty());
+    page_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let page_resp = app.clone().oneshot(page_req).await.unwrap();
+    assert_eq!(page_resp.status(), StatusCode::OK);
+    let page_body = read_body(page_resp).await;
+    assert!(page_body.contains("name=\"update_check_enabled\""));
+    assert!(page_body.contains("name=\"update_check_interval_seconds\""));
+
+    let mut settings_req = request(
+        Method::POST,
+        "/admin/settings",
+        Body::from(
+            "server_name=Test&timezone=Asia%2FShanghai&registration_mode=disabled&login_failure_threshold=10&login_window_seconds=900&login_lock_seconds=900&extra_exclude_globs=&sse_heartbeat_seconds=30&push_debounce_ms=250&inline_content_max_bytes=8192&update_check_interval_seconds=1800",
+        ),
+    );
+    settings_req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    settings_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut settings_req);
+    let settings_resp = app.clone().oneshot(settings_req).await.unwrap();
+    assert_eq!(settings_resp.status(), StatusCode::SEE_OTHER);
+
+    let cfg = state.runtime_cfg.snapshot().await;
+    assert!(!cfg.update_check_enabled);
+    assert_eq!(cfg.update_check_interval_seconds, 1800);
+}
+
+#[tokio::test]
+async fn settings_post_rejects_update_check_interval_below_one_minute() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+
+    let mut settings_req = request(
+        Method::POST,
+        "/admin/settings",
+        Body::from(
+            "server_name=Test&timezone=Asia%2FShanghai&registration_mode=disabled&login_failure_threshold=10&login_window_seconds=900&login_lock_seconds=900&extra_exclude_globs=&sse_heartbeat_seconds=30&push_debounce_ms=250&inline_content_max_bytes=8192&update_check_enabled=on&update_check_interval_seconds=59",
+        ),
+    );
+    settings_req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    settings_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut settings_req);
+    let settings_resp = app.oneshot(settings_req).await.unwrap();
+    assert_eq!(settings_resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        state
+            .runtime_cfg
+            .snapshot()
+            .await
+            .update_check_interval_seconds,
+        86_400
+    );
 }
 
 #[tokio::test]

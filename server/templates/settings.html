@@ -78,7 +78,9 @@
     <section id="network" class="panel settings-section">
       <h2>{{ t.network }}</h2>
       <p class="section-note">{{ t.settings_network_note }}</p>
+      <label class="check-row"><input name="update_check_enabled" type="checkbox" {% if cfg.update_check_enabled %}checked{% endif %}> {{ t.update_check_enabled }}</label>
       <div class="form-grid">
+        <label>{{ t.update_check_interval }} <span class="input-with-unit"><input name="update_check_interval_seconds" type="number" min="60" max="2592000" value="{{ cfg.update_check_interval_seconds }}" required><small>{{ t.seconds_short }}</small></span></label>
         <label>{{ t.public_host }} <input type="text" value="{{ t.configured_in_config }}" disabled></label>
         <label>{{ t.trusted_proxies }} <input type="text" value="{{ t.configured_in_config }}" disabled></label>
       </div>

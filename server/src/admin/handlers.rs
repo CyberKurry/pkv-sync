@@ -2418,6 +2418,8 @@ struct SettingsForm {
     enable_git_smart_http: Option<String>,
     enable_metrics: Option<String>,
     enable_auto_merge: Option<String>,
+    update_check_enabled: Option<String>,
+    update_check_interval_seconds: u64,
     extra_exclude_globs: String,
     sse_heartbeat_seconds: u64,
     push_debounce_ms: u32,
@@ -2634,6 +2636,30 @@ async fn settings_post(
     state
         .runtime_cfg_repo
         .set_enable_auto_merge(form.enable_auto_merge.is_some(), Some(&session.user.id))
+        .await?;
+    const UPDATE_CHECK_INTERVAL_MIN: u64 = 60;
+    const UPDATE_CHECK_INTERVAL_MAX: u64 = 30 * 24 * 60 * 60;
+    if !(UPDATE_CHECK_INTERVAL_MIN..=UPDATE_CHECK_INTERVAL_MAX)
+        .contains(&form.update_check_interval_seconds)
+    {
+        return Err(ApiError::bad_request(
+            "update_check_interval_out_of_range",
+            format!(
+                "update_check_interval_seconds must be between {} and {} seconds",
+                UPDATE_CHECK_INTERVAL_MIN, UPDATE_CHECK_INTERVAL_MAX
+            ),
+        ));
+    }
+    state
+        .runtime_cfg_repo
+        .set_update_check_enabled(form.update_check_enabled.is_some(), Some(&session.user.id))
+        .await?;
+    state
+        .runtime_cfg_repo
+        .set_update_check_interval_seconds(
+            form.update_check_interval_seconds,
+            Some(&session.user.id),
+        )
         .await?;
     state
         .runtime_cfg_repo
