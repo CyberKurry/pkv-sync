@@ -76,7 +76,7 @@ fn request(method: Method, uri: &str, body: Body) -> Request<Body> {
 }
 
 async fn read_body(resp: Response<Body>) -> String {
-    let bytes = axum::body::to_bytes(resp.into_body(), 32 * 1024)
+    let bytes = axum::body::to_bytes(resp.into_body(), 512 * 1024)
         .await
         .unwrap();
     String::from_utf8(bytes.to_vec()).unwrap()
@@ -128,6 +128,22 @@ async fn first_admin_user_id(app: &Router, session_cookie: &str) -> String {
         .map(|idx| start + idx)
         .expect("end of user detail link");
     body[start..end].to_string()
+}
+
+fn token_fingerprint(id: &str) -> String {
+    if id.chars().count() <= 12 {
+        return id.to_string();
+    }
+    let prefix: String = id.chars().take(8).collect();
+    let suffix: String = id
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{prefix}...{suffix}")
 }
 
 #[tokio::test]
@@ -299,6 +315,74 @@ async fn admin_can_manage_device_tokens_from_devices_page() {
     set_form_origin(&mut revoke_req);
     let revoke_resp = app.oneshot(revoke_req).await.unwrap();
     assert_eq!(revoke_resp.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
+async fn devices_page_limits_display_without_limiting_revoke_lookup() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let user_id = first_admin_user_id(&app, &session_cookie).await;
+    let oldest_id = "oldestAA000000000000000000000001";
+    sqlx::query(
+        "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(oldest_id)
+    .bind(&user_id)
+    .bind("oldest-hash")
+    .bind("device-oldest")
+    .bind("oldest-device")
+    .bind(1_i64)
+    .bind(chrono::Utc::now().timestamp() + 3600)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    for idx in 0..500 {
+        let id = format!("recentBB{idx:024}");
+        sqlx::query(
+            "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&user_id)
+        .bind(format!("recent-hash-{idx}"))
+        .bind(format!("device-recent-{idx}"))
+        .bind(format!("recent-device-{idx}"))
+        .bind(10_000_i64 + idx)
+        .bind(chrono::Utc::now().timestamp() + 3600)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    }
+
+    let mut page_req = request(Method::GET, "/admin/devices", Body::empty());
+    page_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let page_resp = app.clone().oneshot(page_req).await.unwrap();
+    assert_eq!(page_resp.status(), StatusCode::OK);
+    let page_body = read_body(page_resp).await;
+    assert!(page_body.contains("recent-device-499"));
+    assert!(!page_body.contains("oldest-device"));
+
+    let mut revoke_req = request(
+        Method::POST,
+        &format!("/admin/devices/{}/revoke", token_fingerprint(oldest_id)),
+        Body::empty(),
+    );
+    revoke_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut revoke_req);
+    let revoke_resp = app.oneshot(revoke_req).await.unwrap();
+    assert_eq!(revoke_resp.status(), StatusCode::SEE_OTHER);
+    let (revoked_at,): (Option<i64>,) =
+        sqlx::query_as("SELECT revoked_at FROM tokens WHERE id = ?")
+            .bind(oldest_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert!(revoked_at.is_some());
 }
 
 #[tokio::test]

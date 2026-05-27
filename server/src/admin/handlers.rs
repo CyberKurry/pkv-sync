@@ -49,6 +49,7 @@ const URL_PATH: &AsciiSet = &CONTROLS
     .add(b'}');
 const URL_QUERY: &AsciiSet = &URL_PATH.add(b'&').add(b'=').add(b'+');
 const ADMIN_ACTIVITY_LIMIT: i64 = 30;
+const ADMIN_DEVICE_TOKEN_DISPLAY_LIMIT: i64 = 500;
 const SETUP_CSRF_COOKIE: &str = "pkv_setup_csrf";
 
 #[derive(Clone)]
@@ -1127,11 +1128,9 @@ async fn revoke_device_token_form(
     _session: AdminSession,
     Path(token_fingerprint): Path<String>,
 ) -> Result<Redirect, ApiError> {
-    let tokens = list_admin_device_tokens(&state).await?;
-    let token_id = resolve_token_fingerprint(
-        tokens.iter().map(|token| token.id.as_str()),
-        &token_fingerprint,
-    )?;
+    let token_ids = list_admin_device_token_ids(&state).await?;
+    let token_id =
+        resolve_token_fingerprint(token_ids.iter().map(String::as_str), &token_fingerprint)?;
     state
         .tokens
         .revoke(token_id, chrono::Utc::now().timestamp())
@@ -1147,8 +1146,10 @@ async fn list_admin_device_tokens(state: &AppState) -> Result<Vec<DeviceTokenAdm
                 tok.created_at, tok.last_used_at, tok.revoked_at
          FROM tokens tok
          JOIN users u ON u.id = tok.user_id
-         ORDER BY tok.revoked_at IS NOT NULL, tok.created_at DESC, tok.id DESC",
+         ORDER BY tok.revoked_at IS NOT NULL, tok.created_at DESC, tok.id DESC
+         LIMIT ?",
     )
+    .bind(ADMIN_DEVICE_TOKEN_DISPLAY_LIMIT)
     .fetch_all(&state.pool)
     .await?;
     Ok(rows
@@ -1179,6 +1180,14 @@ async fn list_admin_device_tokens(state: &AppState) -> Result<Vec<DeviceTokenAdm
             },
         )
         .collect())
+}
+
+async fn list_admin_device_token_ids(state: &AppState) -> Result<Vec<String>, ApiError> {
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT id FROM tokens ORDER BY created_at DESC, id DESC")
+            .fetch_all(&state.pool)
+            .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
 type VaultAdminRow = (String, String, String, String, i64, Option<i64>, i64, i64);
