@@ -13,7 +13,7 @@
     <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#search"></use></svg>
     <input name="q" type="search" value="{{ query }}" placeholder="{{ t.search_users }}" aria-label="{{ t.search_users }}">
   </label>
-  <select name="status" aria-label="{{ t.filter_users }}" onchange="this.form.submit()">
+  <select name="status" aria-label="{{ t.filter_users }}" data-auto-submit-filter>
     <option value="" {% if status.is_empty() %}selected{% endif %}>{{ t.all_status }}</option>
     <option value="active" {% if status == "active" %}selected{% endif %}>{{ t.active }}</option>
     <option value="inactive" {% if status == "inactive" %}selected{% endif %}>{{ t.inactive }}</option>
@@ -26,6 +26,7 @@
 </form>
 
 <section class="panel table-panel users-table">
+  <div class="table-scroll">
   <table class="data-table">
     <thead><tr><th>{{ t.username }}</th><th>{{ t.status }}</th><th>{{ t.vaults }}</th><th>{{ t.last_sync }}</th><th>{{ t.created }}</th><th>{{ t.admin }}</th><th class="align-right">{{ t.actions }}</th></tr></thead>
     <tbody>
@@ -47,6 +48,7 @@
     {% endif %}
     </tbody>
   </table>
+  </div>
 </section>
 
 <form id="create-user" method="post" action="/admin/users" class="panel form-panel collapsible-create">

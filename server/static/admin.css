@@ -1312,7 +1312,7 @@ textarea {
 
 .table-panel {
     padding: 0;
-    overflow-x: auto;
+    overflow: visible;
 }
 
 .table-panel > h2,
@@ -1322,12 +1322,16 @@ textarea {
     border-bottom: var(--pkv-rule-hair);
 }
 
-.table-panel > table {
+.table-scroll {
+    overflow-x: auto;
+}
+
+.table-scroll > table {
     width: 100%;
 }
 
-.table-panel > table thead th,
-.table-panel > table tbody td {
+.table-scroll > table thead th,
+.table-scroll > table tbody td {
     padding-inline: var(--pkv-space-5);
 }
 
@@ -1953,6 +1957,10 @@ textarea {
 .metric-grid.three,
 .split-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metric-grid.two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .vault-card-grid {

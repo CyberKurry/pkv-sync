@@ -4,6 +4,11 @@ import { describe, expect, it } from "vitest";
 
 describe("diff CSS", () => {
   const css = readFileSync(resolve(__dirname, "../../styles.css"), "utf8");
+  const diffModal = readFileSync(resolve(__dirname, "../../src/ui/diff-modal.ts"), "utf8");
+  const conflictModal = readFileSync(
+    resolve(__dirname, "../../src/ui/conflict-resolve-modal.ts"),
+    "utf8"
+  );
 
   it("gives split diff modals a GitHub-like wide viewport", () => {
     expect(css).toMatch(
@@ -22,5 +27,10 @@ describe("diff CSS", () => {
     expect(css).toMatch(/\.pkvsync-diff-split\s*\{[\s\S]+?overflow:\s*auto/);
     expect(css).toMatch(/\.pkvsync-diff-cell\s*\{[\s\S]+?white-space:\s*pre-wrap/);
     expect(css).toMatch(/\.pkvsync-diff-cell\s*\{[\s\S]+?overflow-wrap:\s*anywhere/);
+  });
+
+  it("marks split diff containers as table-like structures", () => {
+    expect(diffModal).toContain('setAttr("role", "table")');
+    expect(conflictModal).toContain('setAttr("role", "table")');
   });
 });

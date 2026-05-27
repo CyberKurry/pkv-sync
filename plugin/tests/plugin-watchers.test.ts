@@ -61,7 +61,10 @@ describe("PKVSyncPlugin vault watchers", () => {
     vaultCallbacks.get("create")?.({ path: ".git/config" });
     expect(trigger).toHaveBeenCalledTimes(1);
 
-    callbacks.activeLeaf?.();
+    expect(plugin.app.workspace.on).not.toHaveBeenCalledWith(
+      "active-leaf-change",
+      expect.anything()
+    );
     expect(trigger).toHaveBeenCalledTimes(1);
 
     callbacks.blur?.();

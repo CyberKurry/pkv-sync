@@ -1011,6 +1011,9 @@ async fn set_admin_form(
             "cannot demote the last admin",
         ));
     }
+    if session.user.id == id && !form.admin {
+        session::delete_sessions_for_user(&state, &id).await?;
+    }
     Ok(Redirect::to(&format!("/admin/users/{id}")))
 }
 
@@ -2000,7 +2003,11 @@ mod tests {
         assert_eq!(mask_client_ip("203.0.113.42"), "203.0.113.*");
         assert_eq!(
             mask_client_ip("2001:db8:85a3::8a2e:370:7334"),
-            "2001:db8:*:*:*:*:370:7334"
+            "2001:db8:85a3:*:*:*:*:*"
+        );
+        assert_eq!(
+            mask_client_ip("2001:db8:85a3:abcd::1"),
+            "2001:db8:85a3:*:*:*:*:*"
         );
         assert_eq!(mask_client_ip("not-an-ip"), "redacted");
     }
@@ -2304,18 +2311,14 @@ async fn invites_page(
             used_at: fmt_opt_ts(invite.used_at, &timezone),
         })
         .collect();
-    let used_invites = invites
-        .iter()
-        .filter(|invite| invite.used_at.is_some())
-        .count();
-    let pending_invites = invites.len().saturating_sub(used_invites);
+    let used_invites = state.invites.count_used().await?;
+    let pending_invites = invites.len();
     Ok(Html(
         InvitesTemplate {
             t: admin_text(&headers, &cookies),
             invites,
             pending_invites,
             used_invites,
-            revoked_invites: 0,
         }
         .render()
         .unwrap(),
@@ -2527,8 +2530,8 @@ fn mask_client_ip(value: &str) -> String {
         Ok(IpAddr::V6(addr)) => {
             let segments = addr.segments();
             format!(
-                "{:x}:{:x}:*:*:*:*:{:x}:{:x}",
-                segments[0], segments[1], segments[6], segments[7]
+                "{:x}:{:x}:{:x}:*:*:*:*:*",
+                segments[0], segments[1], segments[2]
             )
         }
         Err(_) => "redacted".to_string(),

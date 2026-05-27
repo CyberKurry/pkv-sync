@@ -36,6 +36,7 @@ describe("parseServerUrl", () => {
 
   it("rejects http URLs on unspecified bind addresses", () => {
     expect(() => parseServerUrl("http://0.0.0.0:6710/k_local/")).toThrow(ServerUrlError);
+    expect(() => parseServerUrl("http://[::]:6710/k_local/")).toThrow(ServerUrlError);
   });
 
   it("allows local development http URLs on IPv4-mapped loopback hosts", () => {

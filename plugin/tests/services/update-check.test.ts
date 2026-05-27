@@ -318,6 +318,38 @@ describe("plugin update check", () => {
     );
 
     expect(adapter.files.get(".obsidian/plugins/pkv-sync/main.js")).toBe("old");
+    expect(adapter.removed).toEqual(
+      expect.arrayContaining([
+        ".obsidian/plugins/pkv-sync/.main.js.new",
+        ".obsidian/plugins/pkv-sync/.main.js.sha256"
+      ])
+    );
+  });
+
+  it("uses a bounded request timeout for public update downloads", async () => {
+    const adapter = new MemoryAdapter();
+    const main = "console.log('0.8.1')";
+    const manifest = '{"version":"0.8.1"}';
+    requestUrlMock
+      .mockResolvedValueOnce(responseText(main))
+      .mockResolvedValueOnce(responseText(manifest));
+    const update = {
+      version: "0.8.1",
+      source: "github" as const,
+      releaseNotesUrl: "https://example.com/release",
+      mainJsUrl: "https://example.com/main.js",
+      mainJsSha256: await sha256Text(main),
+      manifestJsonUrl: "https://example.com/manifest.json",
+      manifestJsonSha256: await sha256Text(manifest),
+      stylesCssUrl: null,
+      stylesCssSha256: null
+    };
+
+    await service(adapter).applyUpdate(update);
+
+    expect(requestUrlMock).toHaveBeenCalledWith(
+      expect.objectContaining({ requestTimeout: 30000 })
+    );
   });
 
   it("downloads same-server assets with plugin auth headers", async () => {

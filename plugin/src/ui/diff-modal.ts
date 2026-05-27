@@ -139,6 +139,7 @@ export class DiffModal extends Modal {
   private renderSideBySideDiff(patch: string): void {
     const rows = parseUnifiedDiffSideBySide(patch);
     const table = this.contentEl.createDiv({ cls: "pkvsync-diff-split" });
+    table.setAttr("role", "table");
     const header = table.createDiv({ cls: "pkvsync-diff-split-header" });
     header.createDiv({ cls: "pkvsync-diff-line-no" });
     header.createDiv({ cls: "pkvsync-diff-header-cell", text: this.options.labels.diffFrom });

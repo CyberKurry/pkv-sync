@@ -22,6 +22,7 @@ pub trait InviteRepo: Send + Sync {
     ) -> Result<Invite, sqlx::Error>;
     async fn find(&self, code: &str) -> Result<Option<Invite>, sqlx::Error>;
     async fn list_active(&self, now_ts: i64) -> Result<Vec<Invite>, sqlx::Error>;
+    async fn count_used(&self) -> Result<usize, sqlx::Error>;
     async fn mark_used(&self, code: &str, used_by: &str, ts: i64) -> Result<bool, sqlx::Error>;
     async fn delete(&self, code: &str) -> Result<(), sqlx::Error>;
 }
@@ -126,6 +127,14 @@ impl InviteRepo for SqliteInviteRepo {
             .collect())
     }
 
+    async fn count_used(&self) -> Result<usize, sqlx::Error> {
+        let (count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM invites WHERE used_at IS NOT NULL")
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(count as usize)
+    }
+
     /// Atomic claim. Returns true if claim succeeded; false if already used or expired.
     async fn mark_used(&self, code: &str, used_by: &str, ts: i64) -> Result<bool, sqlx::Error> {
         let r = sqlx::query(
@@ -211,6 +220,16 @@ mod tests {
         let (repo, _users, admin) = setup().await;
         let inv = repo.create(&admin, Some(50)).await.unwrap();
         assert!(!repo.mark_used(&inv.code, &admin, 100).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn count_used_includes_used_invites_excluded_from_active_list() {
+        let (repo, _users, admin) = setup().await;
+        let inv = repo.create(&admin, None).await.unwrap();
+        repo.mark_used(&inv.code, &admin, 100).await.unwrap();
+
+        assert_eq!(repo.list_active(100).await.unwrap().len(), 0);
+        assert_eq!(repo.count_used().await.unwrap(), 1);
     }
 
     #[tokio::test]

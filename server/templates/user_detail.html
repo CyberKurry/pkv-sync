@@ -82,6 +82,7 @@
 
 <section class="panel table-panel tokens-table">
   <div class="panel-header"><h2>{{ t.tokens }}</h2></div>
+  <div class="table-scroll">
   <table class="data-table">
     <thead><tr><th>{{ t.token_fingerprint }}</th><th>{{ t.device }}</th><th>{{ t.created }}</th><th>{{ t.last_used }}</th><th>{{ t.status }}</th><th class="align-right">{{ t.actions }}</th></tr></thead>
     <tbody>
@@ -103,5 +104,6 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 {% endblock %}

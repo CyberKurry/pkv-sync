@@ -189,6 +189,7 @@ export class ConflictResolveModal extends Modal {
     });
 
     const table = container.createDiv({ cls: "pkvsync-diff-split" });
+    table.setAttr("role", "table");
 
     const header = table.createDiv({ cls: "pkvsync-diff-split-header" });
     header.createDiv({ cls: "pkvsync-diff-line-no" });

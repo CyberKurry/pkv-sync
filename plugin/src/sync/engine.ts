@@ -107,9 +107,7 @@ export class SyncEngine {
         })
       ]);
     } finally {
-      if (timeoutId !== undefined) {
-        window.clearTimeout(timeoutId);
-      }
+      window.clearTimeout(timeoutId);
     }
   }
 

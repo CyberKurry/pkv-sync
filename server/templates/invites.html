@@ -6,10 +6,9 @@
 <a class="primary action-button" href="#create-invite"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#plus"></use></svg> {{ t.create_invite }}</a>
 {% endblock %}
 {% block content %}
-<section class="metric-grid three">
+<section class="metric-grid two">
   <article class="metric-card compact-card"><span class="metric-label">{{ t.pending_invites }}</span><p class="metric-value">{{ pending_invites }}</p></article>
   <article class="metric-card compact-card"><span class="metric-label">{{ t.used }}</span><p class="metric-value">{{ used_invites }}</p></article>
-  <article class="metric-card compact-card"><span class="metric-label">{{ t.revoked }}</span><p class="metric-value">{{ revoked_invites }}</p></article>
 </section>
 
 <section class="invite-list">

@@ -1,4 +1,4 @@
-import { requestUrl } from "obsidian";
+import { requestUrl, type RequestUrlParam } from "obsidian";
 import { ApiClient } from "../api/client";
 import { sha256Text } from "../sync/hash";
 
@@ -63,6 +63,13 @@ interface GitHubRelease {
 }
 
 const DEFAULT_GITHUB_REPO = "cyberkurry/pkv-sync";
+const UPDATE_REQUEST_TIMEOUT_MS = 30_000;
+
+type TimedRequestUrlParam = RequestUrlParam & { requestTimeout: number };
+
+function withUpdateTimeout(request: RequestUrlParam): TimedRequestUrlParam {
+  return { ...request, requestTimeout: UPDATE_REQUEST_TIMEOUT_MS };
+}
 
 export class UpdateCheckService {
   private readonly pluginId: string;
@@ -136,14 +143,16 @@ export class UpdateCheckService {
   }
 
   private async fetchGitHubManifest(): Promise<PluginUpdateStatus | null> {
-    const response = await requestUrl({
-      url: `https://api.github.com/repos/${this.githubRepo}/releases/latest`,
-      method: "GET",
-      headers: {
-        "User-Agent": `PKVSync-Plugin/${this.options.currentVersion}`
-      },
-      throw: false
-    });
+    const response = await requestUrl(
+      withUpdateTimeout({
+        url: `https://api.github.com/repos/${this.githubRepo}/releases/latest`,
+        method: "GET",
+        headers: {
+          "User-Agent": `PKVSync-Plugin/${this.options.currentVersion}`
+        },
+        throw: false
+      })
+    );
     if (response.status < 200 || response.status >= 300) return null;
 
     const release = JSON.parse(response.text) as GitHubRelease;
@@ -200,7 +209,13 @@ export class UpdateCheckService {
   }
 
   private async downloadPublicText(url: string, fileName: string): Promise<string> {
-    const response = await requestUrl({ url, method: "GET", throw: false });
+    const response = await requestUrl(
+      withUpdateTimeout({
+        url,
+        method: "GET",
+        throw: false
+      })
+    );
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`Failed to download ${fileName}: HTTP ${response.status}`);
     }
@@ -252,6 +267,10 @@ export class UpdateCheckService {
       } else {
         await this.options.adapter.remove(target).catch(() => undefined);
       }
+      await Promise.allSettled([
+        this.options.adapter.remove(temp),
+        this.options.adapter.remove(expected)
+      ]);
       throw new Error(`${fileName} post-write sha256 mismatch`);
     }
     await this.options.adapter.remove(temp).catch(() => undefined);

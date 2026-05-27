@@ -264,7 +264,6 @@ pub struct InvitesTemplate {
     pub invites: Vec<InviteAdminView>,
     pub pending_invites: usize,
     pub used_invites: usize,
-    pub revoked_invites: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -663,7 +662,8 @@ mod tests {
         assert!(css.contains(".sidebar-close {\n        display: inline-flex;"));
         assert!(css.contains("width: 44px;\n        height: 44px;"));
         assert!(css.contains("min-height: 44px;"));
-        assert!(css.contains(".table-panel {\n    padding: 0;\n    overflow-x: auto;"));
+        assert!(css.contains(".table-panel {\n    padding: 0;\n    overflow: visible;"));
+        assert!(css.contains(".table-scroll {\n    overflow-x: auto;"));
         assert!(css.contains(".panel-warning {"));
         assert!(css.contains(".file-link {"));
         assert!(css.contains(".hint {"));
@@ -758,6 +758,9 @@ mod tests {
         assert!(html.contains("/admin/static/lucide-icons.svg#filter"));
         assert!(html.contains("/admin/static/lucide-icons.svg#x"));
         assert!(html.contains("/admin/static/lucide-icons.svg#square-pen"));
+        assert!(html.contains("data-auto-submit-filter"));
+        assert!(!html.contains("onchange="));
+        assert!(html.contains("class=\"table-scroll\""));
         assert!(html.contains(
             "class=\"avatar avatar-small\" aria-hidden=\"true\">A</span><strong>admin</strong>"
         ));
@@ -850,6 +853,7 @@ mod tests {
         assert!(html.contains("class=\"panel user-profile-panel\""));
         assert!(html.contains("class=\"user-action-grid\""));
         assert!(html.contains("class=\"panel table-panel tokens-table\""));
+        assert!(html.contains("class=\"table-scroll\""));
         assert!(!html.contains("class=\"metric-grid three\""));
 
         let css = include_str!("../../static/admin.css").replace("\r\n", "\n");
@@ -1137,7 +1141,6 @@ mod tests {
             }],
             pending_invites: 1,
             used_invites: 0,
-            revoked_invites: 0,
         }
         .render()
         .unwrap();
@@ -1145,6 +1148,7 @@ mod tests {
         assert!(html.contains("Create invite"));
         assert!(html.contains("type=\"datetime-local\""));
         assert!(html.contains("/admin/static/lucide-icons.svg#plus"));
+        assert!(!html.contains("Revoked"));
     }
 
     #[test]
@@ -1159,7 +1163,6 @@ mod tests {
             }],
             pending_invites: 1,
             used_invites: 0,
-            revoked_invites: 0,
         }
         .render()
         .unwrap();

@@ -703,6 +703,46 @@ async fn dashboard_rejects_non_admin_session_like_missing_session() {
 }
 
 #[tokio::test]
+async fn self_demote_deletes_current_admin_sessions() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let first_admin_id = first_admin_user_id(&app, &session_cookie).await;
+    state
+        .users
+        .create(NewUser {
+            username: "second-admin".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
+
+    let mut demote_req = request(
+        Method::POST,
+        &format!("/admin/users/{first_admin_id}/admin"),
+        Body::from("admin=false"),
+    );
+    demote_req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    demote_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut demote_req);
+    let demote_resp = app.oneshot(demote_req).await.unwrap();
+
+    assert_eq!(demote_resp.status(), StatusCode::SEE_OTHER);
+    let (remaining_sessions,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM admin_sessions WHERE user_id = ?")
+            .bind(&first_admin_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining_sessions, 0);
+}
+
+#[tokio::test]
 async fn login_success_sets_cookie_and_allows_dashboard() {
     let app = app().await;
     let mut login_req = request(
@@ -1048,7 +1088,8 @@ async fn activity_page_masks_client_ips_and_limits_recent_rows() {
     assert!(!body.contains("PKVSync-Plugin/limited-00"));
     assert!(body.contains("203.0.113.*"));
     assert!(!body.contains("203.0.113.42"));
-    assert!(body.contains("2001:db8:*:*:*:*:370:7334"));
+    assert!(body.contains("2001:db8:85a3:*:*:*:*:*"));
+    assert!(!body.contains("*:*:*:*:370:7334"));
     assert!(!body.contains("2001:db8:85a3::8a2e:370:7334"));
 }
 
