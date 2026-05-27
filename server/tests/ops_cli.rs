@@ -52,7 +52,7 @@ fn make_config(data_dir: &Path) -> Config {
 }
 
 #[tokio::test]
-async fn backup_writes_manifest_and_copies_components() {
+async fn backup_writes_manifest_and_copies_components_without_config_by_default() {
     let (state, tmp) = setup_state().await;
     let cfg = make_config(&state.data_dir);
     std::fs::write(
@@ -82,7 +82,7 @@ async fn backup_writes_manifest_and_copies_components() {
     .unwrap();
 
     let out = tmp.path().join("backup");
-    backup::run(&cfg, Some(&tmp.path().join("config.toml")), &out, false).unwrap();
+    backup::run(&cfg, None, &out, false).unwrap();
 
     assert!(out.join("metadata.db").exists());
     assert!(out.join("vaults").join("vault1").join("HEAD").exists());
@@ -92,7 +92,7 @@ async fn backup_writes_manifest_and_copies_components() {
         .join(&hash[2..4])
         .join(&hash)
         .exists());
-    assert!(out.join("config.toml").exists());
+    assert!(!out.join("config.toml").exists());
 
     let manifest: Value =
         serde_json::from_slice(&std::fs::read(out.join("MANIFEST.json")).unwrap()).unwrap();
@@ -108,6 +108,22 @@ async fn backup_writes_manifest_and_copies_components() {
         "{manifest}"
     );
     assert_eq!(manifest["components"]["blobs"]["count"], 1);
+    assert!(manifest["components"].get("config.toml").is_none());
+}
+
+#[tokio::test]
+async fn backup_includes_config_when_requested() {
+    let (state, tmp) = setup_state().await;
+    let cfg = make_config(&state.data_dir);
+    let config_path = tmp.path().join("config.toml");
+    std::fs::write(&config_path, toml::to_string(&cfg).unwrap()).unwrap();
+
+    let out = tmp.path().join("backup-with-config");
+    backup::run(&cfg, Some(&config_path), &out, false).unwrap();
+
+    assert!(out.join("config.toml").exists());
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(out.join("MANIFEST.json")).unwrap()).unwrap();
     assert_eq!(manifest["components"]["config.toml"]["count"], 1);
 }
 

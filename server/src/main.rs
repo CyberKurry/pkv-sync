@@ -124,6 +124,7 @@ fn main() -> anyhow::Result<()> {
             data_dir,
             output,
             gzip,
+            include_config,
         } => {
             let mut cfg = Config::load(&cli.config)?;
             if let Some(data_dir) = data_dir {
@@ -131,7 +132,8 @@ fn main() -> anyhow::Result<()> {
                 cfg.storage.db_path = data_dir.join("metadata.db");
             }
             pkv_sync_server::logging::init_with_config(&cfg.logging);
-            pkv_sync_server::cli::backup::run(&cfg, Some(&cli.config), &output, gzip)?;
+            let config_path = include_config.then_some(cli.config.as_path());
+            pkv_sync_server::cli::backup::run(&cfg, config_path, &output, gzip)?;
         }
         Command::Restore {
             input,

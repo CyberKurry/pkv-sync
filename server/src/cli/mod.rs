@@ -61,6 +61,9 @@ pub enum Command {
         /// Also create a .tar.gz archive next to the backup directory
         #[arg(long)]
         gzip: bool,
+        /// Include config.toml in the backup. This copies deployment secrets.
+        #[arg(long)]
+        include_config: bool,
     },
     /// Restore a backup directory into a data directory.
     Restore {
@@ -257,10 +260,30 @@ mod tests {
                 data_dir,
                 output,
                 gzip,
+                include_config,
             } => {
                 assert_eq!(data_dir, Some(PathBuf::from("/tmp/data")));
                 assert_eq!(output, PathBuf::from("/tmp/backup"));
                 assert!(gzip);
+                assert!(!include_config);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_backup_include_config() {
+        let cli = Cli::try_parse_from([
+            "pkvsyncd",
+            "backup",
+            "--output",
+            "/tmp/backup",
+            "--include-config",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Backup { include_config, .. } => {
+                assert!(include_config);
             }
             _ => panic!("wrong variant"),
         }
