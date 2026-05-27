@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../src/api/client";
 import { SyncEngine, type IndexPersistence } from "../../src/sync/engine";
 import type { LocalFileSnapshot, LocalIndex } from "../../src/sync/types";
+import type { SyncApi } from "../../src/api/sync-client";
+import type { VaultAdapter } from "../../src/sync/vault-adapter";
 
 class FakeVault {
   constructor(public files: LocalFileSnapshot[]) {}
@@ -32,6 +34,20 @@ class FakeIndex implements IndexPersistence {
     this.saved = next;
     this.idx = next;
   }
+}
+
+function deferred(): {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: Error) => void;
+} {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe("SyncEngine push", () => {
@@ -271,6 +287,122 @@ describe("SyncEngine push", () => {
         blob_hash: "blob-hash",
         size: 3,
         mime: "image/png"
+      }
+    ], "d");
+  });
+
+  it("starts missing blob uploads concurrently and pushes only after all uploads succeed", async () => {
+    const bytes1 = new Uint8Array([1]).buffer;
+    const bytes2 = new Uint8Array([2]).buffer;
+    const bytes3 = new Uint8Array([3]).buffer;
+    const bytes4 = new Uint8Array([4]).buffer;
+    const uploads = new Map([
+      ["h1", deferred()],
+      ["h2", deferred()],
+      ["h3", deferred()]
+    ]);
+    const uploadStarts: string[] = [];
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c0",
+        changed_since: false
+      }),
+      pull: vi.fn(),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: ["h1", "h2", "h3"] }),
+      uploadBlob: vi.fn((vaultId: string, hash: string, bytes: ArrayBuffer) => {
+        uploadStarts.push(hash);
+        const upload = uploads.get(hash);
+        if (!upload) throw new Error(`unexpected upload for ${hash}`);
+        expect(vaultId).toBe("v");
+        expect(bytes).toBe(hash === "h1" ? bytes1 : hash === "h2" ? bytes2 : bytes3);
+        return upload.promise;
+      }),
+      push: vi.fn().mockResolvedValue({ new_commit: "c1", files_changed: 4 }),
+      downloadBlob: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: new FakeVault([
+        {
+          path: "one.bin",
+          hash: "h1",
+          size: 1,
+          kind: "blob",
+          bytes: bytes1
+        },
+        {
+          path: "two.bin",
+          hash: "h2",
+          size: 1,
+          kind: "blob",
+          bytes: bytes2
+        },
+        {
+          path: "three.bin",
+          hash: "h3",
+          size: 1,
+          kind: "blob",
+          bytes: bytes3
+        },
+        {
+          path: "already-uploaded.bin",
+          hash: "h4",
+          size: 1,
+          kind: "blob",
+          bytes: bytes4
+        }
+      ]) as unknown as VaultAdapter,
+      api: api as unknown as SyncApi,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    const sync = engine.syncNow();
+    await vi.waitFor(() => {
+      expect(uploadStarts).toEqual(["h1", "h2", "h3"]);
+    });
+    expect(api.push).not.toHaveBeenCalled();
+    expect(api.uploadBlob).not.toHaveBeenCalledWith("v", "h4", bytes4);
+
+    uploads.get("h1")?.resolve();
+    await Promise.resolve();
+    expect(api.push).not.toHaveBeenCalled();
+
+    uploads.get("h2")?.resolve();
+    uploads.get("h3")?.resolve();
+    await sync;
+
+    expect(api.push).toHaveBeenCalledWith("v", "c0", [
+      {
+        kind: "blob",
+        path: "one.bin",
+        blob_hash: "h1",
+        size: 1,
+        mime: undefined
+      },
+      {
+        kind: "blob",
+        path: "two.bin",
+        blob_hash: "h2",
+        size: 1,
+        mime: undefined
+      },
+      {
+        kind: "blob",
+        path: "three.bin",
+        blob_hash: "h3",
+        size: 1,
+        mime: undefined
+      },
+      {
+        kind: "blob",
+        path: "already-uploaded.bin",
+        blob_hash: "h4",
+        size: 1,
+        mime: undefined
       }
     ], "d");
   });

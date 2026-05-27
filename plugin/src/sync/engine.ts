@@ -21,6 +21,8 @@ import {
   type VaultAdapter
 } from "./vault-adapter";
 
+const BLOB_UPLOAD_CONCURRENCY = 4;
+
 export interface IndexPersistence {
   loadIndex(): Promise<LocalIndex>;
   saveIndex(index: LocalIndex): Promise<void>;
@@ -282,11 +284,11 @@ export class SyncEngine {
         ? (await this.opts.api.uploadCheck(this.opts.vaultId, blobHashes)).missing
         : [];
     const missingSet = new Set(missing);
-    for (const file of blobFiles) {
-      if (!missingSet.has(file.hash)) continue;
-      if (!file.bytes) throw new Error(`Missing bytes for blob ${file.path}`);
-      await this.opts.api.uploadBlob(this.opts.vaultId, file.hash, file.bytes);
-    }
+    await uploadMissingBlobs(
+      this.opts.api,
+      this.opts.vaultId,
+      blobFiles.filter((file) => missingSet.has(file.hash))
+    );
 
     const changes: PushChange[] = [
       ...pending.map((file) => {
@@ -599,4 +601,26 @@ function guessMime(path: string): string | undefined {
     mp4: "video/mp4"
   };
   return map[ext];
+}
+
+async function uploadMissingBlobs(
+  api: SyncApi,
+  vaultId: string,
+  files: LocalFileSnapshot[]
+): Promise<void> {
+  for (const file of files) {
+    if (!file.bytes) throw new Error(`Missing bytes for blob ${file.path}`);
+  }
+
+  let next = 0;
+  const workerCount = Math.min(BLOB_UPLOAD_CONCURRENCY, files.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (next < files.length) {
+      const file = files[next];
+      next += 1;
+      if (!file.bytes) throw new Error(`Missing bytes for blob ${file.path}`);
+      await api.uploadBlob(vaultId, file.hash, file.bytes);
+    }
+  });
+  await Promise.all(workers);
 }

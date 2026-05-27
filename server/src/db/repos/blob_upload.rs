@@ -2,6 +2,9 @@ use async_trait::async_trait;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::HashSet;
 
+const SQLITE_SAFE_BIND_LIMIT: usize = 900;
+const DELETE_UPLOADS_SHARED_BINDS: usize = 1;
+
 #[async_trait]
 pub trait BlobUploadRepo: Send + Sync {
     async fn record_upload(
@@ -85,17 +88,36 @@ impl BlobUploadRepo for SqliteBlobUploadRepo {
     }
 
     async fn delete_uploads(&self, vault_id: &str, hashes: &[String]) -> Result<(), sqlx::Error> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
         let mut tx = self.pool.begin().await?;
-        for hash in hashes {
-            sqlx::query("DELETE FROM blob_uploads WHERE vault_id = ? AND blob_hash = ?")
-                .bind(vault_id)
-                .bind(hash)
-                .execute(&mut *tx)
-                .await?;
+        for chunk in hashes.chunks(delete_uploads_chunk_size()) {
+            let mut query =
+                QueryBuilder::<Sqlite>::new("DELETE FROM blob_uploads WHERE vault_id = ");
+            query.push_bind(vault_id);
+            query.push(" AND blob_hash IN (");
+            let mut separated = query.separated(", ");
+            for hash in chunk {
+                separated.push_bind(hash);
+            }
+            separated.push_unseparated(")");
+            query.build().execute(&mut *tx).await?;
         }
         tx.commit().await?;
         Ok(())
     }
+}
+
+fn delete_uploads_chunk_size() -> usize {
+    SQLITE_SAFE_BIND_LIMIT - DELETE_UPLOADS_SHARED_BINDS
+}
+
+#[cfg(test)]
+fn delete_uploads_chunk_lengths(hashes: &[String]) -> impl Iterator<Item = usize> + '_ {
+    hashes
+        .chunks(delete_uploads_chunk_size())
+        .map(<[String]>::len)
 }
 
 #[cfg(test)]
@@ -128,6 +150,16 @@ mod tests {
         assert!(!repo.has_upload(&second.id, "a").await.unwrap());
         repo.delete_uploads(&first.id, &["a".into()]).await.unwrap();
         assert!(!repo.has_upload(&first.id, "a").await.unwrap());
+    }
+
+    #[test]
+    fn delete_uploads_chunks_stay_under_sqlite_bind_limit() {
+        let hashes: Vec<String> = (0..1000).map(|n| format!("sha:{n}")).collect();
+        let chunks: Vec<usize> = delete_uploads_chunk_lengths(&hashes).collect();
+
+        assert_eq!(chunks.iter().sum::<usize>(), hashes.len());
+        assert!(chunks.iter().all(|len| len + 1 <= SQLITE_SAFE_BIND_LIMIT));
+        assert!(chunks.len() > 1);
     }
 
     #[tokio::test]

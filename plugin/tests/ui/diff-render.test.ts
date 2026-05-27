@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  lineDiffSideBySide,
   parseUnifiedDiff,
   parseUnifiedDiffSideBySide
 } from "../../src/sync/unified-diff";
@@ -95,5 +96,38 @@ describe("parseUnifiedDiff", () => {
         rightText: "new subtitle"
       }
     ]);
+  });
+
+  it("builds side-by-side line diffs without front-inserting traceback operations", () => {
+    const left = Array.from({ length: 80 }, (_, index) => `line ${index}`).join("\n");
+    const right = Array.from({ length: 80 }, (_, index) =>
+      index % 5 === 0 ? `changed ${index}` : `line ${index}`
+    ).join("\n");
+    const originalUnshift = Array.prototype.unshift;
+    let unshiftCalls = 0;
+    let result: ReturnType<typeof lineDiffSideBySide> | null = null;
+
+    Object.defineProperty(Array.prototype, "unshift", {
+      configurable: true,
+      writable: true,
+      value: function patchedUnshift(this: unknown[], ...items: unknown[]): number {
+        unshiftCalls += 1;
+        return originalUnshift.apply(this, items);
+      }
+    });
+
+    try {
+      result = lineDiffSideBySide(left, right);
+    } finally {
+      Object.defineProperty(Array.prototype, "unshift", {
+        configurable: true,
+        writable: true,
+        value: originalUnshift
+      });
+    }
+
+    expect(unshiftCalls).toBe(0);
+    expect(result?.truncated).toBe(false);
+    expect(result?.rows.some((row) => row.kind !== "context")).toBe(true);
   });
 });

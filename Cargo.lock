@@ -1771,7 +1771,6 @@ dependencies = [
  "globset",
  "hex",
  "ipnet",
- "mime_guess",
  "once_cell",
  "percent-encoding",
  "prometheus",

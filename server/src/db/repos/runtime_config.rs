@@ -1,7 +1,8 @@
 use async_trait::async_trait;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,14 +153,6 @@ impl SqliteRuntimeConfigRepo {
     }
 }
 
-async fn read_kv(pool: &SqlitePool, key: &str) -> Result<Option<String>, sqlx::Error> {
-    let r: Option<(String,)> = sqlx::query_as("SELECT value FROM runtime_config WHERE key = ?")
-        .bind(key)
-        .fetch_optional(pool)
-        .await?;
-    Ok(r.map(|t| t.0))
-}
-
 async fn write_kv(
     pool: &SqlitePool,
     key: &str,
@@ -182,100 +175,80 @@ async fn write_kv(
     Ok(())
 }
 
+fn runtime_config_from_rows(rows: Vec<(String, String)>) -> RuntimeConfig {
+    let values: HashMap<String, String> = rows.into_iter().collect();
+    let mut cfg = RuntimeConfig::default();
+    if let Some(s) = read_json_value::<String>(&values, "registration_mode") {
+        if let Some(m) = RegistrationMode::parse(&s) {
+            cfg.registration_mode = m;
+        }
+    }
+    if let Some(s) = read_json_value::<String>(&values, "server_name") {
+        cfg.server_name = s;
+    }
+    if let Some(s) = read_json_value::<String>(&values, "timezone") {
+        if let Some(timezone) = crate::time::normalize_timezone(&s) {
+            cfg.timezone = timezone;
+        }
+    }
+    if let Some(n) = read_json_value::<u32>(&values, "login_failure_threshold") {
+        cfg.login_failure_threshold = n.max(1);
+    }
+    if let Some(n) = read_json_value::<u64>(&values, "login_window_seconds") {
+        cfg.login_window_seconds = n.max(1);
+    }
+    if let Some(n) = read_json_value::<u64>(&values, "login_lock_seconds") {
+        cfg.login_lock_seconds = n.max(1);
+    }
+    if let Some(n) = read_json_value::<u64>(&values, "max_file_size") {
+        cfg.max_file_size = n.max(1024);
+    }
+    if let Some(exts) = read_json_value::<Vec<String>>(&values, "text_extensions") {
+        cfg.text_extensions = exts;
+    }
+    if let Some(enabled) = read_json_value::<bool>(&values, "enable_history_ui") {
+        cfg.enable_history_ui = enabled;
+    }
+    if let Some(enabled) = read_json_value::<bool>(&values, "enable_diff_endpoint") {
+        cfg.enable_diff_endpoint = enabled;
+    }
+    if let Some(globs) = read_json_value::<Vec<String>>(&values, "extra_exclude_globs") {
+        cfg.extra_exclude_globs = globs;
+    }
+    if let Some(n) = read_json_value::<u32>(&values, "inline_content_max_bytes") {
+        cfg.inline_content_max_bytes = n.max(1);
+    }
+    if let Some(n) = read_json_value::<u64>(&values, "sse_heartbeat_seconds") {
+        cfg.sse_heartbeat_seconds = n.max(10);
+    }
+    if let Some(n) = read_json_value::<u32>(&values, "push_debounce_ms") {
+        cfg.push_debounce_ms = n.max(1);
+    }
+    if let Some(enabled) = read_json_value::<bool>(&values, "enable_git_smart_http") {
+        cfg.enable_git_smart_http = enabled;
+    }
+    if let Some(enabled) = read_json_value::<bool>(&values, "enable_metrics") {
+        cfg.enable_metrics = enabled;
+    }
+    if let Some(enabled) = read_json_value::<bool>(&values, "enable_auto_merge") {
+        cfg.enable_auto_merge = enabled;
+    }
+    cfg
+}
+
+fn read_json_value<T: DeserializeOwned>(values: &HashMap<String, String>, key: &str) -> Option<T> {
+    values
+        .get(key)
+        .and_then(|value| serde_json::from_str::<T>(value).ok())
+}
+
 #[async_trait]
 impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
     async fn load(&self) -> Result<RuntimeConfig, sqlx::Error> {
-        let mut cfg = RuntimeConfig::default();
-        if let Some(v) = read_kv(&self.pool, "registration_mode").await? {
-            if let Ok(s) = serde_json::from_str::<String>(&v) {
-                if let Some(m) = RegistrationMode::parse(&s) {
-                    cfg.registration_mode = m;
-                }
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "server_name").await? {
-            if let Ok(s) = serde_json::from_str::<String>(&v) {
-                cfg.server_name = s;
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "timezone").await? {
-            if let Ok(s) = serde_json::from_str::<String>(&v) {
-                if let Some(timezone) = crate::time::normalize_timezone(&s) {
-                    cfg.timezone = timezone;
-                }
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "login_failure_threshold").await? {
-            if let Ok(n) = serde_json::from_str::<u32>(&v) {
-                cfg.login_failure_threshold = n.max(1);
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "login_window_seconds").await? {
-            if let Ok(n) = serde_json::from_str::<u64>(&v) {
-                cfg.login_window_seconds = n.max(1);
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "login_lock_seconds").await? {
-            if let Ok(n) = serde_json::from_str::<u64>(&v) {
-                cfg.login_lock_seconds = n.max(1);
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "max_file_size").await? {
-            if let Ok(n) = serde_json::from_str::<u64>(&v) {
-                cfg.max_file_size = n.max(1024);
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "text_extensions").await? {
-            if let Ok(exts) = serde_json::from_str::<Vec<String>>(&v) {
-                cfg.text_extensions = exts;
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "enable_history_ui").await? {
-            if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
-                cfg.enable_history_ui = enabled;
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "enable_diff_endpoint").await? {
-            if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
-                cfg.enable_diff_endpoint = enabled;
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "extra_exclude_globs").await? {
-            if let Ok(globs) = serde_json::from_str::<Vec<String>>(&v) {
-                cfg.extra_exclude_globs = globs;
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "inline_content_max_bytes").await? {
-            if let Ok(n) = serde_json::from_str::<u32>(&v) {
-                cfg.inline_content_max_bytes = n.max(1);
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "sse_heartbeat_seconds").await? {
-            if let Ok(n) = serde_json::from_str::<u64>(&v) {
-                cfg.sse_heartbeat_seconds = n.max(10);
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "push_debounce_ms").await? {
-            if let Ok(n) = serde_json::from_str::<u32>(&v) {
-                cfg.push_debounce_ms = n.max(1);
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "enable_git_smart_http").await? {
-            if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
-                cfg.enable_git_smart_http = enabled;
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "enable_metrics").await? {
-            if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
-                cfg.enable_metrics = enabled;
-            }
-        }
-        if let Some(v) = read_kv(&self.pool, "enable_auto_merge").await? {
-            if let Ok(enabled) = serde_json::from_str::<bool>(&v) {
-                cfg.enable_auto_merge = enabled;
-            }
-        }
-        Ok(cfg)
+        let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM runtime_config")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(runtime_config_from_rows(rows))
     }
 
     async fn set_registration_mode(
@@ -522,6 +495,33 @@ mod tests {
         let cfg = r.load().await.unwrap();
         assert_eq!(cfg.registration_mode, RegistrationMode::Disabled);
         assert_eq!(cfg.server_name, "PKV Sync");
+    }
+
+    #[test]
+    fn config_from_rows_applies_known_values_and_ignores_invalid_rows() {
+        let cfg = runtime_config_from_rows(vec![
+            ("registration_mode".into(), "\"open\"".into()),
+            ("server_name".into(), "\"Team PKV\"".into()),
+            ("timezone".into(), "\"UTC\"".into()),
+            ("login_failure_threshold".into(), "0".into()),
+            ("max_file_size".into(), "1".into()),
+            ("enable_metrics".into(), "true".into()),
+            ("enable_auto_merge".into(), "false".into()),
+            ("unknown_key".into(), "\"ignored\"".into()),
+            ("push_debounce_ms".into(), "\"not a number\"".into()),
+        ]);
+
+        assert_eq!(cfg.registration_mode, RegistrationMode::Open);
+        assert_eq!(cfg.server_name, "Team PKV");
+        assert_eq!(cfg.timezone, "UTC");
+        assert_eq!(cfg.login_failure_threshold, 1);
+        assert_eq!(cfg.max_file_size, 1024);
+        assert!(cfg.enable_metrics);
+        assert!(!cfg.enable_auto_merge);
+        assert_eq!(
+            cfg.push_debounce_ms,
+            RuntimeConfig::default().push_debounce_ms
+        );
     }
 
     #[tokio::test]

@@ -41,7 +41,6 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 rpassword = "7"
 git2 = { version = "0.18", features = ["vendored-libgit2", "vendored-openssl"] }
-mime_guess = "2"
 walkdir = "2"
 bytes = "1"
 percent-encoding = "2"

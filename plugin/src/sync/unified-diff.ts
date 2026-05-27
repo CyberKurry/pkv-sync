@@ -188,25 +188,26 @@ export function lineDiffSideBySide(
   let j = n;
   while (i > 0 && j > 0) {
     if (a[i - 1] === b[j - 1]) {
-      ops.unshift({ kind: "eq", left: a[i - 1], right: b[j - 1] });
+      ops.push({ kind: "eq", left: a[i - 1], right: b[j - 1] });
       i -= 1;
       j -= 1;
     } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-      ops.unshift({ kind: "del", left: a[i - 1] });
+      ops.push({ kind: "del", left: a[i - 1] });
       i -= 1;
     } else {
-      ops.unshift({ kind: "add", right: b[j - 1] });
+      ops.push({ kind: "add", right: b[j - 1] });
       j -= 1;
     }
   }
   while (i > 0) {
-    ops.unshift({ kind: "del", left: a[i - 1] });
+    ops.push({ kind: "del", left: a[i - 1] });
     i -= 1;
   }
   while (j > 0) {
-    ops.unshift({ kind: "add", right: b[j - 1] });
+    ops.push({ kind: "add", right: b[j - 1] });
     j -= 1;
   }
+  ops.reverse();
 
   const rows: SideBySideDiffRow[] = [];
   let leftNum = 1;

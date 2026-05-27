@@ -2,6 +2,9 @@ use async_trait::async_trait;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::HashSet;
 
+const SQLITE_SAFE_BIND_LIMIT: usize = 900;
+const ADD_REFS_BINDS_PER_ROW: usize = 3;
+
 #[async_trait]
 pub trait BlobRefRepo: Send + Sync {
     async fn add_refs(
@@ -39,17 +42,20 @@ impl BlobRefRepo for SqliteBlobRefRepo {
         commit_hash: &str,
         hashes: &[String],
     ) -> Result<(), sqlx::Error> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
         let mut tx = self.pool.begin().await?;
-        for h in hashes {
-            sqlx::query(
-                "INSERT OR IGNORE INTO blob_refs (blob_hash, vault_id, commit_hash)
-                 VALUES (?, ?, ?)",
-            )
-            .bind(h)
-            .bind(vault_id)
-            .bind(commit_hash)
-            .execute(&mut *tx)
-            .await?;
+        for chunk in hashes.chunks(add_refs_chunk_size()) {
+            let mut query = QueryBuilder::<Sqlite>::new(
+                "INSERT OR IGNORE INTO blob_refs (blob_hash, vault_id, commit_hash) ",
+            );
+            query.push_values(chunk, |mut row, hash| {
+                row.push_bind(hash)
+                    .push_bind(vault_id)
+                    .push_bind(commit_hash);
+            });
+            query.build().execute(&mut *tx).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -110,6 +116,15 @@ impl BlobRefRepo for SqliteBlobRefRepo {
     }
 }
 
+fn add_refs_chunk_size() -> usize {
+    SQLITE_SAFE_BIND_LIMIT / ADD_REFS_BINDS_PER_ROW
+}
+
+#[cfg(test)]
+fn add_refs_chunk_lengths(hashes: &[String]) -> impl Iterator<Item = usize> + '_ {
+    hashes.chunks(add_refs_chunk_size()).map(<[String]>::len)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +153,16 @@ mod tests {
         assert!(repo.is_referenced_by_vault(&v.id, "sha:a").await.unwrap());
         assert_eq!(repo.hashes_for_vault(&v.id).await.unwrap().len(), 2);
         assert_eq!(repo.all_hashes().await.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn add_refs_chunks_stay_under_sqlite_bind_limit() {
+        let hashes: Vec<String> = (0..1000).map(|n| format!("sha:{n}")).collect();
+        let chunks: Vec<usize> = add_refs_chunk_lengths(&hashes).collect();
+
+        assert_eq!(chunks.iter().sum::<usize>(), hashes.len());
+        assert!(chunks.iter().all(|len| len * 3 <= SQLITE_SAFE_BIND_LIMIT));
+        assert!(chunks.len() > 1);
     }
 
     #[tokio::test]
