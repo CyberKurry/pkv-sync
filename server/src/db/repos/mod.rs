@@ -18,6 +18,6 @@ pub use runtime_config::{
     RegistrationMode, RuntimeConfig, RuntimeConfigCache, RuntimeConfigRepo, SqliteRuntimeConfigRepo,
 };
 pub use token::{NewToken, SqliteTokenRepo, TokenRepo, TokenRow};
-pub use user::{NewUser, SqliteUserRepo, User, UserRepo};
+pub use user::{NewUser, SqliteUserRepo, User, UserOption, UserRepo};
 pub use vault::{SqliteVaultRepo, Vault, VaultRepo};
 pub use vault_settings::{SqliteVaultSettingsRepo, VaultSettingsRepo};

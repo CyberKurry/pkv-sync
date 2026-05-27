@@ -80,10 +80,9 @@ async fn list_tokens(
     State(state): State<AppState>,
     user: AuthenticatedUser,
 ) -> Result<Json<Vec<TokenView>>, ApiError> {
-    let rows = state.tokens.list_for_user(&user.user_id).await?;
+    let rows = state.tokens.list_active_for_user(&user.user_id).await?;
     let tokens = rows
         .into_iter()
-        .filter(|r| r.revoked_at.is_none())
         .map(|r| TokenView {
             current: r.id == user.token_id,
             id: r.id,

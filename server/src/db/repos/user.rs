@@ -22,6 +22,12 @@ pub struct NewUser {
     pub is_admin: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserOption {
+    pub id: String,
+    pub username: String,
+}
+
 #[async_trait]
 pub trait UserRepo: Send + Sync {
     async fn create(&self, new_user: NewUser) -> Result<User, sqlx::Error>;
@@ -33,6 +39,7 @@ pub trait UserRepo: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<User>, sqlx::Error>;
     async fn find_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error>;
     async fn list(&self) -> Result<Vec<User>, sqlx::Error>;
+    async fn list_options(&self) -> Result<Vec<UserOption>, sqlx::Error>;
     async fn update_password(&self, id: &str, new_hash: &str) -> Result<(), sqlx::Error>;
     async fn set_active(&self, id: &str, active: bool) -> Result<(), sqlx::Error>;
     async fn set_admin(&self, id: &str, admin: bool) -> Result<(), sqlx::Error>;
@@ -141,6 +148,17 @@ impl UserRepo for SqliteUserRepo {
         .fetch_all(&self.pool)
         .await
         .map(|rs| rs.into_iter().map(row_to_user).collect())
+    }
+
+    async fn list_options(&self) -> Result<Vec<UserOption>, sqlx::Error> {
+        sqlx::query_as::<_, (String, String)>("SELECT id, username FROM users ORDER BY username")
+            .fetch_all(&self.pool)
+            .await
+            .map(|rs| {
+                rs.into_iter()
+                    .map(|(id, username)| UserOption { id, username })
+                    .collect()
+            })
     }
 
     async fn update_password(&self, id: &str, new_hash: &str) -> Result<(), sqlx::Error> {
@@ -278,6 +296,43 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().to_lowercase().contains("unique"));
+    }
+
+    #[tokio::test]
+    async fn list_options_returns_only_ids_and_usernames_in_username_order() {
+        let repo = fresh_repo().await;
+        let zed = repo
+            .create(NewUser {
+                username: "zed".into(),
+                password_hash: "secret-z".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let alice = repo
+            .create(NewUser {
+                username: "alice".into(),
+                password_hash: "secret-a".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+
+        let options = repo.list_options().await.unwrap();
+
+        assert_eq!(
+            options,
+            vec![
+                UserOption {
+                    id: alice.id,
+                    username: "alice".into(),
+                },
+                UserOption {
+                    id: zed.id,
+                    username: "zed".into(),
+                },
+            ]
+        );
     }
 
     #[tokio::test]

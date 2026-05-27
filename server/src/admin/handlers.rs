@@ -12,7 +12,7 @@ use crate::auth::LoginRateLimiter;
 use crate::auth::{password, token};
 use crate::db::repos::{
     InviteRepo, NewActivity, NewToken, NewUser, RegistrationMode, RuntimeConfigRepo,
-    SyncActivityRepo, TokenRepo, TokenRow, User, UserRepo, Vault, VaultRepo,
+    SyncActivityRepo, TokenRepo, TokenRow, User, UserOption, UserRepo, Vault, VaultRepo,
 };
 use crate::middleware::real_ip::{ClientIp, ForwardedFromTrustedProxy};
 use crate::service::auth::validate_username;
@@ -151,7 +151,7 @@ fn user_view(user: User, timezone: &str) -> UserAdminView {
     }
 }
 
-fn user_option_view(user: User) -> UserOptionView {
+fn user_option_view(user: UserOption) -> UserOptionView {
     UserOptionView {
         id: user.id,
         username: user.username,
@@ -995,12 +995,6 @@ async fn set_admin_form(
     Path(id): Path<String>,
     Form(form): Form<AdminForm>,
 ) -> Result<Redirect, ApiError> {
-    if session.user.id == id && !form.admin && state.users.count_admins().await? <= 1 {
-        return Err(ApiError::bad_request(
-            "last_admin",
-            "cannot demote the last admin",
-        ));
-    }
     if !state
         .users
         .set_admin_preserving_last_admin(&id, form.admin)
@@ -2541,7 +2535,7 @@ fn mask_client_ip(value: &str) -> String {
 async fn list_activity_filter_users(state: &AppState) -> Result<Vec<ActivityFilterUser>, ApiError> {
     Ok(state
         .users
-        .list()
+        .list_options()
         .await?
         .into_iter()
         .map(|user| ActivityFilterUser {
@@ -2554,7 +2548,7 @@ async fn list_activity_filter_users(state: &AppState) -> Result<Vec<ActivityFilt
 async fn list_user_options(state: &AppState) -> Result<Vec<UserOptionView>, ApiError> {
     Ok(state
         .users
-        .list()
+        .list_options()
         .await?
         .into_iter()
         .map(user_option_view)
