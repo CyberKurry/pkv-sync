@@ -51,6 +51,8 @@ pub struct RuntimeConfig {
     pub enable_git_smart_http: bool,
     pub enable_metrics: bool,
     pub enable_auto_merge: bool,
+    pub update_check_enabled: bool,
+    pub update_check_interval_seconds: u64,
 }
 
 impl Default for RuntimeConfig {
@@ -80,6 +82,8 @@ impl Default for RuntimeConfig {
             enable_git_smart_http: false,
             enable_metrics: false,
             enable_auto_merge: true,
+            update_check_enabled: true,
+            update_check_interval_seconds: 86_400,
         }
     }
 }
@@ -136,6 +140,16 @@ pub trait RuntimeConfigRepo: Send + Sync {
     async fn set_enable_metrics(&self, value: bool, by: Option<&str>) -> Result<(), sqlx::Error>;
     async fn set_enable_auto_merge(&self, value: bool, by: Option<&str>)
         -> Result<(), sqlx::Error>;
+    async fn set_update_check_enabled(
+        &self,
+        value: bool,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
+    async fn set_update_check_interval_seconds(
+        &self,
+        value: u64,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
     async fn set_inline_content_max_bytes(
         &self,
         value: u32,
@@ -232,6 +246,12 @@ fn runtime_config_from_rows(rows: Vec<(String, String)>) -> RuntimeConfig {
     }
     if let Some(enabled) = read_json_value::<bool>(&values, "enable_auto_merge") {
         cfg.enable_auto_merge = enabled;
+    }
+    if let Some(enabled) = read_json_value::<bool>(&values, "update_check.enabled") {
+        cfg.update_check_enabled = enabled;
+    }
+    if let Some(n) = read_json_value::<u64>(&values, "update_check.interval_seconds") {
+        cfg.update_check_interval_seconds = n.max(60);
     }
     cfg
 }
@@ -445,6 +465,34 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         .await
     }
 
+    async fn set_update_check_enabled(
+        &self,
+        value: bool,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        write_kv(
+            &self.pool,
+            "update_check.enabled",
+            &serde_json::to_string(&value).unwrap(),
+            by,
+        )
+        .await
+    }
+
+    async fn set_update_check_interval_seconds(
+        &self,
+        value: u64,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        write_kv(
+            &self.pool,
+            "update_check.interval_seconds",
+            &serde_json::to_string(&value.max(60)).unwrap(),
+            by,
+        )
+        .await
+    }
+
     async fn set_inline_content_max_bytes(
         &self,
         value: u32,
@@ -507,6 +555,8 @@ mod tests {
             ("max_file_size".into(), "1".into()),
             ("enable_metrics".into(), "true".into()),
             ("enable_auto_merge".into(), "false".into()),
+            ("update_check.enabled".into(), "false".into()),
+            ("update_check.interval_seconds".into(), "3600".into()),
             ("unknown_key".into(), "\"ignored\"".into()),
             ("push_debounce_ms".into(), "\"not a number\"".into()),
         ]);
@@ -522,6 +572,8 @@ mod tests {
             cfg.push_debounce_ms,
             RuntimeConfig::default().push_debounce_ms
         );
+        assert!(!cfg.update_check_enabled);
+        assert_eq!(cfg.update_check_interval_seconds, 3600);
     }
 
     #[tokio::test]
@@ -574,6 +626,8 @@ mod tests {
                 enable_git_smart_http: false,
                 enable_metrics: false,
                 enable_auto_merge: true,
+                update_check_enabled: true,
+                update_check_interval_seconds: 86_400,
             })
             .await;
         let snap2 = cache.snapshot().await;
@@ -630,5 +684,26 @@ mod tests {
         assert!(r.load().await.unwrap().enable_auto_merge);
         r.set_enable_auto_merge(false, None).await.unwrap();
         assert!(!r.load().await.unwrap().enable_auto_merge);
+    }
+
+    #[tokio::test]
+    async fn set_and_reload_update_check_enabled() {
+        let r = setup().await;
+        assert!(r.load().await.unwrap().update_check_enabled);
+        r.set_update_check_enabled(false, None).await.unwrap();
+        assert!(!r.load().await.unwrap().update_check_enabled);
+    }
+
+    #[tokio::test]
+    async fn set_and_reload_update_check_interval_seconds() {
+        let r = setup().await;
+        assert_eq!(
+            r.load().await.unwrap().update_check_interval_seconds,
+            86_400
+        );
+        r.set_update_check_interval_seconds(3600, None)
+            .await
+            .unwrap();
+        assert_eq!(r.load().await.unwrap().update_check_interval_seconds, 3600);
     }
 }

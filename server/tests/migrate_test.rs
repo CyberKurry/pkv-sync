@@ -56,7 +56,30 @@ async fn v1_uses_single_baseline_migration() {
         .await
         .unwrap();
 
-    assert_eq!(count, 1);
+    assert_eq!(count, 2);
+}
+
+#[tokio::test]
+async fn runtime_update_check_migration_seeds_defaults() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("t.db");
+    let p = pool::connect(&db_path).await.unwrap();
+    pool::migrate_up(&p).await.unwrap();
+
+    let enabled: String =
+        sqlx::query_scalar("SELECT value FROM runtime_config WHERE key = 'update_check.enabled'")
+            .fetch_one(&p)
+            .await
+            .unwrap();
+    let interval: String = sqlx::query_scalar(
+        "SELECT value FROM runtime_config WHERE key = 'update_check.interval_seconds'",
+    )
+    .fetch_one(&p)
+    .await
+    .unwrap();
+
+    assert_eq!(enabled, "true");
+    assert_eq!(interval, "86400");
 }
 
 #[tokio::test]
