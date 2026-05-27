@@ -63,6 +63,7 @@ export default class PKVSyncPlugin extends Plugin {
   availableUpdate: PluginUpdateStatus | null = null;
   private statusEl: HTMLElement | null = null;
   private client: ApiClient | null = null;
+  private historyClient: HistoryApi | null = null;
   private engine: SyncEngine | null = null;
   private pushDebouncer: Debouncer | null = null;
   private pollTimer: number | null = null;
@@ -97,7 +98,6 @@ export default class PKVSyncPlugin extends Plugin {
     if (shouldSaveSettings) {
       await this.saveSettings({ rebuild: false });
     }
-    this.client = this.makeClient();
     void this.refreshServerCapabilities();
     this.statusEl = this.addStatusBarItem();
     this.updateStatus();
@@ -435,7 +435,9 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   private historyApi(): HistoryApi {
-    return new HistoryApi(this.api());
+    const api = this.api();
+    if (!this.historyClient) this.historyClient = new HistoryApi(api);
+    return this.historyClient;
   }
 
   private async refreshServerCapabilities(): Promise<void> {
