@@ -11,10 +11,13 @@ pub async fn middleware(req: Request, next: Next) -> Response {
 }
 
 fn requires_check(req: &Request) -> bool {
-    !matches!(
-        req.method(),
-        &Method::GET | &Method::HEAD | &Method::OPTIONS
-    ) && !matches!(req.uri().path(), "/admin/login" | "/setup")
+    let path = req.uri().path();
+    (path == "/setup" || path == "/admin" || path.starts_with("/admin/"))
+        && !matches!(
+            req.method(),
+            &Method::GET | &Method::HEAD | &Method::OPTIONS
+        )
+        && !matches!(path, "/admin/login" | "/setup")
 }
 
 pub(crate) fn same_origin(req: &Request) -> bool {

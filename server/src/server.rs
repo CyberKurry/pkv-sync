@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::db::pool;
 use crate::middleware::{deployment_key, real_ip, request_id, ua_filter};
 use crate::service::AppState;
-use crate::{admin, api};
+use crate::{admin, api, mcp};
 use axum::extract::{MatchedPath, Request, State};
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
@@ -85,24 +85,31 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
             admin::handlers::setup_redirect_middleware,
         ));
 
-    Router::new()
+    let mut app = Router::new()
         .merge(api_routes)
         .merge(admin_routes)
-        .with_state(state)
-        .layer(axum::middleware::from_fn_with_state(
-            security_headers,
-            security_headers_middleware,
-        ))
-        .layer(axum::middleware::from_fn_with_state(
-            metrics_state,
-            access_log_middleware,
-        ))
-        .layer(axum::extract::Extension(limiter))
-        .layer(axum::middleware::from_fn_with_state(
-            trusted,
-            real_ip::middleware,
-        ))
-        .layer(axum::middleware::from_fn(request_id::middleware))
+        .with_state(state.clone());
+    if cfg.mcp.embed_in_serve {
+        app = app.merge(mcp::transport_http::router(
+            state.clone(),
+            cfg.server.deployment_key.clone(),
+        ));
+    }
+
+    app.layer(axum::middleware::from_fn_with_state(
+        security_headers,
+        security_headers_middleware,
+    ))
+    .layer(axum::middleware::from_fn_with_state(
+        metrics_state,
+        access_log_middleware,
+    ))
+    .layer(axum::extract::Extension(limiter))
+    .layer(axum::middleware::from_fn_with_state(
+        trusted,
+        real_ip::middleware,
+    ))
+    .layer(axum::middleware::from_fn(request_id::middleware))
 }
 
 async fn access_log_middleware(
