@@ -104,7 +104,8 @@ pub async fn unified_diff(
 
 fn text_for_diff(file: Option<StoredFile>) -> Result<String, ApiError> {
     match file {
-        Some(StoredFile::Text { bytes }) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
+        Some(StoredFile::Text { bytes }) => Ok(String::from_utf8(bytes)
+            .unwrap_or_else(|err| String::from_utf8_lossy(err.as_bytes()).into_owned())),
         Some(StoredFile::BlobPointer { .. }) => Err(ApiError::bad_request(
             "binary_file",
             "binary files do not have inline diffs",
@@ -134,5 +135,25 @@ mod tests {
         let (patch, truncated) = truncate_patch("a".repeat(MAX_PATCH_BYTES + 1));
         assert!(truncated);
         assert_eq!(patch.len(), MAX_PATCH_BYTES);
+    }
+
+    #[test]
+    fn text_for_diff_reuses_valid_utf8_text() {
+        let text = text_for_diff(Some(StoredFile::Text {
+            bytes: "hello".as_bytes().to_vec(),
+        }))
+        .unwrap();
+
+        assert_eq!(text, "hello");
+    }
+
+    #[test]
+    fn text_for_diff_replaces_invalid_utf8_text() {
+        let text = text_for_diff(Some(StoredFile::Text {
+            bytes: vec![b'a', 0xff, b'b'],
+        }))
+        .unwrap();
+
+        assert_eq!(text, "a\u{fffd}b");
     }
 }

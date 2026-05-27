@@ -8,7 +8,7 @@ RUN npm run build
 FROM rust:bookworm AS server-builder
 WORKDIR /app
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends cmake pkg-config libssl-dev \
+  && apt-get install -y --no-install-recommends cmake pkg-config \
   && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
 COPY server ./server
@@ -20,7 +20,7 @@ RUN cargo build --release -p pkv-sync-server
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+  && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=server-builder /app/target/release/pkvsyncd /usr/local/bin/pkvsyncd

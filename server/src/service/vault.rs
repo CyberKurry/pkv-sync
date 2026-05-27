@@ -80,10 +80,11 @@ pub async fn rollback_to_commit_as(
             commit: target_commit.to_string(),
         });
     }
+    let target = target_commit.to_string();
     if from_commit.as_deref() == Some(target_commit) {
         return Ok(RollbackResult {
             from_commit,
-            to_commit: target_commit.to_string(),
+            to_commit: target,
             rolled_back: false,
         });
     }
@@ -107,13 +108,13 @@ pub async fn rollback_to_commit_as(
     state.events.publish(
         vault_id,
         VaultEvent {
-            commit: target_commit.to_string(),
+            commit: target.clone(),
             parent: Some(from.clone()),
             source_device_id: actor.device_id.to_string(),
             at: chrono::Utc::now().timestamp(),
             kind: EventKind::Rollback {
                 from_commit: from,
-                to_commit: target_commit.to_string(),
+                to_commit: target.clone(),
             },
             changes: Vec::new(),
         },
@@ -121,7 +122,7 @@ pub async fn rollback_to_commit_as(
 
     Ok(RollbackResult {
         from_commit,
-        to_commit: target_commit.to_string(),
+        to_commit: target,
         rolled_back: true,
     })
 }
