@@ -284,7 +284,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: 何もダウンロードせずに、選択されたリリース、アセット、対象パスを表示します。
 - `--yes`: 対話的な確認プロンプトをスキップします。
-- `--version <VERSION>`: 最新リリースではなく `1.0.3` のような特定のリリースをダウンロードします。
+- `--version <VERSION>`: 最新リリースではなく `1.0.4` のような特定のリリースをダウンロードします。
 
 ### 説明
 
@@ -302,5 +302,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 特定のリリースをダウンロード
-pkvsyncd upgrade --yes --version 1.0.3
+pkvsyncd upgrade --yes --version 1.0.4
 ```

@@ -284,7 +284,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`：显示所选的发行版、资产和目标路径，但不下载任何文件。
 - `--yes`：跳过交互式确认提示。
-- `--version <VERSION>`：下载指定版本（例如 `1.0.3`），而不是最新发行版。
+- `--version <VERSION>`：下载指定版本（例如 `1.0.4`），而不是最新发行版。
 
 ### 说明
 
@@ -302,5 +302,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 下载指定版本
-pkvsyncd upgrade --yes --version 1.0.3
+pkvsyncd upgrade --yes --version 1.0.4
 ```

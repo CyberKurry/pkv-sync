@@ -7,6 +7,23 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-05-27
+
+### Fixed
+
+- Address second-pass Admin and plugin review findings: safer IPv6 activity IP
+  masking, CSP-compatible user filtering, accurate invite statistics,
+  self-demotion session cleanup, table scrolling without clipping panels, and
+  stronger plugin update recovery.
+- Tighten regression coverage for plugin watchers, unspecified IPv6 server
+  URLs, plugin diff semantics, invite counters, and reviewed Admin behavior.
+
+### Performance
+
+- Reduce small blocking filesystem checks in blob storage, avoid repeated path
+  lowercase allocations in text classification, and reuse already downloaded
+  non-inline text content during plugin pulls.
+
 ## [1.0.3] - 2026-05-27
 
 ### Fixed
