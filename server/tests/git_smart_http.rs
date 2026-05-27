@@ -258,6 +258,53 @@ async fn info_refs_rejects_wrong_token() {
 }
 
 #[tokio::test]
+async fn info_refs_rejects_disabled_user_like_invalid_credentials() {
+    let (ts, state, raw, vid) = start_test_server().await;
+    let user = state.users.find_by_username("u").await.unwrap().unwrap();
+    state.users.set_active(&user.id, false).await.unwrap();
+
+    let resp = auth_headers(
+        client().get(format!(
+            "http://{}/git/{}/info/refs?service=git-upload-pack",
+            ts.addr, vid
+        )),
+        &ts.key,
+    )
+    .header("authorization", basic_auth_header(&raw))
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let body = resp.text().await.unwrap().to_lowercase();
+    assert!(!body.contains("disabled"));
+    assert!(!body.contains("forbidden"));
+}
+
+#[tokio::test]
+async fn upload_pack_rejects_disabled_user_like_invalid_credentials() {
+    let (ts, state, raw, vid) = start_test_server().await;
+    let user = state.users.find_by_username("u").await.unwrap().unwrap();
+    state.users.set_active(&user.id, false).await.unwrap();
+
+    let resp = auth_headers(
+        client()
+            .post(format!("http://{}/git/{}/git-upload-pack", ts.addr, vid))
+            .body(Vec::<u8>::new()),
+        &ts.key,
+    )
+    .header("authorization", basic_auth_header(&raw))
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let body = resp.text().await.unwrap().to_lowercase();
+    assert!(!body.contains("disabled"));
+    assert!(!body.contains("forbidden"));
+}
+
+#[tokio::test]
 async fn info_refs_rejects_wrong_service() {
     let (ts, _state, raw, vid) = start_test_server().await;
 

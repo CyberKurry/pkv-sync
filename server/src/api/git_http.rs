@@ -301,7 +301,7 @@ async fn authenticate_basic(
         .await?
         .ok_or_else(|| ApiError::unauthorized("user no longer exists"))?;
     if !user.is_active {
-        return Err(ApiError::forbidden("account disabled"));
+        return Err(ApiError::unauthorized("invalid or revoked token"));
     }
     let _ = state
         .tokens
