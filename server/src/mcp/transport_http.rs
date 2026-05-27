@@ -1,3 +1,5 @@
+use crate::auth::AuthenticatedUser;
+use crate::db::repos::{TokenRepo, UserRepo};
 use crate::middleware::deployment_key;
 use crate::service::AppState;
 use axum::body::Body;
@@ -10,10 +12,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use serde_json::Value;
+use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio_stream::wrappers::BroadcastStream;
+use tokio::sync::mpsc;
+use tokio::time::{Interval, MissedTickBehavior};
+use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use tokio_stream::StreamExt;
 
 use super::transport_stdio::{authenticate_token, handle_jsonrpc, jsonrpc_error};
@@ -120,6 +125,7 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
                 .into_response();
         }
     };
+    let token_hash = crate::auth::token::hash(raw);
     let vaults =
         match crate::db::repos::VaultRepo::list_for_user(&*state.vaults, &user.user_id).await {
             Ok(vaults) => vaults,
@@ -163,47 +169,128 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
             BroadcastStream::new(state.events.subscribe(&vault_id)),
         );
     }
-    let replay_items = match replay_events {
+    let replay_items: VecDeque<McpSseItem> = match replay_events {
         McpReplayEvents::Events(events) => events
             .into_iter()
             .filter_map(|(_vault_id, event)| {
                 let commit = event.commit.clone();
                 let notification = crate::mcp::notifications::vault_changed(commit.clone(), event);
                 let data = serde_json::to_string(&notification).ok()?;
-                Some(Ok::<Event, Infallible>(
-                    Event::default()
-                        .event("vault_changed")
-                        .id(commit)
-                        .data(data),
-                ))
+                Some(McpSseItem::VaultChanged { commit, data })
             })
             .collect(),
-        McpReplayEvents::Lagged => vec![Ok(Event::default().event("lagged").data(""))],
+        McpReplayEvents::Lagged => VecDeque::from([McpSseItem::Lagged]),
     };
-    let replay_stream = tokio_stream::iter(replay_items);
-    let live_stream = streams.filter_map(|(_vault_id, event)| {
-        event.ok().and_then(|event| {
-            let commit = event.commit.clone();
-            let notification = crate::mcp::notifications::vault_changed(commit.clone(), event);
-            let data = serde_json::to_string(&notification).ok()?;
-            Some(Ok::<Event, Infallible>(
-                Event::default()
-                    .event("vault_changed")
-                    .id(commit)
-                    .data(data),
-            ))
-        })
-    });
-    let stream = {
-        let guard = sse_guard;
-        replay_stream.chain(live_stream).map(move |item| {
-            let _keep_alive = &guard;
-            item
-        })
-    };
-    Sse::new(stream)
+    let mut auth_interval = tokio::time::interval(Duration::from_secs(15));
+    auth_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    auth_interval.tick().await;
+    let (tx, rx) = mpsc::channel(16);
+    tokio::spawn(run_mcp_sse_stream(
+        McpSseState {
+            app: state,
+            token_hash,
+            user,
+            replay_items,
+            streams,
+            auth_interval,
+            _guard: sse_guard,
+        },
+        tx,
+    ));
+    Sse::new(ReceiverStream::new(rx))
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
         .into_response()
+}
+
+struct McpSseState {
+    app: AppState,
+    token_hash: String,
+    user: AuthenticatedUser,
+    replay_items: VecDeque<McpSseItem>,
+    streams: tokio_stream::StreamMap<String, BroadcastStream<crate::service::events::VaultEvent>>,
+    auth_interval: Interval,
+    _guard: crate::service::state::SseSubscriberGuard,
+}
+
+enum McpSseItem {
+    VaultChanged { commit: String, data: String },
+    Lagged,
+}
+
+impl McpSseItem {
+    fn into_event(self) -> Event {
+        match self {
+            Self::VaultChanged { commit, data } => Event::default()
+                .event("vault_changed")
+                .id(commit)
+                .data(data),
+            Self::Lagged => Event::default().event("lagged").data(""),
+        }
+    }
+}
+
+async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event, Infallible>>) {
+    loop {
+        if tx.is_closed() {
+            break;
+        }
+        if let Some(item) = sse.replay_items.pop_front() {
+            if !mcp_sse_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
+                break;
+            }
+            if tx.send(Ok(item.into_event())).await.is_err() {
+                break;
+            }
+            continue;
+        }
+        tokio::select! {
+            _ = tx.closed() => {
+                break;
+            }
+            _ = sse.auth_interval.tick() => {
+                if !mcp_sse_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
+                    break;
+                }
+            }
+            event = sse.streams.next() => {
+                let Some((_vault_id, Ok(event))) = event else {
+                    break;
+                };
+                if !mcp_sse_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
+                    break;
+                }
+                let commit = event.commit.clone();
+                let notification = crate::mcp::notifications::vault_changed(commit.clone(), event);
+                let Ok(data) = serde_json::to_string(&notification) else {
+                    continue;
+                };
+                if tx
+                    .send(Ok(McpSseItem::VaultChanged { commit, data }.into_event()))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+async fn mcp_sse_token_still_valid(
+    state: &AppState,
+    token_hash: &str,
+    user: &AuthenticatedUser,
+) -> bool {
+    let Ok(Some((row, user_id))) = state.tokens.find_by_hash(token_hash).await else {
+        return false;
+    };
+    if row.id != user.token_id || user_id != user.user_id {
+        return false;
+    }
+    let Ok(Some(db_user)) = state.users.find_by_id(&user_id).await else {
+        return false;
+    };
+    db_user.is_active
 }
 
 enum McpReplayEvents {

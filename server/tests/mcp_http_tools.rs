@@ -428,6 +428,86 @@ async fn http_mcp_sse_rejects_when_subscriber_limit_is_reached() {
 }
 
 #[tokio::test]
+async fn http_mcp_sse_closes_without_live_event_after_token_revoked() {
+    let (state, tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&state, "http-sse-revoked").await;
+    let writer_raw = token::generate();
+    state
+        .tokens
+        .create(NewToken {
+            user_id: &user_id,
+            token_hash: &token::hash(&writer_raw),
+            device_id: "http-writer-device",
+            device_name: "writer",
+        })
+        .await
+        .unwrap();
+    let vault = vault::create_vault(&state, &user_id, "main").await.unwrap();
+    let sse_auth = authenticated_user(&state, &raw, "http-sse-revoked").await;
+    let writer_auth = authenticated_user(&state, &writer_raw, "http-sse-revoked").await;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server_state = state.clone();
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            transport_http::router(server_state, DEPLOYMENT_KEY.into()).into_make_service(),
+        )
+        .await;
+    });
+
+    let resp = reqwest::Client::new()
+        .get(format!("http://{addr}/mcp"))
+        .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
+        .header("accept", "text/event-stream")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    state
+        .tokens
+        .revoke(&sse_auth.token_id, chrono::Utc::now().timestamp())
+        .await
+        .unwrap();
+    let pushed = sync::push(
+        &state,
+        &writer_auth,
+        &vault.id,
+        None,
+        None,
+        PushReq {
+            device_name: Some("writer".into()),
+            changes: vec![PushChange::Text {
+                path: "after-revoke.md".into(),
+                content: "must not leak".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    use futures_util::StreamExt;
+    let mut stream = resp.bytes_stream();
+    let next = tokio::time::timeout(Duration::from_secs(2), stream.next()).await;
+    handle.abort();
+    drop(tmp);
+
+    match next {
+        Ok(None) => {}
+        Ok(Some(Err(_))) => {}
+        Ok(Some(Ok(bytes))) => panic!(
+            "revoked MCP SSE stream leaked event {}: {}",
+            pushed.new_commit,
+            String::from_utf8_lossy(&bytes)
+        ),
+        Err(_) => panic!("revoked MCP SSE stream stayed open after a live event"),
+    }
+}
+
+#[tokio::test]
 async fn http_mcp_sse_too_far_behind_emits_lagged() {
     let (state, tmp) = test_state().await;
     let (user_id, raw) = create_user_with_token(&state, "http-sse-lagged").await;
