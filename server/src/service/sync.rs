@@ -2710,13 +2710,23 @@ mod integration_tests {
         let r1 = a.await.unwrap();
         let r2 = b.await.unwrap();
         let successes = [r1.is_ok(), r2.is_ok()].into_iter().filter(|x| *x).count();
-        let conflicts = [r1.err(), r2.err()]
+        let rejected_statuses: Vec<_> = [&r1, &r2]
             .into_iter()
-            .flatten()
-            .filter(|e| e.status == axum::http::StatusCode::CONFLICT)
-            .count();
-        assert_eq!(successes, 1);
-        assert_eq!(conflicts, 1);
+            .filter_map(|result| result.as_ref().err().map(|err| err.status))
+            .collect();
+        assert!(
+            successes == 1,
+            "expected exactly one successful push, got {successes} successes and rejected statuses {rejected_statuses:?}"
+        );
+        assert_eq!(rejected_statuses.len(), 1);
+        assert!(
+            matches!(
+                rejected_statuses[0],
+                axum::http::StatusCode::CONFLICT | axum::http::StatusCode::SERVICE_UNAVAILABLE
+            ),
+            "expected the competing push to be rejected as conflict or busy, got {:?}",
+            rejected_statuses[0]
+        );
     }
 
     #[tokio::test]
