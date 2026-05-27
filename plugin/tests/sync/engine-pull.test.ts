@@ -186,6 +186,69 @@ describe("SyncEngine pull", () => {
     expect(vault.writes.get("large.md")).toBe("large content");
   });
 
+  it("reuses downloaded non-inline text content for matching and writing", async () => {
+    const oldHash = await sha256Text("old");
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: oldHash,
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: oldHash,
+        size: 3,
+        kind: "text",
+        content: "old"
+      }
+    ]);
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c1",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [],
+        modified: [
+          {
+            path: "a.md",
+            file_type: "text",
+            size: 6,
+            content_inline: null
+          }
+        ],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn().mockResolvedValue("remote")
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect(api.downloadTextFile).toHaveBeenCalledTimes(1);
+    expect(vault.writes.get("a.md")).toBe("remote");
+  });
+
   it("preserves dirty local text as a conflict file before applying remote", async () => {
     const cleanHash = await sha256Text("clean");
     const dirtyHash = await sha256Text("local");

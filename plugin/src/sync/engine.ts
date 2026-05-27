@@ -347,6 +347,7 @@ export class SyncEngine {
     const current = await this.opts.vault.scan(this.opts.textExtensions, index);
     const currentByPath = new Map(current.map((file) => [file.path, file]));
     const pathAccepted = this.currentPathMatcher();
+    const pulledText = new Map<string, string>();
     const touched: LocalFileSnapshot[] = [];
     const deleted: string[] = [];
 
@@ -359,33 +360,34 @@ export class SyncEngine {
           await this.writeRemoteConflict(file, pull.to);
           continue;
         }
-        const matchingLocal = await this.matchingLocalSnapshot(file, local, pull.to);
-        if (matchingLocal) {
-          touched.push(matchingLocal);
-          continue;
-        }
-        if (isLocalDirty(local, indexed?.lastSyncedHash)) {
-          await this.writeConflict(file.path, local);
-        }
 
         if (file.file_type === "text") {
-          const content =
-            file.content_inline ??
-            (await this.opts.api.downloadTextFile(
-              this.opts.vaultId,
-              file.path,
-              pull.to
-            ));
+          const content = await this.pulledTextContent(file, pull.to, pulledText);
+          const hash = await sha256Text(content);
+          if (local?.kind === "text" && local.hash === hash) {
+            touched.push(local);
+            continue;
+          }
+          if (isLocalDirty(local, indexed?.lastSyncedHash)) {
+            await this.writeConflict(file.path, local);
+          }
           await this.opts.vault.writeText(file.path, content);
           touched.push({
             path: file.path,
-            hash: await sha256Text(content),
+            hash,
             size: new TextEncoder().encode(content).byteLength,
             kind: "text",
             content
           });
         } else {
           if (!file.blob_hash) throw new Error(`Missing blob hash for ${file.path}`);
+          if (local?.kind === "blob" && local.hash === file.blob_hash) {
+            touched.push(local);
+            continue;
+          }
+          if (isLocalDirty(local, indexed?.lastSyncedHash)) {
+            await this.writeConflict(file.path, local);
+          }
           const bytes = await this.opts.api.downloadBlob(
             this.opts.vaultId,
             file.blob_hash
@@ -431,6 +433,28 @@ export class SyncEngine {
       pull.deleted.filter((path) => shouldSyncPath(path) && pathAccepted(path))
     );
     await this.opts.index.saveIndex(index);
+  }
+
+  private async pulledTextContent(
+    file: PullFile,
+    atCommit: string,
+    cache: Map<string, string>
+  ): Promise<string> {
+    if (file.file_type !== "text") {
+      throw new Error(`Cannot read text content for blob ${file.path}`);
+    }
+    if (file.content_inline !== null && file.content_inline !== undefined) {
+      return file.content_inline;
+    }
+    const cached = cache.get(file.path);
+    if (cached !== undefined) return cached;
+    const content = await this.opts.api.downloadTextFile(
+      this.opts.vaultId,
+      file.path,
+      atCommit
+    );
+    cache.set(file.path, content);
+    return content;
   }
 
   private shouldApplyPulledPath(
@@ -544,29 +568,6 @@ export class SyncEngine {
     });
   }
 
-  private async matchingLocalSnapshot(
-    file: PullFile,
-    local: LocalFileSnapshot | undefined,
-    atCommit: string
-  ): Promise<LocalFileSnapshot | null> {
-    if (!local) return null;
-    if (file.file_type === "blob") {
-      return file.blob_hash && local.kind === "blob" && local.hash === file.blob_hash
-        ? local
-        : null;
-    }
-
-    let content = file.content_inline ?? null;
-    if (content === null) {
-      content = await this.opts.api.downloadTextFile(
-        this.opts.vaultId,
-        file.path,
-        atCommit
-      );
-    }
-    const remoteHash = await sha256Text(content);
-    return local.kind === "text" && local.hash === remoteHash ? local : null;
-  }
 }
 
 function isLocalDeleted(
