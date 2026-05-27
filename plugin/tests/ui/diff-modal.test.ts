@@ -3,7 +3,8 @@ import {
   commitOptionLabel,
   diffLineClass,
   diffRestoreTargets,
-  diffTitle
+  diffTitle,
+  uniqueCommits
 } from "../../src/ui/diff-modal";
 import type { CommitSummary } from "../../src/api/types";
 
@@ -53,5 +54,13 @@ describe("diff modal helpers", () => {
         "Asia/Shanghai"
       )
     ).toBe("1234567 - 1970-01-01 08:00:00");
+  });
+
+  it("keeps unique commits in first-seen order", () => {
+    expect(uniqueCommits(["c2", null, "c1", "c2", undefined, "c3"])).toEqual([
+      "c2",
+      "c1",
+      "c3"
+    ]);
   });
 });

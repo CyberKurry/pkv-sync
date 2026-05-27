@@ -1,4 +1,4 @@
-const TEXT_ENCODER = new TextEncoder();
+import { TEXT_ENCODER } from "./text-encoding";
 const HEX_BYTES = Array.from({ length: 256 }, (_, i) =>
   i.toString(16).padStart(2, "0")
 );

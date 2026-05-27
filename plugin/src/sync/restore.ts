@@ -1,5 +1,6 @@
 import type { Vault } from "obsidian";
 import type { HistoryApi } from "../api/history-client";
+import { textByteLength } from "./text-encoding";
 import { ObsidianVaultAdapter } from "./vault-adapter";
 
 export interface RestoreContext {
@@ -41,7 +42,7 @@ export async function restoreFileToCommit(
       return {
         ok: true,
         kind: existed ? "modified" : "created",
-        bytes: new TextEncoder().encode(historical.text).byteLength
+        bytes: textByteLength(historical.text)
       };
     }
     await adapter.writeBinary(ctx.path, historical.bytes);

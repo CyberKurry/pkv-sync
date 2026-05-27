@@ -1,5 +1,6 @@
 import { type RequestUrlParam, requestUrl } from "obsidian";
 import {
+  type ApiErrorBody,
   type AuthResponse,
   type MeResponse,
   type ServerConfigResponse,
@@ -189,18 +190,19 @@ export class ApiClient {
   }
 }
 
-function tryParseError(text: string, status: number): { code: string; message: string } {
+export function tryParseError(
+  text: string,
+  status: number
+): { code: string; message: string } {
   try {
-    const value = JSON.parse(text) as {
-      error?: { code?: string; message?: string };
-    };
+    const value = JSON.parse(text) as Partial<ApiErrorBody>;
+    const code = value.error?.code;
+    const message = value.error?.message;
     return {
-      code: value.error?.code ?? `http_${status}`,
-      message: value.error?.message ?? `HTTP ${status}`
+      code: typeof code === "string" ? code : `http_${status}`,
+      message: typeof message === "string" ? message : `HTTP ${status}`
     };
   } catch {
     return { code: `http_${status}`, message: `HTTP ${status}` };
   }
 }
-
-export const __test = { tryParseError };

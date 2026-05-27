@@ -1,6 +1,7 @@
 import { TFile, type Vault } from "obsidian";
 import { isConflictPath } from "./conflict-files";
 import { sha256Bytes, sha256Text } from "./hash";
+import { textByteLength } from "./text-encoding";
 import type { LocalFileSnapshot, LocalIndex } from "./types";
 
 export interface VaultAdapter {
@@ -76,7 +77,7 @@ export class ObsidianVaultAdapter implements VaultAdapter {
       return {
         path,
         hash: await sha256Text(content),
-        size: new TextEncoder().encode(content).byteLength,
+        size: textByteLength(content),
         mtime: file.stat.mtime,
         kind: "text",
         content

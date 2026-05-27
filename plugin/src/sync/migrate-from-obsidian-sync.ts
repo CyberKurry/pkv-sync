@@ -1,6 +1,8 @@
 import { TFile, TFolder } from "obsidian";
 import type { VaultSummary } from "../api/types";
 import { sha256Bytes, sha256Text } from "./hash";
+import { guessMime } from "./mime";
+import { textByteLength } from "./text-encoding";
 import type { LocalFileSnapshot, LocalIndex, PushChange, PushResponse, StateResponse } from "./types";
 
 const COMMUNITY_PLUGINS_PATH = ".obsidian/community-plugins.json";
@@ -289,7 +291,7 @@ async function snapshotMigrationFile(
     return {
       path,
       hash: await sha256Text(content),
-      size: new TextEncoder().encode(content).byteLength,
+      size: textByteLength(content),
       kind: "text",
       content
     };
@@ -344,21 +346,4 @@ function normalizeBatchSize(value: number | undefined): number {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function guessMime(path: string): string | undefined {
-  const ext = path.split(".").pop()?.toLowerCase();
-  if (!ext) return undefined;
-  const map: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    pdf: "application/pdf",
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    mp4: "video/mp4"
-  };
-  return map[ext];
 }

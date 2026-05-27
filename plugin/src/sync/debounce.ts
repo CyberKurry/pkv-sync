@@ -20,8 +20,4 @@ export class Debouncer {
       this.timer = null;
     }
   }
-
-  isPending(): boolean {
-    return this.timer !== null;
-  }
 }

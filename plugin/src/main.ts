@@ -3,6 +3,7 @@ import { ApiClient } from "./api/client";
 import { HistoryApi } from "./api/history-client";
 import { SyncApi } from "./api/sync-client";
 import type { CommitSummary, ServerCapabilities } from "./api/types";
+import { generateDeviceId } from "./device-id";
 import {
   readPluginSettings,
   readSyncIndex,
@@ -86,7 +87,7 @@ export default class PKVSyncPlugin extends Plugin {
     this.settings = readPluginSettings(await this.loadData());
     let shouldSaveSettings = false;
     if (!this.settings.deviceId) {
-      this.settings.deviceId = this.generateDeviceId();
+      this.settings.deviceId = generateDeviceId();
       shouldSaveSettings = true;
     }
     if (!this.settings.deviceName) {
@@ -248,7 +249,6 @@ export default class PKVSyncPlugin extends Plugin {
     await this.dataStore.update((data) =>
       writePluginSettings(data, this.settings)
     );
-    this.client = this.makeClient();
     void this.refreshServerCapabilities();
     this.updateStatus();
     if (options.rebuild !== false) this.rebuildSyncEngine();
@@ -394,14 +394,6 @@ export default class PKVSyncPlugin extends Plugin {
     } catch {
       return null;
     }
-  }
-
-  private generateDeviceId(): string {
-    const random =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-    return `dev_${random}`;
   }
 
   private async recordSyncSuccess(generation: number): Promise<void> {

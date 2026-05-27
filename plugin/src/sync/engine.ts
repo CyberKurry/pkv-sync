@@ -8,11 +8,13 @@ import { format, strings, type Strings } from "../i18n";
 import { createPathMatcher } from "./exclude";
 import { conflictPath } from "./conflict";
 import { sha256Bytes, sha256Text } from "./hash";
+import { guessMime } from "./mime";
 import {
   markDeleted,
   markSynced,
   pendingFiles
 } from "./index-store";
+import { textByteLength } from "./text-encoding";
 import type { PushChange } from "./types";
 import type { LocalFileSnapshot, LocalIndex, PullFile, PullResponse } from "./types";
 import {
@@ -375,7 +377,7 @@ export class SyncEngine {
           touched.push({
             path: file.path,
             hash,
-            size: new TextEncoder().encode(content).byteLength,
+            size: textByteLength(content),
             kind: "text",
             content
           });
@@ -520,7 +522,7 @@ export class SyncEngine {
     // concurrent inline-event handlers cannot observe stale state or
     // overwrite each other's index updates.
     const hash = await sha256Text(content);
-    const size = new TextEncoder().encode(content).byteLength;
+    const size = textByteLength(content);
     const snapshot: LocalFileSnapshot = { path, hash, size, kind: "text", content };
     await this.opts.index.updateIndex(async (index) => {
       const indexed = index.files[path];
@@ -583,23 +585,6 @@ function isLocalDirty(
 ): local is LocalFileSnapshot {
   if (!local) return false;
   return !lastSyncedHash || local.hash !== lastSyncedHash;
-}
-
-function guessMime(path: string): string | undefined {
-  const ext = path.split(".").pop()?.toLowerCase();
-  if (!ext) return undefined;
-  const map: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    pdf: "application/pdf",
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    mp4: "video/mp4"
-  };
-  return map[ext];
 }
 
 async function uploadMissingBlobs(

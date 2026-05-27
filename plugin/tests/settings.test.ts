@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { generateDeviceId } from "../src/device-id";
 import {
   DEFAULT_SETTINGS,
   historyUiAvailable,
@@ -23,6 +24,10 @@ describe("settings", () => {
     expect(settings.pollIntervalSeconds).toBe(60);
     expect(settings.debounceMs).toBe(250);
     expect(settings.enableHistoryUi).toBe(true);
+  });
+
+  it("generates plugin device ids with the dev prefix", () => {
+    expect(generateDeviceId()).toMatch(/^dev_/);
   });
 
   it("falls back when persisted numeric settings are invalid", () => {

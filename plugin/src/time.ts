@@ -13,12 +13,18 @@ export const TIMEZONE_OPTIONS = [
   { value: "Australia/Sydney", label: "Australia/Sydney" }
 ];
 
-export function normalizeTimezone(value: string | null | undefined): string {
+const TIMEZONE_VALIDATION_CACHE = new Map<string, string>();
+
+function normalizeTimezone(value: string | null | undefined): string {
   const timezone = value?.trim() || DEFAULT_TIMEZONE;
+  const cached = TIMEZONE_VALIDATION_CACHE.get(timezone);
+  if (cached) return cached;
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date(0));
+    TIMEZONE_VALIDATION_CACHE.set(timezone, timezone);
     return timezone;
   } catch {
+    TIMEZONE_VALIDATION_CACHE.set(timezone, DEFAULT_TIMEZONE);
     return DEFAULT_TIMEZONE;
   }
 }

@@ -1,3 +1,5 @@
+import { generateDeviceId } from "./device-id";
+
 export type PluginLanguage = "auto" | "en" | "zh-CN" | "zh-Hant" | "ja" | "ko";
 export type PluginUpdateSource = "server" | "github";
 export type PluginThemeMode = "auto" | "light" | "dark";
@@ -139,14 +141,6 @@ export function historyUiAvailable(
     settings.selectedVaultId.length > 0 &&
     (capabilities?.history ?? true)
   );
-}
-
-function generateDeviceId(): string {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return `dev_${random}`;
 }
 
 function finitePositiveNumber(value: unknown, fallback: number): number {

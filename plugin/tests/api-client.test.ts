@@ -1,6 +1,6 @@
 import { requestUrl } from "obsidian";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiClient, ApiError, __test } from "../src/api/client";
+import { ApiClient, ApiError, tryParseError } from "../src/api/client";
 import type { VaultSettings } from "../src/api/types";
 
 const requestUrlMock = vi.mocked(requestUrl);
@@ -66,8 +66,14 @@ describe("ApiClient helpers", () => {
 
   it("parses structured error", () => {
     expect(
-      __test.tryParseError('{"error":{"code":"bad","message":"No"}}', 400)
+      tryParseError('{"error":{"code":"bad","message":"No"}}', 400)
     ).toEqual({ code: "bad", message: "No" });
+  });
+
+  it("falls back when structured error fields are not strings", () => {
+    expect(
+      tryParseError('{"error":{"code":123,"message":{"nested":true}}}', 418)
+    ).toEqual({ code: "http_418", message: "HTTP 418" });
   });
 
   it("preserves setup_required server errors as ApiError code", async () => {
@@ -117,7 +123,7 @@ describe("ApiClient helpers", () => {
   });
 
   it("falls back for invalid json", () => {
-    expect(__test.tryParseError("nope", 404)).toEqual({
+    expect(tryParseError("nope", 404)).toEqual({
       code: "http_404",
       message: "HTTP 404"
     });

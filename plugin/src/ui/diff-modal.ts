@@ -288,10 +288,12 @@ export class DiffModal extends Modal {
   }
 }
 
-function uniqueCommits(commits: Array<string | null | undefined>): string[] {
+export function uniqueCommits(commits: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
   const out: string[] = [];
   for (const commit of commits) {
-    if (!commit || out.includes(commit)) continue;
+    if (!commit || seen.has(commit)) continue;
+    seen.add(commit);
     out.push(commit);
   }
   return out;
