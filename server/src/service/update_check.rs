@@ -1,4 +1,5 @@
 use crate::config::UpdateCheckConfig;
+use crate::db::repos::RuntimeConfig;
 use crate::service::AppState;
 use crate::version::{compare_versions, normalize_release_tag};
 use serde::Deserialize;
@@ -6,6 +7,13 @@ use std::cmp::Ordering;
 use std::time::Duration;
 
 const NOTES_EXCERPT_CHARS: usize = 500;
+const DISABLED_RECHECK_INTERVAL: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateCheckSchedule {
+    Check(Duration),
+    Disabled(Duration),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateStatus {
@@ -24,40 +32,51 @@ struct GitHubRelease {
 }
 
 pub fn spawn_update_check(state: AppState, cfg: UpdateCheckConfig) {
-    if !cfg.enabled {
-        return;
-    }
-    let interval = Duration::from_secs(cfg.interval_seconds.max(60));
-    let first_delay = interval.min(Duration::from_secs(5));
     let current_version = env!("CARGO_PKG_VERSION").to_string();
     let api_url = github_latest_release_url(&cfg.repo);
     let client = reqwest_client(&current_version);
     tokio::spawn(async move {
-        tokio::time::sleep(first_delay).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
         loop {
-            match check_once(&current_version, &api_url, &client).await {
-                Ok(Some(status)) => {
-                    *state.update_status.write().await = Some(status);
-                    *state.last_update_check_at.write().await =
-                        Some(chrono::Utc::now().timestamp());
+            let sleep_for = match runtime_update_check_schedule(&state.runtime_cfg.snapshot().await)
+            {
+                UpdateCheckSchedule::Disabled(delay) => delay,
+                UpdateCheckSchedule::Check(interval) => {
+                    match check_once(&current_version, &api_url, &client).await {
+                        Ok(Some(status)) => {
+                            *state.update_status.write().await = Some(status);
+                            *state.last_update_check_at.write().await =
+                                Some(chrono::Utc::now().timestamp());
+                        }
+                        Ok(None) => {
+                            // Either the remote response was a transient non-success
+                            // (HTTP 4xx/5xx, rate-limit) or it definitively reports
+                            // we're on the latest version. Either way, do not clobber
+                            // a previously-known update banner; the next successful
+                            // check will refresh it. We still record the timestamp so
+                            // the dashboard can show "Last checked" liveness.
+                            *state.last_update_check_at.write().await =
+                                Some(chrono::Utc::now().timestamp());
+                        }
+                        Err(err) => {
+                            tracing::debug!(error = %err, "failed to check for updates");
+                        }
+                    }
+                    interval
                 }
-                Ok(None) => {
-                    // Either the remote response was a transient non-success
-                    // (HTTP 4xx/5xx, rate-limit) or it definitively reports
-                    // we're on the latest version. Either way, do not clobber
-                    // a previously-known update banner; the next successful
-                    // check will refresh it. We still record the timestamp so
-                    // the dashboard can show "Last checked" liveness.
-                    *state.last_update_check_at.write().await =
-                        Some(chrono::Utc::now().timestamp());
-                }
-                Err(err) => {
-                    tracing::debug!(error = %err, "failed to check for updates");
-                }
-            }
-            tokio::time::sleep(interval).await;
+            };
+            tokio::time::sleep(sleep_for).await;
         }
     });
+}
+
+fn runtime_update_check_schedule(cfg: &RuntimeConfig) -> UpdateCheckSchedule {
+    if !cfg.update_check_enabled {
+        return UpdateCheckSchedule::Disabled(DISABLED_RECHECK_INTERVAL);
+    }
+    UpdateCheckSchedule::Check(Duration::from_secs(
+        cfg.update_check_interval_seconds.max(60),
+    ))
 }
 
 pub async fn check_once(
@@ -109,4 +128,38 @@ fn excerpt(notes: &str) -> String {
         .chars()
         .take(NOTES_EXCERPT_CHARS)
         .collect::<String>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::repos::RuntimeConfig;
+
+    #[test]
+    fn runtime_schedule_disables_checks_temporarily() {
+        let cfg = RuntimeConfig {
+            update_check_enabled: false,
+            update_check_interval_seconds: 3600,
+            ..RuntimeConfig::default()
+        };
+
+        assert_eq!(
+            runtime_update_check_schedule(&cfg),
+            UpdateCheckSchedule::Disabled(Duration::from_secs(60))
+        );
+    }
+
+    #[test]
+    fn runtime_schedule_clamps_enabled_interval_to_one_minute() {
+        let cfg = RuntimeConfig {
+            update_check_enabled: true,
+            update_check_interval_seconds: 1,
+            ..RuntimeConfig::default()
+        };
+
+        assert_eq!(
+            runtime_update_check_schedule(&cfg),
+            UpdateCheckSchedule::Check(Duration::from_secs(60))
+        );
+    }
 }
