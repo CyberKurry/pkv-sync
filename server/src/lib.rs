@@ -16,5 +16,6 @@ pub mod server;
 pub mod service;
 pub mod storage;
 pub mod time;
+pub mod version;
 
 pub use error::{Error, Result};

@@ -1,6 +1,8 @@
 use crate::config::UpdateCheckConfig;
 use crate::service::AppState;
+use crate::version::{compare_versions, normalize_release_tag};
 use serde::Deserialize;
+use std::cmp::Ordering;
 use std::time::Duration;
 
 const NOTES_EXCERPT_CHARS: usize = 500;
@@ -75,7 +77,7 @@ pub async fn check_once(
     let Some(current) = normalize_release_tag(current_version) else {
         return Ok(None);
     };
-    if compare_versions(&latest_version, &current) <= 0 {
+    if compare_versions(&latest_version, &current) != Ordering::Greater {
         return Ok(None);
     }
     Ok(Some(UpdateStatus {
@@ -99,36 +101,6 @@ fn github_latest_release_url(repo: &str) -> String {
         "https://api.github.com/repos/{}/releases/latest",
         repo.trim_matches('/')
     )
-}
-
-fn normalize_release_tag(tag: &str) -> Option<String> {
-    let version = tag.trim().trim_start_matches('v');
-    if version.is_empty() || version.contains('-') {
-        return None;
-    }
-    parse_version(version)?;
-    Some(version.to_string())
-}
-
-fn compare_versions(left: &str, right: &str) -> i8 {
-    let left = parse_version(left).unwrap_or([0, 0, 0]);
-    let right = parse_version(right).unwrap_or([0, 0, 0]);
-    match left.cmp(&right) {
-        std::cmp::Ordering::Greater => 1,
-        std::cmp::Ordering::Less => -1,
-        std::cmp::Ordering::Equal => 0,
-    }
-}
-
-fn parse_version(value: &str) -> Option<[u32; 3]> {
-    let mut parts = value.split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next().unwrap_or("0").parse().ok()?;
-    let patch = parts.next().unwrap_or("0").parse().ok()?;
-    if parts.next().is_some() {
-        return None;
-    }
-    Some([major, minor, patch])
 }
 
 fn excerpt(notes: &str) -> String {

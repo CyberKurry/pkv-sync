@@ -97,3 +97,30 @@ async fn idempotency_cache_primary_key_includes_vault_and_route() {
 
     assert_eq!(pk_columns, ["user_id", "key", "vault_id", "route"]);
 }
+
+#[tokio::test]
+async fn baseline_includes_hot_path_indexes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("t.db");
+    let p = pool::connect(&db_path).await.unwrap();
+    pool::migrate_up(&p).await.unwrap();
+
+    for required in [
+        "idx_blob_refs_vault",
+        "idx_tokens_user",
+        "idx_sync_activity_timestamp",
+        "idx_users_is_admin",
+    ] {
+        let exists: Option<String> =
+            sqlx::query_scalar("SELECT name FROM sqlite_master WHERE type='index' AND name = ?")
+                .bind(required)
+                .fetch_optional(&p)
+                .await
+                .unwrap();
+        assert_eq!(
+            exists.as_deref(),
+            Some(required),
+            "missing index {required}"
+        );
+    }
+}

@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use tokio::io::AsyncWriteExt;
@@ -23,7 +22,6 @@ pub trait BlobStore: Send + Sync {
     async fn has(&self, hash: &str) -> BlobResult<bool>;
     async fn put_verified(&self, expected_hash: &str, bytes: Bytes) -> BlobResult<()>;
     async fn get(&self, hash: &str) -> BlobResult<Option<Bytes>>;
-    async fn list_hashes(&self) -> BlobResult<HashSet<String>>;
     async fn delete(&self, hash: &str) -> BlobResult<bool>;
 }
 
@@ -124,25 +122,6 @@ impl BlobStore for LocalFsBlobStore {
         }
     }
 
-    async fn list_hashes(&self) -> BlobResult<HashSet<String>> {
-        let mut set = HashSet::new();
-        if !tokio::fs::try_exists(&self.root).await? {
-            return Ok(set);
-        }
-        for entry in walkdir::WalkDir::new(&self.root)
-            .into_iter()
-            .filter_map(Result::ok)
-        {
-            if entry.file_type().is_file() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if Self::validate_hash(&name).is_ok() {
-                    set.insert(name);
-                }
-            }
-        }
-        Ok(set)
-    }
-
     async fn delete(&self, hash: &str) -> BlobResult<bool> {
         let p = self.path_for(hash)?;
         match tokio::fs::remove_file(p).await {
@@ -182,17 +161,6 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, BlobError::HashMismatch { .. }));
-    }
-
-    #[tokio::test]
-    async fn list_hashes_returns_valid_files() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = LocalFsBlobStore::new(dir.path().join("blobs"));
-        let a = Bytes::from_static(b"a");
-        let ah = LocalFsBlobStore::sha256(&a);
-        store.put_verified(&ah, a).await.unwrap();
-        let set = store.list_hashes().await.unwrap();
-        assert!(set.contains(&ah));
     }
 
     #[test]

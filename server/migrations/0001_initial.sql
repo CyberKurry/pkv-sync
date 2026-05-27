@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at      INTEGER NOT NULL,
     last_login_at   INTEGER
 );
+CREATE INDEX IF NOT EXISTS idx_users_is_admin ON users(is_admin);
 
 CREATE TABLE IF NOT EXISTS vaults (
     id              TEXT PRIMARY KEY,
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS tokens (
     revoked_at      INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens(token_hash) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_tokens_user_device ON tokens(user_id, device_id) WHERE revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS invites (
@@ -55,6 +57,7 @@ CREATE TABLE IF NOT EXISTS blob_refs (
     PRIMARY KEY (blob_hash, vault_id, commit_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_blob_refs_hash ON blob_refs(blob_hash);
+CREATE INDEX IF NOT EXISTS idx_blob_refs_vault ON blob_refs(vault_id, blob_hash);
 
 CREATE TABLE IF NOT EXISTS sync_activity (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +73,7 @@ CREATE TABLE IF NOT EXISTS sync_activity (
 );
 CREATE INDEX IF NOT EXISTS idx_sync_activity_vault ON sync_activity(vault_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_sync_activity_ip ON sync_activity(client_ip, timestamp);
+CREATE INDEX IF NOT EXISTS idx_sync_activity_timestamp ON sync_activity(timestamp);
 
 CREATE TABLE IF NOT EXISTS idempotency_cache (
     user_id         TEXT NOT NULL,

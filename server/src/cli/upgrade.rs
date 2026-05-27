@@ -1,3 +1,5 @@
+use crate::storage::blob::is_sha256_hex;
+use crate::version::normalize_release_tag;
 use anyhow::{anyhow, bail, Context};
 use reqwest::header::{ACCEPT, USER_AGENT};
 use serde::Deserialize;
@@ -489,18 +491,6 @@ fn normalize_requested_version(version: &str) -> anyhow::Result<String> {
     Ok(version.to_string())
 }
 
-fn normalize_release_tag(tag: &str) -> Option<String> {
-    let version = tag.trim().trim_start_matches('v');
-    if version.is_empty() || version.contains('-') {
-        return None;
-    }
-    if version.chars().all(|c| c.is_ascii_digit() || c == '.') {
-        Some(version.to_string())
-    } else {
-        None
-    }
-}
-
 fn confirm_download(plan: &UpgradePlan) -> anyhow::Result<bool> {
     let stdin = io::stdin();
     if !stdin.is_terminal() {
@@ -521,10 +511,6 @@ fn confirm_download(plan: &UpgradePlan) -> anyhow::Result<bool> {
         answer.trim().to_ascii_lowercase().as_str(),
         "y" | "yes"
     ))
-}
-
-fn is_sha256_hex(value: &str) -> bool {
-    value.len() == 64 && value.as_bytes().iter().all(u8::is_ascii_hexdigit)
 }
 
 fn manual_upgrade_guidance() -> String {

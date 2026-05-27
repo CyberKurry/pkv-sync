@@ -425,7 +425,6 @@ async fn push_with_request_metadata_internal(
         req,
         stale_mode,
     } = input;
-    let _vault = vault::ensure_user_vault(state, &user.user_id, vault_id).await?;
     if req.changes.len() > MAX_PUSH_CHANGES {
         return Err(ApiError::bad_request(
             "too_many_changes",
@@ -556,14 +555,15 @@ async fn push_with_request_metadata_internal(
                     ));
                 }
                 let content_len = content.len();
+                let event_path = p.clone();
                 if content_len <= inline_max {
                     event_changes.push(EventChange::TextInline {
-                        path: p.clone(),
+                        path: event_path,
                         content: content.clone(),
                     });
                 } else {
                     event_changes.push(EventChange::TextRef {
-                        path: p.clone(),
+                        path: event_path,
                         size: content_len as u64,
                     });
                 }
@@ -639,10 +639,11 @@ async fn push_with_request_metadata_internal(
                         ),
                     ));
                 }
+                let event_blob_hash = blob_hash.clone();
                 blob_hashes.push(blob_hash.clone());
                 event_changes.push(EventChange::Blob {
                     path: p.clone(),
-                    blob_hash: blob_hash.clone(),
+                    blob_hash: event_blob_hash,
                     size,
                 });
                 git_changes.push(FileChange::Upsert {

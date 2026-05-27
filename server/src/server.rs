@@ -10,12 +10,11 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use axum::Router;
-use once_cell::sync::Lazy;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-static START: Lazy<Instant> = Lazy::new(Instant::now);
+static START: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'";
 
@@ -26,7 +25,7 @@ struct SecurityHeadersConfig {
 
 /// Initialize the global start time. Idempotent.
 pub fn mark_start() {
-    Lazy::force(&START);
+    LazyLock::force(&START);
 }
 
 /// Seconds since `mark_start()` was first called.

@@ -2,14 +2,14 @@ use axum::extract::Request;
 use axum::http::{header, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use once_cell::sync::Lazy;
 use regex::Regex;
+use std::sync::LazyLock;
 
 use super::{SSE_CORS_ALLOW_HEADERS, SSE_PLUGIN_HEADER};
 
 /// Pattern PKV Sync plugin UAs must match.
-static PATTERN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^PKVSync-Plugin/\d+\.\d+\.\d+\b").expect("valid UA regex"));
+static PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^PKVSync-Plugin/\d+\.\d+\.\d+\b").expect("valid UA regex"));
 
 /// If the request targets the SSE events endpoint and carries a cross-origin
 /// `Origin` header, the rejection response must include CORS headers;
