@@ -64,6 +64,14 @@ export default class PKVSyncPlugin extends Plugin {
   private statusEl: HTMLElement | null = null;
   private client: ApiClient | null = null;
   private historyClient: HistoryApi | null = null;
+  private updateServiceCache: {
+    service: UpdateCheckService;
+    adapter: unknown;
+    configDir: string;
+    currentVersion: string;
+    pluginId: string;
+    pluginDir?: string;
+  } | null = null;
   private engine: SyncEngine | null = null;
   private pushDebouncer: Debouncer | null = null;
   private pollTimer: number | null = null;
@@ -414,14 +422,40 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   private updateService(): UpdateCheckService {
-    return new UpdateCheckService({
-      api: this.api(),
+    const api = this.api();
+    const adapter = this.app.vault.adapter;
+    const configDir = this.app.vault.configDir;
+    const currentVersion = this.manifest.version;
+    const pluginId = this.manifest.id || "pkv-sync";
+    const pluginDir = this.manifest.dir;
+    const cached = this.updateServiceCache;
+    if (
+      cached &&
+      cached.adapter === adapter &&
+      cached.configDir === configDir &&
+      cached.currentVersion === currentVersion &&
+      cached.pluginId === pluginId &&
+      cached.pluginDir === pluginDir
+    ) {
+      return cached.service;
+    }
+    const service = new UpdateCheckService({
+      api,
       adapter: this.pluginFileAdapter(),
-      configDir: this.app.vault.configDir,
-      currentVersion: this.manifest.version,
-      pluginId: this.manifest.id || "pkv-sync",
-      pluginDir: this.manifest.dir
+      configDir,
+      currentVersion,
+      pluginId,
+      pluginDir
     });
+    this.updateServiceCache = {
+      service,
+      adapter,
+      configDir,
+      currentVersion,
+      pluginId,
+      pluginDir
+    };
+    return service;
   }
 
   private pluginFileAdapter(): PluginFileAdapter {
