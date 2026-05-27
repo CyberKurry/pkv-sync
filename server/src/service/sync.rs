@@ -766,16 +766,25 @@ async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, Ap
             error = %err.message,
             "push committed to git but metadata transaction failed; attempting repair"
         );
-        reconcile_vault_metadata(state, vault_id)
-            .await
-            .inspect_err(|repair_err| {
+        if let Err(repair_err) = reconcile_vault_metadata(state, vault_id).await {
+            tracing::error!(
+                vault_id = %vault_id,
+                commit = %new_commit,
+                error = %repair_err.message,
+                "metadata repair failed after committed push"
+            );
+            if let Err(protect_err) =
+                protect_committed_blob_refs(state, vault_id, &new_commit, &prepared.blob_hashes)
+                    .await
+            {
                 tracing::error!(
                     vault_id = %vault_id,
                     commit = %new_commit,
-                    error = %repair_err.message,
-                    "metadata repair failed after committed push"
+                    error = %protect_err.message,
+                    "failed to preserve blob references after metadata repair failure"
                 );
-            })?;
+            }
+        }
         if let (Some(key), Some(hash)) = (input.idempotency_key, input.request_hash) {
             if let Err(idem_err) = state
                 .idempotency
@@ -1161,6 +1170,31 @@ async fn record_push_metadata(input: PushMetadataInput<'_>) -> Result<(), ApiErr
             .execute(&mut *tx)
             .await
             .map_err(ApiError::from)?;
+    }
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(())
+}
+
+async fn protect_committed_blob_refs(
+    state: &AppState,
+    vault_id: &str,
+    commit: &str,
+    blob_hashes: &[String],
+) -> Result<(), ApiError> {
+    if blob_hashes.is_empty() {
+        return Ok(());
+    }
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    for hash in blob_hashes {
+        sqlx::query(
+            "INSERT OR IGNORE INTO blob_refs (blob_hash, vault_id, commit_hash) VALUES (?, ?, ?)",
+        )
+        .bind(hash)
+        .bind(vault_id)
+        .bind(commit)
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
     }
     tx.commit().await.map_err(ApiError::from)?;
     Ok(())
@@ -2679,6 +2713,56 @@ mod integration_tests {
             .await
             .unwrap();
         assert!(has_blob_ref);
+    }
+
+    #[tokio::test]
+    async fn committed_push_preserves_blob_refs_when_metadata_repair_fails() {
+        let (state, user, vid, _tmp) = setup().await;
+        let data = Bytes::from_static(b"hello");
+        let hash = LocalFsBlobStore::sha256(&data);
+        upload_blob(&state, &user.user_id, &vid, &hash, data)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TRIGGER fail_vault_stats_update
+             BEFORE UPDATE OF size_bytes, file_count, last_sync_at ON vaults
+             BEGIN
+                 SELECT RAISE(FAIL, 'metadata blocked');
+             END",
+        )
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        let resp = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            Some("metadata-fail-once"),
+            PushReq {
+                device_name: Some("test".into()),
+                changes: vec![PushChange::Blob {
+                    path: "img.png".into(),
+                    blob_hash: hash.clone(),
+                    size: 5,
+                    mime: Some("image/png".into()),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let git = Git2VaultStore::new(state.default_vault_root());
+        assert_eq!(
+            git.head(&vid).await.unwrap().as_deref(),
+            Some(resp.new_commit.as_str())
+        );
+        assert!(state
+            .blob_refs
+            .is_referenced_by_vault(&vid, &hash)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
