@@ -1,6 +1,7 @@
 use crate::auth::LoginRateLimiter;
 use crate::config::Config;
 use crate::db::pool;
+use crate::db::repos::{RuntimeConfigRepo, SqliteRuntimeConfigRepo};
 use crate::middleware::{deployment_key, real_ip, request_id, ua_filter};
 use crate::service::AppState;
 use crate::{admin, api, mcp};
@@ -283,6 +284,13 @@ async fn prepare_state_and_limiter(cfg: &Config) -> crate::Result<(AppState, Log
         );
     }
 
+    SqliteRuntimeConfigRepo::new(pool.clone())
+        .seed_update_check_from_static_config(
+            cfg.update_check.enabled,
+            cfg.update_check.interval_seconds,
+        )
+        .await?;
+
     let state = AppState::new(
         pool,
         cfg.storage.data_dir.clone(),
@@ -457,6 +465,37 @@ mod tests {
         );
 
         assert_eq!(mcp_removed, 1);
+    }
+
+    #[tokio::test]
+    async fn prepare_state_seeds_update_check_runtime_config_from_static_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            server: crate::config::ServerConfig {
+                bind_addr: "127.0.0.1:0".parse().unwrap(),
+                deployment_key: "k_test".into(),
+                public_host: None,
+            },
+            storage: crate::config::StorageConfig {
+                data_dir: tmp.path().join("data"),
+                db_path: tmp.path().join("pkv.db"),
+            },
+            network: crate::config::NetworkConfig {
+                trusted_proxies: vec![],
+            },
+            logging: crate::config::LoggingConfig::default(),
+            update_check: crate::config::UpdateCheckConfig {
+                enabled: false,
+                interval_seconds: 7200,
+                repo: "cyberkurry/pkv-sync".into(),
+            },
+            mcp: crate::config::McpConfig::default(),
+        };
+
+        let (state, _limiter) = prepare_state_and_limiter(&cfg).await.unwrap();
+        let runtime = state.runtime_cfg.snapshot().await;
+        assert!(!runtime.update_check_enabled);
+        assert_eq!(runtime.update_check_interval_seconds, 7200);
     }
 }
 

@@ -150,6 +150,11 @@ pub trait RuntimeConfigRepo: Send + Sync {
         value: u64,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
+    async fn seed_update_check_from_static_config(
+        &self,
+        enabled: bool,
+        interval_seconds: u64,
+    ) -> Result<(), sqlx::Error>;
     async fn set_inline_content_max_bytes(
         &self,
         value: u32,
@@ -493,6 +498,57 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         .await
     }
 
+    async fn seed_update_check_from_static_config(
+        &self,
+        enabled: bool,
+        interval_seconds: u64,
+    ) -> Result<(), sqlx::Error> {
+        let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+            "SELECT key, value, updated_by FROM runtime_config
+             WHERE key IN ('update_check.enabled', 'update_check.interval_seconds')",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let enabled_row = rows
+            .iter()
+            .find(|(key, _, _)| key == "update_check.enabled");
+        let interval_row = rows
+            .iter()
+            .find(|(key, _, _)| key == "update_check.interval_seconds");
+        let should_seed = matches!(enabled_row, Some((_, value, None)) if value == "true")
+            && matches!(interval_row, Some((_, value, None)) if value == "86400");
+        if !should_seed {
+            return Ok(());
+        }
+
+        let now = chrono::Utc::now().timestamp();
+        let values = [
+            (
+                "update_check.enabled",
+                serde_json::to_string(&enabled).unwrap(),
+            ),
+            (
+                "update_check.interval_seconds",
+                serde_json::to_string(&interval_seconds.max(60)).unwrap(),
+            ),
+        ];
+        let mut tx = self.pool.begin().await?;
+        for (key, value) in values {
+            sqlx::query(
+                "UPDATE runtime_config
+                 SET value = ?, updated_at = ?, updated_by = NULL
+                 WHERE key = ?",
+            )
+            .bind(value)
+            .bind(now)
+            .bind(key)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn set_inline_content_max_bytes(
         &self,
         value: u32,
@@ -705,5 +761,41 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(r.load().await.unwrap().update_check_interval_seconds, 3600);
+    }
+
+    #[tokio::test]
+    async fn seed_update_check_from_static_config_applies_only_to_unmodified_defaults() {
+        let r = setup().await;
+        r.seed_update_check_from_static_config(false, 7200)
+            .await
+            .unwrap();
+        let cfg = r.load().await.unwrap();
+        assert!(!cfg.update_check_enabled);
+        assert_eq!(cfg.update_check_interval_seconds, 7200);
+    }
+
+    #[tokio::test]
+    async fn seed_update_check_from_static_config_preserves_admin_edits() {
+        let r = setup().await;
+        sqlx::query(
+            "INSERT INTO users (id, username, password_hash, is_admin, is_active, created_at)
+             VALUES ('admin', 'admin', 'hash', 1, 1, 1)",
+        )
+        .execute(&r.pool)
+        .await
+        .unwrap();
+        r.set_update_check_enabled(false, Some("admin"))
+            .await
+            .unwrap();
+        r.set_update_check_interval_seconds(3600, Some("admin"))
+            .await
+            .unwrap();
+
+        r.seed_update_check_from_static_config(true, 86_400)
+            .await
+            .unwrap();
+        let cfg = r.load().await.unwrap();
+        assert!(!cfg.update_check_enabled);
+        assert_eq!(cfg.update_check_interval_seconds, 3600);
     }
 }
