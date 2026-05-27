@@ -7,6 +7,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-05-27
+
+### Performance
+
+- Trim low-risk server and plugin overhead from the v1.0.4 performance review:
+  narrower token/user queries, batched cleanup deletes, hot-path SQLite indexes,
+  cached plugin update/history helpers, reduced duplicate utility code, and
+  leaner dependency feature sets.
+
 ## [1.0.4] - 2026-05-27
 
 ### Fixed

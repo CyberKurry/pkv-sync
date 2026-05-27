@@ -48,7 +48,7 @@ describe("PKVSyncPlugin history API cache", () => {
     const plugin = Object.create(PKVSyncPlugin.prototype) as HistoryApiHarness;
     plugin.client = null;
     plugin.historyClient = null;
-    plugin.manifest = { version: "1.0.4" };
+    plugin.manifest = { version: "1.0.5" };
     plugin.settings = {
       serverUrl: "https://one.example.com",
       deploymentKey: "k_one",
@@ -92,13 +92,13 @@ describe("PKVSyncPlugin history API cache", () => {
       headers: { "content-type": "application/json" },
       arrayBuffer: new ArrayBuffer(0),
       json: {
-        version: "1.0.4",
+        version: "1.0.5",
         main_js_url: "https://sync.example.com/main.js",
         main_js_sha256: "0".repeat(64),
         manifest_json_url: "https://sync.example.com/manifest.json"
       },
       text: JSON.stringify({
-        version: "1.0.4",
+        version: "1.0.5",
         main_js_url: "https://sync.example.com/main.js",
         main_js_sha256: "0".repeat(64),
         manifest_json_url: "https://sync.example.com/manifest.json"
