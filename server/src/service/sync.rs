@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
 const MAX_PUSH_CHANGES: usize = 1000;
@@ -24,6 +25,10 @@ const MAX_SSE_INLINE_PUSH_BYTES: usize = 64 * 1024;
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
 const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
 const POINTER_VERSION: u64 = 1;
+#[cfg(test)]
+const VAULT_PUSH_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
+#[cfg(not(test))]
+const VAULT_PUSH_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RequestMetadata<'a> {
@@ -432,8 +437,7 @@ async fn push_with_request_metadata_internal(
             format!("push changes exceed limit of {MAX_PUSH_CHANGES}"),
         ));
     }
-    let push_lock = state.vault_push_lock(vault_id);
-    let _push_guard = push_lock.lock().await;
+    let _push_guard = acquire_vault_push_lock(state, vault_id).await?;
     let _vault = vault::ensure_user_vault(state, &user.user_id, vault_id).await?;
     let request_hash = match idempotency_key {
         Some(_) => Some(push_request_hash(if_match, &req)?),
@@ -766,7 +770,7 @@ async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, Ap
             error = %err.message,
             "push committed to git but metadata transaction failed; attempting repair"
         );
-        if let Err(repair_err) = reconcile_vault_metadata(state, vault_id).await {
+        if let Err(repair_err) = reconcile_vault_metadata_unlocked(state, vault_id).await {
             tracing::error!(
                 vault_id = %vault_id,
                 commit = %new_commit,
@@ -1213,6 +1217,15 @@ pub async fn reconcile_vault_metadata(
     state: &AppState,
     vault_id: &str,
 ) -> Result<ReconcileReport, ApiError> {
+    let push_lock = state.vault_push_lock(vault_id);
+    let _push_guard = push_lock.lock().await;
+    reconcile_vault_metadata_unlocked(state, vault_id).await
+}
+
+async fn reconcile_vault_metadata_unlocked(
+    state: &AppState,
+    vault_id: &str,
+) -> Result<ReconcileReport, ApiError> {
     let git = Git2VaultStore::new(state.default_vault_root());
     let head = git
         .head(vault_id)
@@ -1297,6 +1310,22 @@ pub async fn reconcile_vault_metadata(
         file_count,
         blob_refs: blob_hashes.len(),
     })
+}
+
+async fn acquire_vault_push_lock(
+    state: &AppState,
+    vault_id: &str,
+) -> Result<tokio::sync::OwnedMutexGuard<()>, ApiError> {
+    let lock = state.vault_push_lock(vault_id);
+    tokio::time::timeout(VAULT_PUSH_LOCK_TIMEOUT, lock.lock_owned())
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "vault_busy",
+                "vault is busy; retry later",
+            )
+        })
 }
 
 fn tree_stats(tree: &[crate::storage::git::TreeEntry]) -> (i64, i64) {
@@ -2237,6 +2266,37 @@ mod tests {
         assert_eq!(err.status, axum::http::StatusCode::NOT_FOUND);
         assert!(!tokio::fs::try_exists(&repo_dir).await.unwrap());
         assert!(state.vaults.find_by_id(&vid).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn push_times_out_when_vault_push_lock_is_stuck() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let lock = state.vault_push_lock(&vid);
+        let _guard = lock.lock().await;
+
+        let err = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            push(
+                &state,
+                &user,
+                &vid,
+                None,
+                None,
+                PushReq {
+                    device_name: Some("test".into()),
+                    changes: vec![PushChange::Text {
+                        path: "note.md".into(),
+                        content: "hello".into(),
+                    }],
+                },
+            ),
+        )
+        .await
+        .expect("push should return a lock timeout error")
+        .unwrap_err();
+
+        assert_eq!(err.status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(err.code, "vault_busy");
     }
 
     #[tokio::test]

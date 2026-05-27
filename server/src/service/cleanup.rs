@@ -193,6 +193,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn scheduled_reconcile_waits_for_vault_push_lock() {
+        let (state, _tmp) = state_for_cleanup().await;
+        let user = state
+            .users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let vault = crate::service::vault::create_vault(&state, &user.id, "main")
+            .await
+            .unwrap();
+        let lock = state.vault_push_lock(&vault.id);
+        let guard = lock.lock().await;
+
+        let state_for_task = state.clone();
+        let cleanup = tokio::spawn(async move { run_scheduled_cleanup(&state_for_task).await });
+
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), async {
+                loop {
+                    if cleanup.is_finished() {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .is_err(),
+            "cleanup should wait for the in-flight push lock"
+        );
+
+        drop(guard);
+        let report = cleanup.await.unwrap();
+        assert_eq!(report.vaults_reconciled, 1);
+        assert_eq!(report.vault_reconcile_failed, 0);
+    }
+
+    #[tokio::test]
     async fn cleanup_prunes_old_sync_activity() {
         let (state, _tmp) = state_for_cleanup().await;
         let user = state

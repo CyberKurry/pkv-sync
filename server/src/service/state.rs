@@ -300,8 +300,19 @@ pub struct SseSubscriberGuard {
 impl Drop for SseSubscriberGuard {
     fn drop(&mut self) {
         release_sse_per_user_count(&self.per_user_counts, &self.user_id);
-        self.global_count.fetch_sub(1, Ordering::AcqRel);
+        release_sse_global_count(&self.global_count);
         self.metrics.sse_subscribers.dec();
+    }
+}
+
+fn release_sse_global_count(count: &AtomicUsize) {
+    if count
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            current.checked_sub(1)
+        })
+        .is_err()
+    {
+        tracing::error!("SSE global subscriber count release underflow");
     }
 }
 
@@ -400,6 +411,25 @@ mod tests {
         assert_eq!(state.sse_per_user_count_entries_for_tests(), 1);
         drop(guard);
         assert_eq!(state.sse_per_user_count_entries_for_tests(), 0);
+    }
+
+    #[tokio::test]
+    async fn sse_guard_drop_does_not_underflow_global_count() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+
+        let guard = state
+            .try_acquire_sse_subscriber("user-1")
+            .expect("first subscriber should be accepted");
+        state.sse_global_count.store(0, Ordering::Release);
+
+        drop(guard);
+
+        assert_eq!(state.sse_global_count.load(Ordering::Acquire), 0);
     }
 
     #[tokio::test]
