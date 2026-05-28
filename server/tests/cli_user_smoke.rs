@@ -149,3 +149,22 @@ trusted_proxies = ["127.0.0.1/32"]
     let stderr = assert_failure(run(&["-c", cfg, "user", "add", "ab"], Some("passw0rd!!\n")));
     assert!(stderr.contains("invalid_username"), "{stderr}");
 }
+
+#[test]
+fn user_add_rejects_invalid_username_before_loading_config() {
+    let stderr = assert_failure(run(
+        &[
+            "-c",
+            "missing-config-that-should-not-be-read.toml",
+            "user",
+            "add",
+            "ab",
+        ],
+        Some("passw0rd!!\n"),
+    ));
+    assert!(stderr.contains("invalid_username"), "{stderr}");
+    assert!(
+        !stderr.contains("missing-config-that-should-not-be-read.toml"),
+        "{stderr}"
+    );
+}

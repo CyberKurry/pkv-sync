@@ -59,6 +59,10 @@ fn main() -> anyhow::Result<()> {
             println!("deployment_key = \"{key}\"");
         }
         Command::User { op } => {
+            if let UserOp::Add { username, .. } = &op {
+                validate_username(username)
+                    .map_err(|e| anyhow::anyhow!("{}: {}", e.code, e.message))?;
+            }
             let cfg = Config::load(&cli.config)?;
             pkv_sync_server::logging::init_with_config(&cfg.logging);
             let rt = tokio::runtime::Runtime::new()?;
@@ -67,8 +71,6 @@ fn main() -> anyhow::Result<()> {
                 let users = pkv_sync_server::db::repos::SqliteUserRepo::new(pool);
                 match op {
                     UserOp::Add { username, admin } => {
-                        validate_username(&username)
-                            .map_err(|e| anyhow::anyhow!("{}: {}", e.code, e.message))?;
                         if users.find_by_username(&username).await?.is_some() {
                             anyhow::bail!("user already exists");
                         }
