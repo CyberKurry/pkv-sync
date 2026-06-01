@@ -1059,6 +1059,7 @@ async fn settings_page_and_post_manage_update_check_runtime_config() {
     assert!(page_body.contains("name=\"update_check_enabled\""));
     assert!(page_body.contains("name=\"update_check_interval_seconds\""));
 
+    let notified = state.update_check_runtime_changed.notified();
     let mut settings_req = request(
         Method::POST,
         "/admin/settings",
@@ -1076,6 +1077,9 @@ async fn settings_page_and_post_manage_update_check_runtime_config() {
     set_form_origin(&mut settings_req);
     let settings_resp = app.clone().oneshot(settings_req).await.unwrap();
     assert_eq!(settings_resp.status(), StatusCode::SEE_OTHER);
+    tokio::time::timeout(std::time::Duration::from_millis(50), notified)
+        .await
+        .expect("settings changes should wake the update-check loop");
 
     let cfg = state.runtime_cfg.snapshot().await;
     assert!(!cfg.update_check_enabled);

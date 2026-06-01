@@ -347,6 +347,105 @@ async fn sse_receives_commit_event_after_push() {
 }
 
 #[tokio::test]
+async fn sse_stream_closes_after_token_revoked_without_forwarding_inline_text() {
+    let (ts, state, raw, vid) = start_test_server().await;
+    let (old_token, user_id) = state
+        .tokens
+        .find_by_hash(&token::hash(&raw))
+        .await
+        .unwrap()
+        .unwrap();
+    let replacement_raw = token::generate();
+    state
+        .tokens
+        .create(NewToken {
+            user_id: &user_id,
+            token_hash: &token::hash(&replacement_raw),
+            device_id: "device-sse-http-replacement",
+            device_name: "sse-http replacement",
+        })
+        .await
+        .unwrap();
+
+    let sse_url = format!("http://{}/api/vaults/{}/events", ts.addr, vid);
+    let push_url = format!("http://{}/api/vaults/{}/push", ts.addr, vid);
+
+    let sse_resp = auth_headers(
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap()
+            .get(&sse_url)
+            .bearer_auth(&raw),
+        &ts.key,
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(sse_resp.status(), reqwest::StatusCode::OK);
+
+    state
+        .tokens
+        .revoke(&old_token.id, chrono::Utc::now().timestamp())
+        .await
+        .unwrap();
+
+    let push_body = serde_json::json!({
+        "device_name": "replacement",
+        "changes": [{"kind":"text","path":"secret.md","content":"secret-inline"}]
+    });
+    let push_resp = auth_headers(
+        reqwest::Client::new()
+            .post(&push_url)
+            .bearer_auth(&replacement_raw)
+            .header(
+                "idempotency-key",
+                format!("push-{}", uuid::Uuid::new_v4().simple()),
+            )
+            .json(&push_body),
+        &ts.key,
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(push_resp.status(), reqwest::StatusCode::OK);
+
+    use futures_util::StreamExt;
+    let mut body = String::new();
+    let mut stream = sse_resp.bytes_stream();
+    let mut closed = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let chunk = tokio::select! {
+            chunk = stream.next() => chunk,
+            _ = tokio::time::sleep_until(deadline) => break,
+        };
+        match chunk {
+            Some(Ok(bytes)) => {
+                body.push_str(&String::from_utf8_lossy(&bytes));
+                if body.contains("secret-inline") {
+                    break;
+                }
+            }
+            Some(Err(err)) => panic!("unexpected SSE stream error: {err}"),
+            None => {
+                closed = true;
+                break;
+            }
+        }
+    }
+
+    assert!(
+        !body.contains("secret-inline"),
+        "revoked token stream received inline file content: {body}"
+    );
+    assert!(
+        closed,
+        "revoked token stream should close promptly instead of staying open; body: {body}"
+    );
+}
+
+#[tokio::test]
 async fn sse_records_subscribed_activity() {
     let (ts, state, raw, vid) = start_test_server().await;
 

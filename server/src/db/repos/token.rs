@@ -29,6 +29,7 @@ pub trait TokenRepo: Send + Sync {
     async fn create(&self, n: NewToken<'_>) -> Result<TokenRow, sqlx::Error>;
     /// Look up an unrevoked token by its hash.
     async fn find_by_hash(&self, hash: &str) -> Result<Option<(TokenRow, String)>, sqlx::Error>;
+    async fn is_active_for_user(&self, id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
     async fn list_for_user(&self, user_id: &str) -> Result<Vec<TokenRow>, sqlx::Error>;
     async fn list_active_for_user(&self, user_id: &str) -> Result<Vec<TokenRow>, sqlx::Error>;
     async fn touch_used(&self, id: &str, ts: i64) -> Result<(), sqlx::Error>;
@@ -165,6 +166,20 @@ impl TokenRepo for SqliteTokenRepo {
                 t.1,
             )
         }))
+    }
+
+    async fn is_active_for_user(&self, id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM tokens
+             WHERE id = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(chrono::Utc::now().timestamp())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count > 0)
     }
 
     async fn list_for_user(&self, user_id: &str) -> Result<Vec<TokenRow>, sqlx::Error> {
@@ -436,6 +451,61 @@ mod tests {
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, active.id);
+    }
+
+    #[tokio::test]
+    async fn is_active_for_user_rejects_revoked_expired_and_wrong_user_tokens() {
+        let (users, tokens, uid) = setup().await;
+        let other = users
+            .create(NewUser {
+                username: "other".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let active = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "active-check",
+                device_id: "device-active-check",
+                device_name: "active",
+            })
+            .await
+            .unwrap();
+        let revoked = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "revoked-check",
+                device_id: "device-revoked-check",
+                device_name: "revoked",
+            })
+            .await
+            .unwrap();
+        tokens.revoke(&revoked.id, 10).await.unwrap();
+        let expired = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "expired-check",
+                device_id: "device-expired-check",
+                device_name: "expired",
+            })
+            .await
+            .unwrap();
+        sqlx::query("UPDATE tokens SET expires_at = ? WHERE id = ?")
+            .bind(chrono::Utc::now().timestamp() - 1)
+            .bind(&expired.id)
+            .execute(&tokens.pool)
+            .await
+            .unwrap();
+
+        assert!(tokens.is_active_for_user(&active.id, &uid).await.unwrap());
+        assert!(!tokens
+            .is_active_for_user(&active.id, &other.id)
+            .await
+            .unwrap());
+        assert!(!tokens.is_active_for_user(&revoked.id, &uid).await.unwrap());
+        assert!(!tokens.is_active_for_user(&expired.id, &uid).await.unwrap());
     }
 
     #[tokio::test]

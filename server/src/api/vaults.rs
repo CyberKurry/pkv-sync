@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
-use crate::db::repos::{NewActivity, SyncActivityRepo, VaultRepo};
+use crate::db::repos::{NewActivity, SyncActivityRepo, TokenRepo, UserRepo, VaultRepo};
 use crate::middleware::{rate_limit, real_ip::ClientIp, sse_cors_allow_header_names};
 use crate::service::sync::{self, UploadCheckReq};
 use crate::service::vault::RollbackError;
@@ -15,7 +15,10 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
+use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -549,13 +552,15 @@ async fn events(
         }
         Err(_lagged) => Some(Ok(Event::default().event("lagged").data(""))),
     });
-    let stream = {
-        let guard = sse_guard;
-        replay_stream.chain(live_stream).map(move |item| {
-            let _keep_alive = &guard;
-            item
-        })
-    };
+    let (tx, rx) = mpsc::channel(16);
+    tokio::spawn(run_vault_sse_stream(
+        state.clone(),
+        user.clone(),
+        replay_stream.chain(live_stream),
+        tx,
+        sse_guard,
+    ));
+    let stream = ReceiverStream::new(rx);
 
     let heartbeat = state
         .runtime_cfg
@@ -594,6 +599,58 @@ async fn events(
         .await;
 
     Ok(response)
+}
+
+async fn run_vault_sse_stream<S>(
+    state: AppState,
+    user: AuthenticatedUser,
+    mut stream: S,
+    tx: mpsc::Sender<Result<Event, Infallible>>,
+    _guard: crate::service::state::SseSubscriberGuard,
+) where
+    S: tokio_stream::Stream<Item = Result<Event, Infallible>> + Unpin,
+{
+    let mut auth_interval = tokio::time::interval(Duration::from_secs(15));
+    loop {
+        if tx.is_closed() {
+            break;
+        }
+        tokio::select! {
+            _ = tx.closed() => {
+                break;
+            }
+            _ = auth_interval.tick() => {
+                if !sse_token_still_valid(&state, &user).await {
+                    break;
+                }
+            }
+            item = stream.next() => {
+                let Some(item) = item else {
+                    break;
+                };
+                if !sse_token_still_valid(&state, &user).await {
+                    break;
+                }
+                if tx.send(item).await.is_err() {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+async fn sse_token_still_valid(state: &AppState, user: &AuthenticatedUser) -> bool {
+    let Ok(true) = state
+        .tokens
+        .is_active_for_user(&user.token_id, &user.user_id)
+        .await
+    else {
+        return false;
+    };
+    let Ok(Some(db_user)) = state.users.find_by_id(&user.user_id).await else {
+        return false;
+    };
+    db_user.is_active
 }
 
 #[cfg(debug_assertions)]

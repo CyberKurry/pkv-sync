@@ -65,7 +65,10 @@ pub fn spawn_update_check(state: AppState, cfg: UpdateCheckConfig) {
                     interval
                 }
             };
-            tokio::time::sleep(sleep_for).await;
+            tokio::select! {
+                _ = tokio::time::sleep(sleep_for) => {}
+                _ = state.update_check_runtime_changed.notified() => {}
+            }
         }
     });
 }

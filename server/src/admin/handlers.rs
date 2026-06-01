@@ -2688,6 +2688,7 @@ async fn settings_post(
         std::time::Duration::from_secs(cfg.login_lock_seconds),
     );
     state.runtime_cfg.replace(cfg).await;
+    state.notify_update_check_runtime_changed();
     Ok(Redirect::to("/admin/settings"))
 }
 

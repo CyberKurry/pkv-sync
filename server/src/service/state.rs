@@ -10,7 +10,7 @@ use dashmap::DashMap;
 use sqlx::SqlitePool;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, Notify, RwLock};
 
 type VaultPushLocks = Arc<DashMap<String, Arc<Mutex<()>>>>;
 const DEFAULT_SSE_PER_USER_LIMIT: usize = 16;
@@ -59,6 +59,7 @@ pub struct AppState {
     pub mcp_write_limiter: crate::auth::McpWriteRateLimiter,
     pub setup_limiter: crate::middleware::rate_limit::RequestRateLimiter,
     pub update_status: Arc<RwLock<Option<UpdateStatus>>>,
+    pub update_check_runtime_changed: Arc<Notify>,
     /// Wall-clock Unix timestamp of the most recent update check attempt that
     /// returned an HTTP-level success (regardless of whether a new version was
     /// found). `None` means the server hasn't reached the first scheduled tick
@@ -124,6 +125,7 @@ impl AppState {
                 std::time::Duration::from_secs(60),
             ),
             update_status: Arc::new(RwLock::new(None)),
+            update_check_runtime_changed: Arc::new(Notify::new()),
             last_update_check_at: Arc::new(RwLock::new(None)),
             setup_state: Arc::new(RwLock::new(setup_state)),
             git_available,
@@ -174,7 +176,12 @@ impl AppState {
     }
 
     pub fn remove_vault_push_lock(&self, vault_id: &str) {
-        self.push_locks.remove(vault_id);
+        self.push_locks
+            .remove_if(vault_id, |_, lock| Arc::strong_count(lock) == 1);
+    }
+
+    pub fn notify_update_check_runtime_changed(&self) {
+        self.update_check_runtime_changed.notify_one();
     }
 
     pub fn set_sse_per_user_limit_for_tests(&self, limit: usize) {
@@ -393,6 +400,60 @@ mod tests {
         })
         .await
         .expect("one vault's held push lock must not block distinct vault locks");
+    }
+
+    #[tokio::test]
+    async fn remove_vault_push_lock_keeps_entry_while_waiters_or_guards_hold_lock() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+        let lock = state.vault_push_lock("vault-with-waiter");
+        let guard = lock.lock().await;
+
+        state.remove_vault_push_lock("vault-with-waiter");
+        assert_eq!(state.vault_push_lock_count_for_tests(), 1);
+
+        drop(guard);
+        drop(lock);
+        state.remove_vault_push_lock("vault-with-waiter");
+        assert_eq!(state.vault_push_lock_count_for_tests(), 0);
+    }
+
+    #[tokio::test]
+    async fn update_check_runtime_change_notification_wakes_waiters() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+
+        let notified = state.update_check_runtime_changed.notified();
+        state.notify_update_check_runtime_changed();
+
+        tokio::time::timeout(std::time::Duration::from_millis(50), notified)
+            .await
+            .expect("settings changes should wake update-check waiters");
+    }
+
+    #[tokio::test]
+    async fn update_check_runtime_change_notification_is_not_lost_if_sent_before_wait() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+
+        state.notify_update_check_runtime_changed();
+        let notified = state.update_check_runtime_changed.notified();
+
+        tokio::time::timeout(std::time::Duration::from_millis(50), notified)
+            .await
+            .expect("update-check wake should not be lost before waiting");
     }
 
     #[tokio::test]
