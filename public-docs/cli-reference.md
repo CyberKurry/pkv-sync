@@ -322,7 +322,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: show the selected release, asset, and target path without downloading anything.
 - `--yes`: skip the interactive confirmation prompt.
-- `--version <VERSION>`: download a specific release such as `1.0.6` instead of the latest release.
+- `--version <VERSION>`: download a specific release such as `1.0.7` instead of the latest release.
 
 ### Description
 
@@ -346,5 +346,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # Download a specific release
-pkvsyncd upgrade --yes --version 1.0.6
+pkvsyncd upgrade --yes --version 1.0.7
 ```

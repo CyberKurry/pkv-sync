@@ -7,6 +7,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-06-02
+
+### Fixed
+
+- Revalidate main vault SSE streams while they are open so revoked tokens or
+  disabled accounts stop receiving live commit events and inline text content.
+- Preserve vault push-lock identity during deletion while other guards or
+  waiters still hold the lock.
+- Wake the runtime update-check loop immediately when Admin WebUI settings
+  change.
+
 ## [1.0.6] - 2026-05-28
 
 ### Added
