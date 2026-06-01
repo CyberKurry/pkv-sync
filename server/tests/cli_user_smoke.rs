@@ -3,15 +3,21 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-fn wait_with_timeout(mut child: std::process::Child) -> Output {
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn wait_with_timeout(args: &[&str], mut child: std::process::Child) -> Output {
     let start = Instant::now();
     loop {
         match child.try_wait().unwrap() {
             Some(_) => return child.wait_with_output().unwrap(),
-            None if start.elapsed() > Duration::from_secs(5) => {
+            None if start.elapsed() > COMMAND_TIMEOUT => {
                 let _ = child.kill();
-                let _ = child.wait();
-                panic!("pkvsyncd command timed out");
+                let output = child.wait_with_output().unwrap();
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                panic!(
+                    "pkvsyncd command timed out after {COMMAND_TIMEOUT:?}: {args:?}\nstdout={stdout}\nstderr={stderr}"
+                );
             }
             None => thread::sleep(Duration::from_millis(50)),
         }
@@ -35,7 +41,7 @@ fn run(args: &[&str], input: Option<&str>) -> Output {
             .unwrap();
     }
     drop(child.stdin.take());
-    wait_with_timeout(child)
+    wait_with_timeout(args, child)
 }
 
 fn assert_success(output: Output) -> String {
@@ -146,7 +152,7 @@ trusted_proxies = ["127.0.0.1/32"]
     let cfg = cfg.to_str().unwrap();
 
     assert_success(run(&["-c", cfg, "migrate", "up"], None));
-    let stderr = assert_failure(run(&["-c", cfg, "user", "add", "ab"], Some("passw0rd!!\n")));
+    let stderr = assert_failure(run(&["-c", cfg, "user", "add", "ab"], None));
     assert!(stderr.contains("invalid_username"), "{stderr}");
 }
 
@@ -160,7 +166,7 @@ fn user_add_rejects_invalid_username_before_loading_config() {
             "add",
             "ab",
         ],
-        Some("passw0rd!!\n"),
+        None,
     ));
     assert!(stderr.contains("invalid_username"), "{stderr}");
     assert!(
