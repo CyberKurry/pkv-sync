@@ -14,6 +14,8 @@ const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
 pub const SYNC_API_REQUESTS_PER_WINDOW: u32 = 600;
 pub const MCP_HTTP_REQUESTS_PER_WINDOW: u32 = 120;
 pub const GIT_HTTP_REQUESTS_PER_WINDOW: u32 = 120;
+pub const API_AUTH_REQUESTS_PER_WINDOW: u32 = 120;
+pub const PASSWORD_CHANGE_REQUESTS_PER_WINDOW: u32 = 10;
 
 #[derive(Clone)]
 pub struct RequestRateLimiter {
@@ -56,6 +58,20 @@ impl RequestRateLimiter {
     pub fn git_http() -> Self {
         Self::new(
             GIT_HTTP_REQUESTS_PER_WINDOW,
+            Duration::from_secs(WINDOW_SECS),
+        )
+    }
+
+    pub fn api_auth() -> Self {
+        Self::new(
+            API_AUTH_REQUESTS_PER_WINDOW,
+            Duration::from_secs(WINDOW_SECS),
+        )
+    }
+
+    pub fn password_change() -> Self {
+        Self::new(
+            PASSWORD_CHANGE_REQUESTS_PER_WINDOW,
             Duration::from_secs(WINDOW_SECS),
         )
     }
@@ -141,6 +157,30 @@ pub async fn git_http_middleware(
     next.run(req).await
 }
 
+pub async fn api_auth_middleware(
+    State(limiter): State<RequestRateLimiter>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let key = request_key_without_bearer("api_auth", &req);
+    if limiter.check(key).is_err() {
+        return rate_limited_response();
+    }
+    next.run(req).await
+}
+
+pub async fn password_change_middleware(
+    State(limiter): State<RequestRateLimiter>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let key = request_key("password_change", &req);
+    if limiter.check(key).is_err() {
+        return rate_limited_response();
+    }
+    next.run(req).await
+}
+
 fn rate_limited_response() -> Response {
     (
         StatusCode::TOO_MANY_REQUESTS,
@@ -155,6 +195,14 @@ fn rate_limited_response() -> Response {
 }
 
 pub fn request_key(scope: &str, req: &Request) -> String {
+    request_key_with_bearer(scope, req, true)
+}
+
+fn request_key_without_bearer(scope: &str, req: &Request) -> String {
+    request_key_with_bearer(scope, req, false)
+}
+
+fn request_key_with_bearer(scope: &str, req: &Request, include_bearer: bool) -> String {
     let route = req
         .extensions()
         .get::<MatchedPath>()
@@ -165,13 +213,16 @@ pub fn request_key(scope: &str, req: &Request) -> String {
         .get::<ClientIp>()
         .map(|ip| ip.0.to_string())
         .unwrap_or_else(|| "unknown".into());
-    let bearer = req
-        .headers()
-        .get("authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "))
-        .map(token::hash)
-        .unwrap_or_else(|| "anonymous".into());
+    let bearer = if include_bearer {
+        req.headers()
+            .get("authorization")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|h| h.strip_prefix("Bearer "))
+            .map(token::hash)
+            .unwrap_or_else(|| "anonymous".into())
+    } else {
+        "all".into()
+    };
     format!("{}:{}:{}:{}:{}", scope, req.method(), route, ip, bearer)
 }
 

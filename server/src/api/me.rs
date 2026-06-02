@@ -1,6 +1,7 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
 use crate::db::repos::{TokenRepo, VaultRepo};
+use crate::middleware::rate_limit;
 use crate::service::auth::{change_password, ChangePasswordReq};
 use crate::service::AppState;
 use axum::extract::{Path, State};
@@ -10,12 +11,37 @@ use axum::{Json, Router};
 use serde::Serialize;
 
 pub fn router() -> Router<AppState> {
-    Router::new()
+    router_with_rate_limiters(
+        rate_limit::RequestRateLimiter::api_auth(),
+        rate_limit::RequestRateLimiter::password_change(),
+    )
+}
+
+fn router_with_rate_limiters(
+    api_auth_limiter: rate_limit::RequestRateLimiter,
+    password_limiter: rate_limit::RequestRateLimiter,
+) -> Router<AppState> {
+    let account_routes = Router::new()
         .route("/api/me", get(me))
-        .route("/api/me/password", post(change_password_handler))
         .route("/api/me/logout", post(logout))
         .route("/api/me/tokens", get(list_tokens))
         .route("/api/me/tokens/:id", delete(revoke_token))
+        .route_layer(axum::middleware::from_fn_with_state(
+            api_auth_limiter.clone(),
+            rate_limit::api_auth_middleware,
+        ));
+    let password_route = Router::new()
+        .route("/api/me/password", post(change_password_handler))
+        .route_layer(axum::middleware::from_fn_with_state(
+            password_limiter,
+            rate_limit::password_change_middleware,
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            api_auth_limiter,
+            rate_limit::api_auth_middleware,
+        ));
+
+    account_routes.merge(password_route)
 }
 
 #[derive(Serialize)]
@@ -119,7 +145,7 @@ mod tests {
     use crate::db::repos::{NewToken, NewUser, TokenRepo, UserRepo, VaultRepo};
     use crate::service::AppState;
     use axum::body::Body;
-    use axum::http::Request;
+    use axum::http::{header, Request};
     use tower::ServiceExt;
 
     async fn setup() -> (Router, String, String) {
@@ -204,5 +230,68 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::NO_CONTENT);
         let resp2 = app.oneshot(auth_get("/api/me", &raw)).await.unwrap();
         assert_eq!(resp2.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn me_rejects_rotating_invalid_bearer_attempts_with_rate_limit() {
+        let (app, _uid, _raw) = setup().await;
+        let mut saw_rate_limit = false;
+
+        for idx in 0..130 {
+            let fake = format!("pks_{idx:064x}");
+            let resp = app
+                .clone()
+                .oneshot(auth_get("/api/me", &fake))
+                .await
+                .unwrap();
+            if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+                saw_rate_limit = true;
+                break;
+            }
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        assert!(
+            saw_rate_limit,
+            "rotating invalid bearer attempts were not rate limited"
+        );
+    }
+
+    #[tokio::test]
+    async fn change_password_wrong_current_password_is_rate_limited() {
+        let (app, _uid, raw) = setup().await;
+        let mut saw_rate_limit = false;
+
+        for _ in 0..15 {
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/me/password")
+                        .header("authorization", format!("Bearer {raw}"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            serde_json::json!({
+                                "current_password": "wrong",
+                                "new_password": "newpass1234"
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+                saw_rate_limit = true;
+                break;
+            }
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        assert!(
+            saw_rate_limit,
+            "wrong current-password attempts were not rate limited"
+        );
     }
 }
