@@ -193,6 +193,73 @@ async fn two_devices_same_line_change_produces_marker_file() {
 }
 
 #[tokio::test]
+async fn auto_merge_conflict_file_respects_exclude_globs() {
+    let (state, user, vault_id, _tmp) = setup().await;
+    state
+        .runtime_cfg_repo
+        .set_extra_exclude_globs(vec!["*.conflict-*.md".into()], None)
+        .await
+        .unwrap();
+    state
+        .runtime_cfg
+        .replace(state.runtime_cfg_repo.load().await.unwrap())
+        .await;
+
+    let base = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        None,
+        None,
+        sync::PushReq {
+            device_name: Some("base".into()),
+            changes: vec![sync::PushChange::Text {
+                path: "note.md".into(),
+                content: "alpha\n".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+    let _device_a = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-a".into()),
+            changes: vec![sync::PushChange::Text {
+                path: "note.md".into(),
+                content: "ALPHA\n".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let err = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-b".into()),
+            changes: vec![sync::PushChange::Text {
+                path: "note.md".into(),
+                content: "AlPhA\n".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(err.code, "path_excluded");
+    assert_eq!(read_text(&state, &vault_id, "note.md").await, "ALPHA\n");
+}
+
+#[tokio::test]
 async fn auto_merge_disabled_falls_back_to_head_mismatch() {
     let (state, user, vault_id, _tmp) = setup().await;
     state

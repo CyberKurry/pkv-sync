@@ -900,6 +900,7 @@ async fn try_auto_merge_push(input: AutoMergePushInput<'_>) -> Result<Option<Pus
             }
             MergeOutcome::Conflicted(marked) => {
                 let conflict_path = conflict_path_for(&normalized, conflict_device_name);
+                reject_filtered_push_path(input.path_filter, &conflict_path)?;
                 event_changes.push(text_event_with_budget(
                     &conflict_path,
                     &marked,
@@ -915,6 +916,7 @@ async fn try_auto_merge_push(input: AutoMergePushInput<'_>) -> Result<Option<Pus
             }
             MergeOutcome::Binary => {
                 let conflict_path = conflict_path_for(&normalized, conflict_device_name);
+                reject_filtered_push_path(input.path_filter, &conflict_path)?;
                 event_changes.push(text_event_with_budget(
                     &conflict_path,
                     &content,
