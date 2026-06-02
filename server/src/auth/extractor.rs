@@ -47,7 +47,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             .await?
             .ok_or_else(|| ApiError::unauthorized("user no longer exists"))?;
         if !user.is_active {
-            return Err(ApiError::forbidden("account disabled"));
+            return Err(ApiError::unauthorized("invalid or revoked token"));
         }
         let _ = state
             .tokens
@@ -235,6 +235,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"]["code"], "unauthorized");
+        assert_eq!(body["error"]["message"], "invalid or revoked token");
     }
 }
