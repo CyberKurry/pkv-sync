@@ -2293,7 +2293,7 @@ textarea {
     border-top: none;
 }
 
-.settings-section h2 {
+.settings-section > h2 {
     font-family: var(--pkv-font-body);
     font-size: var(--pkv-text-md);
     font-weight: 650;

@@ -16,8 +16,12 @@
 
   <form id="settings-form" method="post" action="/admin/settings" class="settings-form">
     <section id="general" class="panel settings-section">
-      <h2>{{ t.general_settings }}</h2>
-      <p class="section-note">{{ t.settings_general_note }}</p>
+      <div class="panel-header">
+        <div>
+          <h2>{{ t.general_settings }}</h2>
+          <p class="section-note">{{ t.settings_general_note }}</p>
+        </div>
+      </div>
       <label>{{ t.server_name }} <input name="server_name" type="text" value="{{ cfg.server_name }}" required></label>
       <label>{{ t.timezone }}
         <select name="timezone">
@@ -41,8 +45,12 @@
     </section>
 
     <section id="security" class="panel settings-section">
-      <h2>{{ t.security }}</h2>
-      <p class="section-note">{{ t.settings_security_note }}</p>
+      <div class="panel-header">
+        <div>
+          <h2>{{ t.security }}</h2>
+          <p class="section-note">{{ t.settings_security_note }}</p>
+        </div>
+      </div>
       <div class="form-grid">
         <label>{{ t.login_failure_threshold }} <input name="login_failure_threshold" type="number" min="1" value="{{ cfg.login_failure_threshold }}" required></label>
         <label>{{ t.login_window_seconds }} <input name="login_window_seconds" type="number" min="1" value="{{ cfg.login_window_seconds }}" required></label>
@@ -51,8 +59,12 @@
     </section>
 
     <section id="sync-storage" class="panel settings-section">
-      <h2>{{ t.sync_storage }}</h2>
-      <p class="section-note">{{ t.settings_sync_storage_note }}</p>
+      <div class="panel-header">
+        <div>
+          <h2>{{ t.sync_storage }}</h2>
+          <p class="section-note">{{ t.settings_sync_storage_note }}</p>
+        </div>
+      </div>
       <label>{{ t.max_file_size }} <span class="input-with-unit"><input type="text" value="{{ max_file_size_display }}" disabled><small>{{ t.runtime_label }}</small></span></label>
       <label>{{ t.text_file_extensions }} <input type="text" value="{{ text_extensions_display }}" disabled></label>
       <label class="check-row"><input name="enable_history_ui" type="checkbox" {% if cfg.enable_history_ui %}checked{% endif %}> {{ t.enable_history_ui }}</label>
@@ -76,8 +88,12 @@
     </section>
 
     <section id="network" class="panel settings-section">
-      <h2>{{ t.network }}</h2>
-      <p class="section-note">{{ t.settings_network_note }}</p>
+      <div class="panel-header">
+        <div>
+          <h2>{{ t.network }}</h2>
+          <p class="section-note">{{ t.settings_network_note }}</p>
+        </div>
+      </div>
       <label class="check-row"><input name="update_check_enabled" type="checkbox" {% if cfg.update_check_enabled %}checked{% endif %}> {{ t.update_check_enabled }}</label>
       <div class="form-grid">
         <label>{{ t.update_check_interval }} <span class="input-with-unit"><input name="update_check_interval_seconds" type="number" min="60" max="2592000" value="{{ cfg.update_check_interval_seconds }}" required><small>{{ t.seconds_short }}</small></span></label>

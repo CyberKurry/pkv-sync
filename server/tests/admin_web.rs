@@ -1087,6 +1087,37 @@ async fn settings_page_and_post_manage_update_check_runtime_config() {
 }
 
 #[tokio::test]
+async fn settings_page_uses_standard_panel_headers_for_sections() {
+    let app = app().await;
+    let session_cookie = login_cookie(&app).await;
+
+    let mut page_req = request(Method::GET, "/admin/settings", Body::empty());
+    page_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let page_resp = app.oneshot(page_req).await.unwrap();
+    assert_eq!(page_resp.status(), StatusCode::OK);
+    let body = read_body(page_resp).await;
+
+    assert!(body.contains(
+        r#"<section id="general" class="panel settings-section">
+      <div class="panel-header">
+        <div>
+          <h2>General Settings</h2>"#
+    ));
+    assert!(body.contains(
+        r#"<section id="sync-storage" class="panel settings-section">
+      <div class="panel-header">
+        <div>
+          <h2>Sync &amp; Storage</h2>"#
+    ));
+    assert!(!body.contains(
+        r#"<section id="general" class="panel settings-section">
+      <h2>General Settings</h2>"#
+    ));
+}
+
+#[tokio::test]
 async fn settings_post_rejects_update_check_interval_below_one_minute() {
     let (app, state) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
