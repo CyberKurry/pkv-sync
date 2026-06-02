@@ -258,6 +258,41 @@ async fn info_refs_rejects_wrong_token() {
 }
 
 #[tokio::test]
+async fn git_smart_http_routes_are_rate_limited() {
+    let (ts, _state, _raw, vid) = start_test_server().await;
+    let mut saw_rate_limit = false;
+
+    for _ in 0..130 {
+        let resp = auth_headers(
+            client().get(format!(
+                "http://{}/git/{}/info/refs?service=git-upload-pack",
+                ts.addr, vid
+            )),
+            &ts.key,
+        )
+        .header(
+            "authorization",
+            basic_auth_header(
+                "pks_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
+        )
+        .send()
+        .await
+        .unwrap();
+        if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            saw_rate_limit = true;
+            break;
+        }
+        assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+    }
+
+    assert!(
+        saw_rate_limit,
+        "git smart HTTP auth attempts were not rate limited"
+    );
+}
+
+#[tokio::test]
 async fn info_refs_rejects_disabled_user_like_invalid_credentials() {
     let (ts, state, raw, vid) = start_test_server().await;
     let user = state.users.find_by_username("u").await.unwrap().unwrap();

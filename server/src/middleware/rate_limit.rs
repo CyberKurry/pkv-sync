@@ -13,6 +13,7 @@ const WINDOW_SECS: u64 = 60;
 const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
 pub const SYNC_API_REQUESTS_PER_WINDOW: u32 = 600;
 pub const MCP_HTTP_REQUESTS_PER_WINDOW: u32 = 120;
+pub const GIT_HTTP_REQUESTS_PER_WINDOW: u32 = 120;
 
 #[derive(Clone)]
 pub struct RequestRateLimiter {
@@ -48,6 +49,13 @@ impl RequestRateLimiter {
     pub fn mcp_http() -> Self {
         Self::new(
             MCP_HTTP_REQUESTS_PER_WINDOW,
+            Duration::from_secs(WINDOW_SECS),
+        )
+    }
+
+    pub fn git_http() -> Self {
+        Self::new(
+            GIT_HTTP_REQUESTS_PER_WINDOW,
             Duration::from_secs(WINDOW_SECS),
         )
     }
@@ -116,18 +124,34 @@ pub async fn rest_middleware(
 ) -> Response {
     let key = request_key("sync_api", &req);
     if limiter.check(key).is_err() {
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(serde_json::json!({
-                "error": {
-                    "code": "rate_limited",
-                    "message": "too many requests"
-                }
-            })),
-        )
-            .into_response();
+        return rate_limited_response();
     }
     next.run(req).await
+}
+
+pub async fn git_http_middleware(
+    State(limiter): State<RequestRateLimiter>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let key = request_key("git_http", &req);
+    if limiter.check(key).is_err() {
+        return rate_limited_response();
+    }
+    next.run(req).await
+}
+
+fn rate_limited_response() -> Response {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(serde_json::json!({
+            "error": {
+                "code": "rate_limited",
+                "message": "too many requests"
+            }
+        })),
+    )
+        .into_response()
 }
 
 pub fn request_key(scope: &str, req: &Request) -> String {

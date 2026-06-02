@@ -1,3 +1,4 @@
+use crate::middleware::rate_limit;
 use crate::service::AppState;
 use axum::Router;
 
@@ -14,6 +15,20 @@ pub mod vault_settings;
 pub mod vaults;
 
 pub fn router() -> Router<AppState> {
+    let git_routes = Router::new()
+        .route(
+            "/git/:vault_id/info/refs",
+            axum::routing::get(git_http::info_refs),
+        )
+        .route(
+            "/git/:vault_id/git-upload-pack",
+            axum::routing::post(git_http::upload_pack),
+        )
+        .route_layer(axum::middleware::from_fn_with_state(
+            rate_limit::RequestRateLimiter::git_http(),
+            rate_limit::git_http_middleware,
+        ));
+
     Router::new()
         .route("/metrics", axum::routing::get(metrics::metrics))
         .route("/api/health", axum::routing::get(health::health))
@@ -24,12 +39,5 @@ pub fn router() -> Router<AppState> {
         .merge(vault_settings::router())
         .merge(vaults::router())
         .merge(admin::router())
-        .route(
-            "/git/:vault_id/info/refs",
-            axum::routing::get(git_http::info_refs),
-        )
-        .route(
-            "/git/:vault_id/git-upload-pack",
-            axum::routing::post(git_http::upload_pack),
-        )
+        .merge(git_routes)
 }
