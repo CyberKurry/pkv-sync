@@ -282,6 +282,12 @@ pub async fn download_blob(
 }
 
 fn git_write_error(e: GitStoreError) -> ApiError {
+    if let GitStoreError::PathConflict(path) = e {
+        return ApiError::bad_request(
+            "path_conflict",
+            format!("path conflicts with an existing file or directory: {path}"),
+        );
+    }
     let msg = e.to_string();
     if msg.contains("code=Locked")
         || msg.contains(".lock")

@@ -129,6 +129,22 @@ fn headers(r: reqwest::RequestBuilder, key: &str) -> reqwest::RequestBuilder {
         .header("x-pkvsync-deployment-key", key)
 }
 
+async fn create_vault(server: &TestServer, name: &str) -> String {
+    let client = c();
+    let create_vault = headers(
+        client.post(format!("http://{}/api/vaults", server.addr)),
+        &server.key,
+    )
+    .bearer_auth(&server.token)
+    .json(&serde_json::json!({ "name": name }))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(create_vault.status(), 201);
+    let vault: serde_json::Value = create_vault.json().await.unwrap();
+    vault["id"].as_str().unwrap().to_string()
+}
+
 #[tokio::test]
 async fn full_http_upload_push_pull_blob_and_text() {
     let server = start_server_with_seeded_user().await;
@@ -236,4 +252,32 @@ async fn full_http_upload_push_pull_blob_and_text() {
     .unwrap();
     assert_eq!(blob.status(), 200);
     assert_eq!(blob.bytes().await.unwrap().as_ref(), blob_bytes.as_slice());
+}
+
+#[tokio::test]
+async fn push_rejects_file_directory_path_conflicts() {
+    let server = start_server_with_seeded_user().await;
+    let client = c();
+    let vault_id = create_vault(&server, "conflict").await;
+
+    let push = headers(
+        client.post(format!("http://{}/api/vaults/{vault_id}/push", server.addr)),
+        &server.key,
+    )
+    .bearer_auth(&server.token)
+    .header("idempotency-key", "sync-e2e-path-conflict")
+    .json(&serde_json::json!({
+        "device_name":"test",
+        "changes":[
+            {"kind":"text","path":"notes.md","content":"plain file"},
+            {"kind":"text","path":"notes.md/todo.md","content":"nested file"}
+        ]
+    }))
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(push.status(), 400);
+    let body: serde_json::Value = push.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "path_conflict");
 }

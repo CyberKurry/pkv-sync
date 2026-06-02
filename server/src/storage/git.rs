@@ -46,6 +46,8 @@ pub enum GitStoreError {
     Io(#[from] std::io::Error),
     #[error("path not found")]
     NotFound,
+    #[error("path conflict between file and directory: {0}")]
+    PathConflict(String),
     #[error("blocking task panicked")]
     Panic,
 }
@@ -409,17 +411,29 @@ fn build_tree_recursive(
         Dir(BTreeMap<String, TreeNode>),
     }
 
-    fn insert(parts: &[&str], file: &StoredFile, node: &mut BTreeMap<String, TreeNode>) {
+    fn insert(
+        full_path: &str,
+        parts: &[&str],
+        file: &StoredFile,
+        node: &mut BTreeMap<String, TreeNode>,
+    ) -> Result<(), GitStoreError> {
         if parts.len() == 1 {
+            if matches!(node.get(parts[0]), Some(TreeNode::Dir(_))) {
+                return Err(GitStoreError::PathConflict(full_path.to_string()));
+            }
             node.insert(parts[0].to_string(), TreeNode::File(file.clone()));
         } else {
             let child = node
                 .entry(parts[0].to_string())
                 .or_insert_with(|| TreeNode::Dir(BTreeMap::new()));
-            if let TreeNode::Dir(map) = child {
-                insert(&parts[1..], file, map);
+            match child {
+                TreeNode::Dir(map) => insert(full_path, &parts[1..], file, map)?,
+                TreeNode::File(_) => {
+                    return Err(GitStoreError::PathConflict(full_path.to_string()))
+                }
             }
         }
+        Ok(())
     }
 
     fn write_node(
@@ -446,7 +460,7 @@ fn build_tree_recursive(
     let mut root = BTreeMap::new();
     for (path, file) in files {
         let parts: Vec<&str> = path.split('/').collect();
-        insert(&parts, file, &mut root);
+        insert(path, &parts, file, &mut root)?;
     }
     write_node(repo, &root)
 }
@@ -834,6 +848,72 @@ mod tests {
             .collect();
         assert!(listed.contains(&"folder/note.md".to_string()));
         assert!(listed.contains(&"folder/sub/other.md".to_string()));
+    }
+
+    #[tokio::test]
+    async fn rejects_file_directory_conflict_in_same_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+
+        let result = store
+            .commit_changes(
+                "v1",
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "notes".into(),
+                        file: StoredFile::Text {
+                            bytes: b"file".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "notes/todo.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"nested".to_vec(),
+                        },
+                    },
+                ],
+                "conflict",
+            )
+            .await;
+
+        assert!(result.is_err(), "conflicting paths must not commit");
+    }
+
+    #[tokio::test]
+    async fn rejects_file_directory_conflict_against_existing_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let c1 = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "notes/todo.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"nested".to_vec(),
+                    },
+                }],
+                "nested",
+            )
+            .await
+            .unwrap();
+
+        let result = store
+            .commit_changes(
+                "v1",
+                Some(&c1),
+                &[FileChange::Upsert {
+                    path: "notes".into(),
+                    file: StoredFile::Text {
+                        bytes: b"file".to_vec(),
+                    },
+                }],
+                "conflict",
+            )
+            .await;
+
+        assert!(result.is_err(), "conflicting paths must not commit");
     }
 
     #[tokio::test]
