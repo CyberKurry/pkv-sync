@@ -19,6 +19,7 @@ pub trait BlobUploadRepo: Send + Sync {
         vault_id: &str,
         hashes: &[String],
     ) -> Result<HashSet<String>, sqlx::Error>;
+    async fn all_hashes(&self) -> Result<HashSet<String>, sqlx::Error>;
     async fn delete_uploads(&self, vault_id: &str, hashes: &[String]) -> Result<(), sqlx::Error>;
 }
 
@@ -84,6 +85,13 @@ impl BlobUploadRepo for SqliteBlobUploadRepo {
         separated.push_unseparated(")");
 
         let rows: Vec<(String,)> = query.build_query_as().fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(|t| t.0).collect())
+    }
+
+    async fn all_hashes(&self) -> Result<HashSet<String>, sqlx::Error> {
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT DISTINCT blob_hash FROM blob_uploads")
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows.into_iter().map(|t| t.0).collect())
     }
 
@@ -183,6 +191,7 @@ mod tests {
         repo.record_upload(&first.id, "a", 1).await.unwrap();
         repo.record_upload(&first.id, "b", 1).await.unwrap();
         repo.record_upload(&second.id, "c", 1).await.unwrap();
+        repo.record_upload(&second.id, "a", 1).await.unwrap();
 
         let got = repo
             .uploaded_hashes_for_vault(
@@ -193,6 +202,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(got, HashSet::from(["a".to_string(), "b".to_string()]));
+        assert_eq!(
+            repo.all_hashes().await.unwrap(),
+            HashSet::from(["a".to_string(), "b".to_string(), "c".to_string()])
+        );
         assert!(repo
             .uploaded_hashes_for_vault(&first.id, &[])
             .await
