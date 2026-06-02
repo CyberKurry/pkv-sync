@@ -443,7 +443,10 @@ async fn push_with_request_metadata_internal(
             format!("push changes exceed limit of {MAX_PUSH_CHANGES}"),
         ));
     }
+    let _vault = vault::ensure_user_vault(state, &user.user_id, vault_id).await?;
     let _push_guard = acquire_vault_push_lock(state, vault_id).await?;
+    // Re-check after acquiring the per-vault lock so a queued push cannot race
+    // with vault deletion or ownership changes while it waited.
     let _vault = vault::ensure_user_vault(state, &user.user_id, vault_id).await?;
     let request_hash = match idempotency_key {
         Some(_) => Some(push_request_hash(if_match, &req)?),
@@ -2303,6 +2306,63 @@ mod tests {
 
         assert_eq!(err.status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(err.code, "vault_busy");
+    }
+
+    #[tokio::test]
+    async fn non_member_push_does_not_wait_for_vault_push_lock() {
+        let (state, _owner, vid, _tmp) = state_user_vault().await;
+        let intruder = state
+            .users
+            .create(NewUser {
+                username: "mallory".into(),
+                password_hash: "hash".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let token_row = state
+            .tokens
+            .create(NewToken {
+                user_id: &intruder.id,
+                token_hash: &token::hash(&token::generate()),
+                device_id: "device-intruder",
+                device_name: "intruder",
+            })
+            .await
+            .unwrap();
+        let intruder = AuthenticatedUser {
+            user_id: intruder.id,
+            username: intruder.username,
+            is_admin: false,
+            token_id: token_row.id,
+            device_id: token_row.device_id,
+        };
+        let lock = state.vault_push_lock(&vid);
+        let _guard = lock.lock().await;
+
+        let err = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            push(
+                &state,
+                &intruder,
+                &vid,
+                None,
+                None,
+                PushReq {
+                    device_name: Some("intruder".into()),
+                    changes: vec![PushChange::Text {
+                        path: "note.md".into(),
+                        content: "blocked".into(),
+                    }],
+                },
+            ),
+        )
+        .await
+        .expect("non-member push should fail before waiting on the push lock")
+        .unwrap_err();
+
+        assert_eq!(err.status, axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(err.code, "not_found");
     }
 
     #[tokio::test]
