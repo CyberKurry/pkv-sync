@@ -189,6 +189,12 @@ pub fn validate_vault_name(name: &str) -> Result<(), ApiError> {
             "vault name cannot contain path separators",
         ));
     }
+    if name.chars().any(char::is_control) {
+        return Err(ApiError::bad_request(
+            "invalid_vault_name",
+            "vault name cannot contain control characters",
+        ));
+    }
     Ok(())
 }
 
@@ -357,6 +363,13 @@ mod tests {
             settings.extra_sync_globs,
             expected_starter_extra_sync_globs()
         );
+    }
+
+    #[test]
+    fn validate_vault_name_rejects_control_characters() {
+        let err = validate_vault_name("main\nhidden").unwrap_err();
+
+        assert_eq!(err.code, "invalid_vault_name");
     }
 
     #[tokio::test]
