@@ -92,13 +92,13 @@ pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 
 ## 裝置 Token
 
-裝置 bearer token 會在認證請求時續期，連續 90 天未使用才會過期。使用者可以撤銷自己的 token，管理員可以撤銷任意使用者的 token。
+裝置 bearer token 會在認證請求時續期，連續 90 天未使用才會過期，且單個 token 最長有效 365 天。使用者可以撤銷自己的 token，管理員可以撤銷任意使用者的 token。
 
 維運注意事項：
 
 - Token 明文只在建立時顯示一次。
 - 資料庫只保存 SHA-256 token hash。
-- 每次認證請求都會把 token 過期時間延長到該請求時間之後 90 天，並且不會縮短更晚的過期時間。
+- 每次認證請求都會把 token 過期時間延長到該請求時間之後 90 天，但不會超過 token 建立後 365 天。
 - 同一穩定外掛裝置 ID 再次登入時，會取代該裝置舊的活躍 token。
 - 被活動記錄引用的已撤銷 token 可以清理，同時保留活動歷史。
 

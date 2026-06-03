@@ -100,8 +100,9 @@ Local files are the source of truth — the plugin reads and writes your
 normal Obsidian vault on disk, no proxy filesystem. Plugin settings and
 the active bearer device token live in
 `<vault>/.obsidian/plugins/pkv-sync/data.json`; treat that file as
-sensitive. Device tokens renew on use and expire after 90 idle days;
-logging in again on the same device rotates the active token.
+sensitive. Device tokens renew on use, expire after 90 idle days, and have a
+365-day absolute lifetime; logging in again on the same device rotates the
+active token.
 
 Day-to-day features — command palette, file history, side-by-side diff,
 conflict resolution, selective `.obsidian` sync, device management, and

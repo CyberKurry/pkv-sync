@@ -355,9 +355,9 @@ backups become mandatory rather than optional.
 
 ## Token Hygiene
 
-Device bearer tokens renew on authenticated use, expire after 90 idle days, and
-can be revoked by users or administrators. Treat active tokens as credentials
-until they expire or are revoked.
+Device bearer tokens renew on authenticated use, expire after 90 idle days, have
+a 365-day absolute lifetime, and can be revoked by users or administrators.
+Treat active tokens as credentials until they expire or are revoked.
 
 Obsidian stores the plugin's active token and deployment key in the vault-local
 plugin data file, `<vault>/.obsidian/plugins/pkv-sync/data.json`. Tell users to

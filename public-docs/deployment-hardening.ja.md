@@ -303,7 +303,7 @@ restic -r sftp:user@backup.example.com:/repo backup /var/lib/pkv-sync /etc/pkv-s
 
 ## Token Hygiene
 
-装置 bearer token は認証済み使用時に更新され、90 日間アイドルで期限切れになり、ユーザーまたは管理者が取り消せます。期限切れまたは取り消しまで、アクティブ token は資格情報として扱ってください。
+装置 bearer token は認証済み使用時に更新され、90 日間アイドルで期限切れになり、各 token には 365 日の絶対有効期限があり、ユーザーまたは管理者が取り消せます。期限切れまたは取り消しまで、アクティブ token は資格情報として扱ってください。
 
 Obsidian はプラグインのアクティブ token と deployment key を vault-local plugin data file `<vault>/.obsidian/plugins/pkv-sync/data.json` に保存します。このファイルを共有アーカイブ、信頼できない同期先、平文バックアップに入れないようユーザーへ伝えてください。漏えいした可能性がある場合は、影響を受けた装置 token を取り消します。
 

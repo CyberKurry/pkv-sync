@@ -88,3 +88,34 @@ async fn touch_used_never_shortens_expires_at() {
         .unwrap();
     assert_eq!(reloaded.expires_at, initial_row.expires_at);
 }
+
+#[tokio::test]
+async fn touch_used_caps_expires_at_at_absolute_lifetime() {
+    let (state, _tmp) = test_state().await;
+    let (token_id, raw) = create_token(&state).await;
+    let (initial_row, _) = state
+        .tokens
+        .find_by_hash(&token::hash(&raw))
+        .await
+        .unwrap()
+        .unwrap();
+    let near_absolute_limit = initial_row.created_at + token::TOKEN_ABSOLUTE_LIFETIME_SECONDS
+        - token::TOKEN_TTL_SECONDS / 2;
+
+    state
+        .tokens
+        .touch_used(&token_id, near_absolute_limit)
+        .await
+        .unwrap();
+
+    let (reloaded, _) = state
+        .tokens
+        .find_by_hash(&token::hash(&raw))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        reloaded.expires_at,
+        initial_row.created_at + token::TOKEN_ABSOLUTE_LIFETIME_SECONDS
+    );
+}

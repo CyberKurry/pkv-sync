@@ -133,6 +133,7 @@ impl TokenRepo for SqliteTokenRepo {
     }
 
     async fn find_by_hash(&self, hash: &str) -> Result<Option<(TokenRow, String)>, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
         let row: Option<(
             String,
             String,
@@ -145,10 +146,16 @@ impl TokenRepo for SqliteTokenRepo {
             Option<i64>,
         )> = sqlx::query_as(
             "SELECT id, user_id, token_hash, device_id, device_name, created_at, expires_at, last_used_at, revoked_at
-                 FROM tokens WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?",
+                 FROM tokens
+                 WHERE token_hash = ?
+                   AND revoked_at IS NULL
+                   AND expires_at > ?
+                   AND created_at + ? > ?",
         )
         .bind(hash)
-        .bind(chrono::Utc::now().timestamp())
+        .bind(now)
+        .bind(token::TOKEN_ABSOLUTE_LIFETIME_SECONDS)
+        .bind(now)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(|t| {
@@ -169,14 +176,21 @@ impl TokenRepo for SqliteTokenRepo {
     }
 
     async fn is_active_for_user(&self, id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*)
              FROM tokens
-             WHERE id = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?",
+             WHERE id = ?
+               AND user_id = ?
+               AND revoked_at IS NULL
+               AND expires_at > ?
+               AND created_at + ? > ?",
         )
         .bind(id)
         .bind(user_id)
-        .bind(chrono::Utc::now().timestamp())
+        .bind(now)
+        .bind(token::TOKEN_ABSOLUTE_LIFETIME_SECONDS)
+        .bind(now)
         .fetch_one(&self.pool)
         .await?;
         Ok(count > 0)
@@ -215,6 +229,7 @@ impl TokenRepo for SqliteTokenRepo {
     }
 
     async fn list_active_for_user(&self, user_id: &str) -> Result<Vec<TokenRow>, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp();
         let rows: Vec<(
             String,
             String,
@@ -227,11 +242,16 @@ impl TokenRepo for SqliteTokenRepo {
         )> = sqlx::query_as(
             "SELECT id, user_id, device_id, device_name, created_at, expires_at, last_used_at, revoked_at
              FROM tokens
-             WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?
+             WHERE user_id = ?
+               AND revoked_at IS NULL
+               AND expires_at > ?
+               AND created_at + ? > ?
              ORDER BY created_at DESC, id DESC",
         )
         .bind(user_id)
-        .bind(chrono::Utc::now().timestamp())
+        .bind(now)
+        .bind(token::TOKEN_ABSOLUTE_LIFETIME_SECONDS)
+        .bind(now)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
@@ -252,10 +272,14 @@ impl TokenRepo for SqliteTokenRepo {
     async fn touch_used(&self, id: &str, ts: i64) -> Result<(), sqlx::Error> {
         let expires_at = ts + token::TOKEN_TTL_SECONDS;
         sqlx::query(
-            "UPDATE tokens SET last_used_at = ?, expires_at = MAX(expires_at, ?) WHERE id = ?",
+            "UPDATE tokens
+             SET last_used_at = ?,
+                 expires_at = MIN(MAX(expires_at, ?), created_at + ?)
+             WHERE id = ?",
         )
         .bind(ts)
         .bind(expires_at)
+        .bind(token::TOKEN_ABSOLUTE_LIFETIME_SECONDS)
         .bind(id)
         .execute(&self.pool)
         .await?;
@@ -407,6 +431,36 @@ mod tests {
             .await
             .unwrap();
         assert!(tokens.find_by_hash("expired").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn absolute_lifetime_expired_token_is_not_active() {
+        let (_users, tokens, uid) = setup().await;
+        let row = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "absolute-expired",
+                device_id: "device-absolute-expired",
+                device_name: "d",
+            })
+            .await
+            .unwrap();
+        let now = chrono::Utc::now().timestamp();
+        sqlx::query("UPDATE tokens SET created_at = ?, expires_at = ? WHERE id = ?")
+            .bind(now - token::TOKEN_TTL_SECONDS * 5)
+            .bind(now + token::TOKEN_TTL_SECONDS)
+            .bind(&row.id)
+            .execute(&tokens.pool)
+            .await
+            .unwrap();
+
+        assert!(tokens
+            .find_by_hash("absolute-expired")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(!tokens.is_active_for_user(&row.id, &uid).await.unwrap());
+        assert!(tokens.list_active_for_user(&uid).await.unwrap().is_empty());
     }
 
     #[tokio::test]

@@ -1,3 +1,4 @@
+use crate::auth::token;
 use crate::db::repos::{
     RuntimeConfigCache, RuntimeConfigRepo, SqliteBlobRefRepo, SqliteBlobUploadRepo,
     SqliteIdempotencyRepo, SqliteInviteRepo, SqliteRuntimeConfigRepo, SqliteSyncActivityRepo,
@@ -248,8 +249,14 @@ impl AppState {
     pub async fn refresh_metrics_gauges(&self) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
         let (active_tokens,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM tokens WHERE revoked_at IS NULL AND expires_at > ?",
+            "SELECT COUNT(*)
+             FROM tokens
+             WHERE revoked_at IS NULL
+               AND expires_at > ?
+               AND created_at + ? > ?",
         )
+        .bind(now)
+        .bind(token::TOKEN_ABSOLUTE_LIFETIME_SECONDS)
         .bind(now)
         .fetch_one(&self.pool)
         .await?;

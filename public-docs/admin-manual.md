@@ -117,16 +117,16 @@ pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 
 ## Device Tokens
 
-Device bearer tokens renew on authenticated use and expire after 90 idle days.
-Users can revoke their own tokens, and administrators can revoke tokens for any
-user.
+Device bearer tokens renew on authenticated use, expire after 90 idle days, and
+have a 365-day absolute lifetime. Users can revoke their own tokens, and
+administrators can revoke tokens for any user.
 
 Operational notes:
 
 - Token plaintext is shown only once at creation.
 - Only SHA-256 token hashes are stored in the database.
 - Every authenticated request extends the token expiry by 90 days from that
-  request time without shortening a later expiry.
+  request time, capped at 365 days from token creation.
 - Logging in again from the same stable plugin device ID replaces the previous
   active token for that device.
 - Revoked tokens referenced by activity rows can be cleaned while preserving
