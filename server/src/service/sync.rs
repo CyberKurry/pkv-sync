@@ -701,9 +701,11 @@ async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, Ap
     let user = input.user;
     let vault_id = input.vault_id;
     let prepared = input.prepared;
+    let device_name = input.device_name.as_deref().unwrap_or(&user.username);
+    let device_name = safe_commit_device_name(device_name);
     let msg = format!(
         "sync: {}\n{} files changed",
-        input.device_name.unwrap_or_else(|| user.username.clone()),
+        device_name,
         prepared.git_changes.len()
     );
     let git = Git2VaultStore::new(state.default_vault_root());
@@ -1069,6 +1071,28 @@ fn safe_conflict_device_name(name: &str) -> String {
     let trimmed = out.trim_matches('-');
     if trimmed.is_empty() {
         "device".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn safe_commit_device_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len().min(128));
+    let mut last_was_space = false;
+    for ch in name.chars() {
+        if ch.is_control() || ch.is_whitespace() {
+            if !out.is_empty() && !last_was_space {
+                out.push(' ');
+                last_was_space = true;
+            }
+            continue;
+        }
+        out.push(ch);
+        last_was_space = false;
+    }
+    let trimmed = out.trim();
+    if trimmed.is_empty() {
+        "unknown".to_string()
     } else {
         trimmed.to_string()
     }
@@ -2141,6 +2165,40 @@ mod tests {
                 .unwrap();
         assert_eq!(row.0.as_deref(), Some("203.0.113.10"));
         assert_eq!(row.1.as_deref(), Some("PKVSync-Plugin/0.1.0"));
+    }
+
+    #[tokio::test]
+    async fn push_sanitizes_device_name_in_commit_message() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let resp = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some(
+                    "Laptop\nCo-authored-by: mallory@example.invalid\t\u{0007}".into(),
+                ),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "hello".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let repo = Repository::open_bare(state.default_vault_root().join(&vid)).unwrap();
+        let commit = repo
+            .find_commit(Oid::from_str(&resp.new_commit).unwrap())
+            .unwrap();
+        let message = commit.message().unwrap();
+
+        assert_eq!(
+            message,
+            "sync: Laptop Co-authored-by: mallory@example.invalid\n1 files changed"
+        );
     }
 
     #[tokio::test]
