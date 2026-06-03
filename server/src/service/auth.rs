@@ -93,6 +93,7 @@ pub async fn verify_credentials(
 
 pub async fn register(state: &AppState, req: RegisterReq) -> Result<AuthResp, ApiError> {
     validate_username(&req.username)?;
+    let (device_id, device_name) = validate_device_fields(&req.device_id, &req.device_name)?;
     let cfg = state.runtime_cfg.snapshot().await;
     match cfg.registration_mode {
         RegistrationMode::Disabled => {
@@ -166,13 +167,14 @@ pub async fn register(state: &AppState, req: RegisterReq) -> Result<AuthResp, Ap
         &user.id,
         &user.username,
         user.is_admin,
-        &req.device_id,
-        &req.device_name,
+        device_id,
+        device_name,
     )
     .await
 }
 
 pub async fn login(state: &AppState, req: LoginReq) -> Result<AuthResp, ApiError> {
+    let (device_id, device_name) = validate_device_fields(&req.device_id, &req.device_name)?;
     let user = verify_credentials(state, &req.username, &req.password).await?;
     state
         .users
@@ -183,8 +185,8 @@ pub async fn login(state: &AppState, req: LoginReq) -> Result<AuthResp, ApiError
         &user.id,
         &user.username,
         user.is_admin,
-        &req.device_id,
-        &req.device_name,
+        device_id,
+        device_name,
     )
     .await
 }
@@ -231,20 +233,7 @@ async fn issue_token(
     device_id: &str,
     device_name: &str,
 ) -> Result<AuthResp, ApiError> {
-    let device_id = device_id.trim();
-    let device_name = device_name.trim();
-    if device_id.is_empty() || device_id.len() > 128 {
-        return Err(ApiError::bad_request(
-            "invalid_device",
-            "device_id length must be 1-128",
-        ));
-    }
-    if device_name.is_empty() || device_name.len() > 64 {
-        return Err(ApiError::bad_request(
-            "invalid_device",
-            "device_name length must be 1-64",
-        ));
-    }
+    let (device_id, device_name) = validate_device_fields(device_id, device_name)?;
     let raw = token::generate();
     let h = token::hash(&raw);
     state
@@ -262,6 +251,39 @@ async fn issue_token(
         username: username.into(),
         is_admin,
     })
+}
+
+fn validate_device_fields<'a>(
+    device_id: &'a str,
+    device_name: &'a str,
+) -> Result<(&'a str, &'a str), ApiError> {
+    let device_id = device_id.trim();
+    let device_name = device_name.trim();
+    if device_id.is_empty() || device_id.len() > 128 {
+        return Err(ApiError::bad_request(
+            "invalid_device",
+            "device_id length must be 1-128",
+        ));
+    }
+    if device_id.chars().any(char::is_control) {
+        return Err(ApiError::bad_request(
+            "invalid_device",
+            "device_id cannot contain control characters",
+        ));
+    }
+    if device_name.is_empty() || device_name.len() > 64 {
+        return Err(ApiError::bad_request(
+            "invalid_device",
+            "device_name length must be 1-64",
+        ));
+    }
+    if device_name.chars().any(char::is_control) {
+        return Err(ApiError::bad_request(
+            "invalid_device",
+            "device_name cannot contain control characters",
+        ));
+    }
+    Ok((device_id, device_name))
 }
 
 #[cfg(test)]
@@ -388,6 +410,26 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.code, "invalid_username");
+    }
+
+    #[tokio::test]
+    async fn register_invalid_device_id_does_not_create_user() {
+        let s = make_state(RegistrationMode::Open).await;
+        let err = register(
+            &s,
+            RegisterReq {
+                username: "userx".into(),
+                password: "passw0rd!!".into(),
+                device_id: "bad\ndevice".into(),
+                device_name: "d".into(),
+                invite_code: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "invalid_device");
+        assert!(s.users.find_by_username("userx").await.unwrap().is_none());
     }
 
     #[tokio::test]
