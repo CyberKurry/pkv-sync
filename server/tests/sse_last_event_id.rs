@@ -323,23 +323,29 @@ async fn reconnect_with_last_event_id_replays_missed_commits() {
 
 struct EnvVarGuard {
     key: &'static str,
+    previous: Option<String>,
 }
 
 impl EnvVarGuard {
     fn set_path(key: &'static str, value: &std::path::Path) -> Self {
+        let previous = std::env::var(key).ok();
         std::env::set_var(key, value);
-        Self { key }
+        Self { key, previous }
     }
 
     fn set(key: &'static str, value: &str) -> Self {
+        let previous = std::env::var(key).ok();
         std::env::set_var(key, value);
-        Self { key }
+        Self { key, previous }
     }
 }
 
 impl Drop for EnvVarGuard {
     fn drop(&mut self) {
-        std::env::remove_var(self.key);
+        match &self.previous {
+            Some(value) => std::env::set_var(self.key, value),
+            None => std::env::remove_var(self.key),
+        }
     }
 }
 
@@ -404,6 +410,7 @@ async fn reconnect_with_last_event_id_does_not_miss_commit_landing_during_replay
     // waits until replay has completed, pushes while the handler is paused, and
     // then expects that commit from the reconnect stream.
     let marker = ts._tmp.path().join("sse-after-replay.marker");
+    let _seam_env = EnvVarGuard::set("PKVSYNC_ENABLE_TEST_SEAMS", "1");
     let _marker_env = EnvVarGuard::set_path("PKVSYNC_TEST_SSE_PAUSE_AFTER_REPLAY_MARKER", &marker);
     let _pause_env = EnvVarGuard::set("PKVSYNC_TEST_SSE_PAUSE_AFTER_REPLAY_MS", "250");
 
@@ -479,6 +486,7 @@ async fn reconnect_with_last_event_id_dedupes_commit_seen_by_replay_and_live_str
     // The reconnect stream should emit replay first and suppress the duplicate
     // live copy.
     let marker = ts._tmp.path().join("sse-after-subscribe.marker");
+    let _seam_env = EnvVarGuard::set("PKVSYNC_ENABLE_TEST_SEAMS", "1");
     let _marker_env =
         EnvVarGuard::set_path("PKVSYNC_TEST_SSE_PAUSE_AFTER_SUBSCRIBE_MARKER", &marker);
     let _pause_env = EnvVarGuard::set("PKVSYNC_TEST_SSE_PAUSE_AFTER_SUBSCRIBE_MS", "250");

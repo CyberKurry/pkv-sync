@@ -655,6 +655,9 @@ async fn sse_token_still_valid(state: &AppState, user: &AuthenticatedUser) -> bo
 
 #[cfg(debug_assertions)]
 async fn debug_pause_from_env_for_tests(marker_key: &str, pause_key: &str) {
+    if std::env::var("PKVSYNC_ENABLE_TEST_SEAMS").as_deref() != Ok("1") {
+        return;
+    }
     if let Ok(path) = std::env::var(marker_key) {
         let _ = std::fs::write(path, b"paused");
     }
@@ -750,6 +753,53 @@ mod tests {
     async fn setup() -> (Router, String) {
         let (app, _state, raw) = setup_with_state().await;
         (app, raw)
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set_path(key: &'static str, value: &std::path::Path) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+
+        fn unset(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn debug_sse_pause_env_is_ignored_unless_test_seams_are_enabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let marker = tmp.path().join("marker");
+        let _seam_env = EnvVarGuard::unset("PKVSYNC_ENABLE_TEST_SEAMS");
+        let _marker_env = EnvVarGuard::set_path("PKVSYNC_TEST_DISABLED_SSE_MARKER", &marker);
+
+        debug_pause_from_env_for_tests(
+            "PKVSYNC_TEST_DISABLED_SSE_MARKER",
+            "PKVSYNC_TEST_DISABLED_SSE_MS",
+        )
+        .await;
+
+        assert!(
+            !marker.exists(),
+            "debug SSE seam must require PKVSYNC_ENABLE_TEST_SEAMS=1"
+        );
     }
 
     #[tokio::test]
