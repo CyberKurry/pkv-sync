@@ -1,7 +1,9 @@
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
-use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo, VaultRepo};
+use pkv_sync_server::db::repos::{
+    NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
+};
 use pkv_sync_server::mcp::transport_http;
 use pkv_sync_server::service::sync::{self, PushChange, PushReq};
 use pkv_sync_server::service::AppState;
@@ -372,6 +374,61 @@ async fn write_rate_limit_kicks_in_at_61st_request_in_window() {
         .as_str()
         .unwrap()
         .contains("rate_limited"));
+}
+
+#[tokio::test]
+async fn oversized_write_file_is_rejected_before_consuming_write_quota() {
+    let (state, _tmp) = test_state().await;
+    state
+        .mcp_write_limiter
+        .update_config(1, std::time::Duration::from_secs(60));
+    state
+        .runtime_cfg_repo
+        .set_max_file_size(1024, None)
+        .await
+        .unwrap();
+    state
+        .runtime_cfg
+        .replace(state.runtime_cfg_repo.load().await.unwrap())
+        .await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-size").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "note.md", "seed").await;
+
+    let oversized = post_tool(
+        state.clone(),
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "large.md",
+            "content": "x".repeat(1025),
+            "parent_commit": head
+        }),
+    )
+    .await;
+    assert_eq!(oversized["error"]["code"], -32000);
+    assert!(oversized["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("max_file_size"));
+
+    let valid = post_tool(
+        state,
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "note.md",
+            "content": "small",
+            "parent_commit": head
+        }),
+    )
+    .await;
+    assert!(
+        structured(&valid)["commit"].is_string(),
+        "oversized failures must not consume MCP write quota: {valid}"
+    );
 }
 
 #[tokio::test]

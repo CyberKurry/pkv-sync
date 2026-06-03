@@ -254,6 +254,10 @@ pub async fn write_file(
 ) -> Result<WriteToolOutput> {
     let path = normalize_mcp_path(input.path)?;
     let size_bytes = input.content.len();
+    let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
+    if size_bytes as u64 > max_file_size {
+        bail!("file exceeds max_file_size of {max_file_size} bytes");
+    }
     apply_write_tool(
         state,
         user,
