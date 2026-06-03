@@ -67,6 +67,8 @@ authentication.
 MCP HTTP is fixed-window rate limited at 120 requests per 60 seconds. When the
 limit is exceeded, the server responds with HTTP `429` and a JSON-RPC error
 using code `-32029`.
+Failed MCP bearer-token authentication is also rate limited in-process at 30
+attempts per 60 seconds across stdio and HTTP transports.
 
 POST carries JSON-RPC tool calls and returns JSON responses. GET with
 `Accept: text/event-stream` subscribes to `vault_changed` notifications. Event

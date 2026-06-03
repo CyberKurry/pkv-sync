@@ -352,7 +352,7 @@ pub async fn run_with_listener_and_state(
         interval.tick().await;
         loop {
             interval.tick().await;
-            let (login_removed, mcp_auth_removed, mcp_write_removed) =
+            let (login_removed, auth_failure_removed, mcp_auth_removed, mcp_write_removed) =
                 prune_stale_limiters_blocking(
                     cleanup_limiter.clone(),
                     cleanup_limiter_state.clone(),
@@ -362,6 +362,12 @@ pub async fn run_with_listener_and_state(
                 tracing::debug!(
                     removed = login_removed,
                     "pruned stale login limiter entries"
+                );
+            }
+            if auth_failure_removed > 0 {
+                tracing::debug!(
+                    removed = auth_failure_removed,
+                    "pruned stale API auth failure limiter entries"
                 );
             }
             if mcp_auth_removed > 0 {
@@ -392,9 +398,13 @@ pub async fn run_with_listener_and_state(
     Ok(())
 }
 
-fn prune_stale_limiters(limiter: &LoginRateLimiter, state: &AppState) -> (usize, usize, usize) {
+fn prune_stale_limiters(
+    limiter: &LoginRateLimiter,
+    state: &AppState,
+) -> (usize, usize, usize, usize) {
     (
         limiter.prune_stale(),
+        state.auth_failure_limiter.prune_stale(),
         state.mcp_auth_limiter.prune_stale(),
         state.mcp_write_limiter.prune_stale(),
     )
@@ -403,12 +413,12 @@ fn prune_stale_limiters(limiter: &LoginRateLimiter, state: &AppState) -> (usize,
 async fn prune_stale_limiters_blocking(
     limiter: LoginRateLimiter,
     state: AppState,
-) -> (usize, usize, usize) {
+) -> (usize, usize, usize, usize) {
     tokio::task::spawn_blocking(move || prune_stale_limiters(&limiter, &state))
         .await
         .unwrap_or_else(|err| {
             tracing::warn!(error = %err, "failed to prune stale limiter entries");
-            (0, 0, 0)
+            (0, 0, 0, 0)
         })
 }
 
@@ -478,6 +488,12 @@ mod tests {
             .unwrap();
         let limiter = LoginRateLimiter::new(1, Duration::from_millis(5), Duration::from_millis(5));
         limiter.record_failure("127.0.0.1".parse().unwrap());
+        state.auth_failure_limiter.update_config(
+            1,
+            Duration::from_millis(5),
+            Duration::from_millis(5),
+        );
+        state.auth_failure_limiter.record_failure("api-auth");
         state
             .mcp_write_limiter
             .update_config(1, Duration::from_millis(5));
@@ -491,10 +507,11 @@ mod tests {
         state.mcp_auth_limiter.record_failure("mcp-auth");
         tokio::time::sleep(Duration::from_millis(10)).await;
 
-        let (login_removed, mcp_auth_removed, mcp_write_removed) =
+        let (login_removed, auth_failure_removed, mcp_auth_removed, mcp_write_removed) =
             prune_stale_limiters_blocking(limiter, state).await;
 
         assert_eq!(login_removed, 1);
+        assert_eq!(auth_failure_removed, 1);
         assert_eq!(mcp_auth_removed, 1);
         assert_eq!(mcp_write_removed, 1);
     }

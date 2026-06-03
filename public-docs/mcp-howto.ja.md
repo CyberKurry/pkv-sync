@@ -57,7 +57,7 @@ Authorization: Bearer pks_xxx
 
 デプロイメントキーは主 PKV Sync サーバーと同じ設定ファイルから読み取られます。キーがない、または間違っている場合は bearer token 認証の前に HTTP `404` を返します。
 
-MCP HTTP は固定ウィンドウで 60 秒あたり 120 リクエストに制限されます。制限を超えると、サーバーは HTTP `429` と JSON-RPC error code `-32029` を返します。
+MCP HTTP は固定ウィンドウで 60 秒あたり 120 リクエストに制限されます。制限を超えると、サーバーは HTTP `429` と JSON-RPC error code `-32029` を返します。失敗した MCP bearer token 認証もプロセス内で制限され、stdio と HTTP transports の合計で 60 秒あたり最大 30 回の失敗試行までです。
 
 POST は JSON-RPC tool calls を運び、JSON responses を返します。`Accept: text/event-stream` を持つ GET は `vault_changed` notifications を購読します。Event ids は `<vault-id>:<commit-sha>` を使用し、再接続時に `Last-Event-ID` として送り返すことで missed commits を replay できます。Replay には上限があります。サーバーが missed history をカバーできない場合は `lagged` を送信し、クライアントは sync API から更新する必要があります。
 

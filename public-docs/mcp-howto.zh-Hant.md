@@ -55,7 +55,7 @@ Authorization: Bearer pks_xxx
 
 部署金鑰來自與主 PKV Sync 服務相同的設定檔。缺少或錯誤的部署金鑰會在 bearer token 驗證前直接回傳 HTTP `404`。
 
-MCP HTTP 使用固定視窗限流，每 60 秒最多 120 次請求。超限時，伺服器會返回 HTTP `429`，JSON-RPC error code 為 `-32029`。
+MCP HTTP 使用固定視窗限流，每 60 秒最多 120 次請求。超限時，伺服器會返回 HTTP `429`，JSON-RPC error code 為 `-32029`。失敗的 MCP bearer token 認證也會在進程內限流，stdio 和 HTTP transport 合計每 60 秒最多 30 次失敗嘗試。
 
 POST 承載 JSON-RPC 工具呼叫並返回 JSON 回應。GET 攜帶 `Accept: text/event-stream` 時訂閱 `vault_changed` notification。事件 id 使用 `<vault-id>:<commit-sha>`，用戶端重連時可作為 `Last-Event-ID` 傳回，以 replay 斷線期間錯過的 commit。Replay 有上限；如果服務端無法覆蓋錯過的歷史，會發送 `lagged`，用戶端應透過同步 API 重新整理。
 

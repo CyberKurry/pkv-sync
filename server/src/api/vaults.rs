@@ -752,6 +752,37 @@ mod tests {
         (app, raw)
     }
 
+    #[tokio::test]
+    async fn vault_routes_rate_limit_rotating_invalid_bearer_attempts() {
+        let (app, _state, _raw) = setup_with_state().await;
+        let mut saw_rate_limit = false;
+
+        for idx in 0..130 {
+            let fake = format!("pks_{idx:064x}");
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/vaults")
+                        .header("authorization", format!("Bearer {fake}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+                saw_rate_limit = true;
+                break;
+            }
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        assert!(
+            saw_rate_limit,
+            "rotating invalid vault bearer attempts were not rate limited"
+        );
+    }
+
     async fn setup_with_limiter(
         limiter: rate_limit::RequestRateLimiter,
     ) -> (Router, AppState, String) {

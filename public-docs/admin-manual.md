@@ -206,6 +206,9 @@ of concurrent guesses cannot bypass the threshold.
 Authenticated sync API routes are fixed-window rate limited at 600 requests per
 60 seconds per route, method, client IP, and bearer token. Limited requests
 return `429` with `error.code = "rate_limited"`.
+Failed bearer-token authentication attempts are also rate limited per client IP
+at 120 attempts per 60 seconds, so rotating fake tokens cannot bypass the
+failure budget.
 
 **Sync & Storage**
 - Max file size (default `100 MiB`).

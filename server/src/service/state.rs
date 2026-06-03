@@ -57,6 +57,7 @@ pub struct AppState {
     pub default_server_name: String,
     pub events: VaultEventBus,
     pub metrics: Arc<Metrics>,
+    pub auth_failure_limiter: crate::auth::AuthFailureRateLimiter,
     pub mcp_auth_limiter: crate::auth::McpAuthRateLimiter,
     pub mcp_write_limiter: crate::auth::McpWriteRateLimiter,
     pub setup_limiter: crate::middleware::rate_limit::RequestRateLimiter,
@@ -118,6 +119,11 @@ impl AppState {
             default_server_name,
             events: VaultEventBus::new(64),
             metrics: Metrics::new(),
+            auth_failure_limiter: crate::auth::AuthFailureRateLimiter::new(
+                120,
+                std::time::Duration::from_secs(60),
+                std::time::Duration::from_secs(60),
+            ),
             mcp_auth_limiter: crate::auth::McpAuthRateLimiter::new(
                 30,
                 std::time::Duration::from_secs(60),

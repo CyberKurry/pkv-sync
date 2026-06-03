@@ -1,6 +1,7 @@
 use crate::api::error::ApiError;
 use crate::auth::token;
 use crate::db::repos::{TokenRepo, UserRepo};
+use crate::middleware::real_ip::ClientIp;
 use crate::service::AppState;
 use async_trait::async_trait;
 use axum::extract::FromRequestParts;
@@ -26,41 +27,74 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let raw = parts
-            .headers
-            .get("authorization")
-            .and_then(|h| h.to_str().ok())
-            .and_then(|h| h.strip_prefix("Bearer "))
-            .ok_or_else(|| ApiError::unauthorized("missing bearer token"))?;
-        if !token::looks_valid(raw) {
-            return Err(ApiError::unauthorized("invalid token format"));
+        let failure_key = auth_failure_key(parts);
+        if let Err(wait) = state.auth_failure_limiter.check(&failure_key) {
+            return Err(ApiError::too_many(format!(
+                "too many failed authentication attempts, retry in {}s",
+                wait.as_secs().max(1)
+            )));
         }
-        let h = token::hash(raw);
-        let (row, user_id) = state
-            .tokens
-            .find_by_hash(&h)
-            .await?
-            .ok_or_else(|| ApiError::unauthorized("invalid or revoked token"))?;
-        let user = state
-            .users
-            .find_by_id(&user_id)
-            .await?
-            .ok_or_else(|| ApiError::unauthorized("user no longer exists"))?;
-        if !user.is_active {
-            return Err(ApiError::unauthorized("invalid or revoked token"));
+        match authenticate_from_parts(parts, state).await {
+            Ok(user) => {
+                state.auth_failure_limiter.record_success(&failure_key);
+                Ok(user)
+            }
+            Err(err) => {
+                if err.status == axum::http::StatusCode::UNAUTHORIZED {
+                    state.auth_failure_limiter.record_failure(&failure_key);
+                }
+                Err(err)
+            }
         }
-        let _ = state
-            .tokens
-            .touch_used(&row.id, chrono::Utc::now().timestamp())
-            .await;
-        Ok(AuthenticatedUser {
-            user_id: user.id,
-            username: user.username,
-            is_admin: user.is_admin,
-            token_id: row.id,
-            device_id: row.device_id,
-        })
     }
+}
+
+async fn authenticate_from_parts(
+    parts: &mut Parts,
+    state: &AppState,
+) -> Result<AuthenticatedUser, ApiError> {
+    let raw = parts
+        .headers
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .ok_or_else(|| ApiError::unauthorized("missing bearer token"))?;
+    if !token::looks_valid(raw) {
+        return Err(ApiError::unauthorized("invalid token format"));
+    }
+    let h = token::hash(raw);
+    let (row, user_id) = state
+        .tokens
+        .find_by_hash(&h)
+        .await?
+        .ok_or_else(|| ApiError::unauthorized("invalid or revoked token"))?;
+    let user = state
+        .users
+        .find_by_id(&user_id)
+        .await?
+        .ok_or_else(|| ApiError::unauthorized("user no longer exists"))?;
+    if !user.is_active {
+        return Err(ApiError::unauthorized("invalid or revoked token"));
+    }
+    let _ = state
+        .tokens
+        .touch_used(&row.id, chrono::Utc::now().timestamp())
+        .await;
+    Ok(AuthenticatedUser {
+        user_id: user.id,
+        username: user.username,
+        is_admin: user.is_admin,
+        token_id: row.id,
+        device_id: row.device_id,
+    })
+}
+
+fn auth_failure_key(parts: &Parts) -> String {
+    parts
+        .extensions
+        .get::<ClientIp>()
+        .map(|ip| ip.0.to_string())
+        .unwrap_or_else(|| "unknown".into())
 }
 
 #[derive(Debug, Clone)]

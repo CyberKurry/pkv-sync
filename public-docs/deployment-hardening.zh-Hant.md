@@ -268,7 +268,7 @@ trusted_proxies = ["172.16.0.0/12"]
 
 註冊和登入失敗會被限流。管理員建立的使用者和 CLI 使用者仍應使用強密碼。
 
-認證同步 API 路由也按路由、方法、用戶端 IP 和 bearer token 固定視窗限流，每 60 秒最多 600 次請求。保持 `trusted_proxies` 準確，讓限流器和稽核日誌看到真實用戶端 IP。
+認證同步 API 路由也按路由、方法、用戶端 IP 和 bearer token 固定視窗限流，每 60 秒最多 600 次請求。失敗的 bearer token 認證會另按用戶端 IP 限流，每 60 秒最多 120 次失敗嘗試。保持 `trusted_proxies` 準確，讓限流器和稽核日誌看到真實用戶端 IP。
 
 ## Prometheus Metrics
 

@@ -270,7 +270,7 @@ Admin WebUI から確認します。
 
 登録とログイン失敗は rate limited です。管理者作成ユーザーと CLI ユーザーにも強力なパスワードが必要です。
 
-認証済み同期 API routes も、route、method、client IP、bearer token ごとに 60 秒あたり 600 リクエストの固定ウィンドウで制限されます。limiter と audit log が実 client IP を見られるよう、`trusted_proxies` を正確に保ってください。
+認証済み同期 API routes も、route、method、client IP、bearer token ごとに 60 秒あたり 600 リクエストの固定ウィンドウで制限されます。失敗した bearer token 認証は別途 client IP ごとに 60 秒あたり 120 回までに制限されます。limiter と audit log が実 client IP を見られるよう、`trusted_proxies` を正確に保ってください。
 
 ## Prometheus Metrics
 

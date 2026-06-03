@@ -29,6 +29,8 @@ pub struct McpAuthRateLimiter {
     config: Arc<RwLock<Config>>,
 }
 
+pub type AuthFailureRateLimiter = McpAuthRateLimiter;
+
 #[derive(Debug, Clone)]
 struct McpWriteEntry {
     count: u32,

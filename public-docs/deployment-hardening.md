@@ -314,6 +314,8 @@ users still need strong passwords.
 Authenticated sync API routes are also fixed-window rate limited at 600
 requests per 60 seconds per route, method, client IP, and bearer token. Keep
 `trusted_proxies` accurate so the limiter and audit log see the real client IP.
+Failed bearer-token authentication attempts across authenticated REST routes
+are separately limited per client IP at 120 attempts per 60 seconds.
 
 ## Prometheus Metrics
 
