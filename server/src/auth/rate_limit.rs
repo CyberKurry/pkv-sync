@@ -23,6 +23,12 @@ pub struct LoginRateLimiter {
     config: Arc<RwLock<Config>>,
 }
 
+#[derive(Clone)]
+pub struct McpAuthRateLimiter {
+    inner: Arc<DashMap<String, Entry>>,
+    config: Arc<RwLock<Config>>,
+}
+
 #[derive(Debug, Clone)]
 struct McpWriteEntry {
     count: u32,
@@ -218,6 +224,86 @@ impl LoginRateLimiter {
         let removed = stale.len();
         for ip in stale {
             self.inner.remove(&ip);
+        }
+        removed
+    }
+}
+
+impl McpAuthRateLimiter {
+    pub fn new(threshold: u32, window: Duration, lock_duration: Duration) -> Self {
+        Self {
+            inner: Arc::new(DashMap::new()),
+            config: Arc::new(RwLock::new(Config {
+                threshold: threshold.max(1),
+                window,
+                lock_duration,
+            })),
+        }
+    }
+
+    pub fn update_config(&self, threshold: u32, window: Duration, lock_duration: Duration) {
+        *self.config.write().expect("mcp auth limiter lock poisoned") = Config {
+            threshold: threshold.max(1),
+            window,
+            lock_duration,
+        };
+    }
+
+    pub fn check(&self, key: &str) -> Result<(), Duration> {
+        let now = Instant::now();
+        let config = *self.config.read().expect("mcp auth limiter lock poisoned");
+        let mut stale = false;
+        if let Some(entry) = self.inner.get(key) {
+            if entry_is_stale(&entry, now, config) {
+                stale = true;
+            } else if let Some(until) = entry.locked_until {
+                return Err(until - now);
+            }
+        }
+        if stale {
+            self.inner.remove(key);
+        }
+        Ok(())
+    }
+
+    pub fn record_failure(&self, key: &str) {
+        let now = Instant::now();
+        let config = *self.config.read().expect("mcp auth limiter lock poisoned");
+        let mut entry = self.inner.entry(key.to_string()).or_insert(Entry {
+            failures: 0,
+            in_flight: 0,
+            first_failure: now,
+            locked_until: None,
+        });
+        if now.duration_since(entry.first_failure) > config.window {
+            entry.failures = 0;
+            entry.in_flight = 0;
+            entry.first_failure = now;
+            entry.locked_until = None;
+        }
+        entry.failures += 1;
+        if entry.failures >= config.threshold {
+            entry.locked_until = Some(now + config.lock_duration);
+        }
+    }
+
+    pub fn record_success(&self, key: &str) {
+        self.inner.remove(key);
+    }
+
+    pub fn prune_stale(&self) -> usize {
+        let now = Instant::now();
+        let config = *self.config.read().expect("mcp auth limiter lock poisoned");
+        let stale = self
+            .inner
+            .iter()
+            .filter_map(|entry| {
+                entry_is_stale(entry.value(), now, config).then(|| entry.key().clone())
+            })
+            .collect::<Vec<_>>();
+        let removed = stale.len();
+        for key in stale {
+            self.inner.remove(&key);
         }
         removed
     }

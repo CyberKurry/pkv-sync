@@ -352,20 +352,27 @@ pub async fn run_with_listener_and_state(
         interval.tick().await;
         loop {
             interval.tick().await;
-            let (login_removed, mcp_removed) = prune_stale_limiters_blocking(
-                cleanup_limiter.clone(),
-                cleanup_limiter_state.clone(),
-            )
-            .await;
+            let (login_removed, mcp_auth_removed, mcp_write_removed) =
+                prune_stale_limiters_blocking(
+                    cleanup_limiter.clone(),
+                    cleanup_limiter_state.clone(),
+                )
+                .await;
             if login_removed > 0 {
                 tracing::debug!(
                     removed = login_removed,
                     "pruned stale login limiter entries"
                 );
             }
-            if mcp_removed > 0 {
+            if mcp_auth_removed > 0 {
                 tracing::debug!(
-                    removed = mcp_removed,
+                    removed = mcp_auth_removed,
+                    "pruned stale MCP auth limiter entries"
+                );
+            }
+            if mcp_write_removed > 0 {
+                tracing::debug!(
+                    removed = mcp_write_removed,
                     "pruned stale MCP write limiter entries"
                 );
             }
@@ -385,19 +392,23 @@ pub async fn run_with_listener_and_state(
     Ok(())
 }
 
-fn prune_stale_limiters(limiter: &LoginRateLimiter, state: &AppState) -> (usize, usize) {
-    (limiter.prune_stale(), state.mcp_write_limiter.prune_stale())
+fn prune_stale_limiters(limiter: &LoginRateLimiter, state: &AppState) -> (usize, usize, usize) {
+    (
+        limiter.prune_stale(),
+        state.mcp_auth_limiter.prune_stale(),
+        state.mcp_write_limiter.prune_stale(),
+    )
 }
 
 async fn prune_stale_limiters_blocking(
     limiter: LoginRateLimiter,
     state: AppState,
-) -> (usize, usize) {
+) -> (usize, usize, usize) {
     tokio::task::spawn_blocking(move || prune_stale_limiters(&limiter, &state))
         .await
         .unwrap_or_else(|err| {
             tracing::warn!(error = %err, "failed to prune stale limiter entries");
-            (0, 0)
+            (0, 0, 0)
         })
 }
 
@@ -474,12 +485,18 @@ mod tests {
             .mcp_write_limiter
             .try_record("token", "vault")
             .unwrap();
+        state
+            .mcp_auth_limiter
+            .update_config(1, Duration::from_millis(5), Duration::from_millis(5));
+        state.mcp_auth_limiter.record_failure("mcp-auth");
         tokio::time::sleep(Duration::from_millis(10)).await;
 
-        let (login_removed, mcp_removed) = prune_stale_limiters_blocking(limiter, state).await;
+        let (login_removed, mcp_auth_removed, mcp_write_removed) =
+            prune_stale_limiters_blocking(limiter, state).await;
 
         assert_eq!(login_removed, 1);
-        assert_eq!(mcp_removed, 1);
+        assert_eq!(mcp_auth_removed, 1);
+        assert_eq!(mcp_write_removed, 1);
     }
 
     #[tokio::test]

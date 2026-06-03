@@ -137,3 +137,28 @@ async fn stdio_session_rejects_invalid_token() {
 
     assert!(err.to_string().contains("invalid token"));
 }
+
+#[tokio::test]
+async fn stdio_session_rate_limits_repeated_invalid_tokens() {
+    let (state, _tmp) = test_state().await;
+    let (user_id, _raw) = create_user_with_token(&state, "stdio-rate-limit").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let mut saw_rate_limit = false;
+
+    for idx in 0..35 {
+        let fake = format!("pks_{idx:064x}");
+        let err = StdioSession::authenticate(state.clone(), vault.id.clone(), fake)
+            .await
+            .unwrap_err();
+        if err.to_string().contains("rate_limited") {
+            saw_rate_limit = true;
+            break;
+        }
+        assert!(err.to_string().contains("invalid or revoked token"));
+    }
+
+    assert!(
+        saw_rate_limit,
+        "rotating invalid MCP stdio tokens were not rate limited"
+    );
+}

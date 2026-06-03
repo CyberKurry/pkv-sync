@@ -30,6 +30,8 @@ struct ToolCallParams {
     arguments: Value,
 }
 
+const MCP_AUTH_LIMIT_KEY: &str = "mcp-auth";
+
 impl StdioSession {
     pub async fn authenticate(
         state: AppState,
@@ -85,6 +87,25 @@ pub(crate) async fn authenticate_token(
     state: &AppState,
     token_raw: &str,
 ) -> Result<AuthenticatedUser> {
+    if let Err(wait) = state.mcp_auth_limiter.check(MCP_AUTH_LIMIT_KEY) {
+        return Err(anyhow!(
+            "rate_limited: mcp auth rate limit exceeded; retry in {}s",
+            wait.as_secs().max(1)
+        ));
+    }
+    match authenticate_token_inner(state, token_raw).await {
+        Ok(user) => {
+            state.mcp_auth_limiter.record_success(MCP_AUTH_LIMIT_KEY);
+            Ok(user)
+        }
+        Err(err) => {
+            state.mcp_auth_limiter.record_failure(MCP_AUTH_LIMIT_KEY);
+            Err(err)
+        }
+    }
+}
+
+async fn authenticate_token_inner(state: &AppState, token_raw: &str) -> Result<AuthenticatedUser> {
     if !token::looks_valid(token_raw) {
         return Err(anyhow!("invalid token format"));
     }
