@@ -273,6 +273,32 @@ async fn admin_can_create_device_token_and_plaintext_is_one_time() {
 }
 
 #[tokio::test]
+async fn admin_create_device_token_rejects_control_characters() {
+    let app = app().await;
+    let session_cookie = login_cookie(&app).await;
+    let user_id = first_admin_user_id(&app, &session_cookie).await;
+
+    let mut create_req = request(
+        Method::POST,
+        &format!("/admin/users/{user_id}/tokens"),
+        Body::from("device_name=desk%0Atop"),
+    );
+    create_req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    create_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut create_req);
+    let create_resp = app.oneshot(create_req).await.unwrap();
+
+    assert_eq!(create_resp.status(), StatusCode::BAD_REQUEST);
+    let body = read_body(create_resp).await;
+    assert!(body.contains("invalid_device_name"));
+}
+
+#[tokio::test]
 async fn admin_can_manage_device_tokens_from_devices_page() {
     let app = app().await;
     let session_cookie = login_cookie(&app).await;

@@ -887,6 +887,12 @@ fn validated_device_name(device_name: &str) -> Result<&str, ApiError> {
             "device name length must be 1-128",
         ));
     }
+    if device_name.chars().any(char::is_control) {
+        return Err(ApiError::bad_request(
+            "invalid_device_name",
+            "device name cannot contain control characters",
+        ));
+    }
     Ok(device_name)
 }
 
