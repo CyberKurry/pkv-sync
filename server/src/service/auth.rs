@@ -58,7 +58,7 @@ pub fn validate_username(u: &str) -> Result<(), ApiError> {
 }
 
 fn is_unique_error(e: &sqlx::Error) -> bool {
-    e.to_string().to_lowercase().contains("unique")
+    matches!(e, sqlx::Error::Database(db) if db.is_unique_violation())
 }
 
 pub async fn verify_credentials(
@@ -374,6 +374,25 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn unique_error_detection_uses_database_error_kind() {
+        let source = include_str!("auth.rs");
+        let fn_start = source
+            .find("fn is_unique_error")
+            .expect("unique error helper exists");
+        let fn_end = source[fn_start..]
+            .find("\n}\n")
+            .map(|idx| fn_start + idx)
+            .expect("unique error helper has end");
+        let fn_source = &source[fn_start..fn_end];
+
+        assert!(fn_source.contains("is_unique_violation"));
+        assert!(
+            !fn_source.contains("to_string().to_lowercase().contains"),
+            "unique constraint detection should not rely on localized error text"
+        );
     }
 
     #[tokio::test]
