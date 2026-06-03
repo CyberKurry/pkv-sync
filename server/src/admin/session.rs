@@ -129,7 +129,9 @@ pub fn make_cookie(session_id: String, secure: bool) -> Cookie<'static> {
 
 pub fn expired_cookie(secure: bool) -> Cookie<'static> {
     let mut cookie = Cookie::new(COOKIE_NAME, "");
+    cookie.set_http_only(true);
     cookie.set_secure(secure);
+    cookie.set_same_site(tower_cookies::cookie::SameSite::Lax);
     cookie.set_path("/admin");
     cookie.make_removal();
     cookie
@@ -202,6 +204,18 @@ mod tests {
         let cookie = make_cookie("s_x".into(), false);
         assert_eq!(cookie.http_only(), Some(true));
         assert_eq!(cookie.secure(), Some(false));
+        assert_eq!(cookie.path(), Some("/admin"));
+    }
+
+    #[test]
+    fn expired_cookie_keeps_session_cookie_security_attributes() {
+        let cookie = expired_cookie(true);
+        assert_eq!(cookie.http_only(), Some(true));
+        assert_eq!(cookie.secure(), Some(true));
+        assert_eq!(
+            cookie.same_site(),
+            Some(tower_cookies::cookie::SameSite::Lax)
+        );
         assert_eq!(cookie.path(), Some("/admin"));
     }
 }
