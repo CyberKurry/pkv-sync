@@ -46,10 +46,9 @@ pub async fn run_blob_gc_with_grace(
             continue;
         }
         let file_size = store
-            .get(hash)
+            .size_bytes(hash)
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?
-            .map(|bytes| bytes.len() as u64)
             .unwrap_or(0);
         if store
             .delete(hash)
@@ -196,5 +195,20 @@ mod tests {
         assert_eq!(report.deleted, 1);
         assert_eq!(report.freed_bytes, b"old orphan".len() as u64);
         assert!(!store.has(&hash).await.unwrap());
+    }
+
+    #[test]
+    fn gc_uses_blob_metadata_for_freed_bytes() {
+        let source = include_str!("gc.rs");
+        let fn_start = source
+            .find("pub async fn run_blob_gc_with_grace")
+            .expect("gc function exists");
+        let tests_start = source.find("#[cfg(test)]").expect("test module exists");
+        let fn_source = &source[fn_start..tests_start];
+
+        assert!(
+            !fn_source.contains(".get(hash)"),
+            "GC should not read whole blob contents only to compute freed bytes"
+        );
     }
 }

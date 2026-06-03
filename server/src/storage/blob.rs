@@ -22,6 +22,7 @@ pub trait BlobStore: Send + Sync {
     async fn has(&self, hash: &str) -> BlobResult<bool>;
     async fn put_verified(&self, expected_hash: &str, bytes: Bytes) -> BlobResult<()>;
     async fn get(&self, hash: &str) -> BlobResult<Option<Bytes>>;
+    async fn size_bytes(&self, hash: &str) -> BlobResult<Option<u64>>;
     async fn delete(&self, hash: &str) -> BlobResult<bool>;
 }
 
@@ -122,6 +123,15 @@ impl BlobStore for LocalFsBlobStore {
         }
     }
 
+    async fn size_bytes(&self, hash: &str) -> BlobResult<Option<u64>> {
+        let path = self.path_for(hash)?;
+        match tokio::fs::metadata(path).await {
+            Ok(metadata) => Ok(Some(metadata.len())),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(err.into()),
+        }
+    }
+
     async fn delete(&self, hash: &str) -> BlobResult<bool> {
         let p = self.path_for(hash)?;
         match tokio::fs::remove_file(p).await {
@@ -146,9 +156,11 @@ mod tests {
         assert!(!store.has(&hash).await.unwrap());
         store.put_verified(&hash, data.clone()).await.unwrap();
         assert!(store.has(&hash).await.unwrap());
+        assert_eq!(store.size_bytes(&hash).await.unwrap(), Some(5));
         assert_eq!(store.get(&hash).await.unwrap().unwrap(), data);
         assert!(store.delete(&hash).await.unwrap());
         assert!(!store.has(&hash).await.unwrap());
+        assert_eq!(store.size_bytes(&hash).await.unwrap(), None);
     }
 
     #[tokio::test]
