@@ -166,7 +166,7 @@ mod tests {
         let chunks: Vec<usize> = delete_uploads_chunk_lengths(&hashes).collect();
 
         assert_eq!(chunks.iter().sum::<usize>(), hashes.len());
-        assert!(chunks.iter().all(|len| len + 1 <= SQLITE_SAFE_BIND_LIMIT));
+        assert!(chunks.iter().all(|len| *len < SQLITE_SAFE_BIND_LIMIT));
         assert!(chunks.len() > 1);
     }
 
