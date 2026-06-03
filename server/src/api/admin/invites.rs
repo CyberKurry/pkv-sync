@@ -35,6 +35,12 @@ async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateReq>,
 ) -> Result<(StatusCode, Json<Invite>), ApiError> {
+    if matches!(req.expires_at, Some(expires_at) if expires_at <= chrono::Utc::now().timestamp()) {
+        return Err(ApiError::bad_request(
+            "bad_expires_at",
+            "use a future unix timestamp or null",
+        ));
+    }
     let invite = state
         .invites
         .create(&admin.0.user_id, req.expires_at)
@@ -137,5 +143,26 @@ mod tests {
             serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 4096).await.unwrap())
                 .unwrap();
         assert_eq!(body.as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn admin_create_rejects_past_expiry() {
+        let (app, raw) = setup().await;
+        let past = chrono::Utc::now().timestamp() - 60;
+        let resp = app
+            .oneshot(admin_req(
+                "POST",
+                "/api/admin/invites",
+                &raw,
+                Body::from(format!(r#"{{"expires_at":{past}}}"#)),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 4096).await.unwrap())
+                .unwrap();
+        assert_eq!(body["error"]["code"], "bad_expires_at");
     }
 }
