@@ -959,6 +959,7 @@ async fn reset_password_form(
         .tokens
         .revoke_all_for_user(&id, chrono::Utc::now().timestamp(), None)
         .await?;
+    session::delete_sessions_for_user(&state, &id).await?;
     Ok(Redirect::to(&format!("/admin/users/{id}")))
 }
 

@@ -844,6 +844,48 @@ async fn self_demote_deletes_current_admin_sessions() {
 }
 
 #[tokio::test]
+async fn password_reset_deletes_target_admin_sessions() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let target = state
+        .users
+        .create(NewUser {
+            username: "target-admin".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
+    pkv_sync_server::admin::session::create_session(&state, &target.id)
+        .await
+        .unwrap();
+
+    let mut reset_req = request(
+        Method::POST,
+        &format!("/admin/users/{}/password", target.id),
+        Body::from("password=newpassw0rd%21%21"),
+    );
+    reset_req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    reset_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut reset_req);
+    let reset_resp = app.oneshot(reset_req).await.unwrap();
+
+    assert_eq!(reset_resp.status(), StatusCode::SEE_OTHER);
+    let (remaining_sessions,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM admin_sessions WHERE user_id = ?")
+            .bind(&target.id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining_sessions, 0);
+}
+
+#[tokio::test]
 async fn login_success_sets_cookie_and_allows_dashboard() {
     let app = app().await;
     let mut login_req = request(

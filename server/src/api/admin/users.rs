@@ -1,3 +1,4 @@
+use crate::admin::session;
 use crate::api::error::ApiError;
 use crate::auth::{password, AdminUser};
 use crate::db::repos::{NewUser, TokenRepo, TokenRow, User, UserRepo, VaultRepo};
@@ -144,6 +145,7 @@ async fn update(
             .tokens
             .revoke_all_for_user(&id, chrono::Utc::now().timestamp(), None)
             .await?;
+        session::delete_sessions_for_user(&state, &id).await?;
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -194,6 +196,7 @@ async fn revoke_user_token(
 
 #[cfg(test)]
 mod tests {
+    use crate::admin::session;
     use crate::auth::{password, token};
     use crate::db::pool;
     use crate::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
@@ -390,6 +393,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn admin_password_reset_deletes_target_admin_sessions() {
+        let (app, state, raw, other_id, _admin_token_id, _other_token_id) =
+            setup_with_second_user_state().await;
+        state.users.set_admin(&other_id, true).await.unwrap();
+        session::create_session(&state, &other_id).await.unwrap();
+
+        let resp = app
+            .oneshot(req_json(
+                "PATCH",
+                &format!("/api/admin/users/{other_id}"),
+                &raw,
+                serde_json::json!({"password":"newpassw0rd!!"}),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+        let (remaining_sessions,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM admin_sessions WHERE user_id = ?")
+                .bind(&other_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(remaining_sessions, 0);
     }
 
     #[tokio::test]
