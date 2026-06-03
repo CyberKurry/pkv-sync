@@ -1165,7 +1165,7 @@ async fn settings_page_uses_standard_panel_headers_for_sections() {
         .insert(header::COOKIE, session_cookie.parse().unwrap());
     let page_resp = app.oneshot(page_req).await.unwrap();
     assert_eq!(page_resp.status(), StatusCode::OK);
-    let body = read_body(page_resp).await;
+    let body = read_body(page_resp).await.replace("\r\n", "\n");
 
     assert!(body.contains(
         r#"<section id="general" class="panel settings-section">

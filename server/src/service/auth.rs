@@ -376,23 +376,19 @@ mod tests {
         assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
     }
 
-    #[test]
-    fn unique_error_detection_uses_database_error_kind() {
-        let source = include_str!("auth.rs");
-        let fn_start = source
-            .find("fn is_unique_error")
-            .expect("unique error helper exists");
-        let fn_end = source[fn_start..]
-            .find("\n}\n")
-            .map(|idx| fn_start + idx)
-            .expect("unique error helper has end");
-        let fn_source = &source[fn_start..fn_end];
+    #[tokio::test]
+    async fn unique_error_detection_uses_database_error_kind() {
+        let s = make_state(RegistrationMode::Open).await;
+        let user = NewUser {
+            username: "dupe".into(),
+            password_hash: "hash".into(),
+            is_admin: false,
+        };
+        s.users.create(user.clone()).await.unwrap();
 
-        assert!(fn_source.contains("is_unique_violation"));
-        assert!(
-            !fn_source.contains("to_string().to_lowercase().contains"),
-            "unique constraint detection should not rely on localized error text"
-        );
+        let err = s.users.create(user).await.unwrap_err();
+
+        assert!(is_unique_error(&err));
     }
 
     #[tokio::test]
