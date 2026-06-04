@@ -12,6 +12,7 @@ pub struct StdioSession {
     state: AppState,
     user: AuthenticatedUser,
     vault_id: String,
+    token_hash: String,
 }
 
 impl std::fmt::Debug for StdioSession {
@@ -38,6 +39,7 @@ impl StdioSession {
     ) -> Result<Self> {
         let auth_limit_key = format!("mcp-auth:stdio:{vault_id}");
         let user = authenticate_token(&state, &token_raw, &auth_limit_key).await?;
+        let token_hash = token::hash(&token_raw);
         state
             .vaults
             .find_for_user(&user.user_id, &vault_id)
@@ -47,10 +49,15 @@ impl StdioSession {
             state,
             user,
             vault_id,
+            token_hash,
         })
     }
 
     pub async fn handle_jsonrpc(&self, request: Value) -> Value {
+        let id = request.get("id").cloned().unwrap_or(Value::Null);
+        if !stdio_token_still_valid(&self.state, &self.token_hash, &self.user).await {
+            return jsonrpc_error(id, -32000, "invalid or revoked token");
+        }
         handle_jsonrpc(
             &self.state,
             &self.user,
@@ -87,22 +94,42 @@ pub(crate) async fn authenticate_token(
     token_raw: &str,
     auth_limit_key: &str,
 ) -> Result<AuthenticatedUser> {
-    if let Err(wait) = state.mcp_auth_limiter.check(auth_limit_key) {
-        return Err(anyhow!(
-            "rate_limited: mcp auth rate limit exceeded; retry in {}s",
-            wait.as_secs().max(1)
-        ));
-    }
+    let reservation = match state.mcp_auth_limiter.try_acquire(auth_limit_key) {
+        Ok(reservation) => reservation,
+        Err(wait) => {
+            return Err(anyhow!(
+                "rate_limited: mcp auth rate limit exceeded; retry in {}s",
+                wait.as_secs().max(1)
+            ));
+        }
+    };
     match authenticate_token_inner(state, token_raw).await {
         Ok(user) => {
-            state.mcp_auth_limiter.record_success(auth_limit_key);
+            reservation.success();
             Ok(user)
         }
         Err(err) => {
-            state.mcp_auth_limiter.record_failure(auth_limit_key);
+            reservation.failure();
             Err(err)
         }
     }
+}
+
+async fn stdio_token_still_valid(
+    state: &AppState,
+    token_hash: &str,
+    user: &AuthenticatedUser,
+) -> bool {
+    let Ok(Some((row, user_id))) = state.tokens.find_by_hash(token_hash).await else {
+        return false;
+    };
+    if row.id != user.token_id || user_id != user.user_id {
+        return false;
+    }
+    let Ok(Some(db_user)) = state.users.find_by_id(&user.user_id).await else {
+        return false;
+    };
+    db_user.is_active
 }
 
 async fn authenticate_token_inner(state: &AppState, token_raw: &str) -> Result<AuthenticatedUser> {

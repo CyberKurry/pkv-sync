@@ -41,6 +41,12 @@ pub fn hash(plaintext: &str) -> Result<String, PasswordError> {
 
 /// Verify a plaintext against a stored encoded hash. Returns true on match.
 pub fn verify(plaintext: &str, encoded_hash: &str) -> Result<bool, PasswordError> {
+    if plaintext.len() > MAX_PASSWORD_BYTES {
+        return Err(PasswordError::TooLong {
+            len: plaintext.len(),
+            max: MAX_PASSWORD_BYTES,
+        });
+    }
     let parsed = PasswordHash::new(encoded_hash)?;
     Ok(Argon2::default()
         .verify_password(plaintext.as_bytes(), &parsed)
@@ -73,6 +79,19 @@ mod tests {
     #[test]
     fn rejects_too_long_password() {
         assert!(hash(&"a".repeat(4097)).is_err());
+    }
+
+    #[test]
+    fn verify_rejects_too_long_password_before_argon2() {
+        let h = hash("correct horse battery staple").unwrap();
+        let err = verify(&"a".repeat(MAX_PASSWORD_BYTES + 1), &h).unwrap_err();
+        assert!(matches!(
+            err,
+            PasswordError::TooLong {
+                len,
+                max: MAX_PASSWORD_BYTES
+            } if len == MAX_PASSWORD_BYTES + 1
+        ));
     }
 
     #[test]

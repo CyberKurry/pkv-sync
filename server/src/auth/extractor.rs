@@ -28,20 +28,25 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         let failure_key = auth_failure_key(parts);
-        if let Err(wait) = state.auth_failure_limiter.check(&failure_key) {
-            return Err(ApiError::too_many(format!(
-                "too many failed authentication attempts, retry in {}s",
-                wait.as_secs().max(1)
-            )));
-        }
+        let reservation = match state.auth_failure_limiter.try_acquire(&failure_key) {
+            Ok(reservation) => reservation,
+            Err(wait) => {
+                return Err(ApiError::too_many(format!(
+                    "too many failed authentication attempts, retry in {}s",
+                    wait.as_secs().max(1)
+                )));
+            }
+        };
         match authenticate_from_parts(parts, state).await {
             Ok(user) => {
-                state.auth_failure_limiter.record_success(&failure_key);
+                reservation.success();
                 Ok(user)
             }
             Err(err) => {
                 if err.status == axum::http::StatusCode::UNAUTHORIZED {
-                    state.auth_failure_limiter.record_failure(&failure_key);
+                    reservation.failure();
+                } else {
+                    reservation.release();
                 }
                 Err(err)
             }

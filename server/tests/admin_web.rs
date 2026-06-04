@@ -90,16 +90,51 @@ fn set_form_origin(req: &mut Request<Body>) {
         .insert(header::ORIGIN, "https://127.0.0.1:6710".parse().unwrap());
 }
 
-async fn login_cookie(app: &Router) -> String {
+async fn login_csrf(app: &Router) -> (String, String) {
+    let page_resp = app
+        .clone()
+        .oneshot(request(Method::GET, "/admin/login", Body::empty()))
+        .await
+        .unwrap();
+    assert_eq!(page_resp.status(), StatusCode::OK);
+    let csrf_cookie = page_resp
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("login csrf cookie")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let body = read_body(page_resp).await;
+    let marker = "name=\"login_csrf\" type=\"hidden\" value=\"";
+    let start = body.find(marker).expect("login csrf hidden input") + marker.len();
+    let end = body[start..].find('"').expect("login csrf value end");
+    (body[start..start + end].to_string(), csrf_cookie)
+}
+
+async fn login_request(app: &Router, password: &str) -> Request<Body> {
+    let (csrf, csrf_cookie) = login_csrf(app).await;
     let mut login_req = request(
         Method::POST,
         "/admin/login",
-        Body::from("username=admin&password=passw0rd%21%21"),
+        Body::from(format!(
+            "username=admin&password={password}&login_csrf={csrf}"
+        )),
     );
     login_req.headers_mut().insert(
         header::CONTENT_TYPE,
         "application/x-www-form-urlencoded".parse().unwrap(),
     );
+    login_req
+        .headers_mut()
+        .insert(header::COOKIE, csrf_cookie.parse().unwrap());
+    login_req
+}
+
+async fn login_cookie(app: &Router) -> String {
+    let login_req = login_request(app, "passw0rd%21%21").await;
     let login_resp = app.clone().oneshot(login_req).await.unwrap();
     assert_eq!(login_resp.status(), StatusCode::SEE_OTHER);
     login_resp
@@ -914,27 +949,7 @@ async fn password_reset_deletes_target_admin_sessions() {
 #[tokio::test]
 async fn login_success_sets_cookie_and_allows_dashboard() {
     let app = app().await;
-    let mut login_req = request(
-        Method::POST,
-        "/admin/login",
-        Body::from("username=admin&password=passw0rd%21%21"),
-    );
-    login_req.headers_mut().insert(
-        header::CONTENT_TYPE,
-        "application/x-www-form-urlencoded".parse().unwrap(),
-    );
-    let login_resp = app.clone().oneshot(login_req).await.unwrap();
-    assert_eq!(login_resp.status(), StatusCode::SEE_OTHER);
-    let session_cookie = login_resp
-        .headers()
-        .get(header::SET_COOKIE)
-        .expect("set-cookie")
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_string();
+    let session_cookie = login_cookie(&app).await;
 
     let mut dashboard_req = request(Method::GET, "/admin", Body::empty());
     dashboard_req.headers_mut().insert(
@@ -1047,27 +1062,7 @@ async fn users_page_search_and_status_filter_are_applied() {
 #[tokio::test]
 async fn settings_update_applies_live_login_limiter() {
     let app = app().await;
-    let mut login_req = request(
-        Method::POST,
-        "/admin/login",
-        Body::from("username=admin&password=passw0rd%21%21"),
-    );
-    login_req.headers_mut().insert(
-        header::CONTENT_TYPE,
-        "application/x-www-form-urlencoded".parse().unwrap(),
-    );
-    let login_resp = app.clone().oneshot(login_req).await.unwrap();
-    assert_eq!(login_resp.status(), StatusCode::SEE_OTHER);
-    let session_cookie = login_resp
-        .headers()
-        .get(header::SET_COOKIE)
-        .expect("set-cookie")
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_string();
+    let session_cookie = login_cookie(&app).await;
 
     let mut settings_req = request(
         Method::POST,
@@ -1087,27 +1082,11 @@ async fn settings_update_applies_live_login_limiter() {
     let settings_resp = app.clone().oneshot(settings_req).await.unwrap();
     assert_eq!(settings_resp.status(), StatusCode::SEE_OTHER);
 
-    let mut bad_login = request(
-        Method::POST,
-        "/admin/login",
-        Body::from("username=admin&password=wrongpass"),
-    );
-    bad_login.headers_mut().insert(
-        header::CONTENT_TYPE,
-        "application/x-www-form-urlencoded".parse().unwrap(),
-    );
+    let bad_login = login_request(&app, "wrongpass").await;
     let bad_resp = app.clone().oneshot(bad_login).await.unwrap();
     assert_eq!(bad_resp.status(), StatusCode::UNAUTHORIZED);
 
-    let mut good_login = request(
-        Method::POST,
-        "/admin/login",
-        Body::from("username=admin&password=passw0rd%21%21"),
-    );
-    good_login.headers_mut().insert(
-        header::CONTENT_TYPE,
-        "application/x-www-form-urlencoded".parse().unwrap(),
-    );
+    let good_login = login_request(&app, "passw0rd%21%21").await;
     let locked_resp = app.oneshot(good_login).await.unwrap();
     assert_eq!(locked_resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }
@@ -1220,27 +1199,7 @@ async fn settings_post_rejects_update_check_interval_below_one_minute() {
 #[tokio::test]
 async fn protected_admin_post_requires_same_origin() {
     let app = app().await;
-    let mut login_req = request(
-        Method::POST,
-        "/admin/login",
-        Body::from("username=admin&password=passw0rd%21%21"),
-    );
-    login_req.headers_mut().insert(
-        header::CONTENT_TYPE,
-        "application/x-www-form-urlencoded".parse().unwrap(),
-    );
-    let login_resp = app.clone().oneshot(login_req).await.unwrap();
-    assert_eq!(login_resp.status(), StatusCode::SEE_OTHER);
-    let session_cookie = login_resp
-        .headers()
-        .get(header::SET_COOKIE)
-        .expect("set-cookie")
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_string();
+    let session_cookie = login_cookie(&app).await;
 
     let mut missing_origin = request(Method::POST, "/admin/gc", Body::empty());
     missing_origin

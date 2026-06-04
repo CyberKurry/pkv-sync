@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+use crate::storage::git::{POINTER_MAGIC_KEY, POINTER_VERSION};
+
 pub const MAX_SSE_REPLAY_COMMITS: usize = 64;
 
 #[derive(Debug, Clone, Serialize)]
@@ -261,10 +263,8 @@ fn classify_replay_change(path: &str, blob_bytes: &[u8]) -> EventChange {
 }
 
 fn detect_blob_pointer(bytes: &[u8]) -> Option<(String, u64)> {
-    // Keep this in sync with storage::git's POINTER_MAGIC_KEY / POINTER_VERSION
-    // and the field layout written by encode_file.
     let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    if v.get("pkvsync_pointer")?.as_u64()? != 1 {
+    if v.get(POINTER_MAGIC_KEY)?.as_u64()? != POINTER_VERSION {
         return None;
     }
     let hash = v.get("blob")?.as_str()?.to_string();

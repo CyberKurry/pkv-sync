@@ -133,6 +133,30 @@ fn extract_setup_csrf(body: &str) -> String {
     body[start..start + end].to_string()
 }
 
+async fn login_csrf(app: &Router) -> (String, String) {
+    let page = app
+        .clone()
+        .oneshot(request(Method::GET, "/admin/login", Body::empty()))
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let cookie = page
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("login csrf cookie")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let body = read_body(page).await;
+    let marker = "name=\"login_csrf\" type=\"hidden\" value=\"";
+    let start = body.find(marker).expect("login csrf hidden input") + marker.len();
+    let end = body[start..].find('"').expect("login csrf value end");
+    (body[start..start + end].to_string(), cookie)
+}
+
 #[tokio::test]
 async fn setup_wizard_creates_first_admin_and_seals() {
     let (state, tmp) = fresh_state().await;
@@ -170,13 +194,15 @@ async fn setup_wizard_creates_first_admin_and_seals() {
         .unwrap();
     assert_eq!(sealed.status(), StatusCode::NOT_FOUND);
 
-    let login = app
-        .oneshot(form_request(
-            "/admin/login",
-            format!("username=newadmin&password={STRONG_PASSWORD}"),
-        ))
-        .await
-        .unwrap();
+    let (login_csrf, login_csrf_cookie) = login_csrf(&app).await;
+    let mut login_req = form_request(
+        "/admin/login",
+        format!("username=newadmin&password={STRONG_PASSWORD}&login_csrf={login_csrf}"),
+    );
+    login_req
+        .headers_mut()
+        .insert(header::COOKIE, login_csrf_cookie.parse().unwrap());
+    let login = app.oneshot(login_req).await.unwrap();
     assert_eq!(login.status(), StatusCode::SEE_OTHER);
 }
 

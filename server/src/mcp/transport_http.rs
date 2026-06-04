@@ -3,7 +3,7 @@ use crate::db::repos::{TokenRepo, UserRepo};
 use crate::middleware::deployment_key;
 use crate::service::AppState;
 use axum::body::Body;
-use axum::extract::{Request, State};
+use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -25,6 +25,8 @@ use super::transport_stdio::{authenticate_token, handle_jsonrpc, jsonrpc_error};
 #[derive(Clone, Debug)]
 struct McpAuthLimitKey(String);
 
+const MCP_JSON_BODY_LIMIT_BYTES: usize = 1024 * 1024;
+
 pub fn router(state: AppState, deployment_key: String) -> Router {
     router_with_rate_limiter(
         state,
@@ -40,6 +42,7 @@ fn router_with_rate_limiter(
 ) -> Router {
     Router::new()
         .route("/mcp", post(post_mcp).get(get_mcp_sse))
+        .layer(DefaultBodyLimit::max(MCP_JSON_BODY_LIMIT_BYTES))
         .route_layer(axum::middleware::from_fn_with_state(
             limiter,
             mcp_rate_limit,

@@ -51,6 +51,7 @@ const URL_QUERY: &AsciiSet = &URL_PATH.add(b'&').add(b'=').add(b'+');
 const ADMIN_ACTIVITY_LIMIT: i64 = 30;
 const ADMIN_DEVICE_TOKEN_DISPLAY_LIMIT: i64 = 500;
 const SETUP_CSRF_COOKIE: &str = "pkv_setup_csrf";
+const LOGIN_CSRF_COOKIE: &str = "pkv_login_csrf";
 
 #[derive(Clone)]
 pub struct AdminCookiePolicy {
@@ -172,11 +173,19 @@ fn token_view(token: TokenRow, timezone: &str) -> TokenAdminView {
 
 async fn login_page(
     State(state): State<AppState>,
+    Extension(cookie_policy): Extension<AdminCookiePolicy>,
     headers: HeaderMap,
     cookies: Cookies,
     Query(params): Query<HashMap<String, String>>,
 ) -> Html<String> {
     let t = admin_text(&headers, &cookies);
+    let login_csrf = generate_csrf_token("lc");
+    cookies.add(csrf_cookie(
+        LOGIN_CSRF_COOKIE,
+        login_csrf.clone(),
+        cookie_policy.secure,
+        "/admin/login",
+    ));
     let success = params
         .get("setup")
         .filter(|value| value.as_str() == "complete")
@@ -188,6 +197,7 @@ async fn login_page(
             success,
             setup_required: state.is_setup_pending().await,
             username_value: String::new(),
+            login_csrf,
             version: env!("CARGO_PKG_VERSION"),
         }
         .render()
@@ -263,6 +273,7 @@ fn is_safe_admin_next(value: &str) -> bool {
 struct LoginForm {
     username: String,
     password: String,
+    login_csrf: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -273,19 +284,32 @@ struct SetupForm {
     setup_csrf: Option<String>,
 }
 
-fn generate_setup_csrf() -> String {
+fn generate_csrf_token(prefix: &str) -> String {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
-    format!("sc_{}", hex::encode(bytes))
+    format!("{prefix}_{}", hex::encode(bytes))
 }
 
-fn setup_csrf_cookie(token: String, secure: bool) -> Cookie<'static> {
-    let mut cookie = Cookie::new(SETUP_CSRF_COOKIE, token);
+fn generate_setup_csrf() -> String {
+    generate_csrf_token("sc")
+}
+
+fn csrf_cookie(
+    name: &'static str,
+    token: String,
+    secure: bool,
+    path: &'static str,
+) -> Cookie<'static> {
+    let mut cookie = Cookie::new(name, token);
     cookie.set_http_only(true);
     cookie.set_secure(secure);
     cookie.set_same_site(tower_cookies::cookie::SameSite::Lax);
-    cookie.set_path("/setup");
+    cookie.set_path(path);
     cookie
+}
+
+fn setup_csrf_cookie(token: String, secure: bool) -> Cookie<'static> {
+    csrf_cookie(SETUP_CSRF_COOKIE, token, secure, "/setup")
 }
 
 fn expired_setup_csrf_cookie(secure: bool) -> Cookie<'static> {
@@ -296,8 +320,8 @@ fn expired_setup_csrf_cookie(secure: bool) -> Cookie<'static> {
     cookie
 }
 
-fn setup_csrf_matches(cookies: &Cookies, form_token: &str) -> bool {
-    let Some(cookie_token) = cookies.get(SETUP_CSRF_COOKIE) else {
+fn csrf_matches(cookies: &Cookies, cookie_name: &str, form_token: &str) -> bool {
+    let Some(cookie_token) = cookies.get(cookie_name) else {
         return false;
     };
     let cookie_value = cookie_token.value();
@@ -305,6 +329,14 @@ fn setup_csrf_matches(cookies: &Cookies, form_token: &str) -> bool {
         return false;
     }
     cookie_value.as_bytes().ct_eq(form_token.as_bytes()).into()
+}
+
+fn setup_csrf_matches(cookies: &Cookies, form_token: &str) -> bool {
+    csrf_matches(cookies, SETUP_CSRF_COOKIE, form_token)
+}
+
+fn login_csrf_matches(cookies: &Cookies, form_token: &str) -> bool {
+    csrf_matches(cookies, LOGIN_CSRF_COOKIE, form_token)
 }
 
 async fn setup_get(
@@ -498,6 +530,9 @@ async fn login_post(
     if state.is_setup_pending().await {
         return Ok(setup_required_login(t, StatusCode::SERVICE_UNAVAILABLE));
     }
+    if !login_csrf_matches(&cookies, form.login_csrf.as_deref().unwrap_or("")) {
+        return Ok((StatusCode::FORBIDDEN, "csrf validation failed").into_response());
+    }
     let reservation = match limiter.try_acquire(ip) {
         Ok(r) => r,
         Err(remaining) => {
@@ -520,6 +555,8 @@ async fn login_post(
             reservation.failure();
             return Ok(login_error(
                 t,
+                &cookies,
+                cookie_policy.secure,
                 "Invalid credentials",
                 StatusCode::UNAUTHORIZED,
             ));
@@ -533,6 +570,8 @@ async fn login_post(
         reservation.failure();
         return Ok(login_error(
             t,
+            &cookies,
+            cookie_policy.secure,
             "Invalid credentials",
             StatusCode::UNAUTHORIZED,
         ));
@@ -551,9 +590,18 @@ async fn login_post(
 
 fn login_error(
     t: crate::admin::i18n::AdminText,
+    cookies: &Cookies,
+    secure_cookie: bool,
     message: &'static str,
     status: StatusCode,
 ) -> Response {
+    let login_csrf = generate_csrf_token("lc");
+    cookies.add(csrf_cookie(
+        LOGIN_CSRF_COOKIE,
+        login_csrf.clone(),
+        secure_cookie,
+        "/admin/login",
+    ));
     (
         status,
         Html(
@@ -563,6 +611,7 @@ fn login_error(
                 success: None,
                 setup_required: false,
                 username_value: String::new(),
+                login_csrf,
                 version: env!("CARGO_PKG_VERSION"),
             }
             .render()
@@ -582,6 +631,7 @@ fn setup_required_login(t: crate::admin::i18n::AdminText, status: StatusCode) ->
                 success: None,
                 setup_required: true,
                 username_value: String::new(),
+                login_csrf: String::new(),
                 version: env!("CARGO_PKG_VERSION"),
             }
             .render()
@@ -2136,14 +2186,61 @@ mod tests {
         (app, state, user)
     }
 
+    fn login_request_body(extra: &str) -> axum::body::Body {
+        axum::body::Body::from(format!("username=admin&password=passw0rd%21%21{extra}"))
+    }
+
     fn login_request() -> axum::http::Request<axum::body::Body> {
         axum::http::Request::builder()
             .method("POST")
             .uri("/admin/login")
             .header("content-type", "application/x-www-form-urlencoded")
-            .body(axum::body::Body::from(
-                "username=admin&password=passw0rd%21%21",
-            ))
+            .body(login_request_body(""))
+            .unwrap()
+    }
+
+    async fn login_csrf(app: &axum::Router) -> (String, String) {
+        use axum::body::to_bytes;
+        use tower::ServiceExt;
+
+        let page = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("GET")
+                    .uri("/admin/login")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.status(), axum::http::StatusCode::OK);
+        let cookie = page
+            .headers()
+            .get(axum::http::header::SET_COOKIE)
+            .expect("login csrf cookie")
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        let body =
+            String::from_utf8(to_bytes(page.into_body(), 32768).await.unwrap().to_vec()).unwrap();
+        let marker = "name=\"login_csrf\" type=\"hidden\" value=\"";
+        let start = body.find(marker).expect("login csrf hidden input") + marker.len();
+        let end = body[start..].find('"').expect("login csrf value end");
+        (body[start..start + end].to_string(), cookie)
+    }
+
+    async fn login_request_with_csrf(app: &axum::Router) -> axum::http::Request<axum::body::Body> {
+        let (csrf, cookie) = login_csrf(app).await;
+        axum::http::Request::builder()
+            .method("POST")
+            .uri("/admin/login")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header(axum::http::header::COOKIE, cookie)
+            .body(login_request_body(&format!("&login_csrf={csrf}")))
             .unwrap()
     }
 
@@ -2155,7 +2252,11 @@ mod tests {
         let (app, state, user) = admin_login_test_app(true).await;
         let old_session = session::create_session(&state, &user.id).await.unwrap();
 
-        let resp = app.oneshot(login_request()).await.unwrap();
+        let resp = app
+            .clone()
+            .oneshot(login_request_with_csrf(&app).await)
+            .await
+            .unwrap();
 
         assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
         let (count,): (i64,) =
@@ -2181,13 +2282,38 @@ mod tests {
 
         let (app, _state, _user) = admin_login_test_app(false).await;
 
-        let resp = app.oneshot(login_request()).await.unwrap();
+        let resp = app
+            .clone()
+            .oneshot(login_request_with_csrf(&app).await)
+            .await
+            .unwrap();
 
         assert_eq!(resp.status(), axum::http::StatusCode::UNAUTHORIZED);
         let body =
             String::from_utf8(to_bytes(resp.into_body(), 16384).await.unwrap().to_vec()).unwrap();
         assert!(body.contains("Invalid credentials"));
         assert!(!body.contains("Account disabled"));
+    }
+
+    #[tokio::test]
+    async fn login_post_without_csrf_token_does_not_consume_login_limiter() {
+        use tower::ServiceExt;
+
+        let (app, _state, _user) = admin_login_test_app(true).await;
+
+        let missing_csrf = app.clone().oneshot(login_request()).await.unwrap();
+        assert_eq!(missing_csrf.status(), axum::http::StatusCode::FORBIDDEN);
+
+        let valid_login = app
+            .clone()
+            .oneshot(login_request_with_csrf(&app).await)
+            .await
+            .unwrap();
+        assert_eq!(
+            valid_login.status(),
+            axum::http::StatusCode::SEE_OTHER,
+            "a CSRF-rejected login attempt must not spend the login rate-limit budget"
+        );
     }
 
     #[tokio::test]

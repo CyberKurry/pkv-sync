@@ -8,7 +8,10 @@ use crate::service::merge::MergeOutcome;
 use crate::service::AppState;
 use crate::service::{vault, vault_settings};
 use crate::storage::blob::{BlobStore, LocalFsBlobStore};
-use crate::storage::git::{FileChange, Git2VaultStore, GitStoreError, GitVaultStore, StoredFile};
+use crate::storage::git::{
+    FileChange, Git2VaultStore, GitStoreError, GitVaultStore, StoredFile, POINTER_MAGIC_KEY,
+    POINTER_VERSION,
+};
 use crate::storage::path;
 use crate::storage::text_kind::TextClassifier;
 use bytes::Bytes;
@@ -23,8 +26,7 @@ const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
 const MAX_PUSH_CHANGES: usize = 1000;
 const MAX_SSE_INLINE_PUSH_BYTES: usize = 64 * 1024;
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
-const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
-const POINTER_VERSION: u64 = 1;
+const MAX_COMMIT_DEVICE_NAME_CHARS: usize = 128;
 #[cfg(test)]
 const VAULT_PUSH_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
 #[cfg(not(test))]
@@ -1077,9 +1079,12 @@ fn safe_conflict_device_name(name: &str) -> String {
 }
 
 fn safe_commit_device_name(name: &str) -> String {
-    let mut out = String::with_capacity(name.len().min(128));
+    let mut out = String::with_capacity(name.len().min(MAX_COMMIT_DEVICE_NAME_CHARS));
     let mut last_was_space = false;
     for ch in name.chars() {
+        if out.chars().count() >= MAX_COMMIT_DEVICE_NAME_CHARS {
+            break;
+        }
         if ch.is_control() || ch.is_whitespace() {
             if !out.is_empty() && !last_was_space {
                 out.push(' ');
@@ -2198,6 +2203,38 @@ mod tests {
         assert_eq!(
             message,
             "sync: Laptop Co-authored-by: mallory@example.invalid\n1 files changed"
+        );
+    }
+
+    #[tokio::test]
+    async fn push_truncates_device_name_in_commit_message() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let resp = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("A".repeat(300)),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "hello".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let repo = Repository::open_bare(state.default_vault_root().join(&vid)).unwrap();
+        let commit = repo
+            .find_commit(Oid::from_str(&resp.new_commit).unwrap())
+            .unwrap();
+        let subject = commit.message().unwrap().lines().next().unwrap();
+
+        assert_eq!(
+            subject,
+            format!("sync: {}", "A".repeat(MAX_COMMIT_DEVICE_NAME_CHARS))
         );
     }
 

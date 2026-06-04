@@ -52,7 +52,7 @@
    ```toml
    [server]
    bind_addr      = "0.0.0.0:6710"
-   deployment_key = "k_replace_me_with_genkey_output"
+   deployment_key = "k_0123456789abcdef0123456789abcdef"  # genkey の出力に置き換える
    public_host    = "sync.example.com"   # 必須、admin POST が通るようになります
 
    [storage]

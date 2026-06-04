@@ -10,11 +10,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::Config;
 use crate::storage::blob::is_sha256_hex;
-
-/// Magic key used in pointer JSON to identify a blob reference.
-const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
-/// Pointer format version we understand.
-const POINTER_VERSION: u64 = 1;
+use crate::storage::git::{POINTER_MAGIC_KEY, POINTER_VERSION};
 
 /// Expand a vault's git + blob storage into a plain file tree on disk.
 ///

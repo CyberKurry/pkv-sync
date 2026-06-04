@@ -11,6 +11,7 @@ pub struct LoginTemplate<'a> {
     pub success: Option<&'a str>,
     pub setup_required: bool,
     pub username_value: String,
+    pub login_csrf: String,
     pub version: &'static str,
 }
 
@@ -327,6 +328,7 @@ mod tests {
             success: None,
             setup_required: false,
             username_value: String::new(),
+            login_csrf: "csrf".into(),
             version,
         }
         .render()
@@ -344,6 +346,7 @@ mod tests {
             success: None,
             setup_required: false,
             username_value: String::new(),
+            login_csrf: "csrf".into(),
             version: env!("CARGO_PKG_VERSION"),
         }
         .render()
@@ -1426,6 +1429,7 @@ mod tests {
             success: None,
             setup_required: false,
             username_value: String::new(),
+            login_csrf: "csrf".into(),
             version: env!("CARGO_PKG_VERSION"),
         }
         .render()
@@ -1441,6 +1445,7 @@ mod tests {
             success: None,
             setup_required: false,
             username_value: String::new(),
+            login_csrf: "csrf".into(),
             version: env!("CARGO_PKG_VERSION"),
         }
         .render()

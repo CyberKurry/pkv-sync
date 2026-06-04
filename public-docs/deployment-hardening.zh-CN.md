@@ -107,7 +107,7 @@ ports:
    ```toml
    [server]
    bind_addr = "0.0.0.0:6710"
-   deployment_key = "k_replace_me"
+   deployment_key = "k_0123456789abcdef0123456789abcdef"  # 替换为 genkey 输出
    public_host = "sync.example.com"
 
    [storage]

@@ -77,7 +77,7 @@ fn user_commands_accept_password_from_stdin() {
             r#"
 [server]
 bind_addr = "127.0.0.1:0"
-deployment_key = "k_cliusersmoke"
+deployment_key = "k_0123456789abcdef0123456789abcdef"
 
 [storage]
 data_dir = "{}"
@@ -132,7 +132,7 @@ fn user_add_rejects_invalid_username() {
             r#"
 [server]
 bind_addr = "127.0.0.1:0"
-deployment_key = "k_cliusersmoke"
+deployment_key = "k_0123456789abcdef0123456789abcdef"
 
 [storage]
 data_dir = "{}"

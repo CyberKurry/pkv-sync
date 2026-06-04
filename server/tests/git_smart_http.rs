@@ -293,6 +293,49 @@ async fn git_smart_http_routes_are_rate_limited() {
 }
 
 #[tokio::test]
+async fn git_basic_auth_failures_consume_auth_failure_limiter() {
+    let (ts, state, _raw, vid) = start_test_server().await;
+    state
+        .auth_failure_limiter
+        .update_config(2, Duration::from_secs(60), Duration::from_secs(60));
+
+    for idx in 0..2 {
+        let resp = auth_headers(
+            client().get(format!(
+                "http://{}/git/{}/info/refs?service=git-upload-pack",
+                ts.addr, vid
+            )),
+            &ts.key,
+        )
+        .header(
+            "authorization",
+            basic_auth_header(&format!("pks_{:064x}", idx + 1)),
+        )
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+    }
+
+    let locked = auth_headers(
+        client().get(format!(
+            "http://{}/git/{}/info/refs?service=git-upload-pack",
+            ts.addr, vid
+        )),
+        &ts.key,
+    )
+    .header(
+        "authorization",
+        basic_auth_header("pks_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+    )
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(locked.status(), reqwest::StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
 async fn info_refs_rejects_disabled_user_like_invalid_credentials() {
     let (ts, state, raw, vid) = start_test_server().await;
     let user = state.users.find_by_username("u").await.unwrap().unwrap();

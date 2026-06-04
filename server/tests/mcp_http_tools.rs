@@ -148,6 +148,33 @@ async fn http_mcp_auth_failures_are_limited_per_client_source() {
     assert_eq!(second.2["error"]["message"], "invalid token format");
 }
 
+#[tokio::test]
+async fn http_mcp_rejects_oversized_json_bodies_before_auth() {
+    let (state, _tmp) = test_state().await;
+    let body = format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/list","padding":"{}"}}"#,
+        "x".repeat(1024 * 1024)
+    );
+    let mut req = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json")
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
+        .header("authorization", "Bearer not-a-token")
+        .body(Body::from(body))
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(
+        "127.0.0.1:50000".parse::<SocketAddr>().unwrap(),
+    ));
+
+    let response = transport_http::router(state, DEPLOYMENT_KEY.into())
+        .oneshot(req)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
 async fn post_mcp_without_deployment_key(
     state: AppState,
     raw: Option<&str>,

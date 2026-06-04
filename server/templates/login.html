@@ -54,6 +54,7 @@
       <a class="primary full-width" href="/setup"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-right"></use></svg>{{ t.setup_begin }}</a>
       {% else %}
       <form method="post" action="/admin/login" class="login-form">
+        <input name="login_csrf" type="hidden" value="{{ login_csrf }}">
         <label>{{ t.username }} <input name="username" type="text" autocomplete="username" value="{{ username_value }}" placeholder="{{ t.username_placeholder }}"></label>
         <label>{{ t.password }} <input name="password" type="password" autocomplete="current-password" placeholder="{{ t.password_placeholder }}"></label>
         <button type="submit" class="primary full-width"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#log-in"></use></svg>{{ t.login }}</button>

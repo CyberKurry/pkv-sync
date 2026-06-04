@@ -116,7 +116,7 @@ Use this path when you want Caddy to request and renew HTTPS certificates.
    ```toml
    [server]
    bind_addr = "0.0.0.0:6710"
-   deployment_key = "k_replace_me"
+   deployment_key = "k_0123456789abcdef0123456789abcdef"  # replace with genkey output
    public_host = "sync.example.com"
 
    [storage]

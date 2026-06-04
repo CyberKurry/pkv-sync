@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
-use crate::db::repos::{BlobRefRepo, NewActivity, SyncActivityRepo, VaultRepo};
+use crate::db::repos::{BlobRefRepo, NewActivity, SyncActivityRepo, Vault, VaultRepo};
 use crate::service::sync::{self, PushChange, PushReq, RequestMetadata};
 use crate::service::vault::ensure_user_vault;
 use crate::service::AppState;
@@ -16,6 +16,9 @@ use serde::{Deserialize, Serialize};
 const SEARCH_MAX_TREE_FILES: usize = 5000;
 const DEFAULT_SEARCH_LIMIT: usize = 100;
 const SEARCH_MAX_LIMIT: usize = 500;
+const LIST_VAULTS_HEAD_CONCURRENCY: usize = 16;
+const _: () = assert!(LIST_VAULTS_HEAD_CONCURRENCY > 0);
+const _: () = assert!(LIST_VAULTS_HEAD_CONCURRENCY <= 32);
 
 #[derive(Debug, Serialize)]
 pub struct ListVaultsOutput {
@@ -123,30 +126,49 @@ struct WriteToolRequest {
 
 pub async fn list_vaults(state: &AppState, user_id: &str) -> Result<ListVaultsOutput> {
     let vault_root = state.default_vault_root();
-    let head_tasks = state
-        .vaults
-        .list_for_user(user_id)
-        .await?
-        .into_iter()
-        .map(|vault| {
-            let vault_root = vault_root.clone();
-            tokio::spawn(async move {
-                let head_commit = Git2VaultStore::new(vault_root).head(&vault.id).await?;
-                Ok::<_, anyhow::Error>(VaultSummary {
+    let vaults = state.vaults.list_for_user(user_id).await?;
+    let mut iter = vaults.into_iter().enumerate();
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut summaries = Vec::new();
+
+    for _ in 0..LIST_VAULTS_HEAD_CONCURRENCY {
+        spawn_next_vault_head_task(&mut iter, &mut tasks, &vault_root);
+    }
+
+    while let Some(result) = tasks.join_next().await {
+        summaries.push(result??);
+        spawn_next_vault_head_task(&mut iter, &mut tasks, &vault_root);
+    }
+
+    summaries.sort_by_key(|(index, _)| *index);
+    Ok(ListVaultsOutput {
+        vaults: summaries.into_iter().map(|(_, summary)| summary).collect(),
+    })
+}
+
+fn spawn_next_vault_head_task<I>(
+    iter: &mut I,
+    tasks: &mut tokio::task::JoinSet<Result<(usize, VaultSummary)>>,
+    vault_root: &std::path::Path,
+) where
+    I: Iterator<Item = (usize, Vault)>,
+{
+    if let Some((index, vault)) = iter.next() {
+        let vault_root = vault_root.to_path_buf();
+        tasks.spawn(async move {
+            let head_commit = Git2VaultStore::new(vault_root).head(&vault.id).await?;
+            Ok((
+                index,
+                VaultSummary {
                     id: vault.id,
                     name: vault.name,
                     head_commit,
                     file_count: vault.file_count,
                     size_bytes: vault.size_bytes,
-                })
-            })
-        })
-        .collect::<Vec<_>>();
-    let mut vaults = Vec::with_capacity(head_tasks.len());
-    for task in head_tasks {
-        vaults.push(task.await??);
+                },
+            ))
+        });
     }
-    Ok(ListVaultsOutput { vaults })
 }
 
 pub async fn list_files(

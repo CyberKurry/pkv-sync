@@ -268,6 +268,43 @@ impl McpAuthRateLimiter {
         Ok(())
     }
 
+    pub fn try_acquire(&self, key: &str) -> Result<McpAuthAttemptReservation, Duration> {
+        let now = Instant::now();
+        let config = *self.config.read().expect("mcp auth limiter lock poisoned");
+        let key = key.to_string();
+        let mut entry = self.inner.entry(key.clone()).or_insert(Entry {
+            failures: 0,
+            in_flight: 0,
+            first_failure: now,
+            locked_until: None,
+        });
+
+        if entry_is_stale(&entry, now, config) {
+            entry.failures = 0;
+            entry.in_flight = 0;
+            entry.first_failure = now;
+            entry.locked_until = None;
+        }
+
+        if let Some(until) = entry.locked_until {
+            if until > now {
+                return Err(until - now);
+            }
+        }
+
+        if entry.failures + entry.in_flight >= config.threshold {
+            entry.locked_until = Some(now + config.lock_duration);
+            return Err(config.lock_duration);
+        }
+
+        entry.in_flight += 1;
+        Ok(McpAuthAttemptReservation {
+            limiter: self.clone(),
+            key,
+            resolved: false,
+        })
+    }
+
     pub fn record_failure(&self, key: &str) {
         let now = Instant::now();
         let config = *self.config.read().expect("mcp auth limiter lock poisoned");
@@ -291,6 +328,43 @@ impl McpAuthRateLimiter {
 
     pub fn record_success(&self, key: &str) {
         self.inner.remove(key);
+    }
+
+    fn release_success(&self, key: &str) {
+        self.inner.remove(key);
+    }
+
+    fn release_failure(&self, key: &str) {
+        let now = Instant::now();
+        let config = *self.config.read().expect("mcp auth limiter lock poisoned");
+        let mut entry = self.inner.entry(key.to_string()).or_insert(Entry {
+            failures: 0,
+            in_flight: 0,
+            first_failure: now,
+            locked_until: None,
+        });
+        if now.duration_since(entry.first_failure) > config.window {
+            entry.failures = 0;
+            entry.first_failure = now;
+            entry.locked_until = None;
+        }
+        if entry.in_flight > 0 {
+            entry.in_flight -= 1;
+        }
+        entry.failures += 1;
+        if entry.failures >= config.threshold {
+            entry.locked_until = Some(now + config.lock_duration);
+        }
+    }
+
+    fn release_neutral(&self, key: &str) {
+        let mut entry = match self.inner.get_mut(key) {
+            Some(entry) => entry,
+            None => return,
+        };
+        if entry.in_flight > 0 {
+            entry.in_flight -= 1;
+        }
     }
 
     pub fn prune_stale(&self) -> usize {
@@ -423,6 +497,37 @@ impl Drop for AttemptReservation {
     }
 }
 
+pub struct McpAuthAttemptReservation {
+    limiter: McpAuthRateLimiter,
+    key: String,
+    resolved: bool,
+}
+
+impl McpAuthAttemptReservation {
+    pub fn success(mut self) {
+        self.resolved = true;
+        self.limiter.release_success(&self.key);
+    }
+
+    pub fn failure(mut self) {
+        self.resolved = true;
+        self.limiter.release_failure(&self.key);
+    }
+
+    pub fn release(mut self) {
+        self.resolved = true;
+        self.limiter.release_neutral(&self.key);
+    }
+}
+
+impl Drop for McpAuthAttemptReservation {
+    fn drop(&mut self) {
+        if !self.resolved {
+            self.limiter.release_failure(&self.key);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -541,5 +646,21 @@ mod tests {
         assert!(l.try_acquire(ip()).is_err());
         r2.release();
         r3.release();
+    }
+
+    #[test]
+    fn mcp_try_acquire_blocks_concurrent_burst_before_failures_record() {
+        let l = McpAuthRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
+        let r1 = l.try_acquire("api-auth").expect("first reservation");
+        let r2 = l.try_acquire("api-auth").expect("second reservation");
+        let r3 = l.try_acquire("api-auth").expect("third reservation");
+
+        assert!(l.try_acquire("api-auth").is_err());
+        assert!(l.try_acquire("other-auth").is_ok());
+
+        drop(r1);
+        drop(r2);
+        drop(r3);
+        assert!(l.check("api-auth").is_err());
     }
 }

@@ -9,9 +9,10 @@ use crate::auth::git_basic;
 use crate::auth::token;
 use crate::auth::AuthenticatedUser;
 use crate::db::repos::{TokenRepo, UserRepo};
+use crate::middleware::real_ip::ClientIp;
 use crate::service::{vault, AppState};
 use axum::body::{Body, Bytes};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
@@ -39,11 +40,12 @@ pub async fn info_refs(
     State(state): State<AppState>,
     Path(vault_id): Path<String>,
     Query(query): Query<InfoRefsQuery>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     check_enabled(&state).await?;
     validate_vault_id(&vault_id)?;
-    let user = authenticate_basic(&state, &headers).await?;
+    let user = authenticate_basic(&state, &headers, client_ip.to_string()).await?;
     let _vault = vault::ensure_user_vault(&state, &user.user_id, &vault_id).await?;
 
     let service = query.service.as_deref().unwrap_or("");
@@ -117,12 +119,13 @@ const MAX_UPLOAD_PACK_BODY_BYTES: usize = 10 * 1024 * 1024;
 pub async fn upload_pack(
     State(state): State<AppState>,
     Path(vault_id): Path<String>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
     check_enabled(&state).await?;
     validate_vault_id(&vault_id)?;
-    let user = authenticate_basic(&state, &headers).await?;
+    let user = authenticate_basic(&state, &headers, client_ip.to_string()).await?;
     let _vault = vault::ensure_user_vault(&state, &user.user_id, &vault_id).await?;
     if body.len() > MAX_UPLOAD_PACK_BODY_BYTES {
         return Err(ApiError::bad_request(
@@ -278,6 +281,37 @@ fn validate_vault_id(vault_id: &str) -> Result<(), ApiError> {
 /// clients send credentials via HTTP Basic auth. The username is ignored;
 /// only the password (the device token) matters.
 async fn authenticate_basic(
+    state: &AppState,
+    headers: &HeaderMap,
+    failure_key: String,
+) -> Result<AuthenticatedUser, ApiError> {
+    let reservation = match state.auth_failure_limiter.try_acquire(&failure_key) {
+        Ok(reservation) => reservation,
+        Err(wait) => {
+            return Err(ApiError::too_many(format!(
+                "too many failed authentication attempts, retry in {}s",
+                wait.as_secs().max(1)
+            )));
+        }
+    };
+
+    match authenticate_basic_inner(state, headers).await {
+        Ok(user) => {
+            reservation.success();
+            Ok(user)
+        }
+        Err(err) => {
+            if err.status == StatusCode::UNAUTHORIZED {
+                reservation.failure();
+            } else {
+                reservation.release();
+            }
+            Err(err)
+        }
+    }
+}
+
+async fn authenticate_basic_inner(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<AuthenticatedUser, ApiError> {

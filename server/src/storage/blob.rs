@@ -107,10 +107,18 @@ impl BlobStore for LocalFsBlobStore {
         }
 
         let tmp = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4().simple()));
-        let mut f = tokio::fs::File::create(&tmp).await?;
-        f.write_all(&bytes).await?;
-        f.sync_all().await?;
-        tokio::fs::rename(&tmp, &path).await?;
+        let write_result = async {
+            let mut f = tokio::fs::File::create(&tmp).await?;
+            f.write_all(&bytes).await?;
+            f.sync_all().await?;
+            tokio::fs::rename(&tmp, &path).await?;
+            Ok::<(), BlobError>(())
+        }
+        .await;
+        if let Err(err) = write_result {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -194,5 +202,17 @@ mod tests {
 
         assert!(!impl_source.contains(".exists()"));
         assert!(impl_source.contains("tokio::fs::try_exists"));
+    }
+
+    #[test]
+    fn put_verified_has_cleanup_path_for_temporary_files() {
+        let source = include_str!("blob.rs");
+        let impl_start = source
+            .find("impl BlobStore for LocalFsBlobStore")
+            .expect("blob store impl exists");
+        let test_start = source.find("#[cfg(test)]").expect("test module exists");
+        let impl_source = &source[impl_start..test_start];
+
+        assert!(impl_source.contains("remove_file(&tmp)"));
     }
 }

@@ -34,7 +34,7 @@
    ```toml
    [server]
    bind_addr      = "0.0.0.0:6710"
-   deployment_key = "k_replace_me_with_genkey_output"
+   deployment_key = "k_0123456789abcdef0123456789abcdef"  # 替換為 genkey 輸出
    public_host    = "sync.example.com"   # 必填，管理端 POST 才能通
 
    [storage]

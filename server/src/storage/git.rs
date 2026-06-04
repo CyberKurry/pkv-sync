@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 const MAIN_REF: &str = "refs/heads/main";
-const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
-const POINTER_VERSION: u64 = 1;
+pub const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
+pub const POINTER_VERSION: u64 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum StoredFile {

@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 const SQLITE_SAFE_BIND_LIMIT: usize = 900;
 const DELETE_UPLOADS_SHARED_BINDS: usize = 1;
+const QUERY_UPLOADS_SHARED_BINDS: usize = 1;
 
 #[async_trait]
 pub trait BlobUploadRepo: Send + Sync {
@@ -73,19 +74,23 @@ impl BlobUploadRepo for SqliteBlobUploadRepo {
             return Ok(HashSet::new());
         }
 
-        let mut query = QueryBuilder::<Sqlite>::new(
-            "SELECT DISTINCT blob_hash FROM blob_uploads WHERE vault_id = ",
-        );
-        query.push_bind(vault_id);
-        query.push(" AND blob_hash IN (");
-        let mut separated = query.separated(", ");
-        for hash in hashes {
-            separated.push_bind(hash);
-        }
-        separated.push_unseparated(")");
+        let mut found = HashSet::new();
+        for chunk in hashes.chunks(query_uploads_chunk_size()) {
+            let mut query = QueryBuilder::<Sqlite>::new(
+                "SELECT DISTINCT blob_hash FROM blob_uploads WHERE vault_id = ",
+            );
+            query.push_bind(vault_id);
+            query.push(" AND blob_hash IN (");
+            let mut separated = query.separated(", ");
+            for hash in chunk {
+                separated.push_bind(hash);
+            }
+            separated.push_unseparated(")");
 
-        let rows: Vec<(String,)> = query.build_query_as().fetch_all(&self.pool).await?;
-        Ok(rows.into_iter().map(|t| t.0).collect())
+            let rows: Vec<(String,)> = query.build_query_as().fetch_all(&self.pool).await?;
+            found.extend(rows.into_iter().map(|t| t.0));
+        }
+        Ok(found)
     }
 
     async fn all_hashes(&self) -> Result<HashSet<String>, sqlx::Error> {
@@ -121,10 +126,21 @@ fn delete_uploads_chunk_size() -> usize {
     SQLITE_SAFE_BIND_LIMIT - DELETE_UPLOADS_SHARED_BINDS
 }
 
+fn query_uploads_chunk_size() -> usize {
+    SQLITE_SAFE_BIND_LIMIT - QUERY_UPLOADS_SHARED_BINDS
+}
+
 #[cfg(test)]
 fn delete_uploads_chunk_lengths(hashes: &[String]) -> impl Iterator<Item = usize> + '_ {
     hashes
         .chunks(delete_uploads_chunk_size())
+        .map(<[String]>::len)
+}
+
+#[cfg(test)]
+fn query_uploads_chunk_lengths(hashes: &[String]) -> impl Iterator<Item = usize> + '_ {
+    hashes
+        .chunks(query_uploads_chunk_size())
         .map(<[String]>::len)
 }
 
@@ -164,6 +180,16 @@ mod tests {
     fn delete_uploads_chunks_stay_under_sqlite_bind_limit() {
         let hashes: Vec<String> = (0..1000).map(|n| format!("sha:{n}")).collect();
         let chunks: Vec<usize> = delete_uploads_chunk_lengths(&hashes).collect();
+
+        assert_eq!(chunks.iter().sum::<usize>(), hashes.len());
+        assert!(chunks.iter().all(|len| *len < SQLITE_SAFE_BIND_LIMIT));
+        assert!(chunks.len() > 1);
+    }
+
+    #[test]
+    fn batch_query_uploads_chunks_stay_under_sqlite_bind_limit() {
+        let hashes: Vec<String> = (0..10_000).map(|n| format!("sha:{n}")).collect();
+        let chunks: Vec<usize> = query_uploads_chunk_lengths(&hashes).collect();
 
         assert_eq!(chunks.iter().sum::<usize>(), hashes.len());
         assert!(chunks.iter().all(|len| *len < SQLITE_SAFE_BIND_LIMIT));
@@ -211,5 +237,31 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn batch_query_uploads_handles_more_hashes_than_sqlite_bind_limit() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let users = SqliteUserRepo::new(p.clone());
+        let vaults = SqliteVaultRepo::new(p.clone());
+        let user = users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let vault = vaults.create(&user.id, "main").await.unwrap();
+        let repo = SqliteBlobUploadRepo::new(p);
+        let hashes: Vec<String> = (0..50_000).map(|n| format!("sha:{n:05}")).collect();
+
+        let got = repo
+            .uploaded_hashes_for_vault(&vault.id, &hashes)
+            .await
+            .unwrap();
+
+        assert!(got.is_empty());
     }
 }

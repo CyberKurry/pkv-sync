@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 1.0.9
+  version: 1.0.10
   license:
     name: AGPL-3.0-only
   contact:

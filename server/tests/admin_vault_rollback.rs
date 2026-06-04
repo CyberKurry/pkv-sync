@@ -78,16 +78,46 @@ fn set_form_origin(req: &mut Request<Body>) {
         .insert(header::ORIGIN, "https://127.0.0.1:6710".parse().unwrap());
 }
 
+async fn login_csrf(app: &Router) -> (String, String) {
+    let page_resp = app
+        .clone()
+        .oneshot(request(Method::GET, "/admin/login", Body::empty()))
+        .await
+        .unwrap();
+    assert_eq!(page_resp.status(), StatusCode::OK);
+    let csrf_cookie = page_resp
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("login csrf cookie")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let body = read_body(page_resp).await;
+    let marker = "name=\"login_csrf\" type=\"hidden\" value=\"";
+    let start = body.find(marker).expect("login csrf hidden input") + marker.len();
+    let end = body[start..].find('"').expect("login csrf value end");
+    (body[start..start + end].to_string(), csrf_cookie)
+}
+
 async fn login_cookie(app: &Router) -> String {
+    let (csrf, csrf_cookie) = login_csrf(app).await;
     let mut login_req = request(
         Method::POST,
         "/admin/login",
-        Body::from("username=admin&password=passw0rd%21%21"),
+        Body::from(format!(
+            "username=admin&password=passw0rd%21%21&login_csrf={csrf}"
+        )),
     );
     login_req.headers_mut().insert(
         header::CONTENT_TYPE,
         "application/x-www-form-urlencoded".parse().unwrap(),
     );
+    login_req
+        .headers_mut()
+        .insert(header::COOKIE, csrf_cookie.parse().unwrap());
     let login_resp = app.clone().oneshot(login_req).await.unwrap();
     assert_eq!(login_resp.status(), StatusCode::SEE_OTHER);
     login_resp
