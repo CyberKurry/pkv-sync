@@ -195,7 +195,7 @@ https://sync.example.com/k_xxx/
 
 二进制部署可先运行 `pkvsyncd upgrade --dry-run` 预览最新 release、目标资产和旁路写入路径。运行 `pkvsyncd upgrade --yes` 会把校验后的 release 二进制下载到当前可执行文件旁边的 `pkvsyncd.new`（Windows 为 `pkvsyncd.new.exe`）。命令会根据 `SHA256SUMS` 校验 SHA-256，并打印 systemd／手动替换步骤；它不会热替换正在运行的进程。
 
-使用 `pkvsyncd upgrade --version 1.0.8` 可以指定 release。若命令找不到匹配资产或校验和，请手动从 GitHub release 下载，并自行校验 `SHA256SUMS`。
+使用 `pkvsyncd upgrade --version 1.0.9` 可以指定 release。若命令找不到匹配资产或校验和，请手动从 GitHub release 下载，并自行校验 `SHA256SUMS`。
 
 对于 0.x 部署，不要把 1.0 二进制或镜像直接指向已有 `metadata.db`。请先备份、materialize 或导出笔记库内容，使用全新的 1.0 数据目录启动服务，再把笔记库内容导入或 push 到新服务端。详见 [`upgrade-notes-v1.0.zh-CN.md`](./upgrade-notes-v1.0.zh-CN.md)。
 

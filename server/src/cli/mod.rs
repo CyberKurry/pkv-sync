@@ -109,7 +109,7 @@ pub enum Command {
         /// Skip the interactive confirmation prompt.
         #[arg(long)]
         yes: bool,
-        /// Upgrade to a specific version such as 1.0.8.
+        /// Upgrade to a specific version such as 1.0.9.
         #[arg(long)]
         version: Option<String>,
     },
