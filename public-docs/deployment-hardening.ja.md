@@ -205,7 +205,7 @@ sync.example.com {
 
 ### Nginx
 
-リポジトリには `deploy/nginx/pkv-sync.conf` があります。HTTP を HTTPS へリダイレクトし、`client_max_body_size 110m` を設定し、PKV Sync が host と client IP の処理に使う headers を転送します。
+リポジトリには `deploy/nginx/pkv-sync.conf` があります。HTTP を HTTPS へリダイレクトし、`client_max_body_size 110m` を設定し、標準的なブラウザー hardening headers を追加し、PKV Sync が host と client IP の処理に使う headers を転送します。
 
 最小構成:
 
@@ -224,6 +224,11 @@ server {
   ssl_certificate_key /etc/letsencrypt/live/sync.example.com/privkey.pem;
 
   client_max_body_size 110m;
+
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "same-origin" always;
 
   location / {
     proxy_pass http://127.0.0.1:6710;

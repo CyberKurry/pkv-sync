@@ -2,7 +2,7 @@ use crate::auth::LoginRateLimiter;
 use crate::config::Config;
 use crate::db::pool;
 use crate::db::repos::{RuntimeConfigRepo, SqliteRuntimeConfigRepo};
-use crate::middleware::{deployment_key, real_ip, request_id, ua_filter};
+use crate::middleware::{deployment_key, rate_limit, real_ip, request_id, ua_filter};
 use crate::service::AppState;
 use crate::{admin, api, mcp};
 use axum::extract::{MatchedPath, Request, State};
@@ -81,6 +81,10 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
     let admin_routes = admin::handlers::router()
         .layer(tower_cookies::CookieManagerLayer::new())
         .layer(axum::extract::Extension(admin_cookie_policy))
+        .layer(axum::middleware::from_fn_with_state(
+            rate_limit::RequestRateLimiter::admin_web(),
+            rate_limit::admin_web_middleware,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             admin::handlers::setup_redirect_middleware,

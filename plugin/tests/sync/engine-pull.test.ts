@@ -938,4 +938,81 @@ describe("SyncEngine pull", () => {
     expect(notices).toEqual([]);
     expect(setStatus).not.toHaveBeenCalledWith("error", expect.any(String));
   });
+
+  it("continues processing later SSE events after a fallback sync failure", async () => {
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const originalWriteText = vault.writeText.bind(vault);
+    vi.spyOn(vault, "writeText")
+      .mockRejectedValueOnce(new Error("disk full"))
+      .mockImplementation(originalWriteText);
+    const setStatus = vi.fn();
+    const api = {
+      state: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("server offline"))
+        .mockResolvedValue({ current_head: null, changed_since: false }),
+      pull: vi.fn(),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      labels: en,
+      setStatus
+    });
+
+    engine.startEventSubscription();
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+    options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [
+        {
+          kind: "text_inline",
+          path: "first.md",
+          content: "first"
+        }
+      ]
+    });
+    await vi.waitFor(() => {
+      expect(api.state).toHaveBeenCalledTimes(1);
+    });
+
+    options.onEvent({
+      kind: "commit",
+      commit: "c2",
+      parent: "c1",
+      source_device_id: "other",
+      at: 1_700_000_001,
+      changes: [
+        {
+          kind: "text_inline",
+          path: "second.md",
+          content: "second"
+        }
+      ]
+    });
+
+    await vi.waitFor(() => {
+      expect(vault.writes.get("second.md")).toBe("second");
+    });
+    expect(idx.saved?.lastSyncedCommit).toBe("c2");
+  });
 });

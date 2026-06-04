@@ -258,8 +258,9 @@ fn vacuum_into(db_path: &Path, output: &Path) -> anyhow::Result<()> {
                 .max_connections(1)
                 .connect_with(opts)
                 .await?;
-            let escaped = output.to_string_lossy().replace('\'', "''");
-            sqlx::query(&format!("VACUUM INTO '{escaped}'"))
+            let output = output.to_string_lossy().into_owned();
+            sqlx::query("VACUUM INTO ?")
+                .bind(output)
                 .execute(&pool)
                 .await?;
             pool.close().await;

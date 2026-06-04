@@ -311,6 +311,22 @@ fn init_bare_main(path: &Path) -> Result<Repository, GitStoreError> {
     Ok(repo)
 }
 
+fn open_or_init_bare_main(path: &Path) -> Result<Repository, GitStoreError> {
+    std::fs::create_dir_all(path)?;
+    match Repository::open_bare(path) {
+        Ok(repo) => Ok(repo),
+        Err(_) => match init_bare_main(path) {
+            Ok(repo) => Ok(repo),
+            // If another thread/process initialized the repo after our failed
+            // open but before init_bare_main, accept that completed repo.
+            Err(init_err) => match Repository::open_bare(path) {
+                Ok(repo) => Ok(repo),
+                Err(_) => Err(init_err),
+            },
+        },
+    }
+}
+
 fn main_ref_target(repo: &Repository) -> Result<Option<Oid>, GitStoreError> {
     match repo.find_reference(MAIN_REF) {
         Ok(r) => Ok(r.target()),
@@ -517,10 +533,7 @@ impl GitVaultStore for Git2VaultStore {
     async fn ensure_repo(&self, vault_id: &str) -> Result<(), GitStoreError> {
         let p = self.repo_path(vault_id);
         tokio::task::spawn_blocking(move || -> Result<(), GitStoreError> {
-            if !p.exists() {
-                std::fs::create_dir_all(&p)?;
-                init_bare_main(&p)?;
-            }
+            let _repo = open_or_init_bare_main(&p)?;
             Ok(())
         })
         .await
@@ -552,11 +565,7 @@ impl GitVaultStore for Git2VaultStore {
         let message = message.to_string();
         let parent = parent.map(|s| s.to_string());
         tokio::task::spawn_blocking(move || -> Result<String, GitStoreError> {
-            if !p.exists() {
-                std::fs::create_dir_all(&p)?;
-                init_bare_main(&p)?;
-            }
-            let repo = Repository::open_bare(&p)?;
+            let repo = open_or_init_bare_main(&p)?;
             let mut current: BTreeMap<String, StoredFile> = BTreeMap::new();
             let parent_commit = match parent {
                 Some(ref h) => Some(repo.find_commit(Oid::from_str(h)?)?),
@@ -709,6 +718,35 @@ mod tests {
             .await
             .unwrap();
         assert!(store.read_file("v1", "a.md", None).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn ensure_repo_initializes_existing_empty_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        std::fs::create_dir_all(dir.path().join("v1")).unwrap();
+
+        store.ensure_repo("v1").await.unwrap();
+
+        assert!(store.head("v1").await.unwrap().is_none());
+        let commit = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "note.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"hello".to_vec(),
+                    },
+                }],
+                "seed",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            store.head("v1").await.unwrap().as_deref(),
+            Some(commit.as_str())
+        );
     }
 
     #[tokio::test]

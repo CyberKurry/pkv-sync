@@ -140,6 +140,18 @@ async fn backup_rejects_non_empty_output_dir() {
 }
 
 #[tokio::test]
+async fn backup_handles_output_paths_with_quotes() {
+    let (state, tmp) = setup_state().await;
+    let cfg = make_config(&state.data_dir);
+    let out = tmp.path().join("backup 'quoted'");
+
+    backup::run(&cfg, None, &out, false).unwrap();
+
+    assert!(out.join("metadata.db").exists());
+    assert!(out.join("MANIFEST.json").exists());
+}
+
+#[tokio::test]
 async fn backup_gzip_writes_archive() {
     let (state, tmp) = setup_state().await;
     let cfg = make_config(&state.data_dir);

@@ -33,6 +33,9 @@ fn cors_aware_reject(req: &Request, status: StatusCode) -> Response {
 }
 
 pub async fn middleware(req: Request, next: Next) -> Response {
+    if ua_exempt_path(req.uri().path()) {
+        return next.run(req).await;
+    }
     // Browser CORS preflight requests carry the browser's own User-Agent
     // (e.g. "Mozilla/..."), not the plugin's "PKVSync-Plugin/X.Y.Z". Let
     // them through so the downstream CorsLayer on the SSE route can answer
@@ -59,6 +62,10 @@ pub async fn middleware(req: Request, next: Next) -> Response {
         return cors_aware_reject(&req, StatusCode::NOT_FOUND);
     }
     next.run(req).await
+}
+
+fn ua_exempt_path(path: &str) -> bool {
+    matches!(path, "/api/health" | "/metrics")
 }
 
 #[cfg(test)]
@@ -109,6 +116,37 @@ mod tests {
     async fn rejects_wrong_format() {
         let resp = app().oneshot(req(Some("PKVSync-Plugin"))).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn allows_health_and_metrics_without_plugin_ua() {
+        let app = Router::new()
+            .route("/api/health", get(|| async { "health" }))
+            .route("/metrics", get(|| async { "metrics" }))
+            .layer(axum::middleware::from_fn(middleware));
+
+        let health = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/api/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let metrics = app
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(health.status(), StatusCode::OK);
+        assert_eq!(metrics.status(), StatusCode::OK);
     }
 
     #[tokio::test]

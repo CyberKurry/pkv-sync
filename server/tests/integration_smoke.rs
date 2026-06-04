@@ -99,10 +99,22 @@ fn client() -> reqwest::Client {
 }
 
 #[tokio::test]
-async fn missing_ua_returns_404() {
+async fn health_allows_missing_plugin_ua_when_deployment_key_is_present() {
     let server = start_test_server().await;
     let resp = client()
         .get(format!("http://{}/api/health", server.addr))
+        .header("x-pkvsync-deployment-key", &server.key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
+async fn non_probe_api_still_requires_plugin_ua() {
+    let server = start_test_server().await;
+    let resp = client()
+        .get(format!("http://{}/api/config", server.addr))
         .header("x-pkvsync-deployment-key", &server.key)
         .send()
         .await

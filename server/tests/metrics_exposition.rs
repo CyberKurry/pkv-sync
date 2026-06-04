@@ -94,8 +94,29 @@ fn request(uri: &str, key: Option<&str>) -> Request<Body> {
     req
 }
 
+fn request_without_plugin_ua(uri: &str, key: Option<&str>) -> Request<Body> {
+    let mut builder = Request::builder().method(Method::GET).uri(uri);
+    if let Some(key) = key {
+        builder = builder.header("x-pkvsync-deployment-key", key);
+    }
+    let mut req = builder.body(Body::empty()).unwrap();
+    req.extensions_mut().insert(ConnectInfo(
+        "127.0.0.1:50000".parse::<SocketAddr>().unwrap(),
+    ));
+    req
+}
+
 fn authenticated_request(uri: &str, key: &str, raw: &str) -> Request<Body> {
     let mut req = request(uri, Some(key));
+    req.headers_mut().insert(
+        header::AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {raw}")).unwrap(),
+    );
+    req
+}
+
+fn authenticated_request_without_plugin_ua(uri: &str, key: &str, raw: &str) -> Request<Body> {
+    let mut req = request_without_plugin_ua(uri, Some(key));
     req.headers_mut().insert(
         header::AUTHORIZATION,
         HeaderValue::from_str(&format!("Bearer {raw}")).unwrap(),
@@ -180,6 +201,28 @@ async fn metrics_endpoint_requires_admin_token_when_enabled() {
 
     assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn metrics_endpoint_allows_monitoring_clients_without_plugin_ua() {
+    let (app, state, key) = test_app().await;
+    state
+        .runtime_cfg_repo
+        .set_enable_metrics(true, None)
+        .await
+        .unwrap();
+    let cfg = state.runtime_cfg_repo.load().await.unwrap();
+    state.runtime_cfg.replace(cfg).await;
+    let admin_raw = create_token(&state, "metrics-no-ua-admin", true).await;
+
+    let resp = app
+        .oneshot(authenticated_request_without_plugin_ua(
+            "/metrics", &key, &admin_raw,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
 }
 
 #[tokio::test]

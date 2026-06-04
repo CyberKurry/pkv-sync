@@ -3,8 +3,7 @@ use crate::db::repos::{TokenRepo, UserRepo};
 use crate::middleware::deployment_key;
 use crate::service::AppState;
 use axum::body::Body;
-use axum::extract::Request;
-use axum::extract::State;
+use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -22,6 +21,9 @@ use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use tokio_stream::StreamExt;
 
 use super::transport_stdio::{authenticate_token, handle_jsonrpc, jsonrpc_error};
+
+#[derive(Clone, Debug)]
+struct McpAuthLimitKey(String);
 
 pub fn router(state: AppState, deployment_key: String) -> Router {
     router_with_rate_limiter(
@@ -51,13 +53,18 @@ fn router_with_rate_limiter(
 
 pub async fn run(state: AppState, bind: SocketAddr, deployment_key: String) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    axum::serve(listener, router(state, deployment_key).into_make_service()).await?;
+    axum::serve(
+        listener,
+        router(state, deployment_key).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
 async fn post_mcp(
     State(state): State<AppState>,
     headers: HeaderMap,
+    axum::extract::Extension(auth_limit_key): axum::extract::Extension<McpAuthLimitKey>,
     Json(request): Json<Value>,
 ) -> Response {
     let Some(raw) = bearer(&headers) else {
@@ -67,7 +74,7 @@ async fn post_mcp(
         )
             .into_response();
     };
-    let user = match authenticate_token(&state, raw).await {
+    let user = match authenticate_token(&state, raw, &auth_limit_key.0).await {
         Ok(user) => user,
         Err(err) => {
             return (
@@ -82,7 +89,7 @@ async fn post_mcp(
 
 async fn mcp_rate_limit(
     State(limiter): State<crate::middleware::rate_limit::RequestRateLimiter>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
     let key = crate::middleware::rate_limit::request_key("mcp_http", &req);
@@ -93,10 +100,16 @@ async fn mcp_rate_limit(
         )
             .into_response();
     }
+    let auth_key = crate::middleware::rate_limit::request_key("mcp_auth", &req);
+    req.extensions_mut().insert(McpAuthLimitKey(auth_key));
     next.run(req).await
 }
 
-async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Response {
+async fn get_mcp_sse(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Extension(auth_limit_key): axum::extract::Extension<McpAuthLimitKey>,
+) -> Response {
     let accepts_sse = headers
         .get(header::ACCEPT)
         .and_then(|value| value.to_str().ok())
@@ -115,7 +128,7 @@ async fn get_mcp_sse(State(state): State<AppState>, headers: HeaderMap) -> Respo
         )
             .into_response();
     };
-    let user = match authenticate_token(&state, raw).await {
+    let user = match authenticate_token(&state, raw, &auth_limit_key.0).await {
         Ok(user) => user,
         Err(err) => {
             return (

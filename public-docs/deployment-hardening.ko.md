@@ -205,7 +205,7 @@ sync.example.com {
 
 ### Nginx
 
-저장소에는 `deploy/nginx/pkv-sync.conf`가 포함되어 있습니다. HTTP를 HTTPS로 리디렉션하고, `client_max_body_size 110m`를 설정하며, PKV Sync가 host와 client IP 처리에 사용하는 headers를 전달합니다.
+저장소에는 `deploy/nginx/pkv-sync.conf`가 포함되어 있습니다. HTTP를 HTTPS로 리디렉션하고, `client_max_body_size 110m`를 설정하며, 표준 브라우저 hardening headers를 추가하고, PKV Sync가 host와 client IP 처리에 사용하는 headers를 전달합니다.
 
 최소 형태:
 
@@ -224,6 +224,11 @@ server {
   ssl_certificate_key /etc/letsencrypt/live/sync.example.com/privkey.pem;
 
   client_max_body_size 110m;
+
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "same-origin" always;
 
   location / {
     proxy_pass http://127.0.0.1:6710;

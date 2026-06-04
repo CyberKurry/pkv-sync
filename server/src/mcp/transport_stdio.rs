@@ -30,15 +30,14 @@ struct ToolCallParams {
     arguments: Value,
 }
 
-const MCP_AUTH_LIMIT_KEY: &str = "mcp-auth";
-
 impl StdioSession {
     pub async fn authenticate(
         state: AppState,
         vault_id: String,
         token_raw: String,
     ) -> Result<Self> {
-        let user = authenticate_token(&state, &token_raw).await?;
+        let auth_limit_key = format!("mcp-auth:stdio:{vault_id}");
+        let user = authenticate_token(&state, &token_raw, &auth_limit_key).await?;
         state
             .vaults
             .find_for_user(&user.user_id, &vault_id)
@@ -86,8 +85,9 @@ pub async fn run(state: AppState, vault_id: String, token_raw: String) -> Result
 pub(crate) async fn authenticate_token(
     state: &AppState,
     token_raw: &str,
+    auth_limit_key: &str,
 ) -> Result<AuthenticatedUser> {
-    if let Err(wait) = state.mcp_auth_limiter.check(MCP_AUTH_LIMIT_KEY) {
+    if let Err(wait) = state.mcp_auth_limiter.check(auth_limit_key) {
         return Err(anyhow!(
             "rate_limited: mcp auth rate limit exceeded; retry in {}s",
             wait.as_secs().max(1)
@@ -95,11 +95,11 @@ pub(crate) async fn authenticate_token(
     }
     match authenticate_token_inner(state, token_raw).await {
         Ok(user) => {
-            state.mcp_auth_limiter.record_success(MCP_AUTH_LIMIT_KEY);
+            state.mcp_auth_limiter.record_success(auth_limit_key);
             Ok(user)
         }
         Err(err) => {
-            state.mcp_auth_limiter.record_failure(MCP_AUTH_LIMIT_KEY);
+            state.mcp_auth_limiter.record_failure(auth_limit_key);
             Err(err)
         }
     }

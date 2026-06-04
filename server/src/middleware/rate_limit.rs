@@ -1,11 +1,11 @@
-use crate::auth::token;
 use crate::middleware::real_ip::ClientIp;
-use axum::extract::{MatchedPath, Request, State};
+use axum::extract::{ConnectInfo, MatchedPath, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use dashmap::DashMap;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,6 +16,7 @@ pub const MCP_HTTP_REQUESTS_PER_WINDOW: u32 = 120;
 pub const GIT_HTTP_REQUESTS_PER_WINDOW: u32 = 120;
 pub const API_AUTH_REQUESTS_PER_WINDOW: u32 = 120;
 pub const PASSWORD_CHANGE_REQUESTS_PER_WINDOW: u32 = 10;
+pub const ADMIN_WEB_REQUESTS_PER_WINDOW: u32 = 300;
 
 #[derive(Clone)]
 pub struct RequestRateLimiter {
@@ -72,6 +73,13 @@ impl RequestRateLimiter {
     pub fn password_change() -> Self {
         Self::new(
             PASSWORD_CHANGE_REQUESTS_PER_WINDOW,
+            Duration::from_secs(WINDOW_SECS),
+        )
+    }
+
+    pub fn admin_web() -> Self {
+        Self::new(
+            ADMIN_WEB_REQUESTS_PER_WINDOW,
             Duration::from_secs(WINDOW_SECS),
         )
     }
@@ -162,7 +170,7 @@ pub async fn api_auth_middleware(
     req: Request,
     next: Next,
 ) -> Response {
-    let key = request_key_without_bearer("api_auth", &req);
+    let key = request_key("api_auth", &req);
     if limiter.check(key).is_err() {
         return rate_limited_response();
     }
@@ -175,6 +183,18 @@ pub async fn password_change_middleware(
     next: Next,
 ) -> Response {
     let key = request_key("password_change", &req);
+    if limiter.check(key).is_err() {
+        return rate_limited_response();
+    }
+    next.run(req).await
+}
+
+pub async fn admin_web_middleware(
+    State(limiter): State<RequestRateLimiter>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let key = request_key("admin_web", &req);
     if limiter.check(key).is_err() {
         return rate_limited_response();
     }
@@ -195,14 +215,6 @@ fn rate_limited_response() -> Response {
 }
 
 pub fn request_key(scope: &str, req: &Request) -> String {
-    request_key_with_bearer(scope, req, true)
-}
-
-fn request_key_without_bearer(scope: &str, req: &Request) -> String {
-    request_key_with_bearer(scope, req, false)
-}
-
-fn request_key_with_bearer(scope: &str, req: &Request, include_bearer: bool) -> String {
     let route = req
         .extensions()
         .get::<MatchedPath>()
@@ -212,18 +224,13 @@ fn request_key_with_bearer(scope: &str, req: &Request, include_bearer: bool) -> 
         .extensions()
         .get::<ClientIp>()
         .map(|ip| ip.0.to_string())
+        .or_else(|| {
+            req.extensions()
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|ConnectInfo(addr)| addr.ip().to_string())
+        })
         .unwrap_or_else(|| "unknown".into());
-    let bearer = if include_bearer {
-        req.headers()
-            .get("authorization")
-            .and_then(|h| h.to_str().ok())
-            .and_then(|h| h.strip_prefix("Bearer "))
-            .map(token::hash)
-            .unwrap_or_else(|| "anonymous".into())
-    } else {
-        "all".into()
-    };
-    format!("{}:{}:{}:{}:{}", scope, req.method(), route, ip, bearer)
+    format!("{}:{}:{}:{}", scope, req.method(), route, ip)
 }
 
 #[cfg(test)]
@@ -254,6 +261,70 @@ mod tests {
 
         let first = app.clone().oneshot(req()).await.unwrap();
         let second = app.oneshot(req()).await.unwrap();
+
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn rest_middleware_does_not_multiply_budget_by_bearer_token() {
+        let limiter = RequestRateLimiter::new(1, Duration::from_secs(60));
+        let app = Router::new().route("/", get(|| async { "ok" })).layer(
+            axum::middleware::from_fn_with_state(limiter, rest_middleware),
+        );
+        let req = |token: &str| {
+            HttpRequest::builder()
+                .uri("/")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        let first = app
+            .clone()
+            .oneshot(req(
+                "pks_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ))
+            .await
+            .unwrap();
+        let second = app
+            .oneshot(req(
+                "pks_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn admin_web_middleware_limits_by_request_source_not_bearer() {
+        let limiter = RequestRateLimiter::new(1, Duration::from_secs(60));
+        let app = Router::new().route("/admin", get(|| async { "ok" })).layer(
+            axum::middleware::from_fn_with_state(limiter, admin_web_middleware),
+        );
+        let req = |token: &str| {
+            HttpRequest::builder()
+                .uri("/admin")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        let first = app
+            .clone()
+            .oneshot(req(
+                "pks_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ))
+            .await
+            .unwrap();
+        let second = app
+            .oneshot(req(
+                "pks_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            ))
+            .await
+            .unwrap();
 
         assert_eq!(first.status(), StatusCode::OK);
         assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);

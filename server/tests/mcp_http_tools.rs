@@ -1,4 +1,5 @@
 use axum::body::{to_bytes, Body};
+use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, Request, StatusCode};
 use pkv_sync_server::auth::{password, token};
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo, VaultRepo};
@@ -8,6 +9,7 @@ use pkv_sync_server::service::sync::{self, PushChange, PushReq};
 use pkv_sync_server::service::{vault, AppState};
 use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use std::time::Duration;
 use tower::ServiceExt;
 
@@ -80,6 +82,15 @@ async fn post_mcp(
     raw: Option<&str>,
     body: Value,
 ) -> (StatusCode, HeaderMap, Value) {
+    post_mcp_from_addr(state, raw, body, "127.0.0.1:50000".parse().unwrap()).await
+}
+
+async fn post_mcp_from_addr(
+    state: AppState,
+    raw: Option<&str>,
+    body: Value,
+    peer: SocketAddr,
+) -> (StatusCode, HeaderMap, Value) {
     let mut req = Request::builder()
         .method("POST")
         .uri("/mcp")
@@ -88,8 +99,10 @@ async fn post_mcp(
     if let Some(raw) = raw {
         req = req.header("authorization", format!("Bearer {raw}"));
     }
+    let mut req = req.body(Body::from(body.to_string())).unwrap();
+    req.extensions_mut().insert(ConnectInfo(peer));
     let response = transport_http::router(state, DEPLOYMENT_KEY.into())
-        .oneshot(req.body(Body::from(body.to_string())).unwrap())
+        .oneshot(req)
         .await
         .unwrap();
     let status = response.status();
@@ -97,6 +110,42 @@ async fn post_mcp(
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
     (status, headers, json)
+}
+
+#[tokio::test]
+async fn http_mcp_auth_failures_are_limited_per_client_source() {
+    let (state, _tmp) = test_state().await;
+    state
+        .mcp_auth_limiter
+        .update_config(1, Duration::from_secs(60), Duration::from_secs(60));
+
+    let first = post_mcp_from_addr(
+        state.clone(),
+        Some("not-a-token"),
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list"
+        }),
+        "127.0.0.1:50000".parse().unwrap(),
+    )
+    .await;
+    let second = post_mcp_from_addr(
+        state,
+        Some("not-a-token"),
+        json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list"
+        }),
+        "127.0.0.2:50000".parse().unwrap(),
+    )
+    .await;
+
+    assert_eq!(first.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(second.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(first.2["error"]["message"], "invalid token format");
+    assert_eq!(second.2["error"]["message"], "invalid token format");
 }
 
 async fn post_mcp_without_deployment_key(

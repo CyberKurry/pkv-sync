@@ -203,7 +203,7 @@ sync.example.com {
 
 ### Nginx
 
-倉庫提供了 `deploy/nginx/pkv-sync.conf`。它會把 HTTP 跳轉到 HTTPS，設定 `client_max_body_size 110m`，並轉發 PKV Sync 用於 Host 和用戶端 IP 處理的 header。
+倉庫提供了 `deploy/nginx/pkv-sync.conf`。它會把 HTTP 跳轉到 HTTPS，設定 `client_max_body_size 110m`，加入標準瀏覽器加固 header，並轉發 PKV Sync 用於 Host 和用戶端 IP 處理的 header。
 
 最小結構：
 
@@ -222,6 +222,11 @@ server {
   ssl_certificate_key /etc/letsencrypt/live/sync.example.com/privkey.pem;
 
   client_max_body_size 110m;
+
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "same-origin" always;
 
   location / {
     proxy_pass http://127.0.0.1:6710;

@@ -47,8 +47,13 @@ fn router_with_rate_limiter(limiter: rate_limit::RequestRateLimiter) -> Router<A
     // routing decision (including OPTIONS preflight). Applying CORS only via
     // .route_layer on a `get()` method router does not work because axum's
     // method router rejects OPTIONS with 405 before delegating to the layer.
+    let sse_limiter = limiter.clone();
     let sse_router = Router::new()
         .route("/api/vaults/:id/events", get(events))
+        .route_layer(axum::middleware::from_fn_with_state(
+            sse_limiter,
+            rate_limit::rest_middleware,
+        ))
         .layer(sse_cors_layer());
     let limited_router = Router::new()
         .route("/api/vaults", get(list).post(create))
@@ -711,7 +716,7 @@ mod tests {
     use super::*;
     use crate::auth::{password, token};
     use crate::db::pool;
-    use crate::db::repos::{NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo};
+    use crate::db::repos::{NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo};
     use crate::service::AppState;
     use crate::storage::blob::LocalFsBlobStore;
     use axum::body::Body;
@@ -831,6 +836,35 @@ mod tests {
             saw_rate_limit,
             "rotating invalid vault bearer attempts were not rate limited"
         );
+    }
+
+    #[tokio::test]
+    async fn sse_event_connections_are_rate_limited() {
+        let (app, state, raw) = setup_with_limiter(rate_limit::RequestRateLimiter::new(
+            1,
+            std::time::Duration::from_secs(60),
+        ))
+        .await;
+        let user = state
+            .users
+            .find_by_username("alice")
+            .await
+            .unwrap()
+            .unwrap();
+        let vault = state.vaults.create(&user.id, "main").await.unwrap();
+        let req = || {
+            Request::builder()
+                .uri(format!("/api/vaults/{}/events", vault.id))
+                .header("authorization", format!("Bearer {raw}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        let first = app.clone().oneshot(req()).await.unwrap();
+        let second = app.oneshot(req()).await.unwrap();
+
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     async fn setup_with_limiter(

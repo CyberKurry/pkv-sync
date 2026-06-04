@@ -240,8 +240,8 @@ sync.example.com {
 ### Nginx
 
 The repository includes `deploy/nginx/pkv-sync.conf`. It redirects HTTP to
-HTTPS, sets `client_max_body_size 110m`, and forwards the headers PKV Sync uses
-for host and client IP handling.
+HTTPS, sets `client_max_body_size 110m`, adds standard browser hardening
+headers, and forwards the headers PKV Sync uses for host and client IP handling.
 
 Minimum shape:
 
@@ -260,6 +260,11 @@ server {
   ssl_certificate_key /etc/letsencrypt/live/sync.example.com/privkey.pem;
 
   client_max_body_size 110m;
+
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "same-origin" always;
 
   location / {
     proxy_pass http://127.0.0.1:6710;
