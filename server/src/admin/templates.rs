@@ -99,6 +99,7 @@ pub struct UserDetailTemplate {
     pub user: UserAdminView,
     pub tokens: Vec<TokenAdminView>,
     pub message: Option<String>,
+    pub error: Option<&'static str>,
     pub created_token: Option<String>,
 }
 
@@ -820,6 +821,7 @@ mod tests {
                 revoked_at: None,
             }],
             message: None,
+            error: None,
             created_token: None,
         }
         .render()
@@ -851,6 +853,7 @@ mod tests {
                 revoked_at: None,
             }],
             message: None,
+            error: None,
             created_token: None,
         }
         .render()
@@ -867,10 +870,38 @@ mod tests {
         assert!(css.contains(".user-profile-panel"));
         assert!(css.contains(".user-action-grid"));
         assert!(css.contains(".tokens-table"));
+        assert!(css.contains(".action-panel-head h2"));
+        assert!(css.contains(".detail-row dt"));
+        assert!(css.contains(".resource-panel-head"));
         // The detail layout must split into two columns on wide screens.
         assert!(css.contains(".user-detail-layout {\n    display: grid;"));
         // The user-action grid must be a multi-column grid for dense actions.
         assert!(css.contains(".user-action-grid {\n    display: grid;"));
+    }
+
+    #[test]
+    fn user_detail_template_confirms_destructive_user_actions() {
+        let html = UserDetailTemplate {
+            t: AdminText::en(),
+            user: user("u1", "admin", true),
+            tokens: Vec::new(),
+            message: None,
+            error: None,
+            created_token: None,
+        }
+        .render()
+        .unwrap();
+
+        assert!(html.contains("data-confirm-title=\"Disable user?\""));
+        assert!(html.contains("data-confirm-title=\"Demote administrator?\""));
+        assert!(html.contains("data-confirm-confirm=\"Continue\""));
+        assert!(html.contains("data-confirm-cancel=\"Cancel\""));
+
+        let js = include_str!("../../static/admin.js");
+        let css = include_str!("../../static/admin.css");
+        assert!(js.contains("data-confirm-title"));
+        assert!(js.contains("showModal"));
+        assert!(css.contains(".confirm-dialog"));
     }
 
     #[test]
@@ -880,6 +911,7 @@ mod tests {
             user: user("u1", "admin", true),
             tokens: Vec::new(),
             message: None,
+            error: None,
             created_token: Some("pks_abc".into()),
         }
         .render()
@@ -978,6 +1010,10 @@ mod tests {
         assert!(html.contains("/admin/vaults/v1/settings"));
         assert!(include_str!("../../static/lucide-icons.svg").contains("id=\"folder-open\""));
         assert!(html.contains("name=\"name\" type=\"text\""));
+        assert!(html.contains("data-confirm-title=\"Delete vault?\""));
+        assert!(html.contains("data-confirm-confirm=\"Continue\""));
+        assert!(html.contains("data-confirm-cancel=\"Cancel\""));
+        assert!(!html.contains("鈥"));
     }
 
     #[test]

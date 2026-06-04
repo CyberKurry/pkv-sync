@@ -100,7 +100,10 @@ binary or container image automatically.
 - Open a user detail page to reset passwords, enable or disable the account,
   promote or demote admin access, and inspect that user's device tokens.
 - Disable users instead of deleting when you may need audit history.
-- Do not demote or disable the last active admin account.
+- The Admin WebUI asks for confirmation before disabling users or demoting
+  admins. It blocks disabling your own admin session and demoting the last
+  administrator, then shows localized feedback on the user detail page.
+- Do not disable every remaining administrator account.
 
 Resetting a password from the Admin WebUI revokes that user's existing device
 tokens. The user must log in again.
@@ -133,6 +136,10 @@ Operational notes:
   activity history.
 
 ## Vaults
+
+Deleting a vault from the Admin WebUI requires an extra confirmation dialog.
+Treat deletion as destructive even though unreferenced blob files may remain
+until garbage collection.
 
 Deleting a vault removes:
 

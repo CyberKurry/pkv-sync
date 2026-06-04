@@ -1688,10 +1688,12 @@ paths:
       summary: MCP Streamable HTTP JSON-RPC request
       description: |
         Streamable HTTP transport for Model Context Protocol clients. The
-        endpoint is served by the optional MCP HTTP listener, not the main
-        plugin REST listener. It requires the configured deployment key and a
-        bearer device token. JSON-RPC method names and payloads follow the MCP
-        protocol plus PKV Sync's documented tool set.
+        endpoint is available either on the main `pkvsyncd serve` listener when
+        `[mcp].embed_in_serve = true`, or on the standalone
+        `pkvsyncd mcp --transport http` listener. It requires the configured
+        deployment key and a bearer device token; Admin WebUI cookies do not
+        authenticate MCP requests. JSON-RPC method names and payloads follow
+        the MCP protocol plus PKV Sync's documented tool set.
       requestBody:
         required: true
         content:

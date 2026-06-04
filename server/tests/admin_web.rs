@@ -1367,3 +1367,75 @@ async fn user_detail_token_revoke_requires_token_to_belong_to_path_user() {
     let still_live = tokens.iter().find(|t| t.id == admin_token.id).unwrap();
     assert!(still_live.revoked_at.is_none());
 }
+
+#[tokio::test]
+async fn last_admin_demote_returns_admin_html_error() {
+    let (app, _state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin_id = first_admin_user_id(&app, &session_cookie).await;
+
+    let mut req = request(
+        Method::POST,
+        &format!("/admin/users/{admin_id}/admin"),
+        Body::from("admin=false"),
+    );
+    req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut req);
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let content_type = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let body = read_body(resp).await;
+    assert!(content_type.starts_with("text/html"));
+    assert!(body.contains("Cannot demote the last administrator."));
+    assert!(body.contains("class=\"error\""));
+    assert!(body.contains("data-error-dialog-title=\"Cannot demote the last administrator.\""));
+    assert!(body.contains("<h1>User Details</h1>"));
+    assert!(!body.contains("\"code\":\"last_admin\""));
+}
+
+#[tokio::test]
+async fn self_disable_returns_admin_html_error() {
+    let (app, _state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin_id = first_admin_user_id(&app, &session_cookie).await;
+
+    let mut req = request(
+        Method::POST,
+        &format!("/admin/users/{admin_id}/active"),
+        Body::from("active=false"),
+    );
+    req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut req);
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let content_type = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let body = read_body(resp).await;
+    assert!(content_type.starts_with("text/html"));
+    assert!(body.contains("You cannot disable your own admin session."));
+    assert!(body.contains("class=\"error\""));
+    assert!(body.contains("data-error-dialog-title=\"You cannot disable your own admin session.\""));
+    assert!(body.contains("<h1>User Details</h1>"));
+    assert!(!body.contains("\"code\":\"self_disable\""));
+}

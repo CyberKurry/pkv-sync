@@ -195,6 +195,9 @@ then connect again.
 - Ask an administrator to revoke tokens for lost devices.
 - Changing your password keeps the current device signed in and revokes your
   other device tokens.
+- If an administrator disables your account or revokes this device token, new
+  API requests fail and any open live event stream is closed after token
+  revalidation.
 
 ## MCP Access
 

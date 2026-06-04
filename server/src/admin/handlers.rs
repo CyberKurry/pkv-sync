@@ -917,6 +917,7 @@ async fn user_detail(
             user: user_view(user, &timezone),
             tokens,
             message: None,
+            error: None,
             created_token: None,
         }
         .render()
@@ -986,6 +987,7 @@ async fn create_token_form(
             user: user_view(user, &timezone),
             tokens,
             message: Some("Device token created".into()),
+            error: None,
             created_token: Some(raw),
         }
         .render()
@@ -1026,15 +1028,25 @@ struct ActiveForm {
 
 async fn set_active_form(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
     session: AdminSession,
     Path(id): Path<String>,
     Form(form): Form<ActiveForm>,
-) -> Result<Redirect, ApiError> {
+) -> Result<Response, ApiError> {
     if session.user.id == id && !form.active {
-        return Err(ApiError::bad_request("self_disable", "cannot disable self"));
+        return user_detail_error(
+            &state,
+            &headers,
+            &cookies,
+            &id,
+            admin_text(&headers, &cookies).cannot_disable_self,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
     }
     state.users.set_active(&id, form.active).await?;
-    Ok(Redirect::to(&format!("/admin/users/{id}")))
+    Ok(Redirect::to(&format!("/admin/users/{id}")).into_response())
 }
 
 #[derive(Deserialize)]
@@ -1044,24 +1056,70 @@ struct AdminForm {
 
 async fn set_admin_form(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    cookies: Cookies,
     session: AdminSession,
     Path(id): Path<String>,
     Form(form): Form<AdminForm>,
-) -> Result<Redirect, ApiError> {
+) -> Result<Response, ApiError> {
     if !state
         .users
         .set_admin_preserving_last_admin(&id, form.admin)
         .await?
     {
-        return Err(ApiError::bad_request(
-            "last_admin",
-            "cannot demote the last admin",
-        ));
+        return user_detail_error(
+            &state,
+            &headers,
+            &cookies,
+            &id,
+            admin_text(&headers, &cookies).cannot_demote_last_admin,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
     }
     if session.user.id == id && !form.admin {
         session::delete_sessions_for_user(&state, &id).await?;
     }
-    Ok(Redirect::to(&format!("/admin/users/{id}")))
+    Ok(Redirect::to(&format!("/admin/users/{id}")).into_response())
+}
+
+async fn user_detail_error(
+    state: &AppState,
+    headers: &HeaderMap,
+    cookies: &Cookies,
+    id: &str,
+    error: &'static str,
+    status: StatusCode,
+) -> Result<Response, ApiError> {
+    let user = state
+        .users
+        .find_by_id(id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("user not found"))?;
+    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let tokens = state
+        .tokens
+        .list_for_user(id)
+        .await?
+        .into_iter()
+        .map(|token| token_view(token, &timezone))
+        .collect();
+    Ok((
+        status,
+        Html(
+            UserDetailTemplate {
+                t: admin_text(headers, cookies),
+                user: user_view(user, &timezone),
+                tokens,
+                message: None,
+                error: Some(error),
+                created_token: None,
+            }
+            .render()
+            .unwrap(),
+        ),
+    )
+        .into_response())
 }
 
 async fn revoke_token_form(

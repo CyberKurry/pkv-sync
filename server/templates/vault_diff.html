@@ -7,9 +7,12 @@
 {% endblock %}
 {% block content %}
 <section class="panel diff-panel">
-  <div class="panel-header">
-    <h2>{{ path }}</h2>
-    <span class="muted-text">{% if let Some(from) = from %}{{ from }}..{% endif %}{{ to }}</span>
+  <div class="panel-header resource-panel-head">
+    <div>
+      <span class="metric-label">{{ t.path }}</span>
+      <h2>{{ path }}</h2>
+    </div>
+    <span class="resource-meta">{% if let Some(from) = from %}{{ from }}..{% endif %}{{ to }}</span>
   </div>
   {% if truncated %}
   <p class="warning">{{ t.large_diff_truncated }}</p>

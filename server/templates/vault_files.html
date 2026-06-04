@@ -7,9 +7,12 @@
 {% endblock %}
 {% block content %}
 <section class="panel browser-panel">
-  <div class="panel-header">
-    <h2>{{ vault.name }}</h2>
-    <span class="muted-text">{{ vault.owner_username }}</span>
+  <div class="panel-header resource-panel-head">
+    <div>
+      <span class="metric-label">{{ t.vault }}</span>
+      <h2>{{ vault.name }}</h2>
+    </div>
+    <span class="resource-meta">{{ vault.owner_username }}</span>
   </div>
   {% if files.is_empty() %}
   <p class="empty-state">{{ t.no_files_in_vault }}</p>

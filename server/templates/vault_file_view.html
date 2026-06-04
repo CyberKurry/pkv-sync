@@ -13,9 +13,12 @@
 {% endblock %}
 {% block content %}
 <section class="panel file-view-panel">
-  <div class="panel-header">
-    <h2>{{ path }}</h2>
-    <span class="muted-text">{{ size_display }}</span>
+  <div class="panel-header resource-panel-head">
+    <div>
+      <span class="metric-label">{{ t.path }}</span>
+      <h2>{{ path }}</h2>
+    </div>
+    <span class="resource-meta">{{ size_display }}</span>
   </div>
   {% if let Some(commit) = at %}
   <p class="section-note">{{ t.viewing_commit }} <code>{{ commit }}</code></p>

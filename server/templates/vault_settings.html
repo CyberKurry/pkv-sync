@@ -8,11 +8,13 @@
 {% endblock %}
 {% block content %}
 <section class="panel settings-section">
-  <div class="panel-header">
+  <div class="panel-header resource-panel-head">
     <div>
+      <span class="metric-label">{{ t.vault }}</span>
       <h2>{{ vault.name }}</h2>
-      <p class="section-note">{{ vault.owner_username }} - ID {{ vault.id }}</p>
+      <p class="section-note">{{ vault.owner_username }}</p>
     </div>
+    <code class="resource-meta">{{ vault.id }}</code>
   </div>
 
   <form id="vault-settings-form" method="post" action="/admin/vaults/{{ vault.id }}/settings" class="settings-form">

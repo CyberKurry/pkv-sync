@@ -10,6 +10,7 @@
 {% endblock %}
 {% block content %}
 {% if let Some(m) = message %}<p class="success">{{ m }}</p>{% endif %}
+{% if let Some(e) = error %}<p class="error" role="alert" data-error-dialog-title="{{ e }}">{{ e }}</p>{% endif %}
 {% if let Some(token) = created_token %}
 <section class="panel panel-warning">
   <div class="panel-header"><h2>{{ t.new_device_token }}</h2></div>
@@ -56,7 +57,7 @@
         </div>
         <p class="section-note">{% if user.is_active %}{{ t.active_account }}{% else %}{{ t.inactive_account }}{% endif %}</p>
         <input type="hidden" name="active" value="{% if user.is_active %}false{% else %}true{% endif %}">
-        <button class="{% if user.is_active %}danger{% else %}primary{% endif %}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#{% if user.is_active %}ban{% else %}shield{% endif %}"></use></svg>{% if user.is_active %}{{ t.disable }}{% else %}{{ t.enable }}{% endif %}</button>
+        <button class="{% if user.is_active %}danger{% else %}primary{% endif %}" {% if user.is_active %}data-confirm-title="{{ t.confirm_disable_user_title }}" data-confirm-body="{{ t.confirm_disable_user_body }}" data-confirm-confirm="{{ t.confirm_continue }}" data-confirm-cancel="{{ t.cancel }}"{% endif %}><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#{% if user.is_active %}ban{% else %}shield{% endif %}"></use></svg>{% if user.is_active %}{{ t.disable }}{% else %}{{ t.enable }}{% endif %}</button>
       </form>
 
       <form method="post" action="/admin/users/{{ user.id }}/admin" class="panel form-panel action-panel">
@@ -66,7 +67,7 @@
         </div>
         <p class="section-note">{% if user.is_admin %}{{ t.admin_privileges }}{% else %}{{ t.standard_user }}{% endif %}</p>
         <input type="hidden" name="admin" value="{% if user.is_admin %}false{% else %}true{% endif %}">
-        <button class="secondary"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg>{% if user.is_admin %}{{ t.demote }}{% else %}{{ t.promote }}{% endif %}</button>
+        <button class="secondary" {% if user.is_admin %}data-confirm-title="{{ t.confirm_demote_admin_title }}" data-confirm-body="{{ t.confirm_demote_admin_body }}" data-confirm-confirm="{{ t.confirm_continue }}" data-confirm-cancel="{{ t.cancel }}"{% endif %}><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#shield"></use></svg>{% if user.is_admin %}{{ t.demote }}{% else %}{{ t.promote }}{% endif %}</button>
       </form>
     </div>
 

@@ -22,7 +22,8 @@ English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md
 - **Conflict-safe.** The plugin never silently overwrites local edits;
   conflicts surface as `.conflict-*` files with a one-click resolver.
 - **Admin panel** in five languages (English, 简中, 繁中, 日本語, 한국어)
-  for users, device tokens, vaults, invites, activity, and blob GC.
+  for users, device tokens, vaults, invites, activity, and blob GC, with
+  confirmation dialogs for destructive vault and user actions.
 - **AI-readable vaults.** MCP exposes read/write tools over stdio,
   standalone Streamable HTTP, or an embedded `/mcp` route on `pkvsyncd serve`.
 - **Boring on purpose.** Single binary, single SQLite metadata DB, one

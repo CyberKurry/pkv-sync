@@ -1235,6 +1235,35 @@ textarea {
     height: 12px;
 }
 
+.resource-panel-head {
+    align-items: flex-start;
+    gap: var(--pkv-space-4);
+    padding-bottom: var(--pkv-space-4);
+    border-bottom: var(--pkv-rule-hair);
+}
+
+.resource-panel-head > div {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--pkv-space-1);
+}
+
+.resource-panel-head h2 {
+    overflow-wrap: anywhere;
+}
+
+.resource-meta {
+    max-width: min(46ch, 45%);
+    color: var(--pkv-ink-mute);
+    font-family: var(--pkv-font-mono);
+    font-size: var(--pkv-text-xs);
+    letter-spacing: var(--pkv-tracking-meta);
+    text-align: right;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+}
+
 /* =====================================================================
  * 10. Tables
  * =================================================================== */
@@ -2012,6 +2041,12 @@ textarea {
     align-items: center;
 }
 
+.user-profile-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--pkv-space-4);
+}
+
 .user-profile-title {
     display: flex;
     flex-direction: column;
@@ -2047,7 +2082,7 @@ textarea {
     display: flex;
     flex-direction: column;
     gap: var(--pkv-space-2);
-    margin-top: var(--pkv-space-3);
+    margin: 0;
 }
 
 .detail-row {
@@ -2063,12 +2098,20 @@ textarea {
     border-bottom: none;
 }
 
-.detail-row > span:first-child {
+.detail-row dt {
     color: var(--pkv-ink-mute);
     font-family: var(--pkv-font-mono);
     font-size: var(--pkv-text-xs);
     letter-spacing: var(--pkv-tracking-meta);
     text-transform: uppercase;
+}
+
+.detail-row dd {
+    margin: 0;
+    min-width: 0;
+    text-align: right;
+    color: var(--pkv-ink-soft);
+    overflow-wrap: anywhere;
 }
 
 .identity-cell {
@@ -2113,16 +2156,22 @@ textarea {
 
 .action-panel {
     padding: var(--pkv-space-4) var(--pkv-space-5);
+    gap: var(--pkv-space-3);
 }
 
 .action-panel-head {
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--pkv-space-2);
     margin-bottom: var(--pkv-space-3);
 }
 
+.action-panel-head h2,
 .action-panel-head h3 {
-    font-family: var(--pkv-font-display);
+    font-family: var(--pkv-font-body);
     font-size: var(--pkv-text-md);
-    font-weight: 500;
+    font-weight: 650;
+    letter-spacing: 0;
     margin: 0;
 }
 
@@ -2213,6 +2262,69 @@ textarea {
     border-left: 2px solid var(--pkv-warn);
     border-radius: 0 var(--pkv-radius-1) var(--pkv-radius-1) 0;
     font-size: var(--pkv-text-sm);
+}
+
+.confirm-dialog {
+    width: min(92vw, 420px);
+    padding: 0;
+    color: var(--pkv-ink);
+    background: transparent;
+    border: 0;
+}
+
+.confirm-dialog::backdrop {
+    background: color-mix(in srgb, var(--pkv-ink) 30%, transparent);
+}
+
+.confirm-dialog-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--pkv-space-4);
+    padding: var(--pkv-space-5);
+    background: var(--pkv-paper-raised);
+    border: var(--pkv-rule-hair);
+    border-radius: var(--pkv-radius-3);
+    box-shadow: var(--pkv-shadow-3);
+}
+
+.confirm-dialog-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    color: var(--pkv-err);
+    background: var(--pkv-err-soft);
+    border-radius: var(--pkv-radius-pill);
+}
+
+.confirm-dialog-copy {
+    min-width: 0;
+}
+
+.confirm-dialog-copy h2 {
+    font-family: var(--pkv-font-body);
+    font-size: var(--pkv-text-md);
+    font-weight: 650;
+    letter-spacing: 0;
+}
+
+.confirm-dialog-copy p {
+    margin-top: var(--pkv-space-2);
+    color: var(--pkv-ink-mute);
+    font-size: var(--pkv-text-sm);
+}
+
+.confirm-dialog-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--pkv-space-2);
+    flex-wrap: wrap;
+}
+
+.confirm-dialog[data-mode="notice"] [data-confirm-dialog-cancel] {
+    display: none;
 }
 
 .panel-warning {
@@ -2562,6 +2674,16 @@ textarea {
         flex: 1 1 180px;
         max-width: none;
     }
+
+    .resource-panel-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .resource-meta {
+        max-width: 100%;
+        text-align: left;
+    }
 }
 
 @media (max-width: 520px) {
@@ -2585,6 +2707,18 @@ textarea {
 
     .metric-value {
         font-size: var(--pkv-text-xl);
+    }
+
+    .confirm-dialog-card {
+        grid-template-columns: 1fr;
+    }
+
+    .confirm-dialog-actions {
+        flex-direction: column-reverse;
+    }
+
+    .confirm-dialog-actions button {
+        width: 100%;
     }
 }
 

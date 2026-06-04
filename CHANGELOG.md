@@ -7,6 +7,49 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-06-05
+
+### Fixed
+
+- Switch Rust coverage collection in CI to tarpaulin's LLVM engine and refresh
+  the documented coverage baseline after the default ptrace engine segfaulted
+  in otherwise passing Ubuntu admin integration tests.
+- Align Admin WebUI settings section headers with the rest of the Working Paper
+  panel style.
+- Add Admin WebUI confirmation dialogs for vault deletion, user disable, and
+  admin demotion; rejected self-disable and last-admin demotion attempts now
+  return localized Admin HTML feedback instead of a bare JSON error page.
+- Normalize vault/file detail headers across Admin file browsing, file preview,
+  diff, and per-vault settings pages.
+
+## [1.0.9] - 2026-06-04
+
+### Fixed
+
+- Harden findings from the v1.0.9 security audit, including reviewed rate-limit
+  boundaries, account-state handling, and release metadata alignment.
+- Keep package, OpenAPI, and public release metadata on version `1.0.10` for
+  the patch line.
+
+## [1.0.8] - 2026-06-03
+
+### Fixed
+
+- Reject file/directory path conflicts in Git tree construction so pushes
+  cannot silently replace a file with a directory prefix, or the reverse.
+- Check vault ownership before acquiring the per-vault push lock, and filter
+  auto-merge conflict paths through the same push path policy as ordinary
+  changes.
+- Protect pending blob uploads from garbage collection and avoid reading whole
+  blob files only to compute freed size.
+- Hide disabled-account state from bearer authentication, rate-limit failed
+  bearer/MCP/Git HTTP/admin/account attempts, and cap device token lifetime at
+  365 days.
+- Precheck MCP write content size and validate vault names, device names,
+  invite expiry, and unique constraint handling more strictly.
+- Secure expired session cookies and expire Admin sessions after password
+  resets.
+
 ## [1.0.7] - 2026-06-02
 
 ### Fixed
