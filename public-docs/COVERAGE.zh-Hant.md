@@ -8,14 +8,12 @@ Rust 覆蓋率只在 Ubuntu CI runner 上透過 `cargo tarpaulin --engine Llvm` 
 
 | Component | Report source | Baseline |
 | --- | --- | ---: |
-| Rust server | `cargo tarpaulin -p pkv-sync-server --engine Llvm --out Json` on `ubuntu-latest` | 90.95% |
+| Rust server | `cargo tarpaulin -p pkv-sync-server --engine Llvm --out Json` on `ubuntu-latest` | 85.80% |
 | Obsidian 外掛 | `vitest run --coverage` | 48.42% |
 
 ## 基線刷新
 
-目前基線最近一次刷新來自 v0.5.1 週期的 CI run `26225831124`，並原樣延續到 v1.0.0：之後測試面積有所擴張，但兩個 component 都沒有下降。Rust server 覆蓋率採用 Ubuntu tarpaulin artifact（`90.95%`）。Obsidian 外掛覆蓋率採用同一次 run 的 Vitest/V8 summary（`48.42%`）；這次 run 包含卸載回歸測試觸達的外掛 entrypoint 與 UI import graph，因此量測範圍比前一個外掛基線更廣。
-
-v1.0.0 發布後將計畫透過後續 patch，從發布後的 CI run 刷新 v1.0.0 基線；在此之前，v0.5.1 數字仍是有效的門禁，且 per-component 5.0 個百分點下降規則仍然適用。
+Rust server 基線已在覆蓋率任務從 tarpaulin ptrace engine 切換到 LLVM engine 後，根據 CI run `26963777091` 刷新。LLVM artifact 報告 `85.80%`，現在這是有效的 Rust 門禁。Obsidian 外掛覆蓋率仍使用 CI run `26225831124` 中已審閱的 Vitest/V8 基線（`48.42%`）。
 
 ## 政策
 

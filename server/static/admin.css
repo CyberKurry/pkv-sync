@@ -2288,17 +2288,11 @@ textarea {
     gap: var(--pkv-space-4);
 }
 
-.settings-section:first-of-type {
-    padding-top: 0;
-    border-top: none;
-}
-
-.settings-section > h2 {
+.settings-section .panel-header h2 {
     font-family: var(--pkv-font-body);
     font-size: var(--pkv-text-md);
     font-weight: 650;
     letter-spacing: 0;
-    margin-bottom: var(--pkv-space-1);
 }
 
 .settings-layout {

@@ -640,7 +640,10 @@ mod tests {
             .contains(".form-panel label:not(.check-row),\n.settings-form label:not(.check-row)"));
         assert!(!css.contains(".field-search::before"));
         assert!(css.contains(".field-search .admin-icon"));
-        assert!(css.contains(".settings-section > h2 {\n    font-family: var(--pkv-font-body);"));
+        assert!(css.contains(
+            ".settings-section .panel-header h2 {\n    font-family: var(--pkv-font-body);"
+        ));
+        assert!(!css.contains(".settings-section:first-of-type {\n    padding-top: 0;"));
         assert!(css.contains(".danger-row {\n    display: flex;"));
         assert!(css.contains(".settings-tabs a {\n    display: inline-flex;"));
         assert!(css.contains(".toolbar {\n    display: flex;\n    justify-content: flex-start;"));

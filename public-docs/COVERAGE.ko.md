@@ -8,14 +8,12 @@ Rust coverage는 Ubuntu CI runner에서 `cargo tarpaulin --engine Llvm`으로만
 
 | Component | Report source | Baseline |
 | --- | --- | ---: |
-| Rust server | `cargo tarpaulin -p pkv-sync-server --engine Llvm --out Json` on `ubuntu-latest` | 90.95% |
+| Rust server | `cargo tarpaulin -p pkv-sync-server --engine Llvm --out Json` on `ubuntu-latest` | 85.80% |
 | Obsidian plugin | `vitest run --coverage` | 48.42% |
 
 ## Baseline Refresh
 
-현재 baseline은 v0.5.1 사이클의 CI run `26225831124`에서 마지막으로 갱신되었으며, v1.0.0에 그대로 이어집니다. 이후 테스트 범위는 확장되었지만 어느 component도 하락하지 않았습니다. Rust server coverage는 Ubuntu tarpaulin artifact(`90.95%`)입니다. Obsidian plugin coverage는 같은 run의 Vitest/V8 summary(`48.42%`)이며, 이 run에는 unload regression test가 도달하는 plugin entrypoint와 UI import graph가 포함되어 이전 plugin baseline보다 측정 범위가 넓습니다.
-
-v1.0.0 Release workflow가 완료되면 release 이후 CI run으로 v1.0.0 baseline refresh를 후속 patch로 진행할 계획입니다. 그 전까지는 v0.5.1 수치가 유효 gate로 남으며 component별 5.0 pp 하락 규칙이 계속 적용됩니다.
+Rust server baseline은 coverage job을 tarpaulin ptrace engine에서 LLVM engine으로 전환한 뒤 CI run `26963777091`에서 갱신했습니다. LLVM artifact는 `85.80%`를 보고했으며, 이제 이것이 유효한 Rust gate입니다. Obsidian plugin coverage는 CI run `26225831124`에서 review된 Vitest/V8 baseline(`48.42%`)을 계속 사용합니다.
 
 ## Policy
 
