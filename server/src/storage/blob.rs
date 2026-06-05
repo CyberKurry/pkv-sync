@@ -13,9 +13,13 @@ pub enum BlobError {
     HashMismatch { expected: String, actual: String },
     #[error("invalid hash")]
     InvalidHash,
+    #[error("blob exceeds hard size limit of {limit} bytes: {actual} bytes")]
+    TooLarge { limit: u64, actual: u64 },
 }
 
 pub type BlobResult<T> = Result<T, BlobError>;
+
+pub const BLOB_HARD_MAX_BYTES: u64 = if cfg!(test) { 1024 } else { 512 * 1024 * 1024 };
 
 #[async_trait]
 pub trait BlobStore: Send + Sync {
@@ -90,6 +94,12 @@ impl BlobStore for LocalFsBlobStore {
 
     async fn put_verified(&self, expected_hash: &str, bytes: Bytes) -> BlobResult<()> {
         Self::validate_hash(expected_hash)?;
+        if bytes.len() as u64 > BLOB_HARD_MAX_BYTES {
+            return Err(BlobError::TooLarge {
+                limit: BLOB_HARD_MAX_BYTES,
+                actual: bytes.len() as u64,
+            });
+        }
         let actual = Self::sha256(&bytes);
         if actual != expected_hash {
             return Err(BlobError::HashMismatch {
@@ -124,6 +134,17 @@ impl BlobStore for LocalFsBlobStore {
 
     async fn get(&self, hash: &str) -> BlobResult<Option<Bytes>> {
         let path = self.path_for(hash)?;
+        let metadata = match tokio::fs::metadata(&path).await {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(err.into()),
+        };
+        if metadata.len() > BLOB_HARD_MAX_BYTES {
+            return Err(BlobError::TooLarge {
+                limit: BLOB_HARD_MAX_BYTES,
+                actual: metadata.len(),
+            });
+        }
         match tokio::fs::read(path).await {
             Ok(bytes) => Ok(Some(Bytes::from(bytes))),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -229,5 +250,28 @@ mod tests {
         let impl_source = &source[impl_start..test_start];
 
         assert!(impl_source.contains("remove_file(&tmp)"));
+    }
+
+    #[tokio::test]
+    async fn put_and_get_reject_blobs_over_hard_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = LocalFsBlobStore::new(dir.path().join("blobs"));
+        let oversized = Bytes::from(vec![b'x'; (BLOB_HARD_MAX_BYTES as usize) + 1]);
+        let hash = LocalFsBlobStore::sha256(&oversized);
+
+        let err = store.put_verified(&hash, oversized).await.unwrap_err();
+
+        assert!(matches!(err, BlobError::TooLarge { .. }));
+
+        let path = store.path_for(&hash).unwrap();
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, vec![b'x'; (BLOB_HARD_MAX_BYTES as usize) + 1])
+            .await
+            .unwrap();
+
+        let err = store.get(&hash).await.unwrap_err();
+        assert!(matches!(err, BlobError::TooLarge { .. }));
     }
 }

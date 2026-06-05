@@ -73,6 +73,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[tokio::test]
 async fn plugin_manifest_advertises_downloadable_assets_with_matching_hashes() {
     let (app, raw, _tmp) = app_and_token().await;
+    let app = app.layer(Extension(PluginAssetOrigin::from_public_host(Some(
+        "http://sync.example.test".into(),
+    ))));
     let host = "sync.example.test";
 
     let manifest_resp = app
@@ -194,12 +197,27 @@ async fn plugin_manifest_ignores_untrusted_forwarded_proto_without_public_host()
         ))
         .await
         .unwrap();
-    assert_eq!(manifest_resp.status(), StatusCode::OK);
-
+    assert_eq!(manifest_resp.status(), StatusCode::BAD_REQUEST);
     let body: serde_json::Value = serde_json::from_slice(&response_bytes(manifest_resp).await)
         .expect("manifest response json");
-    assert_eq!(
-        body["main_js_url"],
-        "http://sync.example.test/api/plugin-assets/main.js"
-    );
+    assert_eq!(body["error"]["code"], "public_host_required");
+}
+
+#[tokio::test]
+async fn plugin_manifest_requires_configured_public_host() {
+    let (app, raw, _tmp) = app_and_token().await;
+
+    let manifest_resp = app
+        .oneshot(auth_get(
+            "/api/plugin-manifest",
+            &raw,
+            "attacker.example.test",
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(manifest_resp.status(), StatusCode::BAD_REQUEST);
+    let body: serde_json::Value = serde_json::from_slice(&response_bytes(manifest_resp).await)
+        .expect("manifest response json");
+    assert_eq!(body["error"]["code"], "public_host_required");
 }

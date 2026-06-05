@@ -7,6 +7,23 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-06-05
+
+### Security
+
+- Hide raw Git storage errors from push conflict responses and rollback errors
+  so server filesystem paths and Git internals are not returned to clients.
+- Add hard limits for normalized vault paths, blob storage reads/writes, glob
+  filter compilation, and abnormal push `device_name` payloads.
+- Make auto-merge conflict filenames unique even for same-second edits from the
+  same device and path.
+- Refresh rollback metadata and current blob references after moving HEAD so
+  vault stats and blob garbage collection reflect the restored tree.
+- Require configured `public_host` before serving absolute plugin manifest asset
+  URLs, and stop writing deployment keys into startup logs.
+- Return a generic blob-not-found error when a hash is not referenced by the
+  requested vault.
+
 ## [1.0.10] - 2026-06-05
 
 ### Fixed

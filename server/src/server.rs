@@ -50,6 +50,14 @@ pub fn format_share_url(
     }
 }
 
+fn format_public_origin(public_host: Option<&str>, bind: &SocketAddr) -> String {
+    if let Some(host) = public_host {
+        format!("https://{host}")
+    } else {
+        format!("http://{bind}")
+    }
+}
+
 /// Construct the fully-stacked axum Router for production use.
 pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Router {
     let trusted = real_ip::TrustedProxies::from_vec(cfg.network.trusted_proxies.clone());
@@ -431,20 +439,25 @@ pub async fn run(cfg: Arc<Config>) -> crate::Result<()> {
     mark_start();
     let (state, limiter) = prepare_state_and_limiter(&cfg).await?;
 
-    let url = format_share_url(
+    let public_origin =
+        format_public_origin(cfg.server.public_host.as_deref(), &cfg.server.bind_addr);
+    let _url = format_share_url(
         cfg.server.public_host.as_deref(),
         &cfg.server.bind_addr,
         &cfg.server.deployment_key,
     );
     tracing::info!(
         bind = %cfg.server.bind_addr,
-        share_url = %url,
+        public_origin = %public_origin,
         "PKV Sync server starting"
     );
     eprintln!();
     eprintln!("PKV Sync server started.");
-    eprintln!("Public URL (share this with users):");
-    eprintln!("  {url}");
+    eprintln!("Public origin:");
+    eprintln!("  {public_origin}");
+    eprintln!(
+        "Deployment key is configured; copy it from the server config when onboarding users."
+    );
     eprintln!();
 
     let listener = tokio::net::TcpListener::bind(cfg.server.bind_addr)
@@ -569,6 +582,16 @@ mod url_tests {
         let bind: SocketAddr = "127.0.0.1:6710".parse().unwrap();
         let s = format_share_url(None, &bind, "k_xyz");
         assert_eq!(s, "http://127.0.0.1:6710/k_xyz/");
+    }
+
+    #[test]
+    fn public_origin_for_logs_omits_deployment_key() {
+        let bind: SocketAddr = "127.0.0.1:6710".parse().unwrap();
+
+        let origin = format_public_origin(Some("sync.example.com"), &bind);
+
+        assert_eq!(origin, "https://sync.example.com");
+        assert!(!origin.contains("k_secret"));
     }
 }
 

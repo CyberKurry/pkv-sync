@@ -3,7 +3,7 @@ use crate::auth::AuthenticatedUser;
 use crate::service::AppState;
 use axum::body::Body;
 use axum::extract::Extension;
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -67,14 +67,16 @@ struct PluginManifestResponse {
 
 async fn plugin_manifest(
     _user: AuthenticatedUser,
-    uri: Uri,
-    headers: HeaderMap,
     origin: Option<Extension<PluginAssetOrigin>>,
 ) -> Result<Json<PluginManifestResponse>, ApiError> {
     let origin = origin
         .and_then(|Extension(origin)| origin.origin)
-        .map(Ok)
-        .unwrap_or_else(|| request_origin(&uri, &headers))?;
+        .ok_or_else(|| {
+            ApiError::bad_request(
+                "public_host_required",
+                "public_host must be configured to serve plugin manifest",
+            )
+        })?;
 
     Ok(Json(PluginManifestResponse {
         version: OBSIDIAN_MANIFEST.version.clone(),
@@ -106,21 +108,6 @@ fn asset_response(content_type: &'static str, bytes: &'static [u8]) -> Response 
         Body::from(bytes),
     )
         .into_response()
-}
-
-fn request_origin(uri: &Uri, headers: &HeaderMap) -> Result<String, ApiError> {
-    if let Some(scheme) = uri.scheme_str() {
-        if let Some(authority) = uri.authority() {
-            return Ok(format!("{scheme}://{authority}"));
-        }
-    }
-
-    let host = headers
-        .get(header::HOST)
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| ApiError::bad_request("missing_host", "missing Host header"))?;
-    Ok(format!("http://{host}"))
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

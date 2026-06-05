@@ -24,6 +24,7 @@ use std::time::Duration;
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
 const MAX_PUSH_CHANGES: usize = 1000;
+const MAX_PUSH_DEVICE_NAME_BYTES: usize = 4096;
 const MAX_SSE_INLINE_PUSH_BYTES: usize = 64 * 1024;
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
 const MAX_COMMIT_DEVICE_NAME_CHARS: usize = 128;
@@ -274,7 +275,7 @@ pub async fn download_blob(
         .is_referenced_by_vault(vault_id, hash)
         .await?
     {
-        return Err(ApiError::not_found("blob not referenced by vault"));
+        return Err(ApiError::not_found("blob not found"));
     }
     let store = blob_store(state);
     store
@@ -284,21 +285,25 @@ pub async fn download_blob(
 }
 
 fn git_write_error(e: GitStoreError) -> ApiError {
-    if let GitStoreError::PathConflict(path) = e {
-        return ApiError::bad_request(
+    match e {
+        GitStoreError::PathConflict(path) => ApiError::bad_request(
             "path_conflict",
             format!("path conflicts with an existing file or directory: {path}"),
-        );
-    }
-    let msg = e.to_string();
-    if msg.contains("code=Locked")
-        || msg.contains(".lock")
-        || msg.contains("failed to write reference")
-        || msg.contains("path is not a repository")
-    {
-        ApiError::conflict("head_mismatch", msg)
-    } else {
-        ApiError::internal(msg)
+        ),
+        GitStoreError::Git(err) => match err.code() {
+            git2::ErrorCode::Locked => {
+                ApiError::conflict("head_mismatch", "concurrent write in progress")
+            }
+            git2::ErrorCode::NotFound | git2::ErrorCode::InvalidSpec => {
+                ApiError::conflict("head_mismatch", "commit or ref not found")
+            }
+            _ => ApiError::internal("git operation failed"),
+        },
+        GitStoreError::Json(_)
+        | GitStoreError::Io(_)
+        | GitStoreError::NotFound
+        | GitStoreError::InvalidVaultId => ApiError::internal("storage operation failed"),
+        GitStoreError::Panic => ApiError::internal("storage worker failed"),
     }
 }
 
@@ -444,6 +449,14 @@ async fn push_with_request_metadata_internal(
             "too_many_changes",
             format!("push changes exceed limit of {MAX_PUSH_CHANGES}"),
         ));
+    }
+    if let Some(device_name) = &req.device_name {
+        if device_name.len() > MAX_PUSH_DEVICE_NAME_BYTES {
+            return Err(ApiError::bad_request(
+                "invalid_device_name",
+                format!("device_name exceeds limit of {MAX_PUSH_DEVICE_NAME_BYTES} bytes"),
+            ));
+        }
     }
     let _vault = vault::ensure_user_vault(state, &user.user_id, vault_id).await?;
     let _push_guard = acquire_vault_push_lock(state, vault_id).await?;
@@ -1034,6 +1047,8 @@ fn text_event_with_budget(path: &str, content: &str, budget: &mut SseInlineBudge
 
 fn conflict_path_for(original: &str, device_name: &str) -> String {
     let stamp = chrono::Utc::now().format("%Y-%m-%d-%H%M%S");
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let nonce = &nonce[..8];
     let device = safe_conflict_device_name(device_name);
     let slash = original.rfind('/');
     let (dir, file) = match slash {
@@ -1042,14 +1057,15 @@ fn conflict_path_for(original: &str, device_name: &str) -> String {
     };
     match file.rfind('.') {
         Some(dot) if dot > 0 => format!(
-            "{}{}.conflict-{}-{}{}",
+            "{}{}.conflict-{}-{}-{}{}",
             dir,
             &file[..dot],
             stamp,
+            nonce,
             device,
             &file[dot..]
         ),
-        _ => format!("{dir}{file}.conflict-{stamp}-{device}"),
+        _ => format!("{dir}{file}.conflict-{stamp}-{nonce}-{device}"),
     }
 }
 
@@ -1264,7 +1280,7 @@ pub async fn reconcile_vault_metadata(
     reconcile_vault_metadata_unlocked(state, vault_id).await
 }
 
-async fn reconcile_vault_metadata_unlocked(
+pub(crate) async fn reconcile_vault_metadata_unlocked(
     state: &AppState,
     vault_id: &str,
 ) -> Result<ReconcileReport, ApiError> {
@@ -1304,6 +1320,11 @@ async fn reconcile_vault_metadata_unlocked(
     let (size_bytes, file_count) = tree_stats(&tree);
     let now = chrono::Utc::now().timestamp();
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    sqlx::query("DELETE FROM blob_refs WHERE vault_id = ?")
+        .bind(vault_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
     if let Some(head) = head.as_deref() {
         for hash in &blob_hashes {
             sqlx::query(
@@ -1731,6 +1752,33 @@ mod tests {
         assert!(!implementation.contains("out.chars().count()"));
     }
 
+    #[test]
+    fn git_write_error_hides_storage_paths_in_conflict_responses() {
+        let err = GitStoreError::Git(git2::Error::new(
+            git2::ErrorCode::Locked,
+            git2::ErrorClass::Reference,
+            "failed to write reference /var/lib/pkv-sync/vaults/secret/main.lock",
+        ));
+
+        let api_err = git_write_error(err);
+
+        assert_eq!(api_err.status, axum::http::StatusCode::CONFLICT);
+        assert_eq!(api_err.code, "head_mismatch");
+        assert!(!api_err.message.contains("/var/lib/pkv-sync"));
+        assert!(!api_err.message.contains("secret"));
+        assert!(!api_err.message.contains(".lock"));
+    }
+
+    #[test]
+    fn conflict_paths_are_unique_even_for_same_second_inputs() {
+        let first = conflict_path_for("notes/daily.md", "Laptop");
+        let second = conflict_path_for("notes/daily.md", "Laptop");
+
+        assert_ne!(first, second);
+        assert!(first.starts_with("notes/daily.conflict-"));
+        assert!(first.ends_with(".md"));
+    }
+
     async fn state_user_vault() -> (AppState, AuthenticatedUser, String, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
         let p = pool::connect_memory().await.unwrap();
@@ -2123,9 +2171,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(download_blob(&state, &user.user_id, &vid, &hash)
+        let err = download_blob(&state, &user.user_id, &vid, &hash)
             .await
-            .is_err());
+            .unwrap_err();
+        assert_eq!(err.status, axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(err.message, "blob not found");
         state
             .blob_refs
             .add_refs(&vid, "commit1", std::slice::from_ref(&hash))
@@ -2270,6 +2320,30 @@ mod tests {
             subject,
             format!("sync: {}", "A".repeat(MAX_COMMIT_DEVICE_NAME_CHARS))
         );
+    }
+
+    #[tokio::test]
+    async fn push_rejects_device_name_over_hard_limit() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+
+        let err = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("A".repeat(MAX_PUSH_DEVICE_NAME_BYTES + 1)),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "hello".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "invalid_device_name");
     }
 
     #[tokio::test]
@@ -3077,6 +3151,77 @@ mod integration_tests {
         assert!(state
             .blob_refs
             .is_referenced_by_vault(&vid, &hash)
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn reconcile_vault_metadata_removes_stale_blob_refs_for_vault() {
+        let (state, _user, vid, _tmp) = setup().await;
+        let old_hash = "a".repeat(64);
+        let current_hash = "b".repeat(64);
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let old_commit = git
+            .commit_changes(
+                &vid,
+                None,
+                &[FileChange::Upsert {
+                    path: "old.png".into(),
+                    file: StoredFile::BlobPointer {
+                        hash: old_hash.clone(),
+                        size: 5,
+                        mime: Some("image/png".into()),
+                    },
+                }],
+                "old blob",
+            )
+            .await
+            .unwrap();
+        let current_commit = git
+            .commit_changes(
+                &vid,
+                Some(&old_commit),
+                &[
+                    FileChange::Delete {
+                        path: "old.png".into(),
+                    },
+                    FileChange::Upsert {
+                        path: "current.png".into(),
+                        file: StoredFile::BlobPointer {
+                            hash: current_hash.clone(),
+                            size: 7,
+                            mime: Some("image/png".into()),
+                        },
+                    },
+                ],
+                "current blob",
+            )
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO blob_refs (blob_hash, vault_id, commit_hash) VALUES (?, ?, ?), (?, ?, ?)",
+        )
+        .bind(&old_hash)
+        .bind(&vid)
+        .bind(&old_commit)
+        .bind(&current_hash)
+        .bind(&vid)
+        .bind(&current_commit)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        let report = reconcile_vault_metadata(&state, &vid).await.unwrap();
+
+        assert_eq!(report.blob_refs, 1);
+        assert!(!state
+            .blob_refs
+            .is_referenced_by_vault(&vid, &old_hash)
+            .await
+            .unwrap());
+        assert!(state
+            .blob_refs
+            .is_referenced_by_vault(&vid, &current_hash)
             .await
             .unwrap());
     }

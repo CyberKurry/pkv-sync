@@ -48,6 +48,8 @@ pub enum GitStoreError {
     NotFound,
     #[error("path conflict between file and directory: {0}")]
     PathConflict(String),
+    #[error("invalid vault id")]
+    InvalidVaultId,
     #[error("blocking task panicked")]
     Panic,
 }
@@ -86,8 +88,11 @@ impl Git2VaultStore {
         Self { root }
     }
 
-    fn repo_path(&self, vault_id: &str) -> PathBuf {
-        self.root.join(vault_id)
+    fn repo_path(&self, vault_id: &str) -> Result<PathBuf, GitStoreError> {
+        if !is_valid_storage_vault_id(vault_id) {
+            return Err(GitStoreError::InvalidVaultId);
+        }
+        Ok(self.root.join(vault_id))
     }
 
     pub async fn list_tree_map(
@@ -104,7 +109,7 @@ impl Git2VaultStore {
         vault_id: &str,
         commit: &str,
     ) -> Result<Option<String>, GitStoreError> {
-        let p = self.repo_path(vault_id);
+        let p = self.repo_path(vault_id)?;
         let commit = commit.to_string();
         tokio::task::spawn_blocking(move || -> Result<Option<String>, GitStoreError> {
             let repo = Repository::open_bare(&p)?;
@@ -124,7 +129,7 @@ impl Git2VaultStore {
         vault_id: &str,
         commit: &str,
     ) -> Result<bool, GitStoreError> {
-        let p = self.repo_path(vault_id);
+        let p = self.repo_path(vault_id)?;
         let commit = commit.to_string();
         tokio::task::spawn_blocking(move || -> Result<bool, GitStoreError> {
             let repo = Repository::open_bare(&p)?;
@@ -156,7 +161,7 @@ impl Git2VaultStore {
         commit: &str,
         message: &str,
     ) -> Result<(), GitStoreError> {
-        let p = self.repo_path(vault_id);
+        let p = self.repo_path(vault_id)?;
         let commit = commit.to_string();
         let message = message.to_string();
         tokio::task::spawn_blocking(move || -> Result<(), GitStoreError> {
@@ -177,7 +182,7 @@ impl Git2VaultStore {
         parent: Option<&str>,
         commit: &str,
     ) -> Result<Vec<crate::service::diff::CommitChange>, GitStoreError> {
-        let p = self.repo_path(vault_id);
+        let p = self.repo_path(vault_id)?;
         let parent = parent.map(str::to_string);
         let commit = commit.to_string();
         tokio::task::spawn_blocking(
@@ -299,6 +304,14 @@ fn tree_path_is_pointer(
     Ok(is_pointer_bytes(blob.content()).is_some()
         || (!TextClassifier::default_ref().is_text_path(path)
             && is_legacy_pointer_bytes(blob.content()).is_some()))
+}
+
+fn is_valid_storage_vault_id(vault_id: &str) -> bool {
+    !vault_id.is_empty()
+        && vault_id.len() <= 128
+        && vault_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 fn sig() -> Result<Signature<'static>, git2::Error> {
@@ -531,7 +544,7 @@ fn tree_entries_recursive(
 #[async_trait]
 impl GitVaultStore for Git2VaultStore {
     async fn ensure_repo(&self, vault_id: &str) -> Result<(), GitStoreError> {
-        let p = self.repo_path(vault_id);
+        let p = self.repo_path(vault_id)?;
         tokio::task::spawn_blocking(move || -> Result<(), GitStoreError> {
             let _repo = open_or_init_bare_main(&p)?;
             Ok(())
@@ -541,7 +554,7 @@ impl GitVaultStore for Git2VaultStore {
     }
 
     async fn head(&self, vault_id: &str) -> Result<Option<String>, GitStoreError> {
-        let p = self.repo_path(vault_id);
+        let p = self.repo_path(vault_id)?;
         tokio::task::spawn_blocking(move || -> Result<Option<String>, GitStoreError> {
             if !p.exists() {
                 return Ok(None);
@@ -560,7 +573,7 @@ impl GitVaultStore for Git2VaultStore {
         changes: &[FileChange],
         message: &str,
     ) -> Result<String, GitStoreError> {
-        let p = self.repo_path(vault_id);
+        let p = self.repo_path(vault_id)?;
         let changes = changes.to_vec();
         let message = message.to_string();
         let parent = parent.map(|s| s.to_string());
@@ -603,7 +616,7 @@ impl GitVaultStore for Git2VaultStore {
         vault_id: &str,
         at: Option<&str>,
     ) -> Result<Vec<TreeEntry>, GitStoreError> {
-        let p = self.repo_path(vault_id);
+        let p = self.repo_path(vault_id)?;
         let at = at.map(|s| s.to_string());
         tokio::task::spawn_blocking(move || -> Result<Vec<TreeEntry>, GitStoreError> {
             let repo = Repository::open_bare(&p)?;
@@ -627,7 +640,7 @@ impl GitVaultStore for Git2VaultStore {
         path: &str,
         at: Option<&str>,
     ) -> Result<Option<StoredFile>, GitStoreError> {
-        let p = self.repo_path(vault_id);
+        let p = self.repo_path(vault_id)?;
         let path = path.to_string();
         let at = at.map(|s| s.to_string());
         tokio::task::spawn_blocking(move || -> Result<Option<StoredFile>, GitStoreError> {
@@ -974,5 +987,15 @@ mod tests {
             .unwrap();
         let map = store.list_tree_map("v1", Some(&c)).await.unwrap();
         assert!(map.contains_key("a.md"));
+    }
+
+    #[test]
+    fn repo_path_rejects_traversal_vault_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+
+        let result = store.repo_path("../outside");
+
+        assert!(matches!(result, Err(GitStoreError::InvalidVaultId)));
     }
 }

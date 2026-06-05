@@ -101,6 +101,10 @@ pub async fn rollback_to_commit_as(
     .await
     .map_err(rollback_git_error)?;
 
+    crate::service::sync::reconcile_vault_metadata_unlocked(state, vault_id)
+        .await
+        .map_err(|_| RollbackError::Internal("failed to refresh rollback metadata".into()))?;
+
     let from = from_commit
         .clone()
         .ok_or_else(|| RollbackError::Internal("missing source head".into()))?;
@@ -169,10 +173,10 @@ fn rollback_git_error(err: GitStoreError) -> RollbackError {
             ) =>
         {
             RollbackError::UnknownCommit {
-                commit: git_err.to_string(),
+                commit: "requested commit".into(),
             }
         }
-        other => RollbackError::Internal(other.to_string()),
+        _ => RollbackError::Internal("git operation failed".into()),
     }
 }
 

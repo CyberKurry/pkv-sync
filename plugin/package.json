@@ -1,6 +1,6 @@
 {
   "name": "pkv-sync-obsidian-plugin",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "private": true,
   "scripts": {
     "build": "node esbuild.config.mjs production",
@@ -18,5 +18,8 @@
     "tslib": "^2.6.2",
     "typescript": "^5.4.2",
     "vitest": "^4.1.5"
+  },
+  "dependencies": {
+    "pkv-sync-monorepo": "file:.."
   }
 }

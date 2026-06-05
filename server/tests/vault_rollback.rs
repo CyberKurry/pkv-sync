@@ -3,7 +3,7 @@ use axum::http::{Request, StatusCode};
 use pkv_sync_server::api;
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::pool;
-use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
+use pkv_sync_server::db::repos::{BlobRefRepo, NewToken, NewUser, TokenRepo, UserRepo, VaultRepo};
 use pkv_sync_server::service::events::{EventKind, VaultEvent};
 use pkv_sync_server::service::sync::{push, PushChange, PushReq};
 use pkv_sync_server::service::vault::{self, rollback_to_commit, RollbackError};
@@ -196,6 +196,97 @@ async fn rollback_success_moves_head_publishes_event_and_records_activity() {
     assert_eq!(commit_hash, first);
     assert_eq!(details["from_commit"], second);
     assert_eq!(details["to_commit"], first);
+}
+
+#[tokio::test]
+async fn rollback_refreshes_vault_stats_and_current_blob_refs() {
+    let ctx = setup().await;
+    let old_data = bytes::Bytes::from_static(b"old");
+    let old_hash = pkv_sync_server::storage::blob::LocalFsBlobStore::sha256(&old_data);
+    pkv_sync_server::service::sync::upload_blob(
+        &ctx.state,
+        &ctx.owner.user_id,
+        &ctx.vault_id,
+        &old_hash,
+        old_data,
+    )
+    .await
+    .unwrap();
+    let first = push(
+        &ctx.state,
+        &ctx.owner,
+        &ctx.vault_id,
+        None,
+        None,
+        PushReq {
+            device_name: None,
+            changes: vec![PushChange::Blob {
+                path: "old.png".into(),
+                blob_hash: old_hash.clone(),
+                size: 3,
+                mime: Some("image/png".into()),
+            }],
+        },
+    )
+    .await
+    .unwrap()
+    .new_commit;
+    let new_data = bytes::Bytes::from_static(b"new-data");
+    let new_hash = pkv_sync_server::storage::blob::LocalFsBlobStore::sha256(&new_data);
+    pkv_sync_server::service::sync::upload_blob(
+        &ctx.state,
+        &ctx.owner.user_id,
+        &ctx.vault_id,
+        &new_hash,
+        new_data,
+    )
+    .await
+    .unwrap();
+    let _second = push(
+        &ctx.state,
+        &ctx.owner,
+        &ctx.vault_id,
+        Some(&first),
+        None,
+        PushReq {
+            device_name: None,
+            changes: vec![PushChange::Blob {
+                path: "new.png".into(),
+                blob_hash: new_hash.clone(),
+                size: 8,
+                mime: Some("image/png".into()),
+            }],
+        },
+    )
+    .await
+    .unwrap()
+    .new_commit;
+
+    rollback_to_commit(&ctx.state, &ctx.owner, &ctx.vault_id, &first)
+        .await
+        .unwrap();
+
+    let vault = ctx
+        .state
+        .vaults
+        .find_by_id(&ctx.vault_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(vault.file_count, 1);
+    assert_eq!(vault.size_bytes, 3);
+    assert!(ctx
+        .state
+        .blob_refs
+        .is_referenced_by_vault(&ctx.vault_id, &old_hash)
+        .await
+        .unwrap());
+    assert!(!ctx
+        .state
+        .blob_refs
+        .is_referenced_by_vault(&ctx.vault_id, &new_hash)
+        .await
+        .unwrap());
 }
 
 #[tokio::test]

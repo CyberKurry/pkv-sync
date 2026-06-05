@@ -12,7 +12,12 @@ pub enum PathError {
     Nul,
     #[error(".git paths are not allowed")]
     GitDir,
+    #[error("path is too long")]
+    TooLong,
 }
+
+const MAX_PATH_LEN: usize = 512;
+const MAX_PATH_COMPONENT_LEN: usize = 255;
 
 /// Normalize a vault-relative path for protocol/Git storage.
 pub fn normalize(input: &str) -> Result<String, PathError> {
@@ -39,12 +44,19 @@ pub fn normalize(input: &str) -> Result<String, PathError> {
         if part.eq_ignore_ascii_case(".git") {
             return Err(PathError::GitDir);
         }
+        if part.len() > MAX_PATH_COMPONENT_LEN {
+            return Err(PathError::TooLong);
+        }
         out.push(part);
     }
     if out.is_empty() {
         return Err(PathError::Empty);
     }
-    Ok(out.join("/"))
+    let normalized = out.join("/");
+    if normalized.len() > MAX_PATH_LEN {
+        return Err(PathError::TooLong);
+    }
+    Ok(normalized)
 }
 
 #[cfg(test)]
@@ -93,6 +105,18 @@ mod tests {
         assert_eq!(
             normalize("a/%2E%2E/b").unwrap_err(),
             PathError::ParentTraversal
+        );
+    }
+
+    #[test]
+    fn rejects_overlong_paths_and_components() {
+        assert_eq!(
+            normalize(&format!("{}.md", "a".repeat(6000))).unwrap_err(),
+            PathError::TooLong
+        );
+        assert_eq!(
+            normalize(&format!("{}/note.md", "a".repeat(256))).unwrap_err(),
+            PathError::TooLong
         );
     }
 }
