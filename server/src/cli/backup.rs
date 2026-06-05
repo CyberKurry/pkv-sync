@@ -108,11 +108,13 @@ pub fn copy_dir_if_exists(src: &Path, dst: &Path) -> anyhow::Result<()> {
     if !src.exists() {
         return Ok(());
     }
-    for entry in walkdir::WalkDir::new(src) {
+    for entry in walkdir::WalkDir::new(src).follow_links(false) {
         let entry = entry?;
         let rel = entry.path().strip_prefix(src)?;
         let out = dst.join(rel);
-        if entry.file_type().is_dir() {
+        if entry.file_type().is_symlink() {
+            continue;
+        } else if entry.file_type().is_dir() {
             fs::create_dir_all(&out)?;
         } else if entry.file_type().is_file() {
             if let Some(parent) = out.parent() {
@@ -132,7 +134,9 @@ pub fn remove_dir_contents(path: &Path) -> anyhow::Result<()> {
         let entry = entry?;
         let path = entry.path();
         let ty = entry.file_type()?;
-        if ty.is_dir() {
+        if ty.is_symlink() {
+            fs::remove_file(path)?;
+        } else if ty.is_dir() {
             fs::remove_dir_all(path)?;
         } else {
             fs::remove_file(path)?;

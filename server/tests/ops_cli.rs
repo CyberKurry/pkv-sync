@@ -13,6 +13,26 @@ use ipnet::IpNet;
 use serde_json::Value;
 use std::path::Path;
 
+#[cfg(unix)]
+fn symlink_file_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn symlink_file_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_file(target, link)
+}
+
+#[cfg(unix)]
+fn symlink_dir_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn symlink_dir_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
+}
+
 async fn setup_state() -> (AppState, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");
@@ -161,6 +181,45 @@ async fn backup_gzip_writes_archive() {
 
     assert!(out.exists());
     assert!(std::fs::metadata(&out).unwrap().len() > 0);
+}
+
+#[test]
+fn copy_dir_if_exists_skips_symlinked_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    let dst = tmp.path().join("dst");
+    let secret = tmp.path().join("secret.txt");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("regular.txt"), b"regular").unwrap();
+    std::fs::write(&secret, b"secret").unwrap();
+
+    if symlink_file_for_test(&secret, &src.join("linked-secret.txt")).is_err() {
+        return;
+    }
+
+    backup::copy_dir_if_exists(&src, &dst).unwrap();
+
+    assert_eq!(std::fs::read(dst.join("regular.txt")).unwrap(), b"regular");
+    assert!(!dst.join("linked-secret.txt").exists());
+}
+
+#[test]
+fn remove_dir_contents_removes_symlink_without_touching_target() {
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("external");
+    let root = tmp.path().join("root");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(target.join("keep.txt"), b"keep").unwrap();
+
+    if symlink_dir_for_test(&target, &root.join("linked-external")).is_err() {
+        return;
+    }
+
+    backup::remove_dir_contents(&root).unwrap();
+
+    assert!(target.join("keep.txt").exists());
+    assert!(!root.join("linked-external").exists());
 }
 
 #[tokio::test]

@@ -539,7 +539,7 @@ async fn push_with_request_metadata_internal(
     }
 
     let runtime_cfg = state.runtime_cfg.snapshot().await;
-    let classifier = TextClassifier::new(runtime_cfg.text_extensions.iter().map(|s| s.as_str()));
+    let classifier = runtime_cfg.text_classifier.clone();
     let path_filter = sync_path_filter(state, vault_id, &runtime_cfg.extra_exclude_globs).await?;
     let git = state.git_store();
     git.ensure_repo(vault_id).await.map_err(git_write_error)?;
@@ -555,7 +555,7 @@ async fn push_with_request_metadata_internal(
                     current_head,
                     req,
                     runtime_cfg: &runtime_cfg,
-                    classifier: &classifier,
+                    classifier: classifier.as_ref(),
                     path_filter: &path_filter,
                     idempotency_key,
                     request_hash: request_hash.as_deref(),

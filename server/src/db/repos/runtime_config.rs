@@ -5,6 +5,8 @@ use sqlx::SqlitePool;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
+use crate::storage::text_kind::TextClassifier;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RegistrationMode {
@@ -42,6 +44,7 @@ pub struct RuntimeConfig {
     pub login_lock_seconds: u64,
     pub max_file_size: u64,
     pub text_extensions: Vec<String>,
+    pub text_classifier: Arc<TextClassifier>,
     pub enable_history_ui: bool,
     pub enable_diff_endpoint: bool,
     pub extra_exclude_globs: Vec<String>,
@@ -57,6 +60,14 @@ pub struct RuntimeConfig {
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
+        let text_extensions = vec![
+            "md".into(),
+            "canvas".into(),
+            "base".into(),
+            "json".into(),
+            "txt".into(),
+            "css".into(),
+        ];
         Self {
             registration_mode: RegistrationMode::Disabled,
             server_name: "PKV Sync".into(),
@@ -65,14 +76,10 @@ impl Default for RuntimeConfig {
             login_window_seconds: 15 * 60,
             login_lock_seconds: 15 * 60,
             max_file_size: 100 * 1024 * 1024,
-            text_extensions: vec![
-                "md".into(),
-                "canvas".into(),
-                "base".into(),
-                "json".into(),
-                "txt".into(),
-                "css".into(),
-            ],
+            text_classifier: Arc::new(TextClassifier::new(
+                text_extensions.iter().map(String::as_str),
+            )),
+            text_extensions,
             enable_history_ui: true,
             enable_diff_endpoint: true,
             extra_exclude_globs: vec![],
@@ -224,6 +231,7 @@ fn runtime_config_from_rows(rows: Vec<(String, String)>) -> RuntimeConfig {
     }
     if let Some(exts) = read_json_value::<Vec<String>>(&values, "text_extensions") {
         cfg.text_extensions = exts;
+        cfg.rebuild_text_classifier();
     }
     if let Some(enabled) = read_json_value::<bool>(&values, "enable_history_ui") {
         cfg.enable_history_ui = enabled;
@@ -259,6 +267,14 @@ fn runtime_config_from_rows(rows: Vec<(String, String)>) -> RuntimeConfig {
         cfg.update_check_interval_seconds = n.max(60);
     }
     cfg
+}
+
+impl RuntimeConfig {
+    pub fn rebuild_text_classifier(&mut self) {
+        self.text_classifier = Arc::new(TextClassifier::new(
+            self.text_extensions.iter().map(String::as_str),
+        ));
+    }
 }
 
 fn read_json_value<T: DeserializeOwned>(values: &HashMap<String, String>, key: &str) -> Option<T> {
@@ -569,7 +585,8 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
 pub struct RuntimeConfigCache(pub Arc<RwLock<RuntimeConfig>>);
 
 impl RuntimeConfigCache {
-    pub fn new(cfg: RuntimeConfig) -> Self {
+    pub fn new(mut cfg: RuntimeConfig) -> Self {
+        cfg.rebuild_text_classifier();
         Self(Arc::new(RwLock::new(cfg)))
     }
 
@@ -577,7 +594,8 @@ impl RuntimeConfigCache {
         self.0.read().await.clone()
     }
 
-    pub async fn replace(&self, cfg: RuntimeConfig) {
+    pub async fn replace(&self, mut cfg: RuntimeConfig) {
+        cfg.rebuild_text_classifier();
         *self.0.write().await = cfg;
     }
 }
@@ -673,6 +691,7 @@ mod tests {
                 login_lock_seconds: 900,
                 max_file_size: 100 * 1024 * 1024,
                 text_extensions: RuntimeConfig::default().text_extensions.clone(),
+                text_classifier: RuntimeConfig::default().text_classifier.clone(),
                 enable_history_ui: true,
                 enable_diff_endpoint: true,
                 extra_exclude_globs: vec![],
@@ -688,6 +707,22 @@ mod tests {
             .await;
         let snap2 = cache.snapshot().await;
         assert_eq!(snap2.registration_mode, RegistrationMode::Open);
+    }
+
+    #[tokio::test]
+    async fn cache_replace_rebuilds_text_classifier_from_extensions() {
+        let cache = RuntimeConfigCache::new(RuntimeConfig::default());
+        let mut cfg = RuntimeConfig {
+            text_extensions: vec!["foo".into()],
+            ..RuntimeConfig::default()
+        };
+        cfg.text_classifier = RuntimeConfig::default().text_classifier.clone();
+
+        cache.replace(cfg).await;
+        let snap = cache.snapshot().await;
+
+        assert!(snap.text_classifier.is_text_path("note.foo"));
+        assert!(!snap.text_classifier.is_text_path("note.md"));
     }
 
     #[tokio::test]
@@ -713,6 +748,8 @@ mod tests {
             .unwrap();
         let cfg = r.load().await.unwrap();
         assert_eq!(cfg.text_extensions, vec!["md", "txt"]);
+        assert!(cfg.text_classifier.is_text_path("note.md"));
+        assert!(!cfg.text_classifier.is_text_path("note.foo"));
     }
 
     #[tokio::test]
