@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 1.0.11
+  version: 1.0.12
   license:
     name: AGPL-3.0-only
   contact:
@@ -354,19 +354,18 @@ components:
           type: boolean
     AdminTokenView:
       type: object
+      description: |
+        Public token metadata returned to administrators. Plaintext token
+        values are shown only at creation time, and this response deliberately
+        omits internal user id, expiry, and revocation timestamps.
       required:
         - id
-        - user_id
         - device_id
         - device_name
         - created_at
-        - expires_at
         - last_used_at
-        - revoked_at
       properties:
         id:
-          type: string
-        user_id:
           type: string
         device_id:
           type: string
@@ -375,14 +374,7 @@ components:
         created_at:
           type: integer
           format: int64
-        expires_at:
-          type: integer
-          format: int64
         last_used_at:
-          type: integer
-          format: int64
-          nullable: true
-        revoked_at:
           type: integer
           format: int64
           nullable: true
@@ -450,6 +442,7 @@ components:
       properties:
         blob_hashes:
           type: array
+          maxItems: 10000
           items:
             type: string
             pattern: '^[0-9a-f]{64}$'
@@ -520,6 +513,8 @@ components:
         device_name:
           type: string
           nullable: true
+          maxLength: 4096
+          description: Optional client display name; control characters are rejected.
     PushResponse:
       type: object
       required: [new_commit, files_changed]
@@ -686,6 +681,8 @@ components:
         password:
           type: string
           format: password
+          minLength: 12
+          description: Must include uppercase, lowercase, and digit characters.
         is_admin:
           type: boolean
           nullable: true
@@ -701,6 +698,8 @@ components:
         password:
           type: string
           format: password
+          minLength: 12
+          description: When present, must include uppercase, lowercase, and digit characters.
           nullable: true
     Invite:
       type: object
@@ -1210,6 +1209,9 @@ paths:
           PluginUserAgent: []
           BearerAuth: []
       summary: Upload a blob by content hash
+      description: |
+        Request body size is limited by the runtime `max_file_size` setting and
+        is always clamped to the hard blob storage cap (512 MiB in production).
       parameters:
         - $ref: '#/components/parameters/VaultId'
         - in: header
@@ -1277,6 +1279,8 @@ paths:
           name: Idempotency-Key
           schema:
             type: string
+            maxLength: 256
+          description: Optional idempotency key for replaying the same push response.
       requestBody:
         required: true
         content:
@@ -1693,7 +1697,10 @@ paths:
         `pkvsyncd mcp --transport http` listener. It requires the configured
         deployment key and a bearer device token; Admin WebUI cookies do not
         authenticate MCP requests. JSON-RPC method names and payloads follow
-        the MCP protocol plus PKV Sync's documented tool set.
+        the MCP protocol plus PKV Sync's documented tool set. MCP search caps
+        each request to 5000 tree files, 500 returned matches, and 256 MiB of
+        searched text in production. Binary/blob read responses above 64 MiB
+        are rejected instead of being base64-expanded into JSON.
       requestBody:
         required: true
         content:

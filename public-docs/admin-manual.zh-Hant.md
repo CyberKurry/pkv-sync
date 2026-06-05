@@ -73,6 +73,7 @@ repo = "cyberkurry/pkv-sync"
 
 - 可在 **Users** 頁面或 CLI 建立使用者。
 - 使用者名稱必須是 3-32 個 ASCII 字母、數字、`_`、`-` 或 `.`。
+- 管理員建立或重設的密碼必須至少 12 個字元，並包含大寫字母、小寫字母和數字。
 - 使用者頁面的搜尋和狀態篩選可以縮小表格範圍。
 - 開啟使用者詳情頁可重設密碼、啟用或停用帳號、提升或降低管理員權限，並查看該使用者的裝置 token。
 - 如果後續可能需要稽核歷史，優先停用使用者而不是刪除使用者。
@@ -99,6 +100,7 @@ pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 
 - Token 明文只在建立時顯示一次。
 - 資料庫只保存 SHA-256 token hash。
+- 管理員 token 列表 endpoint 和表格只顯示公開 token 中繼資料，不返回明文 token，也不返回內部過期或撤銷欄位。
 - 每次認證請求都會把 token 過期時間延長到該請求時間之後 90 天，但不會超過 token 建立後 365 天。
 - 同一穩定外掛裝置 ID 再次登入時，會取代該裝置舊的活躍 token。
 - 被活動記錄引用的已撤銷 token 可以清理，同時保留活動歷史。
@@ -153,14 +155,14 @@ Blob 檔案是內容定址的，可能會保留到垃圾回收確認其超過寬
 **安全** — 註冊模式（`disabled` / `invite_only` / `open`）、登入失敗閾值、失敗視窗和鎖定時長。登入速率限制器同時計算已失敗次數和進行中的密碼驗證，並發暴力嘗試無法繞過閾值。認證同步 API 路由另有固定視窗限流：按路由、方法、用戶端 IP 和 bearer 裝置 token 分桶，每 60 秒最多 600 次請求。失敗的 bearer token 認證嘗試也會按用戶端 IP 限流，每 60 秒最多 120 次，因此輪換偽造 token 不能繞過失敗預算。
 
 **同步與儲存**
-- 最大檔案大小（預設 `100 MiB`）
+- 最大檔案大小（預設 `100 MiB`）。Blob 上傳請求 body 一律會被硬儲存上限限制（生產環境 `512 MiB`），即使執行階段設定被調得更高
 - 支援的文字副檔名 — 清單外的檔案按二進位 blob 處理。該清單在 Admin WebUI 中為唯讀；如需修改，請透過 `text_extensions` 執行階段設定列（或直接編輯 SQLite `runtime_config` 表）。
 - 額外 exclude glob — 管理員可調，補充內建的 `.obsidian/`、`.trash/`、`.conflict-*`、`.git/` 排除清單
 - 歷史介面和 diff 端點開關
 - **自動合併文字**（`enable_auto_merge`，預設開啟）：啟用後，伺服器會在寫入衝突檔案前先嘗試三向行級合併。互不重疊的編輯可乾淨合併；重疊編輯仍會產生帶合併標記的衝突檔案。
 - **Push 去抖**（`push_debounce_ms`，預設 `250`）：本機編輯穩定到推送之間的延遲。變小可縮短端到端延遲，變大可每次 push 合併更多按鍵
 - **SSE 內聯內容上限**（`inline_content_max_bytes`，預設 `8192`，上限 `65536`）：此尺寸以內的文字變更隨 SSE 事件直接下發，接收端外掛無需再 pull；超過則降級走 pull
-- **SSE 心跳**（`sse_heartbeat_seconds`，預設 `30`）：事件流保活，避免閒置 SSE 連線被反向代理切斷。並發 SSE 訂閱預設按使用者限制為 16，並保留 1024 的全域上限。
+- **SSE 心跳**（`sse_heartbeat_seconds`，預設 `30`）：事件流保活，避免閒置 SSE 連線被反向代理切斷。並發 SSE 訂閱預設按使用者限制為 16，並保留 1024 的全域上限。已開啟的事件流會週期性複查 bearer token；token 被撤銷或帳號被停用後會關閉。
 - **Git smart HTTP**（`enable_git_smart_http`，預設關）：開啟後授權裝置可 `git clone https://_:<token>@host/git/<vault-id>`。伺服器還需要 `PATH` 中有 `git` 二進位；公開的 `/api/config` 能力兩個條件都滿足才顯示為可用
 
 **網路與更新檢查** — `public_host`、監聽位址、可信代理以及 `[update_check].repo` 在啟動時從 `config.toml` 讀取。更新檢查的啟用狀態和間隔是保存在 SQLite 中的執行階段設定；允許範圍為 60 秒到 30 天。

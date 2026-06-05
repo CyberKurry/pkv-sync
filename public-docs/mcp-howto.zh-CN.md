@@ -61,6 +61,10 @@ POST 承载 JSON-RPC 工具调用并返回 JSON 响应。GET 携带 `Accept: tex
 
 除非放在可信网络控制之后，否则请把 HTTP 绑定到 loopback。bearer token 会授予该用户所有笔记库的读写访问权限。
 
+## 读取和搜索上限
+
+`search` 最多扫描 5000 个 tree 文件，最多返回 500 条匹配，并在生产环境搜索文本累计达到 256 MiB 后停止。`read_file` 和 `read_file_at_commit` 会在返回前解析 blob pointer；超过 64 MiB 的二进制/blob 响应会被拒绝，而不是被 base64 展开进 JSON。
+
 ## 写入工具
 
 PKV Sync 在读取工具之外提供两个 MCP 写入工具：

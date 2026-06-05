@@ -271,9 +271,11 @@ trusted_proxies = ["172.16.0.0/12"]
 - 支援的文字副檔名。
 - 時區，預設 `Asia/Shanghai`。
 
-註冊和登入失敗會被限流。管理員建立的使用者和 CLI 使用者仍應使用強密碼。
+註冊和登入失敗會被限流。Setup 以及管理員建立或重設的密碼必須至少 12 個字元，並包含大寫字母、小寫字母和數字；CLI 建立的使用者也仍應使用強密碼。
 
 認證同步 API 路由也按路由、方法、用戶端 IP 和 bearer token 固定視窗限流，每 60 秒最多 600 次請求。失敗的 bearer token 認證會另按用戶端 IP 限流，每 60 秒最多 120 次失敗嘗試。保持 `trusted_proxies` 準確，讓限流器和稽核日誌看到真實用戶端 IP。
+
+Blob 上傳請求 body 受 `max_file_size` 限制，並且一律會被硬 blob 上限限制（生產環境 `512 MiB`）。主 SSE 串流在保持開啟時會複查 bearer token；MCP 讀取和搜尋工具也有回應大小與總搜尋預算，避免大型筆記庫被展開成無界 JSON 回應。
 
 ## Prometheus Metrics
 

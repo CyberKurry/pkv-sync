@@ -73,6 +73,7 @@ repo = "cyberkurry/pkv-sync"
 
 - 可在 **Users** 页面或 CLI 创建用户。
 - 用户名必须是 3-32 个 ASCII 字母、数字、`_`、`-` 或 `.`。
+- 管理员创建或重置的密码必须至少 12 个字符，并包含大写字母、小写字母和数字。
 - 用户页面的搜索和状态筛选可以缩小表格范围。
 - 打开用户详情页可重置密码、启用或禁用账号、提升或降低管理员权限，并查看该用户的设备 token。
 - 如果后续可能需要审计历史，优先禁用用户而不是删除用户。
@@ -99,6 +100,7 @@ pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 
 - Token 明文只在创建时展示一次。
 - 数据库只保存 SHA-256 token hash。
+- 管理员 token 列表接口和表格只展示公开 token 元数据，不返回明文 token，也不返回内部过期或撤销字段。
 - 每次认证请求都会把 token 过期时间延长到该请求时间之后 90 天，但不会超过 token 创建后 365 天。
 - 同一稳定插件设备 ID 再次登录时，会替换该设备旧的活跃 token。
 - 被活动记录引用的已撤销 token 可以清理，同时保留活动历史。
@@ -153,14 +155,14 @@ Blob 文件是内容寻址的，可能会保留到垃圾回收确认其超过宽
 **安全** — 注册模式(`disabled` / `invite_only` / `open`)、登录失败阈值、失败窗口和锁定时长。登录速率限制器同时统计已失败次数和在途密码验证,并发暴力尝试无法绕过阈值。认证同步 API 路由另有固定窗口限流：按路由、方法、客户端 IP 和 bearer 设备 token 分桶，每 60 秒最多 600 次请求。失败的 bearer token 认证尝试也会按客户端 IP 限流，每 60 秒最多 120 次，因此轮换伪造 token 不能绕过失败预算。
 
 **同步与存储**
-- 最大文件大小(默认 `100 MiB`)
+- 最大文件大小(默认 `100 MiB`)。Blob 上传请求体始终会被硬存储上限限制（生产环境 `512 MiB`），即使运行时设置被调得更高
 - 支持的文本扩展名 — 列表外的文件按二进制 blob 处理。Admin WebUI 中该列表只读展示；如需修改，请通过 `text_extensions` 运行时配置行（或直接编辑 SQLite `runtime_config` 表）调整
 - 额外 exclude glob — 管理员可调,补充内置的 `.obsidian/`、`.trash/`、`.conflict-*`、`.git/` 排除清单
 - 历史界面和 diff 端点开关
 - **文本自动合并**（`enable_auto_merge`，默认开启）：启用后，服务端在写入冲突文件之前会先尝试三方按行合并。不相交的编辑会干净合并；重叠编辑仍会生成带合并标记的冲突文件
 - **Push 去抖**(`push_debounce_ms`,默认 `250`):本地编辑稳定到推送之间的延迟。变小可缩短端到端延迟,变大可每次 push 合并更多按键
 - **SSE 内联内容上限**(`inline_content_max_bytes`,默认 `8192`,上限 `65536`):此尺寸以内的文本变更随 SSE 事件直接下发,接收端插件无需再 pull;超过则降级走 pull
-- **SSE 心跳**(`sse_heartbeat_seconds`,默认 `30`):事件流保活,避免空闲 SSE 连接被反向代理切断。并发 SSE 订阅默认按用户限制为 16，并保留 1024 的全局上限。
+- **SSE 心跳**(`sse_heartbeat_seconds`,默认 `30`):事件流保活,避免空闲 SSE 连接被反向代理切断。并发 SSE 订阅默认按用户限制为 16，并保留 1024 的全局上限。已打开的事件流会周期性复查 bearer token；token 被撤销或账号被禁用后会关闭。
 - **Git smart HTTP**(`enable_git_smart_http`,默认关):开启后授权设备可 `git clone https://_:<token>@host/git/<vault-id>`。服务器还需要 `PATH` 中有 `git` 二进制;公开的 `/api/config` 能力两个条件都满足才显示为可用
 
 **网络与更新检查** — `public_host`、监听地址、可信代理以及 `[update_check].repo` 在启动时从 `config.toml` 读取。更新检查的启用状态和间隔是保存在 SQLite 中的运行时设置；允许范围为 60 秒到 30 天。
@@ -198,7 +200,7 @@ https://sync.example.com/k_xxx/
 
 二进制部署可先运行 `pkvsyncd upgrade --dry-run` 预览最新 release、目标资产和旁路写入路径。运行 `pkvsyncd upgrade --yes` 会把校验后的 release 二进制下载到当前可执行文件旁边的 `pkvsyncd.new`（Windows 为 `pkvsyncd.new.exe`）。命令会根据 `SHA256SUMS` 校验 SHA-256，并打印 systemd／手动替换步骤；它不会热替换正在运行的进程。
 
-使用 `pkvsyncd upgrade --version 1.0.11` 可以指定 release。若命令找不到匹配资产或校验和，请手动从 GitHub release 下载，并自行校验 `SHA256SUMS`。
+使用 `pkvsyncd upgrade --version 1.0.12` 可以指定 release。若命令找不到匹配资产或校验和，请手动从 GitHub release 下载，并自行校验 `SHA256SUMS`。
 
 对于 0.x 部署，不要把 1.0 二进制或镜像直接指向已有 `metadata.db`。请先备份、materialize 或导出笔记库内容，使用全新的 1.0 数据目录启动服务，再把笔记库内容导入或 push 到新服务端。详见 [`upgrade-notes-v1.0.zh-CN.md`](./upgrade-notes-v1.0.zh-CN.md)。
 

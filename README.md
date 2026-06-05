@@ -26,6 +26,9 @@ English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md
   confirmation dialogs for destructive vault and user actions.
 - **AI-readable vaults.** MCP exposes read/write tools over stdio,
   standalone Streamable HTTP, or an embedded `/mcp` route on `pkvsyncd serve`.
+- **Bounded by default.** Admin-created passwords use the setup-grade strong
+  policy, token secrets are one-time only, uploads and MCP responses are size
+  capped, and live SSE streams revalidate revoked tokens.
 - **Boring on purpose.** Single binary, single SQLite metadata DB, one
   bare git repo per vault, one content-addressed blob per attachment.
 

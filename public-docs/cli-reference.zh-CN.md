@@ -259,7 +259,7 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 
 ### 说明
 
-`stdio` 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC。`http` 模式在 `/mcp` 上提供一个无状态的 Streamable HTTP MCP 端点。两种模式暴露相同的工具集：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`write_file` 和 `delete_file`。写入类工具按 `(token, vault)` 限流为每分钟 60 次写入。
+`stdio` 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC。`http` 模式在 `/mcp` 上提供一个无状态的 Streamable HTTP MCP 端点。两种模式暴露相同的工具集：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`write_file` 和 `delete_file`。写入类工具按 `(token, vault)` 限流为每分钟 60 次写入。搜索请求最多扫描 5000 个 tree 文件、返回 500 条匹配，并在生产环境搜索文本累计达到 256 MiB 后停止。超过 64 MiB 的二进制/blob 读取响应会被拒绝，而不是被 base64 展开进 JSON。
 
 `http` 模式要求每个请求都携带服务器部署密钥请求头，与常规同步 API 一致。
 
@@ -289,7 +289,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`：显示所选的发行版、资产和目标路径，但不下载任何文件。
 - `--yes`：跳过交互式确认提示。
-- `--version <VERSION>`：下载指定版本（例如 `1.0.11`），而不是最新发行版。
+- `--version <VERSION>`：下载指定版本（例如 `1.0.12`），而不是最新发行版。
 
 ### 说明
 
@@ -307,5 +307,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 下载指定版本
-pkvsyncd upgrade --yes --version 1.0.11
+pkvsyncd upgrade --yes --version 1.0.12
 ```

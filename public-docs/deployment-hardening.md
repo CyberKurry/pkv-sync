@@ -313,14 +313,20 @@ Review these from the Admin WebUI:
 - Supported text extensions.
 - Timezone, default `Asia/Shanghai`.
 
-Registration and login failures are rate limited. Admin-created users and CLI
-users still need strong passwords.
+Registration and login failures are rate limited. Setup and Admin-created or
+Admin-reset passwords must be at least 12 characters and include uppercase,
+lowercase, and a digit; CLI-created users still need strong passwords.
 
 Authenticated sync API routes are also fixed-window rate limited at 600
 requests per 60 seconds per route, method, client IP, and bearer token. Keep
 `trusted_proxies` accurate so the limiter and audit log see the real client IP.
 Failed bearer-token authentication attempts across authenticated REST routes
 are separately limited per client IP at 120 attempts per 60 seconds.
+
+Blob upload bodies are limited by `max_file_size` and also clamped to the hard
+blob cap (`512 MiB` in production). Main SSE streams revalidate bearer tokens
+while open, and MCP read/search tools have response and total-search budgets so
+large vaults cannot be expanded into unbounded JSON responses.
 
 ## Prometheus Metrics
 

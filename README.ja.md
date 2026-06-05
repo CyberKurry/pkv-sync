@@ -27,6 +27,7 @@
   ユーザー、デバイストークン、ボールト、招待、アクティビティ、blob GC を
   ここから操作し、破壊的なボールト操作とユーザー操作には確認ダイアログを表示します。
 - **AI から読める vault**。MCP は stdio、独立した Streamable HTTP、または `pkvsyncd serve` に埋め込まれた `/mcp` ルートで read/write tools を公開します。
+- **既定で上限付き**。管理者が作成／リセットするパスワードは setup と同じ強度ポリシーを使い、token の平文は一度だけ表示され、upload と MCP response はサイズ上限で守られ、live SSE stream は取り消された token を再検証します。
 - **退屈なつくりは意図的**。バイナリひとつ、SQLite メタデータ DB ひとつ、
   ボールトごとに bare Git リポジトリひとつ、添付ごとに content-addressed な
   blob ひとつ。

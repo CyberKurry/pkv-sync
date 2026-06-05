@@ -7,6 +7,29 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.12] - 2026-06-05
+
+### Security
+
+- Require the same strong password policy for Admin API and Admin WebUI user
+  creation/reset flows as first-run setup: at least 12 characters with
+  uppercase, lowercase, and a digit.
+- Keep admin token-list responses to public token metadata only; user id,
+  expiry, and revoked timestamps are no longer returned by that endpoint.
+- Reject abnormal push metadata earlier, including `Idempotency-Key` values
+  above 256 bytes and `device_name` values with control characters.
+- Clamp blob upload request bodies to the hard blob storage cap even when
+  runtime `max_file_size` is configured higher.
+- Harden MCP reads and searches with binary response and total search-byte
+  budgets while preserving the existing write limiter.
+- Tighten SSE subscriber counter release and other reviewed edge cases around
+  redirects, conflict fallback paths, and rate-limiter pruning.
+
+### Performance
+
+- Trim reviewed server hot-path overhead around admin/session queries,
+  Git/SSE bookkeeping, blob access, merge handling, and MCP list/search tools.
+
 ## [1.0.11] - 2026-06-05
 
 ### Security

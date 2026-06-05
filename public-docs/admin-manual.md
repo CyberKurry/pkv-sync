@@ -96,6 +96,8 @@ binary or container image automatically.
 
 - Create users from **Users** or with the CLI.
 - Usernames must be 3-32 ASCII letters, digits, `_`, `-`, or `.`.
+- Admin-created and admin-reset passwords must be at least 12 characters and
+  include uppercase, lowercase, and a digit.
 - Use search and status filters on the Users page to narrow the table.
 - Open a user detail page to reset passwords, enable or disable the account,
   promote or demote admin access, and inspect that user's device tokens.
@@ -128,6 +130,8 @@ Operational notes:
 
 - Token plaintext is shown only once at creation.
 - Only SHA-256 token hashes are stored in the database.
+- Admin token list endpoints and tables show public token metadata only; they
+  do not reveal plaintext tokens or internal expiry/revocation fields.
 - Every authenticated request extends the token expiry by 90 days from that
   request time, capped at 365 days from token creation.
 - Logging in again from the same stable plugin device ID replaces the previous
@@ -218,7 +222,9 @@ at 120 attempts per 60 seconds, so rotating fake tokens cannot bypass the
 failure budget.
 
 **Sync & Storage**
-- Max file size (default `100 MiB`).
+- Max file size (default `100 MiB`). Blob upload request bodies are always
+  clamped to the hard storage cap (`512 MiB` in production), even if this
+  runtime setting is raised higher.
 - Supported text extensions — files outside this list are treated as binary
   blobs. The list is shown read-only in the Admin WebUI; edit it via the
   `text_extensions` runtime config row (or by editing the SQLite `runtime_config`
@@ -240,7 +246,8 @@ failure budget.
 - **SSE heartbeat** (`sse_heartbeat_seconds`, default `30`): keep-alive
   ticks for the event stream so idle SSE connections survive reverse
   proxies. Concurrent SSE subscriptions are capped per user at 16 by default,
-  with a global ceiling of 1024.
+  with a global ceiling of 1024. Open event streams periodically revalidate the
+  bearer token and close after token revocation or account disablement.
 - **Git smart HTTP** (`enable_git_smart_http`, default off): when on,
   authorised devices can `git clone https://_:<token>@host/git/<vault-id>`.
   The server also requires the `git` binary in `PATH`; the public
@@ -299,7 +306,7 @@ download the verified release binary next to the current executable as
 from `SHA256SUMS` and prints the systemd/manual swap steps. It does not hot
 replace the running process.
 
-Use `pkvsyncd upgrade --version 1.0.11` to target a specific release. If the
+Use `pkvsyncd upgrade --version 1.0.12` to target a specific release. If the
 command cannot find a matching asset or checksum, follow the manual GitHub
 release download path and verify `SHA256SUMS` yourself.
 

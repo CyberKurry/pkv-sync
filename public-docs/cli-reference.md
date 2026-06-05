@@ -292,6 +292,9 @@ mode serves a stateless Streamable HTTP MCP endpoint at `/mcp`. Both modes
 expose the same toolset: `list_vaults`, `list_files`, `read_file`,
 `read_file_at_commit`, `search`, `write_file`, and `delete_file`. Write tools
 are rate-limited at 60 writes per minute per `(token, vault)`.
+Search requests scan at most 5000 tree files, return at most 500 matches, and
+stop after 256 MiB of searched text in production. Binary/blob read responses
+above 64 MiB are rejected instead of being base64-expanded into JSON.
 
 `http` mode requires every request to carry the server deployment key header,
 just like the regular sync API.
@@ -322,7 +325,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: show the selected release, asset, and target path without downloading anything.
 - `--yes`: skip the interactive confirmation prompt.
-- `--version <VERSION>`: download a specific release such as `1.0.11` instead of the latest release.
+- `--version <VERSION>`: download a specific release such as `1.0.12` instead of the latest release.
 
 ### Description
 
@@ -346,5 +349,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # Download a specific release
-pkvsyncd upgrade --yes --version 1.0.11
+pkvsyncd upgrade --yes --version 1.0.12
 ```

@@ -273,9 +273,11 @@ Admin WebUI から確認します。
 - Supported text extensions。
 - Timezone。既定は `Asia/Shanghai`。
 
-登録とログイン失敗は rate limited です。管理者作成ユーザーと CLI ユーザーにも強力なパスワードが必要です。
+登録とログイン失敗は rate limited です。Setup、および管理者が作成またはリセットするパスワードは、12 文字以上で大文字、小文字、数字を含む必要があります。CLI 作成ユーザーにも強力なパスワードが必要です。
 
 認証済み同期 API routes も、route、method、client IP、bearer token ごとに 60 秒あたり 600 リクエストの固定ウィンドウで制限されます。失敗した bearer token 認証は別途 client IP ごとに 60 秒あたり 120 回までに制限されます。limiter と audit log が実 client IP を見られるよう、`trusted_proxies` を正確に保ってください。
+
+Blob upload request body は `max_file_size` で制限され、さらに hard blob cap（production では `512 MiB`）で常に clamp されます。Main SSE streams は開いている間 bearer token を再検証します。MCP read/search tools には response と total-search budgets があり、大きな vault が無制限の JSON response に展開されないようにしています。
 
 ## Prometheus Metrics
 

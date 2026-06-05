@@ -75,6 +75,7 @@ repo = "cyberkurry/pkv-sync"
 
 - **Users** または CLI からユーザーを作成します。
 - ユーザー名は 3-32 文字の ASCII 英字、数字、`_`、`-`、`.` のいずれかである必要があります。
+- 管理者が作成またはリセットするパスワードは、12 文字以上で、大文字、小文字、数字を含む必要があります。
 - Users ページの検索とステータスフィルターで表を絞り込めます。
 - ユーザー詳細ページを開くと、パスワードリセット、アカウントの有効化/無効化、管理者権限の付与/解除、そのユーザーの装置 token の確認ができます。
 - 監査履歴が必要になる可能性がある場合は、削除ではなく無効化を優先してください。
@@ -101,6 +102,7 @@ pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 
 - Token の平文は作成時に一度だけ表示されます。
 - データベースには SHA-256 token hash のみ保存されます。
+- 管理者向け token 一覧 endpoint と表は公開 token メタデータだけを表示し、平文 token や内部の期限/取り消しフィールドは返しません。
 - 各認証済みリクエストは、そのリクエスト時刻から 90 日後まで token 期限を延長しますが、token 作成から 365 日を超えません。
 - 同じ安定したプラグイン装置 ID から再ログインすると、その装置の以前のアクティブ token が置き換えられます。
 - アクティビティ行から参照される取り消し済み token は、アクティビティ履歴を残したままクリーンアップできます。
@@ -155,14 +157,14 @@ Settings ページは SQLite に保存された値を編集します。変更は
 **Security** — 登録モード（`disabled` / `invite_only` / `open`）、ログイン失敗しきい値、失敗ウィンドウ、ロック時間。ログインレートリミッターは失敗回数と進行中のパスワード検証の両方を数えるため、同時大量推測でしきい値を回避できません。認証済み同期 API ルートには、ルート、メソッド、クライアント IP、bearer 装置 token ごとに 60 秒あたり最大 600 リクエストの固定ウィンドウ制限があります。失敗した bearer token 認証試行もクライアント IP ごとに 60 秒あたり最大 120 回に制限されるため、偽 token をローテーションしても失敗予算を回避できません。
 
 **Sync & Storage**
-- 最大ファイルサイズ（既定 `100 MiB`）
+- 最大ファイルサイズ（既定 `100 MiB`）。Blob upload request body は、この runtime 設定をより高くしても、常に hard storage cap（production では `512 MiB`）で制限されます
 - 対応テキスト拡張子 — 一覧外のファイルはバイナリ blob として扱われます。この一覧は Admin WebUI では読み取り専用で表示されます。変更が必要な場合は、`text_extensions` runtime config 行を編集するか、SQLite の `runtime_config` テーブルを直接編集してください。
 - 追加 exclude glob — 組み込みの `.obsidian/`、`.trash/`、`.conflict-*`、`.git/` 除外リストを補う管理者調整可能なパターン
 - 履歴 UI と diff エンドポイントの切替
 - **Auto-merge text**（`enable_auto_merge`、既定オン）: 有効時、サーバーは衝突ファイルを書き出す前に 3-way ライン merge を試みます。重ならない編集はクリーンに merge され、重なる編集は引き続き merge マーカー入りの衝突ファイルになります。
 - **Push debounce**（`push_debounce_ms`、既定 `250`）: ローカル編集が落ち着いてから push するまでの待機時間。小さくするとエンドツーエンド遅延が減り、大きくすると 1 回の push でより多くの入力をまとめられます
 - **Inline SSE content cap**（`inline_content_max_bytes`、既定 `8192`、最大 `65536`）: このサイズまでのテキスト変更は SSE イベント内で送信され、受信プラグインは別途 pull せずに適用できます。大きいファイルは pull にフォールバックします
-- **SSE heartbeat**（`sse_heartbeat_seconds`、既定 `30`）: アイドル SSE 接続がリバースプロキシで切断されないようにするイベントストリームの keep-alive。並行 SSE 購読は既定でユーザーごとに 16、全体上限は 1024 です。
+- **SSE heartbeat**（`sse_heartbeat_seconds`、既定 `30`）: アイドル SSE 接続がリバースプロキシで切断されないようにするイベントストリームの keep-alive。並行 SSE 購読は既定でユーザーごとに 16、全体上限は 1024 です。開いているイベントストリームは bearer token を定期的に再検証し、token の取り消しまたはアカウント無効化後に閉じます。
 - **Git smart HTTP**（`enable_git_smart_http`、既定オフ）: 有効時、認可済み装置は `git clone https://_:<token>@host/git/<vault-id>` を使用できます。サーバーには `PATH` 内の `git` バイナリも必要で、公開 `/api/config` capability は両方の条件を反映します。
 
 **Network and update checks** — `public_host`、bind address、trusted proxies、`[update_check].repo` は起動時に `config.toml` から読み込まれます。更新確認の有効化と間隔は SQLite に保存されるランタイム設定です。許可範囲は 60 秒から 30 日です。

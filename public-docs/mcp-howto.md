@@ -79,6 +79,13 @@ history, it emits `lagged` and the client should refresh from the sync API.
 Bind HTTP to loopback unless you put it behind trusted network controls. A
 bearer token gives read and write access to every vault owned by that user.
 
+## Read and search limits
+
+`search` scans at most 5000 tree files, returns at most 500 matches, and stops
+after 256 MiB of searched text in production. `read_file` and
+`read_file_at_commit` resolve blob pointers before responding; binary/blob
+responses above 64 MiB are rejected instead of being base64-expanded into JSON.
+
 ## Write tools
 
 PKV Sync exposes two MCP write tools alongside the read tools:

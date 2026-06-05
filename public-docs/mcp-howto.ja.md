@@ -63,6 +63,10 @@ POST は JSON-RPC tool calls を運び、JSON responses を返します。`Accep
 
 信頼できるネットワーク制御の背後に置かない限り、HTTP は loopback に bind してください。bearer token は、そのユーザーが所有するすべての vault への読み書きアクセスを与えます。
 
+## Read and search limits
+
+`search` は最大 5000 個の tree files を走査し、最大 500 matches を返し、production では検索済み text が 256 MiB に達すると停止します。`read_file` と `read_file_at_commit` は応答前に blob pointer を解決します。64 MiB を超える binary/blob response は、base64 として JSON に展開される代わりに拒否されます。
+
 ## Write tools
 
 PKV Sync は読み取り tools と併せて 2 つの MCP write tools を提供します。
