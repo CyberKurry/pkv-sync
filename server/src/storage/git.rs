@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const MAIN_REF: &str = "refs/heads/main";
+#[cfg(test)]
+const MAX_REACHABLE_WALK: usize = 3;
+#[cfg(not(test))]
+const MAX_REACHABLE_WALK: usize = 10_000;
 pub const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
 pub const POINTER_VERSION: u64 = 1;
 
@@ -151,7 +155,10 @@ impl Git2VaultStore {
             };
             let mut walk = repo.revwalk()?;
             walk.push(head)?;
-            for oid in walk {
+            for (idx, oid) in walk.enumerate() {
+                if idx >= MAX_REACHABLE_WALK {
+                    return Ok(false);
+                }
                 if oid? == target {
                     return Ok(true);
                 }
@@ -765,6 +772,55 @@ mod tests {
         assert_eq!(
             store.head("v1").await.unwrap().as_deref(),
             Some(commit.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn commit_reachable_from_head_stops_after_walk_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let first = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "note-0.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"0".to_vec(),
+                    },
+                }],
+                "c0",
+            )
+            .await
+            .unwrap();
+        let mut parent = first.clone();
+        for idx in 1..=4 {
+            parent = store
+                .commit_changes(
+                    "v1",
+                    Some(&parent),
+                    &[FileChange::Upsert {
+                        path: format!("note-{idx}.md"),
+                        file: StoredFile::Text {
+                            bytes: idx.to_string().into_bytes(),
+                        },
+                    }],
+                    &format!("c{idx}"),
+                )
+                .await
+                .unwrap();
+        }
+
+        assert!(store
+            .commit_reachable_from_head("v1", &parent)
+            .await
+            .unwrap());
+        assert!(
+            !store
+                .commit_reachable_from_head("v1", &first)
+                .await
+                .unwrap(),
+            "old commits beyond the test walk budget should not force an unbounded revwalk"
         );
     }
 

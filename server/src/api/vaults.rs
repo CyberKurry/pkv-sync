@@ -343,6 +343,7 @@ async fn read_file(
     Path((id, path)): Path<(String, String)>,
     Query(q): Query<ReadFileQuery>,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
+    let path = sync::ensure_path_visible_for_sync_api(&state, &id, &path).await?;
     let f = sync::read_file(&state, &user.user_id, &id, &path, q.at.as_deref())
         .await?
         .ok_or_else(|| ApiError::not_found("file"))?;
@@ -371,9 +372,13 @@ async fn commits(
     Path(id): Path<String>,
     Query(q): Query<CommitsQuery>,
 ) -> Result<Json<Vec<crate::service::history::CommitSummary>>, ApiError> {
-    if q.path.is_some() && !state.runtime_cfg.snapshot().await.enable_history_ui {
+    if !state.runtime_cfg.snapshot().await.enable_history_ui {
         return Err(ApiError::not_found("history disabled"));
     }
+    let path = match q.path.as_deref() {
+        Some(path) => Some(sync::ensure_path_visible_for_sync_api(&state, &id, path).await?),
+        None => None,
+    };
     let limit = q
         .limit
         .as_deref()
@@ -381,7 +386,7 @@ async fn commits(
         .unwrap_or(50)
         .min(200);
     Ok(Json(
-        crate::service::history::commits(&state, &user.user_id, &id, limit, q.path.as_deref())
+        crate::service::history::commits(&state, &user.user_id, &id, limit, path.as_deref())
             .await?,
     ))
 }
@@ -428,6 +433,7 @@ async fn file_history(
         .path
         .as_deref()
         .ok_or_else(|| ApiError::bad_request("missing_path", "path required"))?;
+    let path = sync::ensure_path_visible_for_sync_api(&state, &id, path).await?;
     let limit = q
         .limit
         .as_deref()
@@ -435,14 +441,14 @@ async fn file_history(
         .unwrap_or(50)
         .min(200);
     let out =
-        crate::service::history::file_history(&state, &user.user_id, &id, path, limit).await?;
+        crate::service::history::file_history(&state, &user.user_id, &id, &path, limit).await?;
     let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
     sync::record_view(
         &state,
         &user,
         &id,
         "view_history",
-        Some(path),
+        Some(&path),
         sync::RequestMetadata {
             client_ip: client_ip.as_deref(),
             user_agent: user_agent.as_deref(),
@@ -467,19 +473,26 @@ async fn diff(
         .path
         .as_deref()
         .ok_or_else(|| ApiError::bad_request("missing_path", "path required"))?;
+    let path = sync::ensure_path_visible_for_sync_api(&state, &id, path).await?;
     let to =
         q.to.as_deref()
             .ok_or_else(|| ApiError::bad_request("missing_to", "to required"))?;
-    let out =
-        crate::service::diff::unified_diff(&state, &user.user_id, &id, q.from.as_deref(), to, path)
-            .await?;
+    let out = crate::service::diff::unified_diff(
+        &state,
+        &user.user_id,
+        &id,
+        q.from.as_deref(),
+        to,
+        &path,
+    )
+    .await?;
     let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
     sync::record_view(
         &state,
         &user,
         &id,
         "view_diff",
-        Some(path),
+        Some(&path),
         sync::RequestMetadata {
             client_ip: client_ip.as_deref(),
             user_agent: user_agent.as_deref(),
@@ -726,6 +739,7 @@ mod tests {
     use crate::db::repos::{NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo};
     use crate::service::AppState;
     use crate::storage::blob::LocalFsBlobStore;
+    use crate::storage::git::{FileChange, GitVaultStore, StoredFile};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use axum::Router;
@@ -1568,7 +1582,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        assert_eq!(commits.status(), StatusCode::OK);
+        assert_eq!(commits.status(), StatusCode::NOT_FOUND);
 
         let diff = app
             .oneshot(auth_request(
@@ -1579,6 +1593,77 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(diff.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn excluded_paths_are_hidden_from_file_history_diff_and_read_file() {
+        let (app, state, raw) = setup_with_state().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        state
+            .runtime_cfg_repo
+            .set_extra_exclude_globs(vec!["scratch/**".into()], None)
+            .await
+            .unwrap();
+        let cfg = state.runtime_cfg_repo.load().await.unwrap();
+        state.runtime_cfg.replace(cfg).await;
+        let commit = state
+            .git_store()
+            .commit_changes(
+                &id,
+                None,
+                &[FileChange::Upsert {
+                    path: "scratch/secret.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"secret".to_vec(),
+                    },
+                }],
+                "seed excluded file",
+            )
+            .await
+            .unwrap();
+
+        let history = app
+            .clone()
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/history?path=scratch/secret.md"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(history.status(), StatusCode::NOT_FOUND);
+
+        let commits = app
+            .clone()
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/commits?path=scratch/secret.md"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(commits.status(), StatusCode::NOT_FOUND);
+
+        let diff = app
+            .clone()
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/diff?to={commit}&path=scratch/secret.md"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(diff.status(), StatusCode::NOT_FOUND);
+
+        let file = app
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/files/scratch/secret.md"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(file.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

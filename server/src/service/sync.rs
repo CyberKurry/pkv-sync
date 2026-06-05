@@ -29,6 +29,7 @@ const MAX_PUSH_DEVICE_NAME_BYTES: usize = 4096;
 const MAX_SSE_INLINE_PUSH_BYTES: usize = 64 * 1024;
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
 const MAX_COMMIT_DEVICE_NAME_CHARS: usize = 128;
+const MAX_PULL_TREE_ENTRIES: usize = 50_000;
 #[cfg(test)]
 const VAULT_PUSH_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
 #[cfg(not(test))]
@@ -342,6 +343,22 @@ async fn sync_path_filter(
         user_excludes,
         vault_allowlist,
     ))
+}
+
+pub(crate) async fn ensure_path_visible_for_sync_api(
+    state: &AppState,
+    vault_id: &str,
+    path: &str,
+) -> Result<String, ApiError> {
+    let normalized =
+        path::normalize(path).map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
+    let rc = state.runtime_cfg.snapshot().await;
+    let path_filter = sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await?;
+    if path_filter.path_accepts(&normalized) {
+        Ok(normalized)
+    } else {
+        Err(ApiError::not_found("file not found"))
+    }
 }
 
 fn reject_filtered_push_path(
@@ -1129,12 +1146,15 @@ fn safe_commit_device_name(name: &str) -> String {
         if char_count >= MAX_COMMIT_DEVICE_NAME_CHARS {
             break;
         }
-        if ch.is_control() || ch.is_whitespace() {
+        if ch.is_ascii_whitespace() {
             if !out.is_empty() && !last_was_space {
                 out.push(' ');
                 last_was_space = true;
                 char_count += 1;
             }
+            continue;
+        }
+        if !ch.is_ascii_graphic() {
             continue;
         }
         out.push(ch);
@@ -1508,6 +1528,7 @@ pub async fn pull(
         vault_id,
         since,
         RequestMetadata::default(),
+        MAX_PULL_TREE_ENTRIES,
     )
     .await
 }
@@ -1526,6 +1547,7 @@ pub async fn pull_with_request_metadata(
         vault_id,
         since,
         request_metadata,
+        MAX_PULL_TREE_ENTRIES,
     )
     .await
 }
@@ -1537,6 +1559,7 @@ async fn pull_for_user(
     vault_id: &str,
     since: Option<&str>,
     request_metadata: RequestMetadata<'_>,
+    max_tree_entries: usize,
 ) -> Result<PullResp, ApiError> {
     let _vault = vault::ensure_user_vault(state, user_id, vault_id).await?;
     let git = state.git_store();
@@ -1574,6 +1597,13 @@ async fn pull_for_user(
             .map_err(|e| ApiError::internal(e.to_string()))?,
         None => std::collections::BTreeMap::new(),
     };
+    if current.len() > max_tree_entries || base.len() > max_tree_entries {
+        return Err(ApiError::new(
+            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+            "pull_too_large",
+            format!("vault has too many files for one pull response; limit is {max_tree_entries}"),
+        ));
+    }
     let rc = state.runtime_cfg.snapshot().await;
     let path_filter = sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await?;
     let mut added_paths = Vec::new();
@@ -1892,6 +1922,15 @@ mod tests {
     }
 
     #[test]
+    fn safe_commit_device_name_strips_invisible_unicode() {
+        let sanitized = safe_commit_device_name("Desk\u{200b}\u{202e}Hidden");
+
+        assert_eq!(sanitized, "DeskHidden");
+        assert!(!sanitized.contains('\u{200b}'));
+        assert!(!sanitized.contains('\u{202e}'));
+    }
+
+    #[test]
     fn git_write_error_hides_storage_paths_in_conflict_responses() {
         let err = GitStoreError::Git(git2::Error::new(
             git2::ErrorCode::Locked,
@@ -2136,6 +2175,38 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err.code, "file_too_large");
+    }
+
+    #[tokio::test]
+    async fn pull_rejects_vaults_over_tree_entry_budget() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let git = state.git_store();
+        let changes = (0..4)
+            .map(|idx| crate::storage::git::FileChange::Upsert {
+                path: format!("note-{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: idx.to_string().into_bytes(),
+                },
+            })
+            .collect::<Vec<_>>();
+        git.commit_changes(&vid, None, &changes, "seed")
+            .await
+            .unwrap();
+
+        let err = pull_for_user(
+            &state,
+            &user.user_id,
+            None,
+            &vid,
+            None,
+            RequestMetadata::default(),
+            3,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.status, axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(err.code, "pull_too_large");
     }
 
     #[tokio::test]

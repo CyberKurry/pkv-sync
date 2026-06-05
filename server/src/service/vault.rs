@@ -181,7 +181,8 @@ fn rollback_git_error(err: GitStoreError) -> RollbackError {
 }
 
 pub fn validate_vault_name(name: &str) -> Result<(), ApiError> {
-    if name.trim().is_empty() || name.len() > 64 {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.len() > 64 {
         return Err(ApiError::bad_request(
             "invalid_vault_name",
             "vault name length must be 1-64",
@@ -374,6 +375,19 @@ mod tests {
         let err = validate_vault_name("main\nhidden").unwrap_err();
 
         assert_eq!(err.code, "invalid_vault_name");
+    }
+
+    #[test]
+    fn validate_vault_name_counts_trimmed_length() {
+        let padded = format!(" {} ", "a".repeat(64));
+
+        assert!(validate_vault_name(&padded).is_ok());
+        assert_eq!(
+            validate_vault_name(&format!("{} ", "a".repeat(65)))
+                .unwrap_err()
+                .code,
+            "invalid_vault_name"
+        );
     }
 
     #[tokio::test]

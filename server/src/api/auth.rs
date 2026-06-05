@@ -165,7 +165,7 @@ mod tests {
             .oneshot(json(
                 "/api/auth/register",
                 serde_json::json!({
-                    "username":"alice","password":"passw0rd!!","device_id":"device-register","device_name":"d"
+                    "username":"alice","password":"Passw0rdStrong","device_id":"device-register","device_name":"d"
                 }),
             ))
             .await
@@ -218,7 +218,7 @@ mod tests {
             .oneshot(json(
                 "/api/auth/register",
                 serde_json::json!({
-                    "username":"alice","password":"passw0rd!!","device_id":"device-register","device_name":"d"
+                    "username":"alice","password":"Passw0rdStrong","device_id":"device-register","device_name":"d"
                 }),
             ))
             .await
@@ -299,13 +299,13 @@ mod tests {
         let app = make_app_with_threshold(RegistrationMode::Open, 2).await;
         let taken = serde_json::json!({
             "username": "taken",
-            "password": "passw0rd!!",
+            "password": "Passw0rdStrong",
             "device_id": "device-taken-0",
             "device_name": "d"
         });
         let success = serde_json::json!({
             "username": "alice",
-            "password": "passw0rd!!",
+            "password": "Passw0rdStrong",
             "device_id": "device-alice",
             "device_name": "d"
         });
@@ -371,7 +371,7 @@ mod tests {
             .oneshot(json(
                 "/api/auth/register",
                 serde_json::json!({
-                    "username":"alice","password":"passw0rd!!","device_id":"device-login-register","device_name":"d"
+                    "username":"alice","password":"Passw0rdStrong","device_id":"device-login-register","device_name":"d"
                 }),
             ))
             .await
@@ -380,7 +380,7 @@ mod tests {
             .oneshot(json(
                 "/api/auth/login",
                 serde_json::json!({
-                    "username":"alice","password":"passw0rd!!","device_id":"device-login","device_name":"d2"
+                    "username":"alice","password":"Passw0rdStrong","device_id":"device-login","device_name":"d2"
                 }),
             ))
             .await
@@ -396,7 +396,7 @@ mod tests {
             .oneshot(json(
                 "/api/auth/register",
                 serde_json::json!({
-                    "username":"alice","password":"passw0rd!!","device_id":"device-wrong-register","device_name":"d"
+                    "username":"alice","password":"Passw0rdStrong","device_id":"device-wrong-register","device_name":"d"
                 }),
             ))
             .await
@@ -452,7 +452,7 @@ mod tests {
             .oneshot(json(
                 "/api/auth/register",
                 serde_json::json!({
-                    "username":"disabled_user","password":"passw0rd!!","device_id":"device-disabled","device_name":"d"
+                    "username":"disabled_user","password":"Passw0rdStrong","device_id":"device-disabled","device_name":"d"
                 }),
             ))
             .await
@@ -472,7 +472,7 @@ mod tests {
             .oneshot(json(
                 "/api/auth/login",
                 serde_json::json!({
-                    "username":"disabled_user","password":"passw0rd!!","device_id":"device-disabled","device_name":"d"
+                    "username":"disabled_user","password":"Passw0rdStrong","device_id":"device-disabled","device_name":"d"
                 }),
             ))
             .await
@@ -492,7 +492,7 @@ mod tests {
                 .oneshot(json(
                     "/api/auth/login",
                     serde_json::json!({
-                        "username":"disabled_user","password":"passw0rd!!","device_id":"device-disabled","device_name":"d"
+                        "username":"disabled_user","password":"Passw0rdStrong","device_id":"device-disabled","device_name":"d"
                     }),
                 ))
                 .await

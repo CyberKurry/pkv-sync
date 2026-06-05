@@ -131,7 +131,7 @@ async fn open_registration_register_login_me_roundtrip() {
         .header("x-pkvsync-deployment-key", &server.key)
         .json(&serde_json::json!({
             "username": "alice",
-            "password": "passw0rd!!",
+            "password": "Passw0rdStrong",
             "device_id": "device-register",
             "device_name": "desktop"
         }))
@@ -146,7 +146,7 @@ async fn open_registration_register_login_me_roundtrip() {
         .header("x-pkvsync-deployment-key", &server.key)
         .json(&serde_json::json!({
             "username": "alice",
-            "password": "passw0rd!!",
+            "password": "Passw0rdStrong",
             "device_id": "device-login",
             "device_name": "laptop"
         }))

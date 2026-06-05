@@ -62,6 +62,25 @@ fn is_unique_error(e: &sqlx::Error) -> bool {
     matches!(e, sqlx::Error::Database(db) if db.is_unique_violation())
 }
 
+fn validate_auth_password(plaintext: &str) -> Result<(), ApiError> {
+    password::validate_strong(plaintext).map_err(|e| match e {
+        password::PasswordError::TooLong { .. } | password::PasswordError::TooWeak => {
+            ApiError::bad_request("weak_password", e.to_string())
+        }
+        _ => ApiError::internal(e.to_string()),
+    })
+}
+
+fn hash_auth_password(plaintext: &str) -> Result<String, ApiError> {
+    validate_auth_password(plaintext)?;
+    password::hash(plaintext).map_err(|e| match e {
+        password::PasswordError::TooShort { .. }
+        | password::PasswordError::TooLong { .. }
+        | password::PasswordError::TooWeak => ApiError::bad_request("weak_password", e.to_string()),
+        _ => ApiError::internal(e.to_string()),
+    })
+}
+
 pub async fn verify_credentials(
     state: &AppState,
     username: &str,
@@ -131,12 +150,7 @@ pub async fn register(state: &AppState, req: RegisterReq) -> Result<AuthResp, Ap
             "username already exists",
         ));
     }
-    let pwd_hash = password::hash(&req.password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
-            ApiError::bad_request("weak_password", e.to_string())
-        }
-        _ => ApiError::internal(e.to_string()),
-    })?;
+    let pwd_hash = hash_auth_password(&req.password)?;
     let user = state
         .users
         .create(NewUser {
@@ -208,12 +222,7 @@ pub async fn change_password(
     if !ok {
         return Err(ApiError::unauthorized("current password incorrect"));
     }
-    let new_hash = password::hash(&req.new_password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
-            ApiError::bad_request("weak_password", e.to_string())
-        }
-        _ => ApiError::internal(e.to_string()),
-    })?;
+    let new_hash = hash_auth_password(&req.new_password)?;
     state.users.update_password(user_id, &new_hash).await?;
     state
         .tokens
@@ -335,7 +344,7 @@ mod tests {
             &s,
             RegisterReq {
                 username: "alice".into(),
-                password: "passw0rd!!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-open".into(),
                 device_name: "x".into(),
                 invite_code: None,
@@ -354,7 +363,7 @@ mod tests {
             &s,
             RegisterReq {
                 username: "userx".into(),
-                password: "passw0rd!!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-dupe-1".into(),
                 device_name: "d".into(),
                 invite_code: None,
@@ -366,7 +375,7 @@ mod tests {
             &s,
             RegisterReq {
                 username: "userx".into(),
-                password: "passw0rd!!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-dupe-2".into(),
                 device_name: "d".into(),
                 invite_code: None,
@@ -408,6 +417,26 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.code, "weak_password");
+    }
+
+    #[tokio::test]
+    async fn register_rejects_password_without_setup_strength() {
+        let s = make_state(RegistrationMode::Open).await;
+        let err = register(
+            &s,
+            RegisterReq {
+                username: "userx".into(),
+                password: "passw0rd!!".into(),
+                device_id: "device-weak-complexity".into(),
+                device_name: "d".into(),
+                invite_code: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "weak_password");
+        assert!(s.users.find_by_username("userx").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -481,7 +510,7 @@ mod tests {
             &s,
             RegisterReq {
                 username: "racea".into(),
-                password: "passw0rd!!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-race-a".into(),
                 device_name: "a".into(),
                 invite_code: Some(invite.code.clone()),
@@ -491,7 +520,7 @@ mod tests {
             &s,
             RegisterReq {
                 username: "raceb".into(),
-                password: "passw0rd!!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-race-b".into(),
                 device_name: "b".into(),
                 invite_code: Some(invite.code.clone()),
@@ -534,7 +563,7 @@ mod tests {
             &s,
             RegisterReq {
                 username: "alice".into(),
-                password: "secret123!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-a".into(),
                 device_name: "d".into(),
                 invite_code: None,
@@ -546,7 +575,7 @@ mod tests {
             &s,
             LoginReq {
                 username: "alice".into(),
-                password: "secret123!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-b".into(),
                 device_name: "d2".into(),
             },
@@ -563,7 +592,7 @@ mod tests {
             &s,
             RegisterReq {
                 username: "alice".into(),
-                password: "secret123!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "stable-device".into(),
                 device_name: "Laptop".into(),
                 invite_code: None,
@@ -575,7 +604,7 @@ mod tests {
             &s,
             LoginReq {
                 username: "alice".into(),
-                password: "secret123!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "stable-device".into(),
                 device_name: "Laptop renamed".into(),
             },
@@ -599,7 +628,7 @@ mod tests {
             &s,
             RegisterReq {
                 username: "userx".into(),
-                password: "passw0rd!!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-login-wrong-register".into(),
                 device_name: "d".into(),
                 invite_code: None,
@@ -645,7 +674,7 @@ mod tests {
             &s,
             RegisterReq {
                 username: "userx".into(),
-                password: "passw0rd!!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-change-1".into(),
                 device_name: "d1".into(),
                 invite_code: None,
@@ -657,7 +686,7 @@ mod tests {
             &s,
             LoginReq {
                 username: "userx".into(),
-                password: "passw0rd!!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-change-2".into(),
                 device_name: "d2".into(),
             },
@@ -676,8 +705,8 @@ mod tests {
             &r1.user_id,
             &r1_id,
             ChangePasswordReq {
-                current_password: "passw0rd!!".into(),
-                new_password: "newpass1234".into(),
+                current_password: "Passw0rdStrong".into(),
+                new_password: "Newpass1234Strong".into(),
             },
         )
         .await
@@ -695,13 +724,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn change_password_rejects_password_without_setup_strength() {
+        let s = make_state(RegistrationMode::Open).await;
+        let resp = register(
+            &s,
+            RegisterReq {
+                username: "userx".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "device-change-weak".into(),
+                device_name: "d1".into(),
+                invite_code: None,
+            },
+        )
+        .await
+        .unwrap();
+        let token_id = s
+            .tokens
+            .list_for_user(&resp.user_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|t| t.device_id == "device-change-weak")
+            .unwrap()
+            .id;
+
+        let err = change_password(
+            &s,
+            &resp.user_id,
+            &token_id,
+            ChangePasswordReq {
+                current_password: "Passw0rdStrong".into(),
+                new_password: "newpass1234".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "weak_password");
+        assert!(verify_credentials(&s, "userx", "Passw0rdStrong")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
     async fn verify_credentials_returns_user_on_valid_login() {
         let s = make_state(RegistrationMode::Open).await;
         let _ = register(
             &s,
             RegisterReq {
                 username: "alice".into(),
-                password: "secret123!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-verify".into(),
                 device_name: "d".into(),
                 invite_code: None,
@@ -709,7 +781,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let user = verify_credentials(&s, "alice", "secret123!").await.unwrap();
+        let user = verify_credentials(&s, "alice", "Passw0rdStrong")
+            .await
+            .unwrap();
         assert_eq!(user.username, "alice");
     }
 
@@ -720,7 +794,7 @@ mod tests {
             &s,
             RegisterReq {
                 username: "alice".into(),
-                password: "secret123!".into(),
+                password: "Passw0rdStrong".into(),
                 device_id: "device-verify-wrong".into(),
                 device_name: "d".into(),
                 invite_code: None,
