@@ -265,7 +265,7 @@ fn is_binary_delta(
     path: &str,
     old_path: Option<&str>,
 ) -> Result<bool, GitStoreError> {
-    let classifier = TextClassifier::default();
+    let classifier = TextClassifier::default_ref();
     let text_path = classifier.is_text_path(path)
         || old_path
             .map(|old_path| classifier.is_text_path(old_path))
@@ -297,7 +297,7 @@ fn tree_path_is_pointer(
     };
     let blob = repo.find_blob(entry.id())?;
     Ok(is_pointer_bytes(blob.content()).is_some()
-        || (!TextClassifier::default().is_text_path(path)
+        || (!TextClassifier::default_ref().is_text_path(path)
             && is_legacy_pointer_bytes(blob.content()).is_some()))
 }
 
@@ -377,7 +377,7 @@ fn decode_file(path: &str, bytes: Vec<u8>) -> StoredFile {
     if let Some(pointer) = is_pointer_bytes(&bytes) {
         return pointer;
     }
-    if !TextClassifier::default().is_text_path(path) {
+    if !TextClassifier::default_ref().is_text_path(path) {
         if let Some(pointer) = is_legacy_pointer_bytes(&bytes) {
             return pointer;
         }
@@ -501,7 +501,7 @@ fn tree_entries_recursive(
                 let blob = repo.find_blob(entry.id())?;
                 let bytes = blob.content();
                 let pointer = is_pointer_bytes(bytes).or_else(|| {
-                    if TextClassifier::default().is_text_path(&path) {
+                    if TextClassifier::default_ref().is_text_path(&path) {
                         None
                     } else {
                         is_legacy_pointer_bytes(bytes)

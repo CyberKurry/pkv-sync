@@ -9,10 +9,16 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::sync::LazyLock;
 
 const MAIN_JS: &[u8] = include_bytes!("../../../plugin/main.js");
 const MANIFEST_JSON: &[u8] = include_bytes!("../../../plugin/manifest.json");
 const STYLES_CSS: &[u8] = include_bytes!("../../../plugin/styles.css");
+static OBSIDIAN_MANIFEST: LazyLock<ObsidianManifest> =
+    LazyLock::new(|| serde_json::from_slice(MANIFEST_JSON).expect("bundled manifest.json parses"));
+static MAIN_JS_SHA256: LazyLock<String> = LazyLock::new(|| sha256_hex(MAIN_JS));
+static MANIFEST_JSON_SHA256: LazyLock<String> = LazyLock::new(|| sha256_hex(MANIFEST_JSON));
+static STYLES_CSS_SHA256: LazyLock<String> = LazyLock::new(|| sha256_hex(STYLES_CSS));
 
 #[derive(Clone)]
 pub struct PluginAssetOrigin {
@@ -65,21 +71,19 @@ async fn plugin_manifest(
     headers: HeaderMap,
     origin: Option<Extension<PluginAssetOrigin>>,
 ) -> Result<Json<PluginManifestResponse>, ApiError> {
-    let plugin_manifest: ObsidianManifest =
-        serde_json::from_slice(MANIFEST_JSON).map_err(|e| ApiError::internal(e.to_string()))?;
     let origin = origin
         .and_then(|Extension(origin)| origin.origin)
         .map(Ok)
         .unwrap_or_else(|| request_origin(&uri, &headers))?;
 
     Ok(Json(PluginManifestResponse {
-        version: plugin_manifest.version,
+        version: OBSIDIAN_MANIFEST.version.clone(),
         main_js_url: format!("{origin}/api/plugin-assets/main.js"),
-        main_js_sha256: sha256_hex(MAIN_JS),
+        main_js_sha256: MAIN_JS_SHA256.clone(),
         manifest_json_url: format!("{origin}/api/plugin-assets/manifest.json"),
-        manifest_json_sha256: sha256_hex(MANIFEST_JSON),
+        manifest_json_sha256: MANIFEST_JSON_SHA256.clone(),
         styles_css_url: Some(format!("{origin}/api/plugin-assets/styles.css")),
-        styles_css_sha256: Some(sha256_hex(STYLES_CSS)),
+        styles_css_sha256: Some(STYLES_CSS_SHA256.clone()),
     }))
 }
 
@@ -121,4 +125,24 @@ fn request_origin(uri: &Uri, headers: &HeaderMap) -> Result<String, ApiError> {
 
 fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn plugin_manifest_caches_static_manifest_and_asset_hashes() {
+        let source = include_str!("plugin_manifest.rs");
+        let handler_start = source
+            .find("async fn plugin_manifest")
+            .expect("plugin_manifest handler exists");
+        let main_js_start = source
+            .find("async fn main_js")
+            .expect("asset handler follows manifest handler");
+        let handler = &source[handler_start..main_js_start];
+
+        assert!(source.contains("static OBSIDIAN_MANIFEST: LazyLock"));
+        assert!(source.contains("static MAIN_JS_SHA256: LazyLock"));
+        assert!(!handler.contains("serde_json::from_slice(MANIFEST_JSON)"));
+        assert!(!handler.contains("sha256_hex(MAIN_JS)"));
+    }
 }

@@ -12,8 +12,7 @@ const RAW_BYTES: usize = 32;
 pub fn generate() -> String {
     let mut buf = [0u8; RAW_BYTES];
     OsRng.fill_bytes(&mut buf);
-    let hex: String = buf.iter().map(|b| format!("{b:02x}")).collect();
-    format!("{PREFIX}{hex}")
+    format!("{PREFIX}{}", hex::encode(buf))
 }
 
 /// SHA-256 hash of the plaintext token, lowercase hex. This is what's stored.
@@ -41,6 +40,21 @@ mod tests {
         let t = generate();
         assert!(t.starts_with(PREFIX));
         assert_eq!(t.len(), PREFIX.len() + 64);
+    }
+
+    #[test]
+    fn generate_uses_single_hex_encode_allocation() {
+        let source = include_str!("token.rs");
+        let fn_start = source
+            .find("pub fn generate")
+            .expect("generate implementation exists");
+        let hash_start = source
+            .find("pub fn hash")
+            .expect("hash implementation follows generate");
+        let implementation = &source[fn_start..hash_start];
+
+        assert!(implementation.contains("hex::encode"));
+        assert!(!implementation.contains("format!(\"{b:02x}\")"));
     }
 
     #[test]

@@ -204,8 +204,6 @@ impl LoginRateLimiter {
     /// outcomes (e.g. internal 500). Releases the slot without changing the
     /// failure counter.
     fn release_neutral(&self, ip: IpAddr) {
-        let now = Instant::now();
-        let _ = now;
         let mut entry = match self.inner.get_mut(&ip) {
             Some(e) => e,
             None => return,
@@ -218,16 +216,10 @@ impl LoginRateLimiter {
     pub fn prune_stale(&self) -> usize {
         let now = Instant::now();
         let config = *self.config.read().expect("login limiter lock poisoned");
-        let stale: Vec<IpAddr> = self
-            .inner
-            .iter()
-            .filter_map(|entry| entry_is_stale(entry.value(), now, config).then_some(*entry.key()))
-            .collect();
-        let removed = stale.len();
-        for ip in stale {
-            self.inner.remove(&ip);
-        }
-        removed
+        let before = self.inner.len();
+        self.inner
+            .retain(|_, entry| !entry_is_stale(entry, now, config));
+        before.saturating_sub(self.inner.len())
     }
 }
 
@@ -370,18 +362,10 @@ impl McpAuthRateLimiter {
     pub fn prune_stale(&self) -> usize {
         let now = Instant::now();
         let config = *self.config.read().expect("mcp auth limiter lock poisoned");
-        let stale = self
-            .inner
-            .iter()
-            .filter_map(|entry| {
-                entry_is_stale(entry.value(), now, config).then(|| entry.key().clone())
-            })
-            .collect::<Vec<_>>();
-        let removed = stale.len();
-        for key in stale {
-            self.inner.remove(&key);
-        }
-        removed
+        let before = self.inner.len();
+        self.inner
+            .retain(|_, entry| !entry_is_stale(entry, now, config));
+        before.saturating_sub(self.inner.len())
     }
 }
 
@@ -429,19 +413,10 @@ impl McpWriteRateLimiter {
     pub fn prune_stale(&self) -> usize {
         let now = Instant::now();
         let config = *self.config.read().expect("mcp write limiter lock poisoned");
-        let stale = self
-            .inner
-            .iter()
-            .filter_map(|entry| {
-                (now.duration_since(entry.window_start) >= config.window)
-                    .then(|| entry.key().clone())
-            })
-            .collect::<Vec<_>>();
-        let removed = stale.len();
-        for key in stale {
-            self.inner.remove(&key);
-        }
-        removed
+        let before = self.inner.len();
+        self.inner
+            .retain(|_, entry| now.duration_since(entry.window_start) < config.window);
+        before.saturating_sub(self.inner.len())
     }
 }
 
@@ -662,5 +637,18 @@ mod tests {
         drop(r2);
         drop(r3);
         assert!(l.check("api-auth").is_err());
+    }
+
+    #[test]
+    fn prune_stale_uses_retain_without_key_collection() {
+        let source = include_str!("rate_limit.rs");
+        let impl_start = source
+            .find("impl LoginRateLimiter")
+            .expect("login limiter impl exists");
+        let test_start = source.find("#[cfg(test)]").expect("test module exists");
+        let implementation = &source[impl_start..test_start];
+
+        assert!(implementation.contains(".retain("));
+        assert!(!implementation.contains(".collect::<Vec"));
     }
 }

@@ -79,7 +79,7 @@ impl LocalFsBlobStore {
 }
 
 pub fn is_sha256_hex(s: &str) -> bool {
-    s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
+    s.len() == 64 && s.as_bytes().iter().all(u8::is_ascii_hexdigit)
 }
 
 #[async_trait]
@@ -189,6 +189,21 @@ mod tests {
         assert!(is_sha256_hex(&"A".repeat(64)));
         assert!(!is_sha256_hex(&"a".repeat(63)));
         assert!(!is_sha256_hex(&"g".repeat(64)));
+    }
+
+    #[test]
+    fn sha256_hex_validation_uses_ascii_bytes() {
+        let source = include_str!("blob.rs");
+        let fn_start = source
+            .find("pub fn is_sha256_hex")
+            .expect("is_sha256_hex implementation exists");
+        let impl_start = source
+            .find("impl BlobStore for LocalFsBlobStore")
+            .expect("blob store impl follows helper");
+        let implementation = &source[fn_start..impl_start];
+
+        assert!(implementation.contains("as_bytes()"));
+        assert!(!implementation.contains(".chars()"));
     }
 
     #[test]

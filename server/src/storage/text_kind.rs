@@ -1,4 +1,7 @@
 use std::collections::HashSet;
+use std::sync::LazyLock;
+
+static DEFAULT_TEXT_CLASSIFIER: LazyLock<TextClassifier> = LazyLock::new(TextClassifier::default);
 
 #[derive(Clone, Debug)]
 pub struct TextClassifier {
@@ -32,6 +35,10 @@ impl TextClassifier {
                     .any(|known| known.eq_ignore_ascii_case(ext))
             })
             .unwrap_or(false)
+    }
+
+    pub fn default_ref() -> &'static Self {
+        &DEFAULT_TEXT_CLASSIFIER
     }
 }
 
@@ -67,5 +74,14 @@ mod tests {
 
         assert!(!implementation.contains("ext.to_ascii_lowercase()"));
         assert!(implementation.contains("eq_ignore_ascii_case"));
+    }
+
+    #[test]
+    fn default_ref_reuses_single_classifier_instance() {
+        let first = TextClassifier::default_ref() as *const TextClassifier;
+        let second = TextClassifier::default_ref() as *const TextClassifier;
+
+        assert_eq!(first, second);
+        assert!(TextClassifier::default_ref().is_text_path("note.md"));
     }
 }

@@ -548,7 +548,8 @@ async fn render_file(
 }
 
 fn render_bytes(path: String, bytes: Vec<u8>, mime: Option<String>) -> Result<ReadFileOutput> {
-    let is_text = TextClassifier::default().is_text_path(&path) || mime_is_text(mime.as_deref());
+    let is_text =
+        TextClassifier::default_ref().is_text_path(&path) || mime_is_text(mime.as_deref());
     if is_text {
         match String::from_utf8(bytes) {
             Ok(content) => {

@@ -627,12 +627,12 @@ async fn push_with_request_metadata_internal(
                         format!("blob {blob_hash} not uploaded for this vault"),
                     ));
                 }
-                let blob_bytes = match blob_store
-                    .get(&blob_hash)
+                let actual_size = match blob_store
+                    .size_bytes(&blob_hash)
                     .await
                     .map_err(|e| ApiError::bad_request("invalid_hash", e.to_string()))?
                 {
-                    Some(bytes) => bytes,
+                    Some(size) => size,
                     None => {
                         return Err(ApiError::bad_request(
                             "missing_blob",
@@ -640,7 +640,6 @@ async fn push_with_request_metadata_internal(
                         ))
                     }
                 };
-                let actual_size = blob_bytes.len() as u64;
                 if actual_size != size {
                     return Err(ApiError::bad_request(
                         "blob_size_mismatch",
@@ -1081,19 +1080,22 @@ fn safe_conflict_device_name(name: &str) -> String {
 fn safe_commit_device_name(name: &str) -> String {
     let mut out = String::with_capacity(name.len().min(MAX_COMMIT_DEVICE_NAME_CHARS));
     let mut last_was_space = false;
+    let mut char_count = 0;
     for ch in name.chars() {
-        if out.chars().count() >= MAX_COMMIT_DEVICE_NAME_CHARS {
+        if char_count >= MAX_COMMIT_DEVICE_NAME_CHARS {
             break;
         }
         if ch.is_control() || ch.is_whitespace() {
             if !out.is_empty() && !last_was_space {
                 out.push(' ');
                 last_was_space = true;
+                char_count += 1;
             }
             continue;
         }
         out.push(ch);
         last_was_space = false;
+        char_count += 1;
     }
     let trimmed = out.trim();
     if trimmed.is_empty() {
@@ -1624,7 +1626,7 @@ fn decode_pull_file(path: &str, bytes: Vec<u8>) -> StoredFile {
     if let Some(pointer) = pointer_bytes(&bytes, true) {
         return pointer;
     }
-    if !TextClassifier::default().is_text_path(path) {
+    if !TextClassifier::default_ref().is_text_path(path) {
         if let Some(pointer) = pointer_bytes(&bytes, false) {
             return pointer;
         }
@@ -1695,6 +1697,38 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(v.changes[0], PushChange::Blob { .. }));
+    }
+
+    #[test]
+    fn blob_push_size_validation_uses_metadata_not_full_blob_read() {
+        let source = include_str!("sync.rs");
+        let branch_start = source
+            .find("PushChange::Blob")
+            .expect("blob push branch exists");
+        let delete_start = source[branch_start..]
+            .find("PushChange::Delete")
+            .map(|idx| branch_start + idx)
+            .expect("delete branch follows blob branch");
+        let blob_branch = &source[branch_start..delete_start];
+
+        assert!(blob_branch.contains(".size_bytes(&blob_hash)"));
+        assert!(!blob_branch.contains(".get(&blob_hash)"));
+    }
+
+    #[test]
+    fn safe_commit_device_name_tracks_char_count_without_recounting_output() {
+        let source = include_str!("sync.rs");
+        let fn_start = source
+            .find("fn safe_commit_device_name")
+            .expect("safe_commit_device_name implementation exists");
+        let next_fn = source[fn_start + 1..]
+            .find("\nfn ")
+            .map(|idx| fn_start + 1 + idx)
+            .expect("following function exists");
+        let implementation = &source[fn_start..next_fn];
+
+        assert!(implementation.contains("char_count"));
+        assert!(!implementation.contains("out.chars().count()"));
     }
 
     async fn state_user_vault() -> (AppState, AuthenticatedUser, String, tempfile::TempDir) {

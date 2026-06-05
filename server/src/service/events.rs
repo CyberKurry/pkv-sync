@@ -263,6 +263,9 @@ fn classify_replay_change(path: &str, blob_bytes: &[u8]) -> EventChange {
 }
 
 fn detect_blob_pointer(bytes: &[u8]) -> Option<(String, u64)> {
+    if !bytes.starts_with(b"{") {
+        return None;
+    }
     let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
     if v.get(POINTER_MAGIC_KEY)?.as_u64()? != POINTER_VERSION {
         return None;
@@ -327,6 +330,21 @@ mod tests {
             }
             other => panic!("expected TextRef, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn detect_blob_pointer_fast_rejects_non_json_payloads() {
+        let source = include_str!("events.rs");
+        let fn_start = source
+            .find("fn detect_blob_pointer")
+            .expect("detect_blob_pointer implementation exists");
+        let next_fn = source[fn_start + 1..]
+            .find("\nfn ")
+            .map(|idx| fn_start + 1 + idx)
+            .expect("following function exists");
+        let implementation = &source[fn_start..next_fn];
+
+        assert!(implementation.contains("!bytes.starts_with(b\"{\")"));
     }
 
     #[test]

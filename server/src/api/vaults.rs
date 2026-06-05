@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
-use crate::db::repos::{NewActivity, SyncActivityRepo, TokenRepo, UserRepo, VaultRepo};
+use crate::db::repos::{NewActivity, SyncActivityRepo, VaultRepo};
 use crate::middleware::{rate_limit, real_ip::ClientIp, sse_cors_allow_header_names};
 use crate::service::sync::{self, UploadCheckReq};
 use crate::service::vault::RollbackError;
@@ -645,17 +645,27 @@ async fn run_vault_sse_stream<S>(
 }
 
 async fn sse_token_still_valid(state: &AppState, user: &AuthenticatedUser) -> bool {
-    let Ok(true) = state
-        .tokens
-        .is_active_for_user(&user.token_id, &user.user_id)
-        .await
-    else {
-        return false;
-    };
-    let Ok(Some(db_user)) = state.users.find_by_id(&user.user_id).await else {
-        return false;
-    };
-    db_user.is_active
+    let now = chrono::Utc::now().timestamp();
+    let active: Result<Option<i64>, sqlx::Error> = sqlx::query_scalar(
+        "SELECT 1
+         FROM tokens tok
+         JOIN users u ON u.id = tok.user_id
+         WHERE tok.id = ?
+           AND tok.user_id = ?
+           AND tok.revoked_at IS NULL
+           AND tok.expires_at > ?
+           AND tok.created_at + ? > ?
+           AND u.is_active = 1
+         LIMIT 1",
+    )
+    .bind(&user.token_id)
+    .bind(&user.user_id)
+    .bind(now)
+    .bind(crate::auth::token::TOKEN_ABSOLUTE_LIFETIME_SECONDS)
+    .bind(now)
+    .fetch_optional(&state.pool)
+    .await;
+    matches!(active, Ok(Some(_)))
 }
 
 #[cfg(debug_assertions)]

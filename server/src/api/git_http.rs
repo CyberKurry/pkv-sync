@@ -264,7 +264,8 @@ async fn check_enabled(state: &AppState) -> Result<(), ApiError> {
 }
 
 fn validate_vault_id(vault_id: &str) -> Result<(), ApiError> {
-    let is_simple_uuid = vault_id.len() == 32 && vault_id.chars().all(|ch| ch.is_ascii_hexdigit());
+    let is_simple_uuid =
+        vault_id.len() == 32 && vault_id.as_bytes().iter().all(u8::is_ascii_hexdigit);
     if is_simple_uuid {
         Ok(())
     } else {
@@ -386,5 +387,21 @@ mod tests {
     fn pkt_line_handles_short_data() {
         let encoded = pkt_line(b"A");
         assert_eq!(&encoded, b"0005A");
+    }
+
+    #[test]
+    fn validate_vault_id_uses_ascii_bytes_for_hex_check() {
+        let source = include_str!("git_http.rs");
+        let fn_start = source
+            .find("fn validate_vault_id")
+            .expect("validate_vault_id implementation exists");
+        let next_doc = source[fn_start + 1..]
+            .find("\n///")
+            .map(|idx| fn_start + 1 + idx)
+            .expect("following docs exist");
+        let implementation = &source[fn_start..next_doc];
+
+        assert!(implementation.contains("as_bytes()"));
+        assert!(!implementation.contains(".chars()"));
     }
 }
