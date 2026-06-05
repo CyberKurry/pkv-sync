@@ -4,7 +4,7 @@ use crate::db::repos::{BlobRefRepo, NewActivity, SyncActivityRepo, Vault, VaultR
 use crate::service::sync::{self, PushChange, PushReq, RequestMetadata};
 use crate::service::vault::ensure_user_vault;
 use crate::service::AppState;
-use crate::storage::blob::{BlobStore, LocalFsBlobStore};
+use crate::storage::blob::BlobStore;
 use crate::storage::git::{Git2VaultStore, GitVaultStore, StoredFile};
 use crate::storage::path;
 use crate::storage::text_kind::TextClassifier;
@@ -125,19 +125,19 @@ struct WriteToolRequest {
 }
 
 pub async fn list_vaults(state: &AppState, user_id: &str) -> Result<ListVaultsOutput> {
-    let vault_root = state.default_vault_root();
+    let git = state.git_store();
     let vaults = state.vaults.list_for_user(user_id).await?;
     let mut iter = vaults.into_iter().enumerate();
     let mut tasks = tokio::task::JoinSet::new();
     let mut summaries = Vec::new();
 
     for _ in 0..LIST_VAULTS_HEAD_CONCURRENCY {
-        spawn_next_vault_head_task(&mut iter, &mut tasks, &vault_root);
+        spawn_next_vault_head_task(&mut iter, &mut tasks, &git);
     }
 
     while let Some(result) = tasks.join_next().await {
         summaries.push(result??);
-        spawn_next_vault_head_task(&mut iter, &mut tasks, &vault_root);
+        spawn_next_vault_head_task(&mut iter, &mut tasks, &git);
     }
 
     summaries.sort_by_key(|(index, _)| *index);
@@ -149,14 +149,14 @@ pub async fn list_vaults(state: &AppState, user_id: &str) -> Result<ListVaultsOu
 fn spawn_next_vault_head_task<I>(
     iter: &mut I,
     tasks: &mut tokio::task::JoinSet<Result<(usize, VaultSummary)>>,
-    vault_root: &std::path::Path,
+    git: &Git2VaultStore,
 ) where
     I: Iterator<Item = (usize, Vault)>,
 {
     if let Some((index, vault)) = iter.next() {
-        let vault_root = vault_root.to_path_buf();
+        let git = git.clone();
         tasks.spawn(async move {
-            let head_commit = Git2VaultStore::new(vault_root).head(&vault.id).await?;
+            let head_commit = git.head(&vault.id).await?;
             Ok((
                 index,
                 VaultSummary {
@@ -177,7 +177,7 @@ pub async fn list_files(
     input: ListFilesInput,
 ) -> Result<ListFilesOutput> {
     ensure_owned_vault(state, user_id, &input.vault_id).await?;
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     let mut paths = git
         .list_tree(&input.vault_id, input.at.as_deref())
         .await?
@@ -221,7 +221,7 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         });
     }
 
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     let entries = git.list_tree(&input.vault_id, input.at.as_deref()).await?;
     if entries.len() > SEARCH_MAX_TREE_FILES {
         bail!("too many files to search: {}", entries.len());
@@ -252,12 +252,13 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
             continue;
         };
         for (idx, line) in text.lines().enumerate() {
-            if line.to_ascii_lowercase().contains(&needle) {
+            if contains_ascii_case_insensitive(line, &needle) {
+                let line = line.to_string();
                 matches.push(SearchMatch {
                     path: entry.path.clone(),
-                    line: line.to_string(),
+                    snippet: line.clone(),
+                    line,
                     line_number: idx + 1,
-                    snippet: line.to_string(),
                 });
                 if matches.len() >= limit {
                     break;
@@ -267,6 +268,19 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     }
 
     Ok(SearchOutput { matches })
+}
+
+fn contains_ascii_case_insensitive(haystack: &str, lowercase_needle: &str) -> bool {
+    let needle = lowercase_needle.as_bytes();
+    if needle.is_empty() {
+        return true;
+    }
+    haystack.as_bytes().windows(needle.len()).any(|window| {
+        window
+            .iter()
+            .zip(needle)
+            .all(|(left, right)| left.to_ascii_lowercase() == *right)
+    })
 }
 
 pub async fn write_file(
@@ -483,12 +497,17 @@ async fn record_mcp_write_activity(
     size_bytes: usize,
     commit: &str,
 ) -> Result<()> {
-    let details = serde_json::json!({
-        "path": path,
-        "commit": commit,
-        "size_bytes": size_bytes,
-    })
-    .to_string();
+    #[derive(Serialize)]
+    struct McpWriteDetails<'a> {
+        path: &'a str,
+        commit: &'a str,
+        size_bytes: usize,
+    }
+    let details = serde_json::to_string(&McpWriteDetails {
+        path,
+        commit,
+        size_bytes,
+    })?;
     state
         .activities
         .insert(NewActivity {
@@ -513,7 +532,7 @@ async fn read_file_inner(
     at: Option<String>,
 ) -> Result<ReadFileOutput> {
     ensure_owned_vault(state, user_id, &vault_id).await?;
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     let file = git
         .read_file(&vault_id, &path, at.as_deref())
         .await?
@@ -537,7 +556,7 @@ async fn render_file(
             {
                 bail!("blob not referenced by vault");
             }
-            let blob = LocalFsBlobStore::new(state.default_blob_root());
+            let blob = state.blob_store();
             let bytes = blob
                 .get(&hash)
                 .await?
@@ -696,6 +715,46 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.matches.len(), SEARCH_MAX_LIMIT);
+    }
+
+    #[test]
+    fn search_matcher_avoids_per_line_lowercase_allocation() {
+        assert!(contains_ascii_case_insensitive(
+            "Needle in mixed case",
+            "needle"
+        ));
+        assert!(!contains_ascii_case_insensitive("unrelated line", "needle"));
+
+        let source = include_str!("tools.rs");
+        let fn_start = source.find("pub async fn search").expect("search exists");
+        let fn_end = source[fn_start..]
+            .find("\npub async fn write_file")
+            .map(|idx| fn_start + idx)
+            .expect("write_file follows search");
+        let search_source = &source[fn_start..fn_end];
+
+        assert!(
+            !search_source.contains("line.to_ascii_lowercase()"),
+            "search should not allocate a lowercased String for every line"
+        );
+    }
+
+    #[test]
+    fn mcp_write_activity_serializes_details_without_value_macro() {
+        let source = include_str!("tools.rs");
+        let fn_start = source
+            .find("async fn record_mcp_write_activity")
+            .expect("activity helper exists");
+        let fn_end = source[fn_start..]
+            .find("\nasync fn read_file_inner")
+            .map(|idx| fn_start + idx)
+            .expect("read_file_inner follows helper");
+        let implementation = &source[fn_start..fn_end];
+
+        assert!(
+            !implementation.contains("serde_json::json!"),
+            "activity details should avoid building an intermediate Value"
+        );
     }
 
     #[tokio::test]

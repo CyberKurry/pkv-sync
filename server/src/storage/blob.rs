@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::AsyncWriteExt;
 
@@ -32,11 +33,17 @@ pub trait BlobStore: Send + Sync {
 
 #[derive(Clone)]
 pub struct LocalFsBlobStore {
-    root: PathBuf,
+    root: Arc<PathBuf>,
 }
 
 impl LocalFsBlobStore {
     pub fn new(root: PathBuf) -> Self {
+        Self {
+            root: Arc::new(root),
+        }
+    }
+
+    pub fn from_shared_root(root: Arc<PathBuf>) -> Self {
         Self { root }
     }
 
@@ -63,7 +70,7 @@ impl LocalFsBlobStore {
             if !root.exists() {
                 return Ok(out);
             }
-            for entry in walkdir::WalkDir::new(&root)
+            for entry in walkdir::WalkDir::new(root.as_path())
                 .into_iter()
                 .filter_map(Result::ok)
             {

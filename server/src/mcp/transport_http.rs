@@ -320,12 +320,9 @@ async fn mcp_replay_events_after(
     commit: &str,
 ) -> anyhow::Result<McpReplayEvents> {
     for vault in vaults {
-        let events = crate::service::events::replay_events_after(
-            state.default_vault_root(),
-            &vault.id,
-            commit,
-        )
-        .await?;
+        let events =
+            crate::service::events::replay_events_after(state.vault_root(), &vault.id, commit)
+                .await?;
         match events {
             crate::service::events::ReplayEvents::Events(events) if !events.is_empty() => {
                 return Ok(McpReplayEvents::Events(

@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::service::{vault, AppState};
-use crate::storage::git::{Git2VaultStore, GitVaultStore, StoredFile};
+use crate::storage::git::{GitVaultStore, StoredFile};
 use crate::storage::path;
 use serde::Serialize;
 
@@ -43,7 +43,7 @@ pub async fn unified_diff(
     let _ = vault::ensure_user_vault(state, user_id, vault_id).await?;
     let file_path = path::normalize(file_path)
         .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
-    let store = Git2VaultStore::new(state.default_vault_root());
+    let store = state.git_store();
     let from = match from {
         Some(commit) if !commit.is_empty() => Some(commit.to_string()),
         _ => store

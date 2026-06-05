@@ -12,13 +12,13 @@ pub enum MergeOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Hunk {
+struct Hunk<'a> {
     base_start: usize,
     base_end: usize,
-    replacement: Vec<String>,
+    replacement: Vec<&'a str>,
 }
 
-impl Hunk {
+impl<'a> Hunk<'a> {
     fn is_insert(&self) -> bool {
         self.base_start == self.base_end
     }
@@ -72,7 +72,7 @@ pub fn three_way_merge(base: &str, local: &str, remote: &str) -> MergeOutcome {
     }
 }
 
-fn split_lines(text: &str) -> Vec<String> {
+fn split_lines(text: &str) -> Vec<&str> {
     if text.is_empty() {
         return Vec::new();
     }
@@ -81,21 +81,18 @@ fn split_lines(text: &str) -> Vec<String> {
     let mut start = 0;
     for (idx, byte) in text.bytes().enumerate() {
         if byte == b'\n' {
-            lines.push(text[start..=idx].to_string());
+            lines.push(&text[start..=idx]);
             start = idx + 1;
         }
     }
     if start < text.len() {
-        lines.push(text[start..].to_string());
+        lines.push(&text[start..]);
     }
     lines
 }
 
-fn diff_hunks(base: &[String], changed: &[String]) -> Vec<Hunk> {
-    let base_refs: Vec<&str> = base.iter().map(String::as_str).collect();
-    let changed_refs: Vec<&str> = changed.iter().map(String::as_str).collect();
-
-    TextDiff::from_slices(&base_refs, &changed_refs)
+fn diff_hunks<'a>(base: &[&str], changed: &'a [&'a str]) -> Vec<Hunk<'a>> {
+    TextDiff::from_slices(base, changed)
         .ops()
         .iter()
         .filter_map(|op| {
@@ -113,7 +110,11 @@ fn diff_hunks(base: &[String], changed: &[String]) -> Vec<Hunk> {
         .collect()
 }
 
-fn merge_hunks(base: &[String], local_hunks: &[Hunk], remote_hunks: &[Hunk]) -> (String, bool) {
+fn merge_hunks<'a>(
+    base: &'a [&'a str],
+    local_hunks: &[Hunk<'a>],
+    remote_hunks: &[Hunk<'a>],
+) -> (String, bool) {
     let mut merged = Vec::new();
     let mut has_conflict = false;
     let mut base_cursor = 0;
@@ -149,6 +150,10 @@ fn merge_hunks(base: &[String], local_hunks: &[Hunk], remote_hunks: &[Hunk]) -> 
                     append_lines(&mut merged, &remote_segment);
                 } else if remote_segment == base_segment {
                     append_lines(&mut merged, &local_segment);
+                } else if let Some(segment) =
+                    merge_trailing_append(&base_segment, &local_segment, &remote_segment)
+                {
+                    append_lines(&mut merged, &segment);
                 } else {
                     has_conflict = true;
                     append_conflict(&mut merged, &local_segment, &remote_segment);
@@ -187,8 +192,8 @@ fn merge_hunks(base: &[String], local_hunks: &[Hunk], remote_hunks: &[Hunk]) -> 
 }
 
 fn collect_overlapping_region(
-    local_hunks: &[Hunk],
-    remote_hunks: &[Hunk],
+    local_hunks: &[Hunk<'_>],
+    remote_hunks: &[Hunk<'_>],
     local_idx: usize,
     remote_idx: usize,
 ) -> (usize, usize, usize, usize) {
@@ -232,7 +237,12 @@ fn collect_overlapping_region(
     (start, end, next_local_idx, next_remote_idx)
 }
 
-fn apply_region(base: &[String], start: usize, end: usize, hunks: &[Hunk]) -> Vec<String> {
+fn apply_region<'a>(
+    base: &'a [&'a str],
+    start: usize,
+    end: usize,
+    hunks: &[Hunk<'a>],
+) -> Vec<&'a str> {
     let mut lines = Vec::new();
     let mut cursor = start;
 
@@ -251,7 +261,34 @@ fn apply_region(base: &[String], start: usize, end: usize, hunks: &[Hunk]) -> Ve
     lines
 }
 
-fn hunks_overlap(left: &Hunk, right: &Hunk) -> bool {
+fn merge_trailing_append<'a>(
+    base: &[&'a str],
+    local: &[&'a str],
+    remote: &[&'a str],
+) -> Option<Vec<&'a str>> {
+    merge_one_sided_trailing_append(base, local, remote)
+        .or_else(|| merge_one_sided_trailing_append(base, remote, local))
+}
+
+fn merge_one_sided_trailing_append<'a>(
+    base: &[&'a str],
+    edited: &[&'a str],
+    appended: &[&'a str],
+) -> Option<Vec<&'a str>> {
+    if base.len() != 1 || edited.is_empty() || appended.len() < 2 || base[0].ends_with('\n') {
+        return None;
+    }
+    if appended[0].strip_suffix('\n') != Some(base[0]) {
+        return None;
+    }
+
+    let mut merged = edited.to_vec();
+    ensure_newline(&mut merged);
+    merged.extend_from_slice(&appended[1..]);
+    Some(merged)
+}
+
+fn hunks_overlap(left: &Hunk<'_>, right: &Hunk<'_>) -> bool {
     if left.is_insert() && right.is_insert() {
         return left.base_start == right.base_start;
     }
@@ -264,7 +301,7 @@ fn hunks_overlap(left: &Hunk, right: &Hunk) -> bool {
     left.base_start < right.base_end && right.base_start < left.base_end
 }
 
-fn hunk_overlaps_region(hunk: &Hunk, start: usize, end: usize) -> bool {
+fn hunk_overlaps_region(hunk: &Hunk<'_>, start: usize, end: usize) -> bool {
     if hunk.is_insert() {
         if start == end {
             hunk.base_start == start
@@ -278,22 +315,84 @@ fn hunk_overlaps_region(hunk: &Hunk, start: usize, end: usize) -> bool {
     }
 }
 
-fn append_conflict(merged: &mut Vec<String>, local: &[String], remote: &[String]) {
-    merged.push("<<<<<<< local\n".to_string());
+fn append_conflict<'a>(merged: &mut Vec<&'a str>, local: &[&'a str], remote: &[&'a str]) {
+    merged.push("<<<<<<< local\n");
     append_lines(merged, local);
     ensure_newline(merged);
-    merged.push("=======\n".to_string());
+    merged.push("=======\n");
     append_lines(merged, remote);
     ensure_newline(merged);
-    merged.push(">>>>>>> remote\n".to_string());
+    merged.push(">>>>>>> remote\n");
 }
 
-fn append_lines(merged: &mut Vec<String>, lines: &[String]) {
+fn append_lines<'a>(merged: &mut Vec<&'a str>, lines: &[&'a str]) {
     merged.extend_from_slice(lines);
 }
 
-fn ensure_newline(merged: &mut Vec<String>) {
+fn ensure_newline(merged: &mut Vec<&str>) {
     if merged.last().is_some_and(|line| !line.ends_with('\n')) {
-        merged.push("\n".to_string());
+        merged.push("\n");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanly_merges_independent_edits() {
+        let base = "one\ntwo\nthree\n";
+        let local = "one\nTWO\nthree\n";
+        let remote = "one\ntwo\nTHREE\n";
+
+        let merged = three_way_merge(base, local, remote);
+
+        assert_eq!(merged, MergeOutcome::Clean("one\nTWO\nTHREE\n".to_string()));
+    }
+
+    #[test]
+    fn marks_conflicting_edits() {
+        let merged = three_way_merge("one\ntwo\n", "one\nlocal\n", "one\nremote\n");
+
+        let MergeOutcome::Conflicted(text) = merged else {
+            panic!("expected conflict");
+        };
+        assert!(text.contains("<<<<<<< local\nlocal\n=======\nremote\n>>>>>>> remote\n"));
+    }
+
+    #[test]
+    fn preserves_final_line_without_newline() {
+        let merged = three_way_merge("one\ntwo", "one\nlocal", "one\ntwo\nremote");
+
+        assert_eq!(
+            merged,
+            MergeOutcome::Clean("one\nlocal\nremote".to_string())
+        );
+    }
+
+    #[test]
+    fn preserves_final_line_without_newline_when_append_is_local() {
+        let merged = three_way_merge("one\ntwo", "one\ntwo\nlocal", "one\nremote");
+
+        assert_eq!(
+            merged,
+            MergeOutcome::Clean("one\nremote\nlocal".to_string())
+        );
+    }
+
+    #[test]
+    fn split_lines_borrows_input_lines() {
+        let source = include_str!("merge.rs");
+        let fn_start = source
+            .find("fn split_lines")
+            .expect("split_lines implementation exists");
+        let next_fn = source[fn_start + 1..]
+            .find("\nfn ")
+            .map(|idx| fn_start + 1 + idx)
+            .expect("following function exists");
+        let implementation = &source[fn_start..next_fn];
+
+        assert!(implementation.contains("Vec<&str>"));
+        assert!(!implementation.contains(".to_string()"));
     }
 }

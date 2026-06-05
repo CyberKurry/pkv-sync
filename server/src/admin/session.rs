@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use rand::{rngs::OsRng, RngCore};
-use sqlx::Row;
 use tower_cookies::{Cookie, Cookies};
 
 pub const COOKIE_NAME: &str = "pkv_admin_session";
@@ -66,6 +65,45 @@ pub async fn cleanup_expired_sessions(state: &AppState) -> Result<u64, sqlx::Err
     Ok(deleted.rows_affected())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum SessionRefresh {
+    Active { user_id: String },
+    Expired,
+    Missing,
+}
+
+async fn refresh_session(
+    state: &AppState,
+    session_id: &str,
+    now: i64,
+) -> Result<SessionRefresh, sqlx::Error> {
+    let active: Option<(String,)> = sqlx::query_as(
+        "UPDATE admin_sessions
+         SET last_seen_at = ?
+         WHERE id = ? AND expires_at > ?
+         RETURNING user_id",
+    )
+    .bind(now)
+    .bind(session_id)
+    .bind(now)
+    .fetch_optional(&state.pool)
+    .await?;
+    if let Some((user_id,)) = active {
+        return Ok(SessionRefresh::Active { user_id });
+    }
+
+    let deleted = sqlx::query("DELETE FROM admin_sessions WHERE id = ? AND expires_at <= ?")
+        .bind(session_id)
+        .bind(now)
+        .execute(&state.pool)
+        .await?;
+    if deleted.rows_affected() > 0 {
+        Ok(SessionRefresh::Expired)
+    } else {
+        Ok(SessionRefresh::Missing)
+    }
+}
+
 #[async_trait]
 impl FromRequestParts<AppState> for AdminSession {
     type Rejection = ApiError;
@@ -77,25 +115,21 @@ impl FromRequestParts<AppState> for AdminSession {
         let cookies = Cookies::from_request_parts(parts, state)
             .await
             .map_err(|_| ApiError::unauthorized("missing cookies"))?;
-        let session_id = cookies
+        let session_cookie = cookies
             .get(COOKIE_NAME)
-            .map(|c| c.value().to_string())
             .ok_or_else(|| ApiError::unauthorized("missing admin session"))?;
+        let session_id = session_cookie.value();
 
         let now = chrono::Utc::now().timestamp();
-        let row = sqlx::query("SELECT user_id, expires_at FROM admin_sessions WHERE id = ?")
-            .bind(&session_id)
-            .fetch_optional(&state.pool)
-            .await?;
-        let Some(row) = row else {
-            return Err(ApiError::unauthorized("invalid session"));
+        let user_id = match refresh_session(state, session_id, now).await? {
+            SessionRefresh::Active { user_id } => user_id,
+            SessionRefresh::Expired => {
+                return Err(ApiError::unauthorized("session expired"));
+            }
+            SessionRefresh::Missing => {
+                return Err(ApiError::unauthorized("invalid session"));
+            }
         };
-        let user_id: String = row.get("user_id");
-        let expires_at: i64 = row.get("expires_at");
-        if expires_at <= now {
-            let _ = delete_session(state, &session_id).await;
-            return Err(ApiError::unauthorized("session expired"));
-        }
 
         let user = state
             .users
@@ -109,12 +143,10 @@ impl FromRequestParts<AppState> for AdminSession {
             return Err(ApiError::unauthorized("invalid session"));
         }
 
-        sqlx::query("UPDATE admin_sessions SET last_seen_at = ? WHERE id = ?")
-            .bind(now)
-            .bind(&session_id)
-            .execute(&state.pool)
-            .await?;
-        Ok(AdminSession { session_id, user })
+        Ok(AdminSession {
+            session_id: session_id.to_string(),
+            user,
+        })
     }
 }
 
@@ -185,6 +217,66 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn refresh_session_updates_active_session_and_returns_user_id() {
+        let (state, user_id, _tmp) = state_with_admin().await;
+        let session_id = create_session(&state, &user_id).await.unwrap();
+        let refreshed_at = chrono::Utc::now().timestamp() + 10;
+
+        let refreshed = refresh_session(&state, &session_id, refreshed_at)
+            .await
+            .unwrap();
+
+        assert_eq!(refreshed, SessionRefresh::Active { user_id });
+        let (last_seen_at,): (i64,) =
+            sqlx::query_as("SELECT last_seen_at FROM admin_sessions WHERE id = ?")
+                .bind(&session_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(last_seen_at, refreshed_at);
+    }
+
+    #[tokio::test]
+    async fn refresh_session_deletes_expired_session() {
+        let (state, user_id, _tmp) = state_with_admin().await;
+        let session_id = create_session(&state, &user_id).await.unwrap();
+        sqlx::query("UPDATE admin_sessions SET expires_at = ? WHERE id = ?")
+            .bind(10_i64)
+            .bind(&session_id)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let refreshed = refresh_session(&state, &session_id, 11).await.unwrap();
+
+        assert_eq!(refreshed, SessionRefresh::Expired);
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM admin_sessions WHERE id = ?")
+            .bind(&session_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn extractor_borrows_cookie_value_until_return() {
+        let source = include_str!("session.rs");
+        let impl_start = source
+            .find("impl FromRequestParts<AppState> for AdminSession")
+            .expect("extractor impl exists");
+        let impl_end = source[impl_start..]
+            .find("\npub fn make_cookie")
+            .map(|idx| impl_start + idx)
+            .expect("make_cookie follows extractor");
+        let impl_source = &source[impl_start..impl_end];
+
+        assert!(
+            !impl_source.contains(".map(|c| c.value().to_string())"),
+            "extractor should not allocate a session id before SQL validation"
+        );
     }
 
     #[test]

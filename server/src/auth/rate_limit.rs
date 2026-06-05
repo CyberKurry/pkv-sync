@@ -263,8 +263,7 @@ impl McpAuthRateLimiter {
     pub fn try_acquire(&self, key: &str) -> Result<McpAuthAttemptReservation, Duration> {
         let now = Instant::now();
         let config = *self.config.read().expect("mcp auth limiter lock poisoned");
-        let key = key.to_string();
-        let mut entry = self.inner.entry(key.clone()).or_insert(Entry {
+        let mut entry = self.inner.entry(key.to_string()).or_insert(Entry {
             failures: 0,
             in_flight: 0,
             first_failure: now,
@@ -290,6 +289,7 @@ impl McpAuthRateLimiter {
         }
 
         entry.in_flight += 1;
+        let key = entry.key().clone();
         Ok(McpAuthAttemptReservation {
             limiter: self.clone(),
             key,
@@ -650,5 +650,21 @@ mod tests {
 
         assert!(implementation.contains(".retain("));
         assert!(!implementation.contains(".collect::<Vec"));
+    }
+
+    #[test]
+    fn mcp_try_acquire_does_not_clone_key_before_entry_lookup() {
+        let source = include_str!("rate_limit.rs");
+        let fn_start = source
+            .find("pub fn try_acquire(&self, key: &str) -> Result<McpAuthAttemptReservation")
+            .expect("MCP try_acquire exists");
+        let record_failure_start = source[fn_start..]
+            .find("pub fn record_failure")
+            .map(|idx| fn_start + idx)
+            .expect("record_failure follows try_acquire");
+        let implementation = &source[fn_start..record_failure_start];
+
+        assert!(!implementation.contains("let key = key.to_string();"));
+        assert!(implementation.contains("let key = entry.key().clone();"));
     }
 }

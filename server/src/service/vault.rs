@@ -2,7 +2,7 @@ use crate::api::error::ApiError;
 use crate::db::repos::{self, NewActivity, SyncActivityRepo, Vault, VaultRepo};
 use crate::service::events::{EventKind, VaultEvent};
 use crate::service::{vault_settings, AppState};
-use crate::storage::git::{Git2VaultStore, GitStoreError, GitVaultStore};
+use crate::storage::git::{GitStoreError, GitVaultStore};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RollbackResult {
@@ -69,7 +69,7 @@ pub async fn rollback_to_commit_as(
 
     let push_lock = state.vault_push_lock(vault_id);
     let _push_guard = push_lock.lock().await;
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     let from_commit = git.head(vault_id).await.map_err(rollback_git_error)?;
     let reachable = git
         .commit_reachable_from_head(vault_id, target_commit)
@@ -285,7 +285,7 @@ pub async fn record_lifecycle_activity(
 }
 
 async fn remove_vault_storage(state: &AppState, vault_id: &str) -> Result<(), ApiError> {
-    let path = state.default_vault_root().join(vault_id);
+    let path = state.vault_root().join(vault_id);
     match tokio::fs::remove_dir_all(&path).await {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),

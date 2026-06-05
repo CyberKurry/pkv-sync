@@ -2,8 +2,10 @@ use argon2::password_hash::{
     rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
 };
 use argon2::Argon2;
+use std::sync::LazyLock;
 
 pub const MAX_PASSWORD_BYTES: usize = 4096;
+static DEFAULT_ARGON2: LazyLock<Argon2<'static>> = LazyLock::new(Argon2::default);
 
 #[derive(Debug, thiserror::Error)]
 pub enum PasswordError {
@@ -34,8 +36,7 @@ pub fn hash(plaintext: &str) -> Result<String, PasswordError> {
         return Err(PasswordError::TooShort { len: char_len });
     }
     let salt = SaltString::generate(&mut OsRng);
-    let argon = Argon2::default();
-    let phc = argon.hash_password(plaintext.as_bytes(), &salt)?;
+    let phc = DEFAULT_ARGON2.hash_password(plaintext.as_bytes(), &salt)?;
     Ok(phc.to_string())
 }
 
@@ -48,7 +49,7 @@ pub fn verify(plaintext: &str, encoded_hash: &str) -> Result<bool, PasswordError
         });
     }
     let parsed = PasswordHash::new(encoded_hash)?;
-    Ok(Argon2::default()
+    Ok(DEFAULT_ARGON2
         .verify_password(plaintext.as_bytes(), &parsed)
         .is_ok())
 }
@@ -105,5 +106,18 @@ mod tests {
     fn rejects_malformed_hash() {
         let err = verify("anything", "not-a-phc-string").unwrap_err();
         assert!(matches!(err, PasswordError::Argon2(_)));
+    }
+
+    #[test]
+    fn argon2_parameters_are_cached() {
+        let source = include_str!("password.rs");
+        let hash_start = source.find("pub fn hash").expect("hash function exists");
+        let tests_start = source
+            .find("#[cfg(test)]")
+            .expect("tests follow implementation");
+        let implementation = &source[hash_start..tests_start];
+
+        assert!(source.contains("static DEFAULT_ARGON2"));
+        assert!(!implementation.contains("Argon2::default()"));
     }
 }

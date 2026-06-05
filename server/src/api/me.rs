@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
-use crate::db::repos::{TokenRepo, VaultRepo};
+use crate::db::repos::{TokenRepo, Vault, VaultRepo};
 use crate::middleware::rate_limit;
 use crate::service::auth::{change_password, ChangePasswordReq};
 use crate::service::AppState;
@@ -49,21 +49,14 @@ struct MeResp {
     user_id: String,
     username: String,
     is_admin: bool,
-    vaults: Vec<serde_json::Value>,
+    vaults: Vec<Vault>,
 }
 
 async fn me(
     State(state): State<AppState>,
     user: AuthenticatedUser,
 ) -> Result<Json<MeResp>, ApiError> {
-    let vaults = state
-        .vaults
-        .list_for_user(&user.user_id)
-        .await?
-        .into_iter()
-        .map(serde_json::to_value)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let vaults = state.vaults.list_for_user(&user.user_id).await?;
     Ok(Json(MeResp {
         user_id: user.user_id,
         username: user.username,

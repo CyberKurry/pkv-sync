@@ -56,7 +56,7 @@ pub async fn info_refs(
         ));
     }
 
-    let repo_path = state.default_vault_root().join(&vault_id);
+    let repo_path = state.vault_root().join(&vault_id);
     if !repo_path.exists() {
         return Err(ApiError::not_found("vault repository not found"));
     }
@@ -137,7 +137,7 @@ pub async fn upload_pack(
         ));
     }
 
-    let repo_path = state.default_vault_root().join(&vault_id);
+    let repo_path = state.vault_root().join(&vault_id);
     if !repo_path.exists() {
         return Err(ApiError::not_found("vault repository not found"));
     }
@@ -356,7 +356,11 @@ async fn authenticate_basic_inner(
 fn pkt_line(data: &[u8]) -> Vec<u8> {
     let len = 4 + data.len();
     let mut out = Vec::with_capacity(len);
-    out.extend_from_slice(format!("{len:04x}").as_bytes());
+    let hex = b"0123456789abcdef";
+    out.push(hex[(len >> 12) & 0xf]);
+    out.push(hex[(len >> 8) & 0xf]);
+    out.push(hex[(len >> 4) & 0xf]);
+    out.push(hex[len & 0xf]);
     out.extend_from_slice(data);
     out
 }
@@ -387,6 +391,24 @@ mod tests {
     fn pkt_line_handles_short_data() {
         let encoded = pkt_line(b"A");
         assert_eq!(&encoded, b"0005A");
+    }
+
+    #[test]
+    fn pkt_line_does_not_allocate_prefix_string() {
+        let source = include_str!("git_http.rs");
+        let fn_start = source.find("fn pkt_line").expect("pkt_line exists");
+        let next_marker = source[fn_start..]
+            .find(
+                "\n// ---------------------------------------------------------------------------",
+            )
+            .map(|idx| fn_start + idx)
+            .expect("test marker follows pkt_line");
+        let implementation = &source[fn_start..next_marker];
+
+        assert!(
+            !implementation.contains("format!"),
+            "pkt_line should write the fixed hex prefix without format! allocation"
+        );
     }
 
     #[test]

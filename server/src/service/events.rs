@@ -135,7 +135,7 @@ impl VaultEventBus {
 }
 
 pub async fn replay_events_after(
-    vault_root: PathBuf,
+    vault_root: &Path,
     vault_id: &str,
     last_event_id: &str,
 ) -> anyhow::Result<ReplayEvents> {
@@ -271,7 +271,7 @@ fn detect_blob_pointer(bytes: &[u8]) -> Option<(String, u64)> {
         return None;
     }
     let hash = v.get("blob")?.as_str()?.to_string();
-    if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+    if hash.len() != 64 || !hash.as_bytes().iter().all(u8::is_ascii_hexdigit) {
         return None;
     }
     let size = v.get("size")?.as_u64()?;
@@ -361,6 +361,25 @@ mod tests {
             EventChange::TextRef { .. } => {}
             other => panic!("expected TextRef fallback, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn detect_blob_pointer_uses_ascii_bytes_for_hash_validation() {
+        let source = include_str!("events.rs");
+        let fn_start = source
+            .find("fn detect_blob_pointer")
+            .expect("detect_blob_pointer implementation exists");
+        let next_fn = source[fn_start + 1..]
+            .find("\nfn ")
+            .map(|idx| fn_start + 1 + idx)
+            .expect("following function exists");
+        let implementation = &source[fn_start..next_fn];
+
+        assert!(implementation.contains(".as_bytes().iter().all"));
+        assert!(
+            !implementation.contains(".chars().all"),
+            "hash validation should avoid char iteration for known ASCII hex"
+        );
     }
 
     #[tokio::test]

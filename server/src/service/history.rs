@@ -1,7 +1,6 @@
 use crate::api::error::ApiError;
 use crate::service::diff::{ChangeType, CommitChange};
 use crate::service::{vault, AppState};
-use crate::storage::git::Git2VaultStore;
 use crate::storage::path;
 use git2::{Oid, Repository};
 use serde::Serialize;
@@ -44,7 +43,7 @@ pub async fn commits(
         return file_history(state, user_id, vault_id, path, limit).await;
     }
     let _ = vault::ensure_user_vault(state, user_id, vault_id).await?;
-    let root = state.default_vault_root().join(vault_id);
+    let root = state.vault_root().join(vault_id);
     tokio::task::spawn_blocking(move || -> Result<Vec<CommitSummary>, ApiError> {
         let repo = Repository::open_bare(root).map_err(|e| ApiError::internal(e.to_string()))?;
         let mut walk = repo
@@ -73,8 +72,7 @@ pub async fn commit_detail(
     commit: &str,
 ) -> Result<CommitDetail, ApiError> {
     let _ = vault::ensure_user_vault(state, user_id, vault_id).await?;
-    let root = state.default_vault_root().join(vault_id);
-    let vault_root = state.default_vault_root();
+    let root = state.vault_root().join(vault_id);
     let vault_id = vault_id.to_string();
     let commit = commit.to_string();
     let summary = tokio::task::spawn_blocking(move || -> Result<CommitSummary, ApiError> {
@@ -88,7 +86,7 @@ pub async fn commit_detail(
     })
     .await
     .map_err(|_| ApiError::internal("blocking task panicked"))??;
-    let store = Git2VaultStore::new(vault_root);
+    let store = state.git_store();
     let changes = store
         .tree_diff(&vault_id, summary.parent.as_deref(), &summary.commit)
         .await
@@ -113,7 +111,7 @@ pub async fn file_history(
     let _ = vault::ensure_user_vault(state, user_id, vault_id).await?;
     let file_path = path::normalize(file_path)
         .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
-    let root = state.default_vault_root().join(vault_id);
+    let root = state.vault_root().join(vault_id);
     let limit = limit.min(MAX_FILE_HISTORY_LIMIT);
     let scan_budget = file_history_scan_budget(limit);
     tokio::task::spawn_blocking(move || -> Result<Vec<CommitSummary>, ApiError> {

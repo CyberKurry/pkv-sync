@@ -8,7 +8,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::sync::LazyLock;
 
 const MAIN_JS: &[u8] = include_bytes!("../../../plugin/main.js");
@@ -16,9 +15,12 @@ const MANIFEST_JSON: &[u8] = include_bytes!("../../../plugin/manifest.json");
 const STYLES_CSS: &[u8] = include_bytes!("../../../plugin/styles.css");
 static OBSIDIAN_MANIFEST: LazyLock<ObsidianManifest> =
     LazyLock::new(|| serde_json::from_slice(MANIFEST_JSON).expect("bundled manifest.json parses"));
-static MAIN_JS_SHA256: LazyLock<String> = LazyLock::new(|| sha256_hex(MAIN_JS));
-static MANIFEST_JSON_SHA256: LazyLock<String> = LazyLock::new(|| sha256_hex(MANIFEST_JSON));
-static STYLES_CSS_SHA256: LazyLock<String> = LazyLock::new(|| sha256_hex(STYLES_CSS));
+static MAIN_JS_SHA256: LazyLock<String> =
+    LazyLock::new(|| crate::storage::blob::LocalFsBlobStore::sha256(MAIN_JS));
+static MANIFEST_JSON_SHA256: LazyLock<String> =
+    LazyLock::new(|| crate::storage::blob::LocalFsBlobStore::sha256(MANIFEST_JSON));
+static STYLES_CSS_SHA256: LazyLock<String> =
+    LazyLock::new(|| crate::storage::blob::LocalFsBlobStore::sha256(STYLES_CSS));
 
 #[derive(Clone)]
 pub struct PluginAssetOrigin {
@@ -110,10 +112,6 @@ fn asset_response(content_type: &'static str, bytes: &'static [u8]) -> Response 
         .into_response()
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -126,10 +124,12 @@ mod tests {
             .find("async fn main_js")
             .expect("asset handler follows manifest handler");
         let handler = &source[handler_start..main_js_start];
+        let production = &source[..source.find("#[cfg(test)]").expect("test module exists")];
 
         assert!(source.contains("static OBSIDIAN_MANIFEST: LazyLock"));
         assert!(source.contains("static MAIN_JS_SHA256: LazyLock"));
+        assert!(source.contains("LocalFsBlobStore::sha256"));
         assert!(!handler.contains("serde_json::from_slice(MANIFEST_JSON)"));
-        assert!(!handler.contains("sha256_hex(MAIN_JS)"));
+        assert!(!production.contains("fn sha256_hex"));
     }
 }

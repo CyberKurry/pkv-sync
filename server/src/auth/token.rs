@@ -27,7 +27,7 @@ pub fn hash(plaintext: &str) -> String {
 pub fn looks_valid(s: &str) -> bool {
     s.starts_with(PREFIX)
         && s.len() == PREFIX.len() + RAW_BYTES * 2
-        && s[PREFIX.len()..].chars().all(|c| c.is_ascii_hexdigit())
+        && s[PREFIX.len()..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
@@ -86,5 +86,20 @@ mod tests {
         assert!(!looks_valid("foo"));
         assert!(!looks_valid(&format!("{PREFIX}xyz")));
         assert!(!looks_valid(&format!("{PREFIX}{}", "0".repeat(63))));
+    }
+
+    #[test]
+    fn looks_valid_uses_ascii_bytes() {
+        let source = include_str!("token.rs");
+        let fn_start = source
+            .find("pub fn looks_valid")
+            .expect("looks_valid implementation exists");
+        let tests_start = source
+            .find("#[cfg(test)]")
+            .expect("tests follow implementation");
+        let implementation = &source[fn_start..tests_start];
+
+        assert!(implementation.contains(".bytes()"));
+        assert!(!implementation.contains(".chars()"));
     }
 }

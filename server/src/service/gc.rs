@@ -1,7 +1,7 @@
 use crate::api::error::ApiError;
 use crate::db::repos::{BlobRefRepo, BlobUploadRepo};
 use crate::service::AppState;
-use crate::storage::blob::{BlobStore, LocalFsBlobStore};
+use crate::storage::blob::BlobStore;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::time::{Duration, SystemTime};
@@ -24,7 +24,7 @@ pub async fn run_blob_gc_with_grace(
     state: &AppState,
     grace_seconds: u64,
 ) -> Result<GcReport, ApiError> {
-    let store = LocalFsBlobStore::new(state.default_blob_root());
+    let store = state.blob_store();
     let on_disk = store
         .list_hashes_with_mtime()
         .await

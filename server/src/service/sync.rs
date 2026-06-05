@@ -19,7 +19,7 @@ use git2::{Oid, Repository};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
@@ -191,7 +191,7 @@ pub struct PullFile {
 }
 
 pub(crate) fn blob_store(state: &AppState) -> LocalFsBlobStore {
-    LocalFsBlobStore::new(state.default_blob_root())
+    state.blob_store()
 }
 
 pub async fn upload_check(
@@ -505,7 +505,7 @@ async fn push_with_request_metadata_internal(
     let runtime_cfg = state.runtime_cfg.snapshot().await;
     let classifier = TextClassifier::new(runtime_cfg.text_extensions.iter().map(|s| s.as_str()));
     let path_filter = sync_path_filter(state, vault_id, &runtime_cfg.extra_exclude_globs).await?;
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     git.ensure_repo(vault_id).await.map_err(git_write_error)?;
     let head = git.head(vault_id).await.map_err(git_write_error)?;
     if head.as_deref() != if_match {
@@ -722,7 +722,7 @@ async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, Ap
         device_name,
         prepared.git_changes.len()
     );
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     let new_commit = git
         .commit_changes(
             vault_id,
@@ -847,7 +847,7 @@ async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, Ap
 }
 
 async fn try_auto_merge_push(input: AutoMergePushInput<'_>) -> Result<Option<PushResp>, ApiError> {
-    let git = Git2VaultStore::new(input.state.default_vault_root());
+    let git = input.state.git_store();
     let inline_max = input.runtime_cfg.inline_content_max_bytes as usize;
     let mut inline_budget = SseInlineBudget::new(inline_max);
     let mut git_changes = Vec::new();
@@ -1130,12 +1130,62 @@ fn blob_available_to_vault(
 }
 
 fn push_request_hash(if_match: Option<&str>, req: &PushReq) -> Result<String, ApiError> {
-    let body = serde_json::json!({
-        "if_match": if_match,
-        "request": req,
-    });
-    let bytes = serde_json::to_vec(&body).map_err(|e| ApiError::internal(e.to_string()))?;
-    Ok(hex::encode(Sha256::digest(bytes)))
+    let mut hasher = Sha256::new();
+    hash_len_prefixed(&mut hasher, "if_match");
+    match if_match {
+        Some(value) => {
+            hasher.update([1]);
+            hash_len_prefixed(&mut hasher, value);
+        }
+        None => hasher.update([0]),
+    }
+    hash_len_prefixed(&mut hasher, "device_name");
+    match &req.device_name {
+        Some(value) => {
+            hasher.update([1]);
+            hash_len_prefixed(&mut hasher, value);
+        }
+        None => hasher.update([0]),
+    }
+    hash_len_prefixed(&mut hasher, "changes");
+    hasher.update((req.changes.len() as u64).to_be_bytes());
+    for change in &req.changes {
+        match change {
+            PushChange::Text { path, content } => {
+                hasher.update([b'T']);
+                hash_len_prefixed(&mut hasher, path);
+                hash_len_prefixed(&mut hasher, content);
+            }
+            PushChange::Blob {
+                path,
+                blob_hash,
+                size,
+                mime,
+            } => {
+                hasher.update([b'B']);
+                hash_len_prefixed(&mut hasher, path);
+                hash_len_prefixed(&mut hasher, blob_hash);
+                hasher.update(size.to_be_bytes());
+                match mime {
+                    Some(value) => {
+                        hasher.update([1]);
+                        hash_len_prefixed(&mut hasher, value);
+                    }
+                    None => hasher.update([0]),
+                }
+            }
+            PushChange::Delete { path } => {
+                hasher.update([b'D']);
+                hash_len_prefixed(&mut hasher, path);
+            }
+        }
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn hash_len_prefixed(hasher: &mut Sha256, value: &str) {
+    hasher.update((value.len() as u64).to_be_bytes());
+    hasher.update(value.as_bytes());
 }
 
 struct PushMetadataInput<'a> {
@@ -1154,7 +1204,7 @@ struct PushMetadataInput<'a> {
 
 async fn record_push_metadata(input: PushMetadataInput<'_>) -> Result<(), ApiError> {
     let state = input.state;
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     let tree = git
         .list_tree(input.vault_id, Some(input.new_commit))
         .await
@@ -1284,7 +1334,7 @@ pub(crate) async fn reconcile_vault_metadata_unlocked(
     state: &AppState,
     vault_id: &str,
 ) -> Result<ReconcileReport, ApiError> {
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     let head = git
         .head(vault_id)
         .await
@@ -1403,7 +1453,7 @@ pub async fn state(
     head_since: Option<&str>,
 ) -> Result<StateResp, ApiError> {
     let _vault = vault::ensure_user_vault(state, user_id, vault_id).await?;
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     let head = git
         .head(vault_id)
         .await
@@ -1458,7 +1508,7 @@ async fn pull_for_user(
     request_metadata: RequestMetadata<'_>,
 ) -> Result<PullResp, ApiError> {
     let _vault = vault::ensure_user_vault(state, user_id, vault_id).await?;
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     let head = git
         .head(vault_id)
         .await
@@ -1516,8 +1566,9 @@ async fn pull_for_user(
             deleted.push(path.clone());
         }
     }
-    let added = files_to_pull(state.default_vault_root(), vault_id, &h, added_paths).await?;
-    let modified = files_to_pull(state.default_vault_root(), vault_id, &h, modified_paths).await?;
+    let vault_root = state.vault_root();
+    let added = files_to_pull(vault_root, vault_id, &h, added_paths).await?;
+    let modified = files_to_pull(vault_root, vault_id, &h, modified_paths).await?;
     if !added.is_empty() {
         state
             .metrics
@@ -1578,7 +1629,7 @@ async fn pull_for_user(
 }
 
 async fn files_to_pull(
-    vault_root: PathBuf,
+    vault_root: &Path,
     vault_id: &str,
     head: &str,
     paths: Vec<String>,
@@ -1682,7 +1733,7 @@ pub async fn read_file(
     let _vault = vault::ensure_user_vault(state, user_id, vault_id).await?;
     let p =
         path::normalize(path).map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
-    let git = Git2VaultStore::new(state.default_vault_root());
+    let git = state.git_store();
     git.read_file(vault_id, &p, at)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))
@@ -1718,6 +1769,63 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(v.changes[0], PushChange::Blob { .. }));
+    }
+
+    #[test]
+    fn push_request_hash_distinguishes_text_content_without_json_serialization() {
+        let left = PushReq {
+            device_name: Some("device".to_string()),
+            changes: vec![PushChange::Text {
+                path: "note.md".to_string(),
+                content: "left".to_string(),
+            }],
+        };
+        let right = PushReq {
+            device_name: Some("device".to_string()),
+            changes: vec![PushChange::Text {
+                path: "note.md".to_string(),
+                content: "right".to_string(),
+            }],
+        };
+
+        assert_ne!(
+            push_request_hash(Some("parent"), &left).unwrap(),
+            push_request_hash(Some("parent"), &right).unwrap()
+        );
+
+        let source = include_str!("sync.rs");
+        let fn_start = source
+            .find("fn push_request_hash")
+            .expect("push_request_hash implementation exists");
+        let next_struct = source[fn_start..]
+            .find("\nstruct PushMetadataInput")
+            .map(|idx| fn_start + idx)
+            .expect("metadata input follows hash helper");
+        let implementation = &source[fn_start..next_struct];
+
+        assert!(!implementation.contains("serde_json::json!"));
+        assert!(!implementation.contains("serde_json::to_vec"));
+    }
+
+    #[test]
+    fn push_request_hash_distinguishes_blob_metadata_and_parent() {
+        let mut req = PushReq {
+            device_name: None,
+            changes: vec![PushChange::Blob {
+                path: "img.png".to_string(),
+                blob_hash: "a".repeat(64),
+                size: 10,
+                mime: Some("image/png".to_string()),
+            }],
+        };
+        let base = push_request_hash(Some("parent-a"), &req).unwrap();
+        assert_ne!(base, push_request_hash(Some("parent-b"), &req).unwrap());
+
+        let PushChange::Blob { mime, .. } = &mut req.changes[0] else {
+            panic!("expected blob change");
+        };
+        *mime = Some("application/octet-stream".to_string());
+        assert_ne!(base, push_request_hash(Some("parent-a"), &req).unwrap());
     }
 
     #[test]

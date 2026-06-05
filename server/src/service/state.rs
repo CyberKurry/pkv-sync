@@ -7,8 +7,11 @@ use crate::db::repos::{
 use crate::service::events::VaultEventBus;
 use crate::service::metrics::Metrics;
 use crate::service::update_check::UpdateStatus;
+use crate::storage::blob::LocalFsBlobStore;
+use crate::storage::git::Git2VaultStore;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify, RwLock};
@@ -41,7 +44,9 @@ impl SetupState {
 pub struct AppState {
     pub pool: SqlitePool,
     /// Root directory for on-disk state. Plan C extends this with vault/blob helpers.
-    pub data_dir: std::path::PathBuf,
+    pub data_dir: PathBuf,
+    blob_root: Arc<PathBuf>,
+    vault_root: Arc<PathBuf>,
     pub users: Arc<SqliteUserRepo>,
     pub tokens: Arc<SqliteTokenRepo>,
     pub invites: Arc<SqliteInviteRepo>,
@@ -82,7 +87,7 @@ pub struct AppState {
 impl AppState {
     pub async fn new(
         pool: SqlitePool,
-        data_dir: std::path::PathBuf,
+        data_dir: PathBuf,
         default_server_name: String,
         git_available: bool,
     ) -> Result<Self, sqlx::Error> {
@@ -102,9 +107,13 @@ impl AppState {
             cfg.server_name = default_server_name.clone();
         }
         let runtime_cfg = RuntimeConfigCache::new(cfg);
+        let blob_root = Arc::new(data_dir.join("blobs"));
+        let vault_root = Arc::new(data_dir.join("vaults"));
         let state = Self {
             pool,
             data_dir,
+            blob_root,
+            vault_root,
             users,
             tokens,
             invites,
@@ -173,12 +182,28 @@ impl AppState {
         *self.setup_state.write().await = SetupState::Completed;
     }
 
-    pub fn default_blob_root(&self) -> std::path::PathBuf {
-        self.data_dir.join("blobs")
+    pub fn default_blob_root(&self) -> PathBuf {
+        (*self.blob_root).clone()
     }
 
-    pub fn default_vault_root(&self) -> std::path::PathBuf {
-        self.data_dir.join("vaults")
+    pub fn default_vault_root(&self) -> PathBuf {
+        (*self.vault_root).clone()
+    }
+
+    pub fn blob_root(&self) -> &Path {
+        self.blob_root.as_path()
+    }
+
+    pub fn vault_root(&self) -> &Path {
+        self.vault_root.as_path()
+    }
+
+    pub fn blob_store(&self) -> LocalFsBlobStore {
+        LocalFsBlobStore::from_shared_root(self.blob_root.clone())
+    }
+
+    pub fn git_store(&self) -> Git2VaultStore {
+        Git2VaultStore::from_shared_root(self.vault_root.clone())
     }
 
     pub fn vault_push_lock(&self, vault_id: &str) -> Arc<Mutex<()>> {
@@ -282,7 +307,7 @@ impl AppState {
         self.metrics.active_tokens.set(active_tokens);
         self.metrics.vaults_total.set(vaults_total);
         self.metrics.blobs_total.set(blobs_total);
-        let vault_root = self.default_vault_root();
+        let vault_root = self.vault_root.clone();
         match tokio::task::spawn_blocking(move || directory_size_bytes(&vault_root)).await {
             Ok(Ok(bytes)) => self.metrics.git_repo_size_bytes.set(bytes as f64),
             Ok(Err(err)) => tracing::debug!(error = %err, "failed to refresh git repo size metric"),
@@ -351,7 +376,7 @@ fn release_sse_per_user_count(counts: &DashMap<String, AtomicUsize>, user_id: &s
     }
 }
 
-fn directory_size_bytes(root: &std::path::Path) -> std::io::Result<u64> {
+fn directory_size_bytes(root: &Path) -> std::io::Result<u64> {
     if !root.exists() {
         return Ok(0);
     }
@@ -390,6 +415,24 @@ mod tests {
             .is_none());
         assert_eq!(state.default_blob_root(), tmp.path().join("blobs"));
         assert_eq!(state.default_vault_root(), tmp.path().join("vaults"));
+        assert_eq!(state.blob_root(), tmp.path().join("blobs").as_path());
+        assert_eq!(state.vault_root(), tmp.path().join("vaults").as_path());
+    }
+
+    #[tokio::test]
+    async fn storage_roots_are_cached_at_state_creation() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+
+        let mut moved = state.clone();
+        moved.data_dir = tmp.path().join("changed");
+
+        assert_eq!(moved.default_blob_root(), tmp.path().join("blobs"));
+        assert_eq!(moved.default_vault_root(), tmp.path().join("vaults"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

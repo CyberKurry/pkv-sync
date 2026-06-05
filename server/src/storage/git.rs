@@ -5,6 +5,7 @@ use git2::{Delta, DiffFindOptions, ObjectType, Oid, Repository, Signature, Tree}
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const MAIN_REF: &str = "refs/heads/main";
 pub const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
@@ -80,11 +81,17 @@ pub trait GitVaultStore: Send + Sync {
 
 #[derive(Clone)]
 pub struct Git2VaultStore {
-    root: PathBuf,
+    root: Arc<PathBuf>,
 }
 
 impl Git2VaultStore {
     pub fn new(root: PathBuf) -> Self {
+        Self {
+            root: Arc::new(root),
+        }
+    }
+
+    pub fn from_shared_root(root: Arc<PathBuf>) -> Self {
         Self { root }
     }
 
@@ -348,9 +355,9 @@ fn main_ref_target(repo: &Repository) -> Result<Option<Oid>, GitStoreError> {
     }
 }
 
-fn encode_file(f: &StoredFile) -> Result<Vec<u8>, serde_json::Error> {
+fn encode_file(f: StoredFile) -> Result<Vec<u8>, serde_json::Error> {
     match f {
-        StoredFile::Text { bytes } => Ok(bytes.clone()),
+        StoredFile::Text { bytes } => Ok(bytes),
         StoredFile::BlobPointer { hash, size, mime } => serde_json::to_vec(&serde_json::json!({
             POINTER_MAGIC_KEY: POINTER_VERSION,
             "blob": hash,
@@ -432,9 +439,8 @@ fn read_tree_recursive(
 
 fn build_tree_recursive(
     repo: &Repository,
-    files: &BTreeMap<String, StoredFile>,
+    files: BTreeMap<String, StoredFile>,
 ) -> Result<Oid, GitStoreError> {
-    #[derive(Clone)]
     enum TreeNode {
         File(StoredFile),
         Dir(BTreeMap<String, TreeNode>),
@@ -443,14 +449,14 @@ fn build_tree_recursive(
     fn insert(
         full_path: &str,
         parts: &[&str],
-        file: &StoredFile,
+        file: StoredFile,
         node: &mut BTreeMap<String, TreeNode>,
     ) -> Result<(), GitStoreError> {
         if parts.len() == 1 {
             if matches!(node.get(parts[0]), Some(TreeNode::Dir(_))) {
                 return Err(GitStoreError::PathConflict(full_path.to_string()));
             }
-            node.insert(parts[0].to_string(), TreeNode::File(file.clone()));
+            node.insert(parts[0].to_string(), TreeNode::File(file));
         } else {
             let child = node
                 .entry(parts[0].to_string())
@@ -467,7 +473,7 @@ fn build_tree_recursive(
 
     fn write_node(
         repo: &Repository,
-        node: &BTreeMap<String, TreeNode>,
+        node: BTreeMap<String, TreeNode>,
     ) -> Result<Oid, GitStoreError> {
         let mut builder = repo.treebuilder(None)?;
         for (name, value) in node {
@@ -489,9 +495,9 @@ fn build_tree_recursive(
     let mut root = BTreeMap::new();
     for (path, file) in files {
         let parts: Vec<&str> = path.split('/').collect();
-        insert(path, &parts, file, &mut root)?;
+        insert(&path, &parts, file, &mut root)?;
     }
-    write_node(repo, &root)
+    write_node(repo, root)
 }
 
 fn tree_entries_recursive(
@@ -598,7 +604,7 @@ impl GitVaultStore for Git2VaultStore {
                     }
                 }
             }
-            let tree_oid = build_tree_recursive(&repo, &current)?;
+            let tree_oid = build_tree_recursive(&repo, current)?;
             let tree = repo.find_tree(tree_oid)?;
             let sig = sig()?;
             let oid = match parent_commit {

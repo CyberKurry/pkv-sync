@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
-use crate::db::repos::{NewActivity, SyncActivityRepo, VaultRepo};
+use crate::db::repos::{NewActivity, SyncActivityRepo, Vault, VaultRepo};
 use crate::middleware::{rate_limit, real_ip::ClientIp, sse_cors_allow_header_names};
 use crate::service::sync::{self, UploadCheckReq};
 use crate::service::vault::RollbackError;
@@ -13,7 +13,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -88,14 +88,40 @@ struct RestoreVaultReq {
     confirm_vault_name: String,
 }
 
+#[derive(Deserialize)]
+struct StateQuery {
+    head_since: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PullQuery {
+    since: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ReadFileQuery {
+    at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CommitsQuery {
+    limit: Option<String>,
+    path: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DiffQuery {
+    from: Option<String>,
+    to: Option<String>,
+    path: Option<String>,
+}
+
 async fn list(
     State(state): State<AppState>,
     user: AuthenticatedUser,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<Vec<Vault>>, ApiError> {
     let v = state.vaults.list_for_user(&user.user_id).await?;
-    Ok(Json(
-        serde_json::to_value(v).map_err(|e| ApiError::internal(e.to_string()))?,
-    ))
+    Ok(Json(v))
 }
 
 async fn create(
@@ -104,7 +130,7 @@ async fn create(
     client_ip: Option<Extension<ClientIp>>,
     headers: HeaderMap,
     Json(req): Json<CreateVaultReq>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+) -> Result<(StatusCode, Json<Vault>), ApiError> {
     let v = vault_service::create_vault(&state, &user.user_id, &req.name).await?;
     let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
     vault_service::record_lifecycle_activity(
@@ -117,10 +143,7 @@ async fn create(
         user_agent.as_deref(),
     )
     .await?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(v).map_err(|e| ApiError::internal(e.to_string()))?),
-    ))
+    Ok((StatusCode::CREATED, Json(v)))
 }
 
 async fn remove(
@@ -213,11 +236,7 @@ async fn push(
 ) -> Result<Json<sync::PushResp>, ApiError> {
     let if_match = headers.get("if-match").and_then(|h| h.to_str().ok());
     let idem = headers.get("idempotency-key").and_then(|h| h.to_str().ok());
-    let client_ip = client_ip.map(|Extension(ClientIp(ip))| ip.to_string());
-    let user_agent = headers
-        .get(header::USER_AGENT)
-        .and_then(|h| h.to_str().ok())
-        .map(str::to_string);
+    let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
     Ok(Json(
         sync::push_with_request_metadata(
             &state,
@@ -283,16 +302,10 @@ async fn state(
     State(state): State<AppState>,
     user: AuthenticatedUser,
     Path(id): Path<String>,
-    Query(q): Query<HashMap<String, String>>,
+    Query(q): Query<StateQuery>,
 ) -> Result<Json<sync::StateResp>, ApiError> {
     Ok(Json(
-        sync::state(
-            &state,
-            &user.user_id,
-            &id,
-            q.get("head_since").map(String::as_str),
-        )
-        .await?,
+        sync::state(&state, &user.user_id, &id, q.head_since.as_deref()).await?,
     ))
 }
 
@@ -302,19 +315,15 @@ async fn pull(
     Path(id): Path<String>,
     client_ip: Option<Extension<ClientIp>>,
     headers: HeaderMap,
-    Query(q): Query<HashMap<String, String>>,
+    Query(q): Query<PullQuery>,
 ) -> Result<Json<sync::PullResp>, ApiError> {
-    let client_ip = client_ip.map(|Extension(ClientIp(ip))| ip.to_string());
-    let user_agent = headers
-        .get(header::USER_AGENT)
-        .and_then(|h| h.to_str().ok())
-        .map(str::to_string);
+    let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
     Ok(Json(
         sync::pull_with_request_metadata(
             &state,
             &user,
             &id,
-            q.get("since").map(String::as_str),
+            q.since.as_deref(),
             sync::RequestMetadata {
                 client_ip: client_ip.as_deref(),
                 user_agent: user_agent.as_deref(),
@@ -328,17 +337,11 @@ async fn read_file(
     State(state): State<AppState>,
     user: AuthenticatedUser,
     Path((id, path)): Path<(String, String)>,
-    Query(q): Query<HashMap<String, String>>,
+    Query(q): Query<ReadFileQuery>,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
-    let f = sync::read_file(
-        &state,
-        &user.user_id,
-        &id,
-        &path,
-        q.get("at").map(String::as_str),
-    )
-    .await?
-    .ok_or_else(|| ApiError::not_found("file"))?;
+    let f = sync::read_file(&state, &user.user_id, &id, &path, q.at.as_deref())
+        .await?
+        .ok_or_else(|| ApiError::not_found("file"))?;
     match f {
         crate::storage::git::StoredFile::Text { bytes } => Ok((
             StatusCode::OK,
@@ -362,25 +365,20 @@ async fn commits(
     State(state): State<AppState>,
     user: AuthenticatedUser,
     Path(id): Path<String>,
-    Query(q): Query<HashMap<String, String>>,
+    Query(q): Query<CommitsQuery>,
 ) -> Result<Json<Vec<crate::service::history::CommitSummary>>, ApiError> {
-    if q.contains_key("path") && !state.runtime_cfg.snapshot().await.enable_history_ui {
+    if q.path.is_some() && !state.runtime_cfg.snapshot().await.enable_history_ui {
         return Err(ApiError::not_found("history disabled"));
     }
     let limit = q
-        .get("limit")
+        .limit
+        .as_deref()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(50)
         .min(200);
     Ok(Json(
-        crate::service::history::commits(
-            &state,
-            &user.user_id,
-            &id,
-            limit,
-            q.get("path").map(String::as_str),
-        )
-        .await?,
+        crate::service::history::commits(&state, &user.user_id, &id, limit, q.path.as_deref())
+            .await?,
     ))
 }
 
@@ -415,7 +413,7 @@ async fn file_history(
     State(state): State<AppState>,
     user: AuthenticatedUser,
     Path(id): Path<String>,
-    Query(q): Query<HashMap<String, String>>,
+    Query(q): Query<CommitsQuery>,
     client_ip: Option<Extension<ClientIp>>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<crate::service::history::CommitSummary>>, ApiError> {
@@ -423,10 +421,12 @@ async fn file_history(
         return Err(ApiError::not_found("history disabled"));
     }
     let path = q
-        .get("path")
+        .path
+        .as_deref()
         .ok_or_else(|| ApiError::bad_request("missing_path", "path required"))?;
     let limit = q
-        .get("limit")
+        .limit
+        .as_deref()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(50)
         .min(200);
@@ -452,7 +452,7 @@ async fn diff(
     State(state): State<AppState>,
     user: AuthenticatedUser,
     Path(id): Path<String>,
-    Query(q): Query<HashMap<String, String>>,
+    Query(q): Query<DiffQuery>,
     client_ip: Option<Extension<ClientIp>>,
     headers: HeaderMap,
 ) -> Result<Json<crate::service::diff::UnifiedDiff>, ApiError> {
@@ -460,20 +460,15 @@ async fn diff(
         return Err(ApiError::not_found("diff disabled"));
     }
     let path = q
-        .get("path")
+        .path
+        .as_deref()
         .ok_or_else(|| ApiError::bad_request("missing_path", "path required"))?;
-    let to = q
-        .get("to")
-        .ok_or_else(|| ApiError::bad_request("missing_to", "to required"))?;
-    let out = crate::service::diff::unified_diff(
-        &state,
-        &user.user_id,
-        &id,
-        q.get("from").map(String::as_str),
-        to,
-        path,
-    )
-    .await?;
+    let to =
+        q.to.as_deref()
+            .ok_or_else(|| ApiError::bad_request("missing_to", "to required"))?;
+    let out =
+        crate::service::diff::unified_diff(&state, &user.user_id, &id, q.from.as_deref(), to, path)
+            .await?;
     let (client_ip, user_agent) = request_metadata_parts(client_ip, &headers);
     sync::record_view(
         &state,
@@ -509,13 +504,11 @@ async fn events(
         .and_then(|h| h.to_str().ok())
         .filter(|h| !h.trim().is_empty())
     {
-        Some(last_event_id) => crate::service::events::replay_events_after(
-            state.default_vault_root(),
-            &id,
-            last_event_id,
-        )
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?,
+        Some(last_event_id) => {
+            crate::service::events::replay_events_after(state.vault_root(), &id, last_event_id)
+                .await
+                .map_err(|e| ApiError::internal(e.to_string()))?
+        }
         None => crate::service::events::ReplayEvents::Events(Vec::new()),
     };
 

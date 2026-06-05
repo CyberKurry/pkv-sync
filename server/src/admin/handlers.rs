@@ -17,7 +17,7 @@ use crate::db::repos::{
 use crate::middleware::real_ip::{ClientIp, ForwardedFromTrustedProxy};
 use crate::service::auth::validate_username;
 use crate::service::AppState;
-use crate::storage::git::{Git2VaultStore, GitVaultStore, StoredFile, TreeEntry};
+use crate::storage::git::{GitVaultStore, StoredFile, TreeEntry};
 use askama::Template;
 use axum::extract::{Extension, Form, Path, Query, State};
 use axum::http::{header, HeaderMap, Method, StatusCode};
@@ -658,23 +658,14 @@ async fn dashboard(
     cookies: Cookies,
     session: AdminSession,
 ) -> Result<Html<String>, ApiError> {
-    let (users,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
-        .fetch_one(&state.pool)
-        .await?;
-    let (vaults,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM vaults")
-        .fetch_one(&state.pool)
-        .await?;
+    let dashboard_summary = dashboard_summary(&state).await?;
     let metrics = collect_dashboard_metrics(state.data_dir.clone()).await?;
     let t = admin_text(&headers, &cookies);
     let uptime_seconds = crate::server::uptime_seconds();
     let recent_activities = list_admin_activities(&state, 5, &ActivityFilters::default()).await?;
     let update_status = state.update_status.read().await.clone();
     let last_update_check_at = *state.last_update_check_at.read().await;
-    let last_sync_activity_at: Option<i64> =
-        sqlx::query_scalar("SELECT MAX(timestamp) FROM sync_activity")
-            .fetch_optional(&state.pool)
-            .await?
-            .flatten();
+    let last_sync_activity_at = dashboard_summary.last_sync_activity_at;
     let sse_subscribers = state.events.total_subscribers();
     let now = chrono::Utc::now().timestamp();
     let last_update_check_display = last_update_check_at
@@ -700,8 +691,8 @@ async fn dashboard(
             uptime_display: crate::human::format_duration_seconds(uptime_seconds, t.html_lang),
             t,
             username: session.user.username,
-            users,
-            vaults,
+            users: dashboard_summary.users,
+            vaults: dashboard_summary.vaults,
             cpu_percent: metrics.cpu_percent,
             cpu_display: format!("{:.0}", metrics.cpu_percent),
             cpu_cores_display: crate::admin::system::format_cpu_cores(metrics.cpu_cores),
@@ -722,6 +713,29 @@ async fn dashboard(
         .render()
         .unwrap(),
     ))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct DashboardSummary {
+    users: i64,
+    vaults: i64,
+    last_sync_activity_at: Option<i64>,
+}
+
+async fn dashboard_summary(state: &AppState) -> Result<DashboardSummary, sqlx::Error> {
+    let (users, vaults, last_sync_activity_at): (i64, i64, Option<i64>) = sqlx::query_as(
+        "SELECT
+            (SELECT COUNT(*) FROM users),
+            (SELECT COUNT(*) FROM vaults),
+            (SELECT MAX(timestamp) FROM sync_activity)",
+    )
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(DashboardSummary {
+        users,
+        vaults,
+        last_sync_activity_at,
+    })
 }
 
 async fn collect_dashboard_metrics(
@@ -1356,7 +1370,7 @@ async fn vault_files_page(
 ) -> Result<Html<String>, ApiError> {
     ensure_admin_history_enabled(&state).await?;
     let (_vault, vault_view) = admin_vault(&state, &id).await?;
-    let store = Git2VaultStore::new(state.default_vault_root());
+    let store = state.git_store();
     let entries = store
         .list_tree(&id, None)
         .await
@@ -1435,7 +1449,7 @@ async fn vault_file_view_html(
     let (_vault, vault_view) = admin_vault(&state, &id).await?;
     let path = crate::storage::path::normalize(&path)
         .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
-    let store = Git2VaultStore::new(state.default_vault_root());
+    let store = state.git_store();
     let file = store
         .read_file(&id, &path, query.at.as_deref())
         .await
@@ -2170,6 +2184,49 @@ mod tests {
     #[test]
     fn admin_user_search_escapes_like_wildcards() {
         assert_eq!(admin_user_search_pattern("Bo_B%"), "%bo\\_b\\%%");
+    }
+
+    #[tokio::test]
+    async fn dashboard_summary_combines_counts_and_last_sync_activity() {
+        use crate::db::pool;
+        use crate::db::repos::{NewUser, UserRepo, VaultRepo};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+        let user = state
+            .users
+            .create(NewUser {
+                username: "admin".into(),
+                password_hash: "h".into(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        state.vaults.create(&user.id, "main").await.unwrap();
+        state
+            .activities
+            .insert(NewActivity {
+                user_id: &user.id,
+                vault_id: None,
+                token_id: None,
+                action: "login",
+                commit_hash: None,
+                client_ip: None,
+                user_agent: None,
+                details: None,
+            })
+            .await
+            .unwrap();
+
+        let summary = dashboard_summary(&state).await.unwrap();
+
+        assert_eq!(summary.users, 1);
+        assert_eq!(summary.vaults, 1);
+        assert!(summary.last_sync_activity_at.is_some());
     }
 
     #[tokio::test(flavor = "current_thread")]

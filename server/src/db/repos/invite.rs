@@ -40,8 +40,7 @@ impl SqliteInviteRepo {
 fn random_code() -> String {
     let mut buf = [0u8; 16];
     OsRng.fill_bytes(&mut buf);
-    let h: String = buf.iter().map(|b| format!("{b:02x}")).collect();
-    format!("inv_{h}")
+    format!("inv_{}", hex::encode(buf))
 }
 
 #[async_trait]
