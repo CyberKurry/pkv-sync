@@ -13,6 +13,8 @@ pub enum PasswordError {
     TooShort { len: usize },
     #[error("password too long ({len} bytes, max {max})")]
     TooLong { len: usize, max: usize },
+    #[error("password must be at least 12 characters and include uppercase, lowercase, and digit")]
+    TooWeak,
     #[error("argon2: {0}")]
     Argon2(String),
 }
@@ -38,6 +40,22 @@ pub fn hash(plaintext: &str) -> Result<String, PasswordError> {
     let salt = SaltString::generate(&mut OsRng);
     let phc = DEFAULT_ARGON2.hash_password(plaintext.as_bytes(), &salt)?;
     Ok(phc.to_string())
+}
+
+pub fn validate_strong(plaintext: &str) -> Result<(), PasswordError> {
+    if plaintext.len() > MAX_PASSWORD_BYTES {
+        return Err(PasswordError::TooLong {
+            len: plaintext.len(),
+            max: MAX_PASSWORD_BYTES,
+        });
+    }
+    let has_lower = plaintext.chars().any(|c| c.is_ascii_lowercase());
+    let has_upper = plaintext.chars().any(|c| c.is_ascii_uppercase());
+    let has_digit = plaintext.chars().any(|c| c.is_ascii_digit());
+    if plaintext.chars().count() < 12 || !has_lower || !has_upper || !has_digit {
+        return Err(PasswordError::TooWeak);
+    }
+    Ok(())
 }
 
 /// Verify a plaintext against a stored encoded hash. Returns true on match.
@@ -80,6 +98,19 @@ mod tests {
     #[test]
     fn rejects_too_long_password() {
         assert!(hash(&"a".repeat(4097)).is_err());
+    }
+
+    #[test]
+    fn strong_password_policy_matches_setup_requirements() {
+        assert!(validate_strong("Passw0rdStrong").is_ok());
+        assert!(matches!(
+            validate_strong("passw0rd!!").unwrap_err(),
+            PasswordError::TooWeak
+        ));
+        assert!(matches!(
+            validate_strong("PASSWORD1234").unwrap_err(),
+            PasswordError::TooWeak
+        ));
     }
 
     #[test]

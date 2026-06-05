@@ -121,18 +121,10 @@ impl RequestRateLimiter {
     }
 
     fn prune_stale_at(&self, now: Instant) -> usize {
-        let stale = self
-            .inner
-            .iter()
-            .filter_map(|entry| {
-                (now.duration_since(entry.started) >= self.window).then(|| entry.key().clone())
-            })
-            .collect::<Vec<_>>();
-        let removed = stale.len();
-        for key in stale {
-            self.inner.remove(&key);
-        }
-        removed
+        let before = self.inner.len();
+        self.inner
+            .retain(|_, entry| now.duration_since(entry.started) < self.window);
+        before.saturating_sub(self.inner.len())
     }
 
     #[cfg(test)]
@@ -341,5 +333,21 @@ mod tests {
         assert_eq!(limiter.prune_stale(), 1);
         assert_eq!(limiter.entry_count_for_tests(), 1);
         assert!(limiter.check("expired".into()).is_ok());
+    }
+
+    #[test]
+    fn prune_stale_uses_retain_without_collecting_keys() {
+        let source = include_str!("rate_limit.rs");
+        let fn_start = source
+            .find("fn prune_stale_at")
+            .expect("prune_stale_at implementation exists");
+        let next_attr = source[fn_start..]
+            .find("\n    #[cfg(test)]")
+            .map(|idx| fn_start + idx)
+            .expect("test-only helpers follow prune_stale_at");
+        let implementation = &source[fn_start..next_attr];
+
+        assert!(implementation.contains(".retain("));
+        assert!(!implementation.contains("collect::<Vec"));
     }
 }

@@ -27,7 +27,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use chrono::{NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 use rand::{rngs::OsRng, RngCore};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -254,6 +254,8 @@ fn redirect_to_safe_admin_next(params: &HashMap<String, String>) -> Redirect {
 }
 
 fn is_safe_admin_next(value: &str) -> bool {
+    let decoded = decode_admin_next_path(value);
+    let value = decoded.as_str();
     if value.starts_with("//") || value.contains('\\') {
         return false;
     }
@@ -267,6 +269,20 @@ fn is_safe_admin_next(value: &str) -> bool {
         Some(rest) => rest.starts_with('?') || rest.starts_with('#'),
         None => false,
     }
+}
+
+fn decode_admin_next_path(value: &str) -> String {
+    let mut current = value.to_string();
+    for _ in 0..4 {
+        let decoded = percent_decode_str(&current)
+            .decode_utf8_lossy()
+            .into_owned();
+        if decoded == current {
+            break;
+        }
+        current = decoded;
+    }
+    current
 }
 
 #[derive(Deserialize)]
@@ -423,12 +439,7 @@ async fn setup_post(
         return Ok(StatusCode::NOT_FOUND.into_response());
     }
 
-    let password_hash = password::hash(&form.password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
-            ApiError::bad_request("weak_password", e.to_string())
-        }
-        _ => ApiError::internal(e.to_string()),
-    })?;
+    let password_hash = hash_admin_password(&form.password)?;
     let created = state
         .users
         .create_first_admin(NewUser {
@@ -508,13 +519,25 @@ fn validate_setup_password(
     if password != confirm {
         return Err(SetupPasswordValidationError::Mismatch);
     }
-    let has_lower = password.chars().any(|c| c.is_ascii_lowercase());
-    let has_upper = password.chars().any(|c| c.is_ascii_uppercase());
-    let has_digit = password.chars().any(|c| c.is_ascii_digit());
-    if password.chars().count() < 12 || !has_lower || !has_upper || !has_digit {
+    if password::validate_strong(password).is_err() {
         return Err(SetupPasswordValidationError::TooWeak);
     }
     Ok(())
+}
+
+fn hash_admin_password(plaintext: &str) -> Result<String, ApiError> {
+    password::validate_strong(plaintext).map_err(|e| match e {
+        password::PasswordError::TooLong { .. } | password::PasswordError::TooWeak => {
+            ApiError::bad_request("weak_password", e.to_string())
+        }
+        _ => ApiError::internal(e.to_string()),
+    })?;
+    password::hash(plaintext).map_err(|e| match e {
+        password::PasswordError::TooShort { .. }
+        | password::PasswordError::TooLong { .. }
+        | password::PasswordError::TooWeak => ApiError::bad_request("weak_password", e.to_string()),
+        _ => ApiError::internal(e.to_string()),
+    })
 }
 
 async fn login_post(
@@ -888,12 +911,7 @@ async fn create_user_form(
     {
         return Err(ApiError::conflict("username_taken", "username exists"));
     }
-    let password_hash = password::hash(&form.password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
-            ApiError::bad_request("weak_password", e.to_string())
-        }
-        _ => ApiError::internal(e.to_string()),
-    })?;
+    let password_hash = hash_admin_password(&form.password)?;
     state
         .users
         .create(NewUser {
@@ -1020,12 +1038,7 @@ async fn reset_password_form(
     Path(id): Path<String>,
     Form(form): Form<PasswordForm>,
 ) -> Result<Redirect, ApiError> {
-    let password_hash = password::hash(&form.password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
-            ApiError::bad_request("weak_password", e.to_string())
-        }
-        _ => ApiError::internal(e.to_string()),
-    })?;
+    let password_hash = hash_admin_password(&form.password)?;
     state.users.update_password(&id, &password_hash).await?;
     state
         .tokens
@@ -2184,6 +2197,13 @@ mod tests {
     #[test]
     fn admin_user_search_escapes_like_wildcards() {
         assert_eq!(admin_user_search_pattern("Bo_B%"), "%bo\\_b\\%%");
+    }
+
+    #[test]
+    fn admin_next_rejects_percent_encoded_dot_segments() {
+        assert!(!is_safe_admin_next("/admin/%2e%2e/api/config"));
+        assert!(!is_safe_admin_next("/admin/%252e%252e/api/config"));
+        assert!(is_safe_admin_next("/admin/users?q=a%2Eb"));
     }
 
     #[tokio::test]

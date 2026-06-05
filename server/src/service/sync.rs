@@ -23,6 +23,7 @@ use std::path::Path;
 use std::time::Duration;
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
+const MAX_IDEMPOTENCY_KEY_LEN: usize = 256;
 const MAX_PUSH_CHANGES: usize = 1000;
 const MAX_PUSH_DEVICE_NAME_BYTES: usize = 4096;
 const MAX_SSE_INLINE_PUSH_BYTES: usize = 64 * 1024;
@@ -455,6 +456,20 @@ async fn push_with_request_metadata_internal(
             return Err(ApiError::bad_request(
                 "invalid_device_name",
                 format!("device_name exceeds limit of {MAX_PUSH_DEVICE_NAME_BYTES} bytes"),
+            ));
+        }
+        if device_name.chars().any(char::is_control) {
+            return Err(ApiError::bad_request(
+                "invalid_device_name",
+                "device_name cannot contain control characters",
+            ));
+        }
+    }
+    if let Some(key) = idempotency_key {
+        if key.len() > MAX_IDEMPOTENCY_KEY_LEN {
+            return Err(ApiError::bad_request(
+                "invalid_idempotency_key",
+                format!("idempotency key exceeds limit of {MAX_IDEMPOTENCY_KEY_LEN} bytes"),
             ));
         }
     }
@@ -1055,7 +1070,7 @@ fn conflict_path_for(original: &str, device_name: &str) -> String {
         Some(idx) => (&original[..=idx], &original[idx + 1..]),
         None => ("", original),
     };
-    match file.rfind('.') {
+    let candidate = match file.rfind('.') {
         Some(dot) if dot > 0 => format!(
             "{}{}.conflict-{}-{}-{}{}",
             dir,
@@ -1066,6 +1081,19 @@ fn conflict_path_for(original: &str, device_name: &str) -> String {
             &file[dot..]
         ),
         _ => format!("{dir}{file}.conflict-{stamp}-{nonce}-{device}"),
+    };
+    if path::normalize(&candidate).is_ok() {
+        return candidate;
+    }
+    let ext = match file.rfind('.') {
+        Some(dot) if dot > 0 && file[dot..].len() <= 16 => &file[dot..],
+        _ => ".md",
+    };
+    let fallback = format!("{dir}conflict.conflict-{stamp}-{nonce}{ext}");
+    if path::normalize(&fallback).is_ok() {
+        fallback
+    } else {
+        format!("conflict.conflict-{stamp}-{nonce}{ext}")
     }
 }
 
@@ -1442,8 +1470,11 @@ async fn acquire_vault_push_lock(
 }
 
 fn tree_stats(tree: &[crate::storage::git::TreeEntry]) -> (i64, i64) {
-    let size = tree.iter().map(|e| e.size as i64).sum();
-    (size, tree.len() as i64)
+    let size = tree.iter().fold(0i64, |acc, entry| {
+        acc.saturating_add(entry.size.min(i64::MAX as u64) as i64)
+    });
+    let file_count = tree.len().min(i64::MAX as usize) as i64;
+    (size, file_count)
 }
 
 pub async fn state(
@@ -1885,6 +1916,43 @@ mod tests {
         assert_ne!(first, second);
         assert!(first.starts_with("notes/daily.conflict-"));
         assert!(first.ends_with(".md"));
+    }
+
+    #[test]
+    fn conflict_path_for_long_input_stays_within_storage_limits() {
+        let original = format!("{}/{}.md", "d".repeat(255), "a".repeat(252));
+        assert_eq!(path::normalize(&original).unwrap().len(), 511);
+
+        let conflict = conflict_path_for(&original, &"device".repeat(100));
+
+        assert!(
+            conflict.len() <= 512,
+            "conflict path should fit storage path limit: {}",
+            conflict.len()
+        );
+        path::normalize(&conflict).expect("generated conflict path should remain valid");
+        assert!(conflict.contains(".conflict-"));
+        assert!(conflict.ends_with(".md"));
+    }
+
+    #[test]
+    fn tree_stats_saturates_oversized_entries() {
+        let entries = vec![
+            crate::storage::git::TreeEntry {
+                path: "huge.bin".into(),
+                git_oid: "0".repeat(40),
+                size: i64::MAX as u64,
+                is_blob_pointer: true,
+            },
+            crate::storage::git::TreeEntry {
+                path: "another.bin".into(),
+                git_oid: "1".repeat(40),
+                size: 1,
+                is_blob_pointer: true,
+            },
+        ];
+
+        assert_eq!(tree_stats(&entries), (i64::MAX, 2));
     }
 
     async fn state_user_vault() -> (AppState, AuthenticatedUser, String, tempfile::TempDir) {
@@ -2374,9 +2442,7 @@ mod tests {
             None,
             None,
             PushReq {
-                device_name: Some(
-                    "Laptop\nCo-authored-by: mallory@example.invalid\t\u{0007}".into(),
-                ),
+                device_name: Some("  Laptop    Workstation  ".into()),
                 changes: vec![PushChange::Text {
                     path: "note.md".into(),
                     content: "hello".into(),
@@ -2392,10 +2458,7 @@ mod tests {
             .unwrap();
         let message = commit.message().unwrap();
 
-        assert_eq!(
-            message,
-            "sync: Laptop Co-authored-by: mallory@example.invalid\n1 files changed"
-        );
+        assert_eq!(message, "sync: Laptop Workstation\n1 files changed");
     }
 
     #[tokio::test]
@@ -2442,6 +2505,30 @@ mod tests {
             None,
             PushReq {
                 device_name: Some("A".repeat(MAX_PUSH_DEVICE_NAME_BYTES + 1)),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "hello".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "invalid_device_name");
+    }
+
+    #[tokio::test]
+    async fn push_rejects_device_name_control_characters() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+
+        let err = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("desk\nhidden".into()),
                 changes: vec![PushChange::Text {
                     path: "note.md".into(),
                     content: "hello".into(),
@@ -2543,6 +2630,30 @@ mod tests {
 
         assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
         assert_eq!(err.code, "idempotency_key_reused");
+    }
+
+    #[tokio::test]
+    async fn push_rejects_oversized_idempotency_key() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+
+        let err = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            Some(&"k".repeat(257)),
+            PushReq {
+                device_name: Some("test".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "hello".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "invalid_idempotency_key");
     }
 
     #[tokio::test]

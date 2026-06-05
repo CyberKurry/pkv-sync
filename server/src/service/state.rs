@@ -369,9 +369,22 @@ fn release_sse_global_count(count: &AtomicUsize) {
 
 fn release_sse_per_user_count(counts: &DashMap<String, AtomicUsize>, user_id: &str) {
     if let Some(count) = counts.get(user_id) {
-        if count.fetch_sub(1, Ordering::AcqRel) == 1 {
-            drop(count);
-            counts.remove_if(user_id, |_, count| count.load(Ordering::Acquire) == 0);
+        let released_to_zero = count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current.checked_sub(1)
+            })
+            .map(|previous| previous == 1);
+        match released_to_zero {
+            Ok(true) => {
+                drop(count);
+                counts.remove_if(user_id, |_, count| count.load(Ordering::Acquire) == 0);
+            }
+            Ok(false) => {}
+            Err(_) => {
+                tracing::error!(user_id = %user_id, "SSE per-user subscriber count release underflow");
+                drop(count);
+                counts.remove_if(user_id, |_, count| count.load(Ordering::Acquire) == 0);
+            }
         }
     }
 }
@@ -553,6 +566,32 @@ mod tests {
         drop(guard);
 
         assert_eq!(state.sse_global_count.load(Ordering::Acquire), 0);
+    }
+
+    #[tokio::test]
+    async fn sse_guard_drop_does_not_underflow_per_user_count() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+
+        let guard = state
+            .try_acquire_sse_subscriber("user-1")
+            .expect("first subscriber should be accepted");
+        if let Some(count) = state.sse_per_user_counts.get("user-1") {
+            count.store(0, Ordering::Release);
+        }
+
+        drop(guard);
+
+        let remaining = state
+            .sse_per_user_counts
+            .get("user-1")
+            .map(|count| count.load(Ordering::Acquire))
+            .unwrap_or(0);
+        assert_eq!(remaining, 0);
     }
 
     #[tokio::test]

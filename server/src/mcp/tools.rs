@@ -14,6 +14,14 @@ use rmcp::model::{object, Tool, ToolAnnotations};
 use serde::{Deserialize, Serialize};
 
 const SEARCH_MAX_TREE_FILES: usize = 5000;
+#[cfg(test)]
+const SEARCH_MAX_TOTAL_BYTES: usize = 64 * 1024;
+#[cfg(not(test))]
+const SEARCH_MAX_TOTAL_BYTES: usize = 256 * 1024 * 1024;
+#[cfg(test)]
+const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64;
+#[cfg(not(test))]
+const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
 const DEFAULT_SEARCH_LIMIT: usize = 100;
 const SEARCH_MAX_LIMIT: usize = 500;
 const LIST_VAULTS_HEAD_CONCURRENCY: usize = 16;
@@ -234,6 +242,7 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         .unwrap_or(DEFAULT_SEARCH_LIMIT)
         .min(SEARCH_MAX_LIMIT);
     let mut matches = Vec::new();
+    let mut searched_bytes = 0usize;
 
     for entry in entries {
         if matches.len() >= limit {
@@ -241,6 +250,11 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         }
         if entry.is_blob_pointer || !classifier.is_text_path(&entry.path) {
             continue;
+        }
+        let entry_size = usize::try_from(entry.size).unwrap_or(usize::MAX);
+        searched_bytes = searched_bytes.saturating_add(entry_size);
+        if searched_bytes > SEARCH_MAX_TOTAL_BYTES {
+            bail!("search content budget exceeded");
         }
         let Some(StoredFile::Text { bytes }) = git
             .read_file(&input.vault_id, &entry.path, input.at.as_deref())
@@ -557,6 +571,13 @@ async fn render_file(
                 bail!("blob not referenced by vault");
             }
             let blob = state.blob_store();
+            let size = blob
+                .size_bytes(&hash)
+                .await?
+                .ok_or_else(|| anyhow!("blob not found: {hash}"))?;
+            if size > MCP_MAX_BINARY_RESPONSE_BYTES {
+                bail!("file exceeds MCP response limit");
+            }
             let bytes = blob
                 .get(&hash)
                 .await?
@@ -715,6 +736,83 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.matches.len(), SEARCH_MAX_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn search_rejects_total_text_budget_overrun() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        git.commit_changes(
+            &vault_id,
+            None,
+            &[FileChange::Upsert {
+                path: "large.md".into(),
+                file: StoredFile::Text {
+                    bytes: vec![b'a'; SEARCH_MAX_TOTAL_BYTES + 1],
+                },
+            }],
+            "seed",
+        )
+        .await
+        .unwrap();
+
+        let err = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id,
+                query: "needle".into(),
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("search content budget exceeded"));
+    }
+
+    #[tokio::test]
+    async fn read_file_rejects_blob_over_response_budget_before_loading() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let blob = LocalFsBlobStore::new(state.default_blob_root());
+        let bytes = Bytes::from(vec![b'x'; MCP_MAX_BINARY_RESPONSE_BYTES as usize + 1]);
+        let hash = LocalFsBlobStore::sha256(&bytes);
+        blob.put_verified(&hash, bytes.clone()).await.unwrap();
+        state
+            .blob_refs
+            .add_refs(&vault_id, "seed", std::slice::from_ref(&hash))
+            .await
+            .unwrap();
+        git.commit_changes(
+            &vault_id,
+            None,
+            &[FileChange::Upsert {
+                path: "large.bin".into(),
+                file: StoredFile::BlobPointer {
+                    hash: hash.clone(),
+                    size: bytes.len() as u64,
+                    mime: Some("application/octet-stream".into()),
+                },
+            }],
+            "seed",
+        )
+        .await
+        .unwrap();
+
+        let err = read_file(
+            &state,
+            &user_id,
+            ReadFileInput {
+                vault_id,
+                path: "large.bin".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("file exceeds MCP response limit"));
     }
 
     #[test]

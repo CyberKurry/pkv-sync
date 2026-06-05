@@ -39,7 +39,8 @@ const USERNAME_MIN: usize = 3;
 const USERNAME_MAX: usize = 32;
 
 pub fn validate_username(u: &str) -> Result<(), ApiError> {
-    if u.len() < USERNAME_MIN || u.len() > USERNAME_MAX {
+    let len = u.chars().count();
+    if !(USERNAME_MIN..=USERNAME_MAX).contains(&len) {
         return Err(ApiError::bad_request(
             "invalid_username",
             format!("username must be {USERNAME_MIN}-{USERNAME_MAX} chars"),
@@ -427,6 +428,21 @@ mod tests {
         assert_eq!(err.code, "invalid_username");
     }
 
+    #[test]
+    fn username_length_validation_counts_characters() {
+        let source = include_str!("auth.rs");
+        let fn_start = source
+            .find("pub fn validate_username")
+            .expect("validate_username implementation exists");
+        let next_fn = source[fn_start..]
+            .find("\nfn ")
+            .map(|idx| fn_start + idx)
+            .expect("next helper follows validate_username");
+        let implementation = &source[fn_start..next_fn];
+
+        assert!(implementation.contains(".chars().count()"));
+    }
+
     #[tokio::test]
     async fn register_invalid_device_id_does_not_create_user() {
         let s = make_state(RegistrationMode::Open).await;
@@ -445,6 +461,70 @@ mod tests {
 
         assert_eq!(err.code, "invalid_device");
         assert!(s.users.find_by_username("userx").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn register_invite_race_leaves_one_user_and_token() {
+        let s = make_state(RegistrationMode::InviteOnly).await;
+        let creator = s
+            .users
+            .create(NewUser {
+                username: "admin".into(),
+                password_hash: "hash".into(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        let invite = s.invites.create(&creator.id, None).await.unwrap();
+
+        let first = register(
+            &s,
+            RegisterReq {
+                username: "racea".into(),
+                password: "passw0rd!!".into(),
+                device_id: "device-race-a".into(),
+                device_name: "a".into(),
+                invite_code: Some(invite.code.clone()),
+            },
+        );
+        let second = register(
+            &s,
+            RegisterReq {
+                username: "raceb".into(),
+                password: "passw0rd!!".into(),
+                device_id: "device-race-b".into(),
+                device_name: "b".into(),
+                invite_code: Some(invite.code.clone()),
+            },
+        );
+
+        let (first, second) = tokio::join!(first, second);
+        let successes = [first.as_ref().ok(), second.as_ref().ok()]
+            .into_iter()
+            .flatten()
+            .count();
+        let failures = [first.as_ref().err(), second.as_ref().err()]
+            .into_iter()
+            .flatten()
+            .filter(|err| err.code == "invalid_invite")
+            .count();
+
+        assert_eq!(successes, 1);
+        assert_eq!(failures, 1);
+        let (registered_users,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM users WHERE username IN ('racea', 'raceb')")
+                .fetch_one(&s.pool)
+                .await
+                .unwrap();
+        let (registered_tokens,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM tokens
+             WHERE device_id IN ('device-race-a', 'device-race-b')",
+        )
+        .fetch_one(&s.pool)
+        .await
+        .unwrap();
+        assert_eq!(registered_users, 1);
+        assert_eq!(registered_tokens, 1);
     }
 
     #[tokio::test]

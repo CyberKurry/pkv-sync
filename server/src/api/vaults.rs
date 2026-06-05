@@ -5,6 +5,7 @@ use crate::middleware::{rate_limit, real_ip::ClientIp, sse_cors_allow_header_nam
 use crate::service::sync::{self, UploadCheckReq};
 use crate::service::vault::RollbackError;
 use crate::service::{vault as vault_service, AppState};
+use crate::storage::blob::BLOB_HARD_MAX_BYTES;
 use axum::body::Body;
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
@@ -208,7 +209,10 @@ async fn upload_blob(
 }
 
 fn max_body_bytes(max_file_size: u64) -> usize {
-    max_file_size.try_into().unwrap_or(usize::MAX)
+    max_file_size
+        .min(BLOB_HARD_MAX_BYTES)
+        .try_into()
+        .unwrap_or(usize::MAX)
 }
 
 async fn download_blob(
@@ -1116,6 +1120,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_vault_rejects_invalid_name_via_service_validation() {
+        let (app, _state, raw) = setup_with_state().await;
+        let resp = app
+            .oneshot(req_json(
+                "POST",
+                "/api/vaults",
+                &raw,
+                serde_json::json!({"name":"main\nhidden"}),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn vault_api_routes_are_rate_limited() {
         let (app, _state, raw) = setup_with_limiter(rate_limit::RequestRateLimiter::new(
             1,
@@ -1204,6 +1224,36 @@ mod tests {
             serde_json::from_slice(&axum::body::to_bytes(check.into_body(), 4096).await.unwrap())
                 .unwrap();
         assert_eq!(body["missing"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn blob_upload_body_limit_is_clamped_to_hard_blob_limit() {
+        let (app, state, raw) = setup_with_state().await;
+        state
+            .runtime_cfg_repo
+            .set_max_file_size(u64::MAX, None)
+            .await
+            .unwrap();
+        let cfg = state.runtime_cfg_repo.load().await.unwrap();
+        state.runtime_cfg.replace(cfg).await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        let body = vec![b'x'; crate::storage::blob::BLOB_HARD_MAX_BYTES as usize + 1];
+        let hash = LocalFsBlobStore::sha256(&body);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/vaults/{id}/upload/blob"))
+                    .header("authorization", format!("Bearer {raw}"))
+                    .header("content-hash", &hash)
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

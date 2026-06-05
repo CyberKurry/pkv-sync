@@ -45,6 +45,27 @@ struct UserView {
     last_login_at: Option<i64>,
 }
 
+#[derive(Serialize)]
+struct AdminTokenView {
+    id: String,
+    device_id: String,
+    device_name: String,
+    created_at: i64,
+    last_used_at: Option<i64>,
+}
+
+impl From<TokenRow> for AdminTokenView {
+    fn from(token: TokenRow) -> Self {
+        Self {
+            id: token.id,
+            device_id: token.device_id,
+            device_name: token.device_name,
+            created_at: token.created_at,
+            last_used_at: token.last_used_at,
+        }
+    }
+}
+
 impl From<User> for UserView {
     fn from(u: User) -> Self {
         Self {
@@ -75,12 +96,7 @@ async fn create(
     if state.users.find_by_username(&req.username).await?.is_some() {
         return Err(ApiError::conflict("username_taken", "username exists"));
     }
-    let password_hash = password::hash(&req.password).map_err(|e| match e {
-        password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
-            ApiError::bad_request("weak_password", e.to_string())
-        }
-        _ => ApiError::internal(e.to_string()),
-    })?;
+    let password_hash = hash_admin_password(&req.password)?;
     let user = state
         .users
         .create(NewUser {
@@ -134,12 +150,7 @@ async fn update(
         }
     }
     if let Some(password) = req.password {
-        let password_hash = password::hash(&password).map_err(|e| match e {
-            password::PasswordError::TooShort { .. } | password::PasswordError::TooLong { .. } => {
-                ApiError::bad_request("weak_password", e.to_string())
-            }
-            _ => ApiError::internal(e.to_string()),
-        })?;
+        let password_hash = hash_admin_password(&password)?;
         state.users.update_password(&id, &password_hash).await?;
         state
             .tokens
@@ -173,9 +184,24 @@ async fn list_user_tokens(
     _admin: AdminUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<Vec<TokenRow>>, ApiError> {
+) -> Result<Json<Vec<AdminTokenView>>, ApiError> {
     let tokens = state.tokens.list_for_user(&id).await?;
-    Ok(Json(tokens))
+    Ok(Json(tokens.into_iter().map(AdminTokenView::from).collect()))
+}
+
+fn hash_admin_password(plaintext: &str) -> Result<String, ApiError> {
+    password::validate_strong(plaintext).map_err(|e| match e {
+        password::PasswordError::TooLong { .. } | password::PasswordError::TooWeak => {
+            ApiError::bad_request("weak_password", e.to_string())
+        }
+        _ => ApiError::internal(e.to_string()),
+    })?;
+    password::hash(plaintext).map_err(|e| match e {
+        password::PasswordError::TooShort { .. }
+        | password::PasswordError::TooLong { .. }
+        | password::PasswordError::TooWeak => ApiError::bad_request("weak_password", e.to_string()),
+        _ => ApiError::internal(e.to_string()),
+    })
 }
 
 async fn revoke_user_token(
@@ -338,11 +364,26 @@ mod tests {
                 "POST",
                 "/api/admin/users",
                 &raw,
-                serde_json::json!({"username":"bob","password":"passw0rd!!"}),
+                serde_json::json!({"username":"bob","password":"Passw0rdStrong"}),
             ))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn admin_create_user_requires_setup_strength_password() {
+        let (app, raw) = setup().await;
+        let resp = app
+            .oneshot(req_json(
+                "POST",
+                "/api/admin/users",
+                &raw,
+                serde_json::json!({"username":"bob","password":"passw0rd!!"}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -396,6 +437,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_list_user_tokens_returns_public_token_view() {
+        let (app, raw, other_id, _admin_token_id, _other_token_id) = setup_with_second_user().await;
+
+        let resp = app
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/admin/users/{other_id}/tokens"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&axum::body::to_bytes(resp.into_body(), 4096).await.unwrap())
+                .unwrap();
+        let token = &body.as_array().unwrap()[0];
+        assert!(token.get("id").is_some());
+        assert!(token.get("device_id").is_some());
+        assert!(token.get("device_name").is_some());
+        assert!(token.get("created_at").is_some());
+        assert!(token.get("last_used_at").is_some());
+        assert!(token.get("user_id").is_none());
+        assert!(token.get("expires_at").is_none());
+        assert!(token.get("revoked_at").is_none());
+    }
+
+    #[tokio::test]
     async fn admin_password_reset_deletes_target_admin_sessions() {
         let (app, state, raw, other_id, _admin_token_id, _other_token_id) =
             setup_with_second_user_state().await;
@@ -407,7 +476,7 @@ mod tests {
                 "PATCH",
                 &format!("/api/admin/users/{other_id}"),
                 &raw,
-                serde_json::json!({"password":"newpassw0rd!!"}),
+                serde_json::json!({"password":"Newpassw0rdStrong"}),
             ))
             .await
             .unwrap();

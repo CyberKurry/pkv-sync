@@ -924,7 +924,7 @@ async fn password_reset_deletes_target_admin_sessions() {
     let mut reset_req = request(
         Method::POST,
         &format!("/admin/users/{}/password", target.id),
-        Body::from("password=newpassw0rd%21%21"),
+        Body::from("password=Newpassw0rdStrong"),
     );
     reset_req.headers_mut().insert(
         header::CONTENT_TYPE,
