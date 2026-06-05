@@ -77,7 +77,10 @@ impl LocalFsBlobStore {
                 if entry.file_type().is_file() {
                     let name = entry.file_name().to_string_lossy().to_string();
                     if Self::validate_hash(&name).is_ok() {
-                        let metadata = std::fs::metadata(entry.path())?;
+                        let metadata = entry.metadata().map_err(|err| {
+                            err.into_io_error()
+                                .unwrap_or_else(|| std::io::Error::other("walkdir metadata error"))
+                        })?;
                         out.push((name, metadata.modified()?));
                     }
                 }
@@ -245,6 +248,22 @@ mod tests {
 
         assert!(!impl_source.contains(".exists()"));
         assert!(impl_source.contains("tokio::fs::try_exists"));
+    }
+
+    #[test]
+    fn list_hashes_with_mtime_uses_walkdir_entry_metadata() {
+        let source = include_str!("blob.rs");
+        let fn_start = source
+            .find("pub async fn list_hashes_with_mtime")
+            .expect("list_hashes_with_mtime exists");
+        let fn_end = source[fn_start..]
+            .find("\n        })")
+            .map(|idx| fn_start + idx)
+            .expect("spawn_blocking body closes");
+        let implementation = &source[fn_start..fn_end];
+
+        assert!(implementation.contains("entry.metadata()"));
+        assert!(!implementation.contains("std::fs::metadata"));
     }
 
     #[test]

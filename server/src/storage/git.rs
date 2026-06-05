@@ -39,6 +39,8 @@ pub struct TreeEntry {
     pub git_oid: String,
     pub size: u64,
     pub is_blob_pointer: bool,
+    #[serde(skip)]
+    pub blob_hash: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -537,11 +539,16 @@ fn tree_entries_recursive(
                     Some(StoredFile::BlobPointer { size, .. }) => *size,
                     _ => bytes.len() as u64,
                 };
+                let blob_hash = match &pointer {
+                    Some(StoredFile::BlobPointer { hash, .. }) => Some(hash.clone()),
+                    _ => None,
+                };
                 out.push(TreeEntry {
                     path,
                     git_oid: entry.id().to_string(),
                     size,
                     is_blob_pointer: pointer.is_some(),
+                    blob_hash,
                 });
             }
             Some(ObjectType::Tree) => {
@@ -913,6 +920,7 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert!(entries[0].is_blob_pointer);
         assert_eq!(entries[0].size, 12);
+        assert_eq!(entries[0].blob_hash.as_ref(), Some(&"b".repeat(64)));
     }
 
     #[tokio::test]

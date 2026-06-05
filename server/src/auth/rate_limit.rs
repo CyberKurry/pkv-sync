@@ -318,10 +318,6 @@ impl McpAuthRateLimiter {
         }
     }
 
-    pub fn record_success(&self, key: &str) {
-        self.inner.remove(key);
-    }
-
     fn release_success(&self, key: &str) {
         self.inner.remove(key);
     }

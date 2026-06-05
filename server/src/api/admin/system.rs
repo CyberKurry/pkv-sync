@@ -22,12 +22,10 @@ async fn system(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<SystemResp>, ApiError> {
-    let (users,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
-        .fetch_one(&state.pool)
-        .await?;
-    let (vaults,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM vaults")
-        .fetch_one(&state.pool)
-        .await?;
+    let (users, vaults): (i64, i64) =
+        sqlx::query_as("SELECT (SELECT COUNT(*) FROM users), (SELECT COUNT(*) FROM vaults)")
+            .fetch_one(&state.pool)
+            .await?;
     Ok(Json(SystemResp { users, vaults }))
 }
 
@@ -112,5 +110,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(gc.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn system_counts_users_and_vaults_with_one_query() {
+        let source = include_str!("system.rs");
+        let fn_start = source
+            .find("async fn system")
+            .expect("system handler exists");
+        let fn_end = source[fn_start..]
+            .find("\nasync fn run_gc")
+            .map(|idx| fn_start + idx)
+            .expect("run_gc follows system");
+        let implementation = &source[fn_start..fn_end];
+
+        assert!(implementation.contains("SELECT (SELECT COUNT(*) FROM users)"));
+        assert_eq!(implementation.matches("fetch_one").count(), 1);
     }
 }

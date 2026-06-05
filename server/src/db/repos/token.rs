@@ -16,6 +16,17 @@ pub struct TokenRow {
     pub revoked_at: Option<i64>,
 }
 
+type TokenRowTuple = (
+    String,
+    String,
+    String,
+    String,
+    i64,
+    i64,
+    Option<i64>,
+    Option<i64>,
+);
+
 #[derive(Debug, Clone)]
 pub struct NewToken<'a> {
     pub user_id: &'a str,
@@ -30,6 +41,11 @@ pub trait TokenRepo: Send + Sync {
     /// Look up an unrevoked token by its hash.
     async fn find_by_hash(&self, hash: &str) -> Result<Option<(TokenRow, String)>, sqlx::Error>;
     async fn is_active_for_user(&self, id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    async fn find_by_id_for_user(
+        &self,
+        id: &str,
+        user_id: &str,
+    ) -> Result<Option<TokenRow>, sqlx::Error>;
     async fn list_for_user(&self, user_id: &str) -> Result<Vec<TokenRow>, sqlx::Error>;
     async fn list_active_for_user(&self, user_id: &str) -> Result<Vec<TokenRow>, sqlx::Error>;
     async fn touch_used(&self, id: &str, ts: i64) -> Result<(), sqlx::Error>;
@@ -98,6 +114,19 @@ impl SqliteTokenRepo {
             last_used_at: None,
             revoked_at: None,
         })
+    }
+}
+
+fn row_to_token_row(t: TokenRowTuple) -> TokenRow {
+    TokenRow {
+        id: t.0,
+        user_id: t.1,
+        device_id: t.2,
+        device_name: t.3,
+        created_at: t.4,
+        expires_at: t.5,
+        last_used_at: t.6,
+        revoked_at: t.7,
     }
 }
 
@@ -196,50 +225,37 @@ impl TokenRepo for SqliteTokenRepo {
         Ok(count > 0)
     }
 
+    async fn find_by_id_for_user(
+        &self,
+        id: &str,
+        user_id: &str,
+    ) -> Result<Option<TokenRow>, sqlx::Error> {
+        let row: Option<TokenRowTuple> = sqlx::query_as(
+            "SELECT id, user_id, device_id, device_name, created_at, expires_at, last_used_at, revoked_at
+             FROM tokens
+             WHERE id = ? AND user_id = ?",
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(row_to_token_row))
+    }
+
     async fn list_for_user(&self, user_id: &str) -> Result<Vec<TokenRow>, sqlx::Error> {
-        let rows: Vec<(
-            String,
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            Option<i64>,
-            Option<i64>,
-        )> = sqlx::query_as(
+        let rows: Vec<TokenRowTuple> = sqlx::query_as(
             "SELECT id, user_id, device_id, device_name, created_at, expires_at, last_used_at, revoked_at
              FROM tokens WHERE user_id = ? ORDER BY created_at DESC, id DESC",
         )
         .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows
-            .into_iter()
-            .map(|t| TokenRow {
-                id: t.0,
-                user_id: t.1,
-                device_id: t.2,
-                device_name: t.3,
-                created_at: t.4,
-                expires_at: t.5,
-                last_used_at: t.6,
-                revoked_at: t.7,
-            })
-            .collect())
+        Ok(rows.into_iter().map(row_to_token_row).collect())
     }
 
     async fn list_active_for_user(&self, user_id: &str) -> Result<Vec<TokenRow>, sqlx::Error> {
         let now = chrono::Utc::now().timestamp();
-        let rows: Vec<(
-            String,
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            Option<i64>,
-            Option<i64>,
-        )> = sqlx::query_as(
+        let rows: Vec<TokenRowTuple> = sqlx::query_as(
             "SELECT id, user_id, device_id, device_name, created_at, expires_at, last_used_at, revoked_at
              FROM tokens
              WHERE user_id = ?
@@ -254,19 +270,7 @@ impl TokenRepo for SqliteTokenRepo {
         .bind(now)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows
-            .into_iter()
-            .map(|t| TokenRow {
-                id: t.0,
-                user_id: t.1,
-                device_id: t.2,
-                device_name: t.3,
-                created_at: t.4,
-                expires_at: t.5,
-                last_used_at: t.6,
-                revoked_at: t.7,
-            })
-            .collect())
+        Ok(rows.into_iter().map(row_to_token_row).collect())
     }
 
     async fn touch_used(&self, id: &str, ts: i64) -> Result<(), sqlx::Error> {
@@ -560,6 +564,42 @@ mod tests {
             .unwrap());
         assert!(!tokens.is_active_for_user(&revoked.id, &uid).await.unwrap());
         assert!(!tokens.is_active_for_user(&expired.id, &uid).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn find_by_id_for_user_checks_token_ownership_without_active_filter() {
+        let (users, tokens, uid) = setup().await;
+        let other = users
+            .create(NewUser {
+                username: "other".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let owned = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "owned-lookup",
+                device_id: "device-owned-lookup",
+                device_name: "owned",
+            })
+            .await
+            .unwrap();
+        tokens.revoke(&owned.id, 10).await.unwrap();
+
+        let found = tokens
+            .find_by_id_for_user(&owned.id, &uid)
+            .await
+            .unwrap()
+            .expect("owned revoked token should still be found for idempotent revoke");
+        assert_eq!(found.id, owned.id);
+        assert!(found.revoked_at.is_some());
+        assert!(tokens
+            .find_by_id_for_user(&owned.id, &other.id)
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

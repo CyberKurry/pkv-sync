@@ -18,6 +18,7 @@ use bytes::Bytes;
 use git2::{Oid, Repository};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sqlx::{QueryBuilder, Sqlite};
 use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
@@ -30,6 +31,9 @@ const MAX_SSE_INLINE_PUSH_BYTES: usize = 64 * 1024;
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
 const MAX_COMMIT_DEVICE_NAME_CHARS: usize = 128;
 const MAX_PULL_TREE_ENTRIES: usize = 50_000;
+const SQLITE_SAFE_BIND_LIMIT: usize = 900;
+const BLOB_REF_BINDS_PER_ROW: usize = 3;
+const BLOB_UPLOAD_DELETE_SHARED_BINDS: usize = 1;
 #[cfg(test)]
 const VAULT_PUSH_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
 #[cfg(not(test))]
@@ -1268,17 +1272,9 @@ async fn record_push_metadata(input: PushMetadataInput<'_>) -> Result<(), ApiErr
     };
 
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    for h in input.blob_hashes {
-        sqlx::query(
-            "INSERT OR IGNORE INTO blob_refs (blob_hash, vault_id, commit_hash) VALUES (?, ?, ?)",
-        )
-        .bind(h)
-        .bind(input.vault_id)
-        .bind(input.new_commit)
-        .execute(&mut *tx)
+    insert_blob_refs_in_tx(&mut tx, input.vault_id, input.new_commit, input.blob_hashes)
         .await
         .map_err(ApiError::from)?;
-    }
     sqlx::query("UPDATE vaults SET size_bytes = ?, file_count = ?, last_sync_at = ? WHERE id = ?")
         .bind(size)
         .bind(file_count)
@@ -1323,15 +1319,57 @@ async fn record_push_metadata(input: PushMetadataInput<'_>) -> Result<(), ApiErr
         .await
         .map_err(ApiError::from)?;
     }
-    for h in input.blob_hashes {
-        sqlx::query("DELETE FROM blob_uploads WHERE vault_id = ? AND blob_hash = ?")
-            .bind(input.vault_id)
-            .bind(h)
-            .execute(&mut *tx)
-            .await
-            .map_err(ApiError::from)?;
-    }
+    delete_blob_uploads_in_tx(&mut tx, input.vault_id, input.blob_hashes)
+        .await
+        .map_err(ApiError::from)?;
     tx.commit().await.map_err(ApiError::from)?;
+    Ok(())
+}
+
+async fn insert_blob_refs_in_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    vault_id: &str,
+    commit_hash: &str,
+    hashes: &[String],
+) -> Result<(), sqlx::Error> {
+    if hashes.is_empty() {
+        return Ok(());
+    }
+    let chunk_size = SQLITE_SAFE_BIND_LIMIT / BLOB_REF_BINDS_PER_ROW;
+    for chunk in hashes.chunks(chunk_size) {
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "INSERT OR IGNORE INTO blob_refs (blob_hash, vault_id, commit_hash) ",
+        );
+        query.push_values(chunk, |mut row, hash| {
+            row.push_bind(hash)
+                .push_bind(vault_id)
+                .push_bind(commit_hash);
+        });
+        query.build().execute(&mut **tx).await?;
+    }
+    Ok(())
+}
+
+async fn delete_blob_uploads_in_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    vault_id: &str,
+    hashes: &[String],
+) -> Result<(), sqlx::Error> {
+    if hashes.is_empty() {
+        return Ok(());
+    }
+    let chunk_size = SQLITE_SAFE_BIND_LIMIT - BLOB_UPLOAD_DELETE_SHARED_BINDS;
+    for chunk in hashes.chunks(chunk_size) {
+        let mut query = QueryBuilder::<Sqlite>::new("DELETE FROM blob_uploads WHERE vault_id = ");
+        query.push_bind(vault_id);
+        query.push(" AND blob_hash IN (");
+        let mut separated = query.separated(", ");
+        for hash in chunk {
+            separated.push_bind(hash);
+        }
+        separated.push_unseparated(")");
+        query.build().execute(&mut **tx).await?;
+    }
     Ok(())
 }
 
@@ -1345,17 +1383,9 @@ async fn protect_committed_blob_refs(
         return Ok(());
     }
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    for hash in blob_hashes {
-        sqlx::query(
-            "INSERT OR IGNORE INTO blob_refs (blob_hash, vault_id, commit_hash) VALUES (?, ?, ?)",
-        )
-        .bind(hash)
-        .bind(vault_id)
-        .bind(commit)
-        .execute(&mut *tx)
+    insert_blob_refs_in_tx(&mut tx, vault_id, commit, blob_hashes)
         .await
         .map_err(ApiError::from)?;
-    }
     tx.commit().await.map_err(ApiError::from)?;
     Ok(())
 }
@@ -1393,24 +1423,10 @@ pub(crate) async fn reconcile_vault_metadata_unlocked(
                 .list_tree(vault_id, Some(head))
                 .await
                 .map_err(|e| ApiError::internal(e.to_string()))?;
-            let mut hashes = Vec::new();
-            for entry in &tree {
-                if !entry.is_blob_pointer {
-                    continue;
-                }
-                match git
-                    .read_file(vault_id, &entry.path, Some(head))
-                    .await
-                    .map_err(|e| ApiError::internal(e.to_string()))?
-                {
-                    Some(StoredFile::BlobPointer { hash, .. }) => hashes.push(hash),
-                    _ => tracing::warn!(
-                        vault_id = %vault_id,
-                        path = %entry.path,
-                        "tree entry marked as blob pointer but file decoded differently during repair"
-                    ),
-                }
-            }
+            let hashes = tree
+                .iter()
+                .filter_map(|entry| entry.blob_hash.clone())
+                .collect();
             (tree, hashes)
         }
         None => (Vec::new(), Vec::new()),
@@ -1424,44 +1440,19 @@ pub(crate) async fn reconcile_vault_metadata_unlocked(
         .await
         .map_err(ApiError::from)?;
     if let Some(head) = head.as_deref() {
-        for hash in &blob_hashes {
-            sqlx::query(
-                "INSERT OR IGNORE INTO blob_refs (blob_hash, vault_id, commit_hash)
-                 VALUES (?, ?, ?)",
-            )
-            .bind(hash)
-            .bind(vault_id)
-            .bind(head)
-            .execute(&mut *tx)
+        insert_blob_refs_in_tx(&mut tx, vault_id, head, &blob_hashes)
             .await
             .map_err(ApiError::from)?;
-        }
     }
-    match head {
-        Some(_) => {
-            sqlx::query(
-                "UPDATE vaults SET size_bytes = ?, file_count = ?, last_sync_at = ? WHERE id = ?",
-            )
-            .bind(size_bytes)
-            .bind(file_count)
-            .bind(now)
-            .bind(vault_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(ApiError::from)?;
-        }
-        None => {
-            sqlx::query(
-                "UPDATE vaults SET size_bytes = ?, file_count = ?, last_sync_at = NULL WHERE id = ?",
-            )
-            .bind(size_bytes)
-            .bind(file_count)
-            .bind(vault_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(ApiError::from)?;
-        }
-    }
+    let last_sync_at = head.as_ref().map(|_| now);
+    sqlx::query("UPDATE vaults SET size_bytes = ?, file_count = ?, last_sync_at = ? WHERE id = ?")
+        .bind(size_bytes)
+        .bind(file_count)
+        .bind(last_sync_at)
+        .bind(vault_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
     tx.commit().await.map_err(ApiError::from)?;
 
     Ok(ReconcileReport {
@@ -1982,16 +1973,57 @@ mod tests {
                 git_oid: "0".repeat(40),
                 size: i64::MAX as u64,
                 is_blob_pointer: true,
+                blob_hash: Some("a".repeat(64)),
             },
             crate::storage::git::TreeEntry {
                 path: "another.bin".into(),
                 git_oid: "1".repeat(40),
                 size: 1,
                 is_blob_pointer: true,
+                blob_hash: Some("b".repeat(64)),
             },
         ];
 
         assert_eq!(tree_stats(&entries), (i64::MAX, 2));
+    }
+
+    #[test]
+    fn reconcile_uses_tree_pointer_hashes_without_per_file_git_reads() {
+        let source = include_str!("sync.rs");
+        let fn_start = source
+            .find("pub(crate) async fn reconcile_vault_metadata_unlocked")
+            .expect("reconcile implementation exists");
+        let next_fn = source[fn_start + 1..]
+            .find("\nasync fn acquire_vault_push_lock")
+            .map(|idx| fn_start + 1 + idx)
+            .expect("following function exists");
+        let implementation = &source[fn_start..next_fn];
+
+        assert!(implementation.contains("entry.blob_hash"));
+        assert!(!implementation.contains(".read_file("));
+    }
+
+    #[test]
+    fn blob_ref_metadata_writes_use_batched_helpers() {
+        let source = include_str!("sync.rs");
+        assert!(source.contains("async fn insert_blob_refs_in_tx"));
+
+        let record_start = source
+            .find("async fn record_push_metadata")
+            .expect("record_push_metadata exists");
+        let protect_start = source
+            .find("async fn protect_committed_blob_refs")
+            .expect("protect_committed_blob_refs exists");
+        let reconcile_start = source
+            .find("pub(crate) async fn reconcile_vault_metadata_unlocked")
+            .expect("reconcile exists");
+        let record_impl = &source[record_start..protect_start];
+        let protect_impl = &source[protect_start..reconcile_start];
+
+        assert!(!record_impl.contains("for h in input.blob_hashes"));
+        assert!(!protect_impl.contains("for hash in blob_hashes"));
+        assert!(record_impl.contains("insert_blob_refs_in_tx"));
+        assert!(protect_impl.contains("insert_blob_refs_in_tx"));
     }
 
     async fn state_user_vault() -> (AppState, AuthenticatedUser, String, tempfile::TempDir) {

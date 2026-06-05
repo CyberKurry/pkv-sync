@@ -209,8 +209,12 @@ async fn revoke_user_token(
     State(state): State<AppState>,
     Path((user_id, token_id)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
-    let tokens = state.tokens.list_for_user(&user_id).await?;
-    if !tokens.iter().any(|token| token.id == token_id) {
+    if state
+        .tokens
+        .find_by_id_for_user(&token_id, &user_id)
+        .await?
+        .is_none()
+    {
         return Err(ApiError::not_found("token not found"));
     }
     state

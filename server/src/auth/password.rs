@@ -49,10 +49,17 @@ pub fn validate_strong(plaintext: &str) -> Result<(), PasswordError> {
             max: MAX_PASSWORD_BYTES,
         });
     }
-    let has_lower = plaintext.chars().any(|c| c.is_ascii_lowercase());
-    let has_upper = plaintext.chars().any(|c| c.is_ascii_uppercase());
-    let has_digit = plaintext.chars().any(|c| c.is_ascii_digit());
-    if plaintext.chars().count() < 12 || !has_lower || !has_upper || !has_digit {
+    let mut char_len = 0usize;
+    let mut has_lower = false;
+    let mut has_upper = false;
+    let mut has_digit = false;
+    for c in plaintext.chars() {
+        char_len += 1;
+        has_lower |= c.is_ascii_lowercase();
+        has_upper |= c.is_ascii_uppercase();
+        has_digit |= c.is_ascii_digit();
+    }
+    if char_len < 12 || !has_lower || !has_upper || !has_digit {
         return Err(PasswordError::TooWeak);
     }
     Ok(())
@@ -111,6 +118,21 @@ mod tests {
             validate_strong("PASSWORD1234").unwrap_err(),
             PasswordError::TooWeak
         ));
+    }
+
+    #[test]
+    fn strong_password_validation_scans_chars_once() {
+        let source = include_str!("password.rs");
+        let fn_start = source
+            .find("pub fn validate_strong")
+            .expect("validate_strong exists");
+        let fn_end = source[fn_start + 1..]
+            .find("\npub fn verify")
+            .map(|idx| fn_start + 1 + idx)
+            .expect("verify follows validate_strong");
+        let implementation = &source[fn_start..fn_end];
+
+        assert_eq!(implementation.matches("plaintext.chars()").count(), 1);
     }
 
     #[test]
