@@ -135,7 +135,7 @@ pub fn remove_dir_contents(path: &Path) -> anyhow::Result<()> {
         let path = entry.path();
         let ty = entry.file_type()?;
         if ty.is_symlink() {
-            fs::remove_file(path)?;
+            remove_symlink_entry(&path)?;
         } else if ty.is_dir() {
             fs::remove_dir_all(path)?;
         } else {
@@ -143,6 +143,14 @@ pub fn remove_dir_contents(path: &Path) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn remove_symlink_entry(path: &Path) -> std::io::Result<()> {
+    match fs::remove_file(path) {
+        #[cfg(windows)]
+        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => fs::remove_dir(path),
+        other => other,
+    }
 }
 
 pub fn read_manifest(root: &Path) -> anyhow::Result<Manifest> {
