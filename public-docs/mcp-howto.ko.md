@@ -2,6 +2,8 @@
 
 [English](./mcp-howto.md) | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | 한국어
 
+문서 버전: v1.0.13.
+
 이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
 
 PKV Sync는 MCP server를 통해 vault 내용을 노출할 수 있습니다. 서버는 파일 내용을 반환하기 전에 blob pointers를 해석하고, 명시적인 read-write tools를 통해 쓰기도 할 수 있으며, 일반 PKV Sync bearer device token이 필요합니다.

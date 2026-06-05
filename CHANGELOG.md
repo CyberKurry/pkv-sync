@@ -7,6 +7,36 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.13] - 2026-06-05
+
+### Security
+
+- Bound rollback reachability checks so deep vault histories cannot monopolize
+  blocking Git worker threads.
+- Apply the setup-grade strong password policy to public registration and
+  self-service password changes, matching Admin-created and Admin-reset
+  passwords.
+- Hide paths rejected by `SyncPathFilter` from file read, file history, diff,
+  and commit-list API surfaces.
+- Strip invisible/control-style Unicode from device names before using them in
+  sync metadata and commit messages.
+- Bound pull responses for very large vault trees and validate vault names
+  after trimming whitespace.
+
+### Performance
+
+- Rebuild vault metadata and blob references from tree-provided blob pointer
+  hashes without per-file Git reads.
+- Batch blob reference repair and blob-upload cleanup work in push/reconcile
+  paths.
+- Use direct token ownership lookups for self-service and admin token revoke
+  paths.
+- Avoid extra filesystem stat calls in blob GC hash listing.
+- Combine Admin system count queries and make strong password validation a
+  single-pass scan.
+- Deduplicate SSE-aware middleware rejection helpers and remove unused MCP auth
+  limiter code.
+
 ## [1.0.12] - 2026-06-05
 
 ### Security

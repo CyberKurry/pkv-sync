@@ -2,6 +2,8 @@
 
 English | [简体中文](./cli-reference.zh-CN.md) | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
+Document version: v1.0.13.
+
 `pkvsyncd` is the PKV Sync server daemon binary. It hosts the HTTP/WebSocket
 sync API, the admin UI, the MCP server, and a small set of operational
 subcommands.
@@ -325,7 +327,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: show the selected release, asset, and target path without downloading anything.
 - `--yes`: skip the interactive confirmation prompt.
-- `--version <VERSION>`: download a specific release such as `1.0.12` instead of the latest release.
+- `--version <VERSION>`: download a specific release such as `1.0.13` instead of the latest release.
 
 ### Description
 
@@ -349,5 +351,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # Download a specific release
-pkvsyncd upgrade --yes --version 1.0.12
+pkvsyncd upgrade --yes --version 1.0.13
 ```

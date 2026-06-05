@@ -2,6 +2,8 @@
 
 English | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
+Document version: v1.0.13.
+
 PKV Sync can expose vault contents through an MCP server. The server resolves
 blob pointers before returning file content, can write through explicit
 read-write tools, and requires a normal PKV Sync bearer device token.

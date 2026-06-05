@@ -2,6 +2,8 @@
 
 [English](./git-crypt-howto.md) | [简体中文](./git-crypt-howto.zh-CN.md) | [繁體中文](./git-crypt-howto.zh-Hant.md) | 日本語 | [한국어](./git-crypt-howto.ko.md)
 
+ドキュメントバージョン: v1.0.13。
+
 > **Note:** これは native end-to-end encryption（E2EE）が提供されるまでの暫定ガイドです。PKV Sync server は filenames と commit metadata を引き続き見ることができます。
 
 ## Overview

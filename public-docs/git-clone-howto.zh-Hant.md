@@ -2,6 +2,8 @@
 
 [English](./git-clone-howto.md) | [简体中文](./git-clone-howto.zh-CN.md) | 繁體中文 | [日本語](./git-clone-howto.ja.md) | [한국어](./git-clone-howto.ko.md)
 
+文件版本：v1.0.13。
+
 PKV Sync 可以將每個 vault 透過 HTTPS 暴露為唯讀 Git repository。
 
 ## 前置條件

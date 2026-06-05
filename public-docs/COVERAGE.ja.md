@@ -2,6 +2,8 @@
 
 [English](./COVERAGE.md) | [简体中文](./COVERAGE.zh-CN.md) | [繁體中文](./COVERAGE.zh-Hant.md) | 日本語 | [한국어](./COVERAGE.ko.md)
 
+ドキュメントバージョン: v1.0.13。
+
 このページは、Rust server と Obsidian plugin の CI coverage baseline を記録します。CI は新しい coverage report をこの表と比較し、いずれかの component が許容しきい値を超えて低下した場合に失敗します。
 
 Rust coverage は Ubuntu CI runner で `cargo tarpaulin --engine Llvm` によってのみ生成します。Windows ローカルの tarpaulin 出力をこの baseline に昇格しないでください。gate は component ごとに最大 5.0 percentage points の低下を許容します。

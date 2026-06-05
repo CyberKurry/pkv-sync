@@ -2,6 +2,8 @@
 
 [English](./COVERAGE.md) | [简体中文](./COVERAGE.zh-CN.md) | 繁體中文 | [日本語](./COVERAGE.ja.md) | [한국어](./COVERAGE.ko.md)
 
+文件版本：v1.0.13。
+
 本頁記錄 Rust server 與 Obsidian 外掛的 CI 覆蓋率基線。CI 會將最新覆蓋率報告與此表比較；任一 component 下降超過允許閾值時，檢查會失敗。
 
 Rust 覆蓋率只在 Ubuntu CI runner 上透過 `cargo tarpaulin --engine Llvm` 產生。不要將 Windows 本機 tarpaulin 輸出提升為此基線。門禁允許每個 component 最多下降 5.0 個百分點。

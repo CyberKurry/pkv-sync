@@ -2,6 +2,8 @@
 
 English | [简体中文](./dot-obsidian-sync-howto.zh-CN.md) | [繁體中文](./dot-obsidian-sync-howto.zh-Hant.md) | [日本語](./dot-obsidian-sync-howto.ja.md) | [한국어](./dot-obsidian-sync-howto.ko.md)
 
+Document version: v1.0.13.
+
 PKV Sync normally avoids hidden paths. It adds a per-vault allowlist so you
 can opt in to selected `.obsidian` configuration files without syncing the
 entire Obsidian internals directory.

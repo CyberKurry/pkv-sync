@@ -2,6 +2,8 @@
 
 [English](./migrate-from-obsidian-sync.md) | 简体中文 | [繁體中文](./migrate-from-obsidian-sync.zh-Hant.md) | [日本語](./migrate-from-obsidian-sync.ja.md) | [한국어](./migrate-from-obsidian-sync.ko.md)
 
+文档版本：v1.0.13。
+
 本文说明如何把已经使用 Obsidian Sync 的 Obsidian 笔记库当前文件导入到新的 PKV Sync 笔记库。
 
 迁移只导入当前设备上现有的文件。它不会导入 Obsidian Sync 历史、远端版本历史、已删除文件历史或冲突元数据。PKV Sync 的历史会从创建新 PKV 笔记库的迁移提交开始。

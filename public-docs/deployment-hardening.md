@@ -2,6 +2,8 @@
 
 English | [简体中文](./deployment-hardening.zh-CN.md) | [繁體中文](./deployment-hardening.zh-Hant.md) | [日本語](./deployment-hardening.ja.md) | [한국어](./deployment-hardening.ko.md)
 
+Document version: v1.0.13.
+
 This guide assumes a small self-hosted deployment for yourself, family, a team,
 or a trusted group of friends. PKV Sync is operationally simple, but it stores
 readable vault contents on the server, so host and backup hygiene matter.
@@ -313,9 +315,10 @@ Review these from the Admin WebUI:
 - Supported text extensions.
 - Timezone, default `Asia/Shanghai`.
 
-Registration and login failures are rate limited. Setup and Admin-created or
-Admin-reset passwords must be at least 12 characters and include uppercase,
-lowercase, and a digit; CLI-created users still need strong passwords.
+Registration and login failures are rate limited. Setup, public registration,
+user self-service password changes, and Admin-created or Admin-reset passwords
+must be at least 12 characters and include uppercase, lowercase, and a digit;
+CLI-created users still need strong passwords.
 
 Authenticated sync API routes are also fixed-window rate limited at 600
 requests per 60 seconds per route, method, client IP, and bearer token. Keep
@@ -327,6 +330,9 @@ Blob upload bodies are limited by `max_file_size` and also clamped to the hard
 blob cap (`512 MiB` in production). Main SSE streams revalidate bearer tokens
 while open, and MCP read/search tools have response and total-search budgets so
 large vaults cannot be expanded into unbounded JSON responses.
+Pull/tree traversal and rollback reachability checks are bounded, and paths
+rejected by the active sync filter are hidden from read, history, diff, and
+commit-list surfaces.
 
 ## Prometheus Metrics
 
@@ -351,6 +357,10 @@ Back up these together:
 Use SQLite online backup or stop the service before copying the database. Keep
 the database, Git vault repositories, and blobs from the same point in time when
 possible.
+
+The built-in backup and restore helpers do not follow symlinks. Symlink entries
+under `vaults/` or `blobs/` are skipped during backup and removed as links
+during restore cleanup without touching their targets.
 
 Example with restic:
 

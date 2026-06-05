@@ -8,6 +8,8 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
+Document version: v1.0.13.
+
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
 ## Features
@@ -148,6 +150,8 @@ For real deployments, also run behind HTTPS, restrict
 | Release history | [CHANGELOG.md](./CHANGELOG.md) |
 
 ## Status
+
+PKV Sync 1.0.13 is the current stable patch release. It includes setup-grade passwords for registration and password changes, hidden filtered paths across read/history/diff APIs, bounded rollback and pull work, symlink-safe backup/restore helpers, and faster blob-reference metadata repair.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together

@@ -2,6 +2,8 @@
 
 [English](./migrate-from-obsidian-sync.md) | [简体中文](./migrate-from-obsidian-sync.zh-CN.md) | [繁體中文](./migrate-from-obsidian-sync.zh-Hant.md) | [日本語](./migrate-from-obsidian-sync.ja.md) | 한국어
 
+문서 버전: v1.0.13.
+
 이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
 
 이 가이드는 이미 Obsidian Sync를 사용하는 Obsidian vault의 현재 파일을 새 PKV Sync vault로 가져오는 방법을 설명합니다.

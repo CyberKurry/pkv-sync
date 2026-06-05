@@ -5,6 +5,8 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
+文档版本：v1.0.13。
+
 [English](./README.md) | 简体中文 | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
 ## 特性
@@ -97,6 +99,8 @@ PKV Sync 1.0 **暂不**提供原生端到端加密——服务端能读到笔记
 | 发布记录 | [CHANGELOG.md](./CHANGELOG.md) |
 
 ## 状态
+
+PKV Sync 1.0.13 是当前稳定 patch 版本。本版包含最新安全与性能实现：注册和修改密码使用 setup 同级强密码策略，过滤路径不会从读取/历史/diff API 泄露，rollback 与 pull 工作量有边界，backup/restore helper 不跟随 symlink，blob 引用元数据修复更快。
 
 PKV Sync 1.0 是第一个稳定版。公开 REST API、CLI、存储布局、插件包、Docker 镜像作为一组同步发版，遵循 semver：1.X.Y 在公开表面保持向后兼容，OpenAPI 规范是这个兼容契约的权威来源。0.x 创建的 SQLite 库**不支持**就地升级到 1.0.0——请按 [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md)操作。
 

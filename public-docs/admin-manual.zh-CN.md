@@ -2,6 +2,8 @@
 
 [English](./admin-manual.md) | 简体中文 | [繁體中文](./admin-manual.zh-Hant.md) | [日本語](./admin-manual.ja.md) | [한국어](./admin-manual.ko.md)
 
+文档版本：v1.0.13。
+
 本文覆盖自托管 PKV Sync 服务端的日常管理。网络和主机加固请同时阅读部署加固指南。
 
 ## 首次运行
@@ -73,7 +75,7 @@ repo = "cyberkurry/pkv-sync"
 
 - 可在 **Users** 页面或 CLI 创建用户。
 - 用户名必须是 3-32 个 ASCII 字母、数字、`_`、`-` 或 `.`。
-- 管理员创建或重置的密码必须至少 12 个字符，并包含大写字母、小写字母和数字。
+- 管理员创建、管理员重置、公开注册和用户自行修改的密码都必须至少 12 个字符，并包含大写字母、小写字母和数字。
 - 用户页面的搜索和状态筛选可以缩小表格范围。
 - 打开用户详情页可重置密码、启用或禁用账号、提升或降低管理员权限，并查看该用户的设备 token。
 - 如果后续可能需要审计历史，优先禁用用户而不是删除用户。
@@ -118,7 +120,7 @@ pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 
 Blob 文件是内容寻址的，可能会保留到垃圾回收确认其超过宽限期且不再被引用。
 
-如果中断操作后文件数、大小或 blob 引用看起来不正确，可以使用笔记库元数据修复。
+如果中断操作后文件数、大小或 blob 引用看起来不正确，可以使用笔记库元数据修复。修复流程会从 tree entry 直接读取 blob pointer hash，并批量修复 blob 引用，不再逐个重新打开 pointer 文件。
 
 ### 按笔记库同步设置
 
@@ -130,7 +132,7 @@ Blob 文件是内容寻址的，可能会保留到垃圾回收确认其超过宽
 
 在 **Vaults** 页面点击某个笔记库卡片上的 **Browse files**。文件浏览器会列出当前 HEAD 中的文件、大小以及文本/二进制类型。打开文件后，文本文件会显示只读预览，并提供 **History** 和 **Diff with previous** 链接。
 
-历史页会列出该文件相关的提交，并提供“查看该提交时的文件”和对应 diff 的链接。diff 页会按行渲染 unified diff，并用颜色区分新增、删除和 hunk。二进制文件只显示元数据，不渲染二进制 diff 内容。
+历史页会列出该文件相关的提交，并提供“查看该提交时的文件”和对应 diff 的链接。diff 页会按行渲染 unified diff，并用颜色区分新增、删除和 hunk。二进制文件只显示元数据，不渲染二进制 diff 内容。当前同步过滤器拒绝的路径也会从文件预览、commit 列表、历史和 diff 页面隐藏。
 
 浏览文件、历史和 diff 会记录 `view_commit`、`view_history` 和 `view_diff` 活动。Admin history 中提供笔记库 rollback 控制；请在确认目标提交后再使用，因为 rollback 会从选定历史点创建新的笔记库状态。
 
@@ -200,7 +202,7 @@ https://sync.example.com/k_xxx/
 
 二进制部署可先运行 `pkvsyncd upgrade --dry-run` 预览最新 release、目标资产和旁路写入路径。运行 `pkvsyncd upgrade --yes` 会把校验后的 release 二进制下载到当前可执行文件旁边的 `pkvsyncd.new`（Windows 为 `pkvsyncd.new.exe`）。命令会根据 `SHA256SUMS` 校验 SHA-256，并打印 systemd／手动替换步骤；它不会热替换正在运行的进程。
 
-使用 `pkvsyncd upgrade --version 1.0.12` 可以指定 release。若命令找不到匹配资产或校验和，请手动从 GitHub release 下载，并自行校验 `SHA256SUMS`。
+使用 `pkvsyncd upgrade --version 1.0.13` 可以指定 release。若命令找不到匹配资产或校验和，请手动从 GitHub release 下载，并自行校验 `SHA256SUMS`。
 
 对于 0.x 部署，不要把 1.0 二进制或镜像直接指向已有 `metadata.db`。请先备份、materialize 或导出笔记库内容，使用全新的 1.0 数据目录启动服务，再把笔记库内容导入或 push 到新服务端。详见 [`upgrade-notes-v1.0.zh-CN.md`](./upgrade-notes-v1.0.zh-CN.md)。
 

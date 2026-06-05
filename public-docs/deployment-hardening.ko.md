@@ -2,6 +2,8 @@
 
 [English](./deployment-hardening.md) | [简体中文](./deployment-hardening.zh-CN.md) | [繁體中文](./deployment-hardening.zh-Hant.md) | [日本語](./deployment-hardening.ja.md) | 한국어
 
+문서 버전: v1.0.13.
+
 이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
 
 이 가이드는 본인, 가족, 팀 또는 신뢰하는 친구 그룹을 위한 소규모 자체 호스팅 배포를 가정합니다. PKV Sync는 운영이 단순하지만 서버에 읽을 수 있는 vault 내용을 저장하므로 호스트와 백업 위생이 중요합니다.
@@ -273,11 +275,13 @@ Admin WebUI에서 확인하세요.
 - Supported text extensions.
 - Timezone, 기본값 `Asia/Shanghai`.
 
-등록과 로그인 실패는 rate limited입니다. Setup 및 관리자가 생성하거나 재설정하는 비밀번호는 12자 이상이며 대문자, 소문자, 숫자를 포함해야 합니다. CLI로 만든 사용자도 강한 비밀번호가 필요합니다.
+등록과 로그인 실패는 rate limited입니다. Setup, 공개 등록, 사용자 self-service 비밀번호 변경, 그리고 관리자가 생성하거나 재설정하는 비밀번호는 12자 이상이며 대문자, 소문자, 숫자를 포함해야 합니다. CLI로 만든 사용자도 강한 비밀번호가 필요합니다.
 
 인증된 동기화 API routes도 route, method, client IP, bearer token별로 60초당 600개 요청의 고정 창 제한을 받습니다. 실패한 bearer token 인증은 별도로 client IP별 60초당 120회까지 제한됩니다. limiter와 audit log가 실제 client IP를 보도록 `trusted_proxies`를 정확히 유지하세요.
 
 Blob upload request body는 `max_file_size`로 제한되며 hard blob cap(프로덕션 `512 MiB`)으로도 항상 clamp됩니다. Main SSE streams는 열린 동안 bearer token을 재검증합니다. MCP read/search tools에는 response와 total-search budgets가 있어 큰 vault가 무제한 JSON response로 확장되지 않게 합니다.
+
+Pull/tree traversal과 rollback reachability checks는 bounded입니다. 현재 동기화 필터에서 거부된 경로는 read, history, diff, commit-list surfaces에서 숨겨집니다.
 
 ## Prometheus Metrics
 
@@ -295,6 +299,8 @@ scrape clients가 `X-PKVSync-Deployment-Key`, 허용된 PKV Sync User-Agent, `Au
 - `/etc/pkv-sync/config.toml`
 
 데이터베이스를 복사할 때는 SQLite online backup을 사용하거나 서비스를 중지하세요. 가능하면 database, Git vault repositories, blobs가 같은 시점의 것이 되게 합니다.
+
+내장 backup/restore helpers는 symlink를 따라가지 않습니다. `vaults/` 또는 `blobs/` 아래의 symlink entries는 backup 중 skip되고 restore cleanup 중에는 link 자체만 제거하며 target은 건드리지 않습니다.
 
 restic 예시:
 

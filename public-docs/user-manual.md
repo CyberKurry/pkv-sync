@@ -2,6 +2,8 @@
 
 English | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
+Document version: v1.0.13.
+
 This manual is for Obsidian users who connect to an existing PKV Sync server.
 Ask your server administrator for the server share URL and an account or invite
 code before you start.
@@ -57,6 +59,9 @@ Registration behavior depends on the server runtime setting:
 - **Disabled**: an administrator must create your account.
 - **Invite only**: enter the invite code provided by an administrator.
 - **Open**: create an account directly.
+
+Public and invite-based registration use the same strong password policy as
+setup: at least 12 characters with uppercase, lowercase, and a digit.
 
 After login, select an existing remote vault or create a new one. When you
 connect a local vault that is already identical to the selected remote vault,
@@ -127,6 +132,8 @@ in plugin settings, you can inspect file history from:
 The file-history modal lists commits for the current file with time, device,
 commit id, and change type. Text files can show unified diffs. Binary files can
 be listed and restored, but PKV Sync does not render binary diffs.
+Paths rejected by the active sync filter are hidden from file history, vault
+history summaries, diff views, and file-read surfaces.
 
 The vault-history modal lists the most recent commits across the whole vault
 with time, device, change count, and commit id. Open a commit to see its

@@ -2,6 +2,8 @@
 
 English | [简体中文](./admin-manual.zh-CN.md) | [繁體中文](./admin-manual.zh-Hant.md) | [日本語](./admin-manual.ja.md) | [한국어](./admin-manual.ko.md)
 
+Document version: v1.0.13.
+
 This manual covers day-to-day administration for a self-hosted PKV Sync server.
 For network and host hardening, read the deployment hardening guide as well.
 
@@ -96,7 +98,7 @@ binary or container image automatically.
 
 - Create users from **Users** or with the CLI.
 - Usernames must be 3-32 ASCII letters, digits, `_`, `-`, or `.`.
-- Admin-created and admin-reset passwords must be at least 12 characters and
+- Admin-created, admin-reset, public registration, and user self-change passwords must be at least 12 characters and
   include uppercase, lowercase, and a digit.
 - Use search and status filters on the Users page to narrow the table.
 - Open a user detail page to reset passwords, enable or disable the account,
@@ -156,7 +158,9 @@ Blob files are content-addressed and may remain until garbage collection proves
 they are unreferenced beyond the grace period.
 
 Use vault metadata reconciliation if file counts, sizes, or blob references
-look wrong after an interrupted operation.
+look wrong after an interrupted operation. Reconciliation reads blob pointer hashes
+from the tree entries and batches blob-reference repair, so it no longer has to
+re-open every pointer file individually.
 
 ### Per-Vault Sync Settings
 
@@ -180,7 +184,8 @@ with previous**.
 The history page lists commits for that file and links to the file at each
 commit and the corresponding diff. The diff page renders unified diff lines with
 add/delete/hunk coloring. Binary files show metadata and do not render binary
-diff content.
+diff content. Paths rejected by the active sync filter are hidden from file
+preview, commit-list, history, and diff surfaces.
 
 Browsing files, history, and diffs records `view_commit`, `view_history`, and
 `view_diff` activity rows. Vault rollback controls are available from Admin
@@ -306,7 +311,7 @@ download the verified release binary next to the current executable as
 from `SHA256SUMS` and prints the systemd/manual swap steps. It does not hot
 replace the running process.
 
-Use `pkvsyncd upgrade --version 1.0.12` to target a specific release. If the
+Use `pkvsyncd upgrade --version 1.0.13` to target a specific release. If the
 command cannot find a matching asset or checksum, follow the manual GitHub
 release download path and verify `SHA256SUMS` yourself.
 
