@@ -193,7 +193,7 @@ async fn two_devices_same_line_change_produces_marker_file() {
 }
 
 #[tokio::test]
-async fn auto_merge_conflict_file_respects_exclude_globs() {
+async fn auto_merge_conflict_file_bypasses_user_exclude_globs() {
     let (state, user, vault_id, _tmp) = setup().await;
     state
         .runtime_cfg_repo
@@ -238,7 +238,7 @@ async fn auto_merge_conflict_file_respects_exclude_globs() {
     .await
     .unwrap();
 
-    let err = sync::push(
+    let device_b = sync::push(
         &state,
         &user,
         &vault_id,
@@ -253,10 +253,26 @@ async fn auto_merge_conflict_file_respects_exclude_globs() {
         },
     )
     .await
-    .unwrap_err();
+    .unwrap();
 
-    assert_eq!(err.code, "path_excluded");
+    assert_eq!(device_b.files_changed, 1);
     assert_eq!(read_text(&state, &vault_id, "note.md").await, "ALPHA\n");
+
+    let git = state.git_store();
+    let tree = git
+        .list_tree(&vault_id, Some(&device_b.new_commit))
+        .await
+        .unwrap();
+    let conflict_path = tree
+        .iter()
+        .find(|entry| entry.path.contains(".conflict-"))
+        .map(|entry| entry.path.as_str())
+        .expect("expected conflict sidecar to be preserved in git tree");
+    let marked = read_text(&state, &vault_id, conflict_path).await;
+    assert!(marked.contains("<<<<<<< local"));
+    assert!(marked.contains("======="));
+    assert!(marked.contains(">>>>>>> remote"));
+    assert!(marked.contains("AlPhA"));
 }
 
 #[tokio::test]
