@@ -379,10 +379,26 @@ fn reject_filtered_push_path(
     }
 }
 
+fn generated_push_path_is_valid(path: &str) -> bool {
+    if path.is_empty() || path.starts_with('/') || path.as_bytes().contains(&0) || path.len() > 512
+    {
+        return false;
+    }
+    path.split('/').all(|part| {
+        !part.is_empty()
+            && part != "."
+            && part != ".."
+            && !part.eq_ignore_ascii_case(".git")
+            && part.len() <= 255
+    })
+}
+
 fn ensure_generated_push_path(path: &str) -> Result<(), ApiError> {
-    path::normalize(path)
-        .map(|_| ())
-        .map_err(|e| ApiError::internal(format!("generated path is invalid: {e}")))
+    if generated_push_path_is_valid(path) {
+        Ok(())
+    } else {
+        Err(ApiError::internal("generated path is invalid"))
+    }
 }
 
 pub async fn push(
@@ -1109,7 +1125,7 @@ fn conflict_path_for(original: &str, device_name: &str) -> String {
         ),
         _ => format!("{dir}{file}.conflict-{stamp}-{nonce}-{device}"),
     };
-    if path::normalize(&candidate).is_ok() {
+    if generated_push_path_is_valid(&candidate) {
         return candidate;
     }
     let ext = match file.rfind('.') {
@@ -1117,7 +1133,7 @@ fn conflict_path_for(original: &str, device_name: &str) -> String {
         _ => ".md",
     };
     let fallback = format!("{dir}conflict.conflict-{stamp}-{nonce}{ext}");
-    if path::normalize(&fallback).is_ok() {
+    if generated_push_path_is_valid(&fallback) {
         fallback
     } else {
         format!("conflict.conflict-{stamp}-{nonce}{ext}")
@@ -1973,17 +1989,29 @@ mod tests {
 
     #[test]
     fn conflict_sidecar_validation_accepts_normalized_percent_literals() {
-        let original = path::normalize("note%252E.md").unwrap();
-        assert_eq!(original, "note%2E.md");
+        for (raw, normalized) in [
+            ("note%252E.md", "note%2E.md"),
+            ("%252E%252E/foo.md", "%2E%2E/foo.md"),
+            ("%252Egit/foo.md", "%2Egit/foo.md"),
+        ] {
+            let original = path::normalize(raw).unwrap();
+            assert_eq!(original, normalized);
 
-        let conflict = conflict_path_for(&original, "Laptop");
+            let conflict = conflict_path_for(&original, "Laptop");
 
-        assert!(
-            conflict.contains("note%2E.conflict-"),
-            "conflict path should preserve normalized literal percent escape: {conflict}"
-        );
-        ensure_generated_push_path(&conflict)
-            .expect("generated sidecar with literal percent escape should remain valid");
+            assert!(
+                conflict.starts_with(normalized.trim_end_matches(".md"))
+                    || conflict.starts_with("%2E%2E/foo.conflict-")
+                    || conflict.starts_with("%2Egit/foo.conflict-"),
+                "conflict path should preserve normalized literal percent escape near original file: {conflict}"
+            );
+            assert!(
+                !conflict.starts_with("conflict.conflict-"),
+                "conflict path should not fall back to vault root for {normalized}: {conflict}"
+            );
+            ensure_generated_push_path(&conflict)
+                .expect("generated sidecar with literal percent escape should remain valid");
+        }
     }
 
     #[test]
