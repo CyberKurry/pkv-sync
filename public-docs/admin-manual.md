@@ -2,7 +2,7 @@
 
 English | [简体中文](./admin-manual.zh-CN.md) | [繁體中文](./admin-manual.zh-Hant.md) | [日本語](./admin-manual.ja.md) | [한국어](./admin-manual.ko.md)
 
-Document version: v1.0.13.
+Document version: v1.0.14.
 
 This manual covers day-to-day administration for a self-hosted PKV Sync server.
 For network and host hardening, read the deployment hardening guide as well.

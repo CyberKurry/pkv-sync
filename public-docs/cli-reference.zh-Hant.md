@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | [简体中文](./cli-reference.zh-CN.md) | 繁體中文 | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
-文件版本：v1.0.13。
+文件版本：v1.0.14。
 
 `pkvsyncd` 是 PKV Sync 的伺服器常駐程式執行檔，提供 HTTP/WebSocket 同步 API、管理介面、MCP 伺服器，以及一小組維運用的子命令。
 

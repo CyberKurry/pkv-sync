@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | 简体中文 | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
-文档版本：v1.0.13。
+文档版本：v1.0.14。
 
 `pkvsyncd` 是 PKV Sync 的服务端守护进程二进制文件。它承载 HTTP/WebSocket 同步 API、管理界面、MCP 服务器，以及一小组运维子命令。
 
