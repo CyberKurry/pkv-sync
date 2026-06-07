@@ -114,6 +114,35 @@ async fn post_mcp_from_addr(
     (status, headers, json)
 }
 
+async fn post_mcp_raw(
+    state: AppState,
+    raw: Option<&str>,
+    body: String,
+    content_type: &str,
+) -> (StatusCode, HeaderMap, Value) {
+    let mut req = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", content_type)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY);
+    if let Some(raw) = raw {
+        req = req.header("authorization", format!("Bearer {raw}"));
+    }
+    let mut req = req.body(Body::from(body)).unwrap();
+    req.extensions_mut().insert(ConnectInfo(
+        "127.0.0.1:50000".parse::<SocketAddr>().unwrap(),
+    ));
+    let response = transport_http::router(state, DEPLOYMENT_KEY.into())
+        .oneshot(req)
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
+    (status, headers, json)
+}
+
 #[tokio::test]
 async fn http_mcp_auth_failures_are_limited_per_client_source() {
     let (state, _tmp) = test_state().await;
@@ -366,6 +395,62 @@ async fn http_mcp_write_file_allows_body_above_one_mib_within_max_file_size() {
     assert_eq!(status, StatusCode::OK);
     assert!(body.get("error").is_none(), "unexpected MCP error: {body}");
     assert!(body["result"]["structuredContent"]["commit"].is_string());
+}
+
+#[tokio::test]
+async fn http_mcp_write_file_allows_escaped_json_body_within_max_file_size() {
+    let (state, _tmp) = test_state().await;
+    state
+        .runtime_cfg_repo
+        .set_max_file_size(1024 * 1024, None)
+        .await
+        .unwrap();
+    let cfg = state.runtime_cfg_repo.load().await.unwrap();
+    state.runtime_cfg.replace(cfg).await;
+    let (user_id, raw) = create_user_with_token(&state, "http-escaped-write").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let head = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[FileChange::Upsert {
+                path: "seed.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"seed".to_vec(),
+                },
+            }],
+            "seed",
+        )
+        .await
+        .unwrap();
+    let escaped_content = "\\u0061".repeat(512 * 1024);
+    let body = format!(
+        r#"{{"jsonrpc":"2.0","id":"escaped-write","method":"tools/call","params":{{"name":"write_file","arguments":{{"vault_id":"{}","path":"escaped.md","content":"{}","parent_commit":"{}"}}}}}}"#,
+        vault.id, escaped_content, head
+    );
+
+    let (status, _headers, body) = post_mcp_raw(state, Some(&raw), body, "application/json").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.get("error").is_none(), "unexpected MCP error: {body}");
+    assert!(body["result"]["structuredContent"]["commit"].is_string());
+}
+
+#[tokio::test]
+async fn http_mcp_rejects_non_json_content_type() {
+    let (state, _tmp) = test_state().await;
+    let (_user_id, raw) = create_user_with_token(&state, "http-content-type").await;
+
+    let (status, _headers, _body) = post_mcp_raw(
+        state,
+        Some(&raw),
+        r#"{"jsonrpc":"2.0","id":"ct","method":"tools/list"}"#.into(),
+        "text/plain",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
 }
 
 #[tokio::test]

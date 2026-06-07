@@ -29,9 +29,24 @@ const MCP_JSON_BODY_OVERHEAD_BYTES: u64 = 1024 * 1024;
 
 fn mcp_json_body_limit_bytes(max_file_size: u64) -> usize {
     max_file_size
+        .saturating_mul(6)
         .saturating_add(MCP_JSON_BODY_OVERHEAD_BYTES)
         .try_into()
         .unwrap_or(usize::MAX)
+}
+
+fn is_json_content_type(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .is_some_and(|value| {
+            value.eq_ignore_ascii_case("application/json")
+                || value.rsplit_once('/').is_some_and(|(_, subtype)| {
+                    subtype.eq_ignore_ascii_case("json") || subtype.ends_with("+json")
+                })
+        })
 }
 
 pub fn router(state: AppState, deployment_key: String) -> Router {
@@ -76,6 +91,9 @@ async fn post_mcp(
     axum::extract::Extension(auth_limit_key): axum::extract::Extension<McpAuthLimitKey>,
     body: Body,
 ) -> Response {
+    if !is_json_content_type(&headers) {
+        return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
+    }
     let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
     let body = match to_bytes(body, mcp_json_body_limit_bytes(max_file_size)).await {
         Ok(body) => body,
