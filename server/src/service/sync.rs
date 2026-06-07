@@ -380,15 +380,9 @@ fn reject_filtered_push_path(
 }
 
 fn ensure_generated_push_path(path: &str) -> Result<(), ApiError> {
-    let normalized = path::normalize(path)
-        .map_err(|e| ApiError::internal(format!("generated path is invalid: {e}")))?;
-    if normalized == path {
-        Ok(())
-    } else {
-        Err(ApiError::internal(
-            "generated path changed during normalization",
-        ))
-    }
+    path::normalize(path)
+        .map(|_| ())
+        .map_err(|e| ApiError::internal(format!("generated path is invalid: {e}")))
 }
 
 pub async fn push(
@@ -1975,6 +1969,21 @@ mod tests {
         path::normalize(&conflict).expect("generated conflict path should remain valid");
         assert!(conflict.contains(".conflict-"));
         assert!(conflict.ends_with(".md"));
+    }
+
+    #[test]
+    fn conflict_sidecar_validation_accepts_normalized_percent_literals() {
+        let original = path::normalize("note%252E.md").unwrap();
+        assert_eq!(original, "note%2E.md");
+
+        let conflict = conflict_path_for(&original, "Laptop");
+
+        assert!(
+            conflict.contains("note%2E.conflict-"),
+            "conflict path should preserve normalized literal percent escape: {conflict}"
+        );
+        ensure_generated_push_path(&conflict)
+            .expect("generated sidecar with literal percent escape should remain valid");
     }
 
     #[test]
