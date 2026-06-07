@@ -454,6 +454,23 @@ async fn http_mcp_rejects_non_json_content_type() {
 }
 
 #[tokio::test]
+async fn http_mcp_accepts_case_insensitive_json_suffix_content_type() {
+    let (state, _tmp) = test_state().await;
+    let (_user_id, raw) = create_user_with_token(&state, "http-json-suffix").await;
+
+    let (status, _headers, body) = post_mcp_raw(
+        state,
+        Some(&raw),
+        r#"{"jsonrpc":"2.0","id":"suffix","method":"tools/list"}"#.into(),
+        "application/problem+JSON; charset=utf-8",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["result"]["tools"].is_array());
+}
+
+#[tokio::test]
 async fn http_mcp_write_file_reports_tool_error_above_max_file_size() {
     let (state, _tmp) = test_state().await;
     state

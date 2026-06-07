@@ -44,7 +44,10 @@ fn is_json_content_type(headers: &HeaderMap) -> bool {
         .is_some_and(|value| {
             value.eq_ignore_ascii_case("application/json")
                 || value.rsplit_once('/').is_some_and(|(_, subtype)| {
-                    subtype.eq_ignore_ascii_case("json") || subtype.ends_with("+json")
+                    subtype.eq_ignore_ascii_case("json")
+                        || subtype
+                            .rsplit_once('+')
+                            .is_some_and(|(_, suffix)| suffix.eq_ignore_ascii_case("json"))
                 })
         })
 }
