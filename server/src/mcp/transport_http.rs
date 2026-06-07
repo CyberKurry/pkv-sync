@@ -2,8 +2,8 @@ use crate::auth::AuthenticatedUser;
 use crate::db::repos::{TokenRepo, UserRepo};
 use crate::middleware::deployment_key;
 use crate::service::AppState;
-use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Request, State};
+use axum::body::{to_bytes, Body};
+use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -25,7 +25,14 @@ use super::transport_stdio::{authenticate_token, handle_jsonrpc, jsonrpc_error};
 #[derive(Clone, Debug)]
 struct McpAuthLimitKey(String);
 
-const MCP_JSON_BODY_LIMIT_BYTES: usize = 1024 * 1024;
+const MCP_JSON_BODY_OVERHEAD_BYTES: u64 = 1024 * 1024;
+
+fn mcp_json_body_limit_bytes(max_file_size: u64) -> usize {
+    max_file_size
+        .saturating_add(MCP_JSON_BODY_OVERHEAD_BYTES)
+        .try_into()
+        .unwrap_or(usize::MAX)
+}
 
 pub fn router(state: AppState, deployment_key: String) -> Router {
     router_with_rate_limiter(
@@ -42,7 +49,6 @@ fn router_with_rate_limiter(
 ) -> Router {
     Router::new()
         .route("/mcp", post(post_mcp).get(get_mcp_sse))
-        .layer(DefaultBodyLimit::max(MCP_JSON_BODY_LIMIT_BYTES))
         .route_layer(axum::middleware::from_fn_with_state(
             limiter,
             mcp_rate_limit,
@@ -68,8 +74,23 @@ async fn post_mcp(
     State(state): State<AppState>,
     headers: HeaderMap,
     axum::extract::Extension(auth_limit_key): axum::extract::Extension<McpAuthLimitKey>,
-    Json(request): Json<Value>,
+    body: Body,
 ) -> Response {
+    let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
+    let body = match to_bytes(body, mcp_json_body_limit_bytes(max_file_size)).await {
+        Ok(body) => body,
+        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    };
+    let request = match serde_json::from_slice::<Value>(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(jsonrpc_error(Value::Null, -32700, "parse error")),
+            )
+                .into_response();
+        }
+    };
     let Some(raw) = bearer(&headers) else {
         return (
             StatusCode::UNAUTHORIZED,

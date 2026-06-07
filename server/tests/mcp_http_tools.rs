@@ -2,7 +2,9 @@ use axum::body::{to_bytes, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, Request, StatusCode};
 use pkv_sync_server::auth::{password, token};
-use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo, VaultRepo};
+use pkv_sync_server::db::repos::{
+    NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
+};
 use pkv_sync_server::mcp::transport_http;
 use pkv_sync_server::service::events::MAX_SSE_REPLAY_COMMITS;
 use pkv_sync_server::service::sync::{self, PushChange, PushReq};
@@ -151,9 +153,16 @@ async fn http_mcp_auth_failures_are_limited_per_client_source() {
 #[tokio::test]
 async fn http_mcp_rejects_oversized_json_bodies_before_auth() {
     let (state, _tmp) = test_state().await;
+    state
+        .runtime_cfg_repo
+        .set_max_file_size(1024, None)
+        .await
+        .unwrap();
+    let cfg = state.runtime_cfg_repo.load().await.unwrap();
+    state.runtime_cfg.replace(cfg).await;
     let body = format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"tools/list","padding":"{}"}}"#,
-        "x".repeat(1024 * 1024)
+        "x".repeat(2 * 1024 * 1024)
     );
     let mut req = Request::builder()
         .method("POST")
@@ -304,6 +313,115 @@ async fn http_mcp_calls_read_only_tool_with_authenticated_user() {
         body["result"]["structuredContent"]["paths"],
         json!(["note.md"])
     );
+}
+
+#[tokio::test]
+async fn http_mcp_write_file_allows_body_above_one_mib_within_max_file_size() {
+    let (state, _tmp) = test_state().await;
+    state
+        .runtime_cfg_repo
+        .set_max_file_size(2 * 1024 * 1024, None)
+        .await
+        .unwrap();
+    let cfg = state.runtime_cfg_repo.load().await.unwrap();
+    state.runtime_cfg.replace(cfg).await;
+    let (user_id, raw) = create_user_with_token(&state, "http-large-write").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let head = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[FileChange::Upsert {
+                path: "seed.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"seed".to_vec(),
+                },
+            }],
+            "seed",
+        )
+        .await
+        .unwrap();
+
+    let (status, _headers, body) = post_mcp(
+        state,
+        Some(&raw),
+        json!({
+            "jsonrpc": "2.0",
+            "id": "large-write",
+            "method": "tools/call",
+            "params": {
+                "name": "write_file",
+                "arguments": {
+                    "vault_id": vault.id,
+                    "path": "large.md",
+                    "content": "a".repeat(1024 * 1024 + 128 * 1024),
+                    "parent_commit": head
+                }
+            }
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.get("error").is_none(), "unexpected MCP error: {body}");
+    assert!(body["result"]["structuredContent"]["commit"].is_string());
+}
+
+#[tokio::test]
+async fn http_mcp_write_file_reports_tool_error_above_max_file_size() {
+    let (state, _tmp) = test_state().await;
+    state
+        .runtime_cfg_repo
+        .set_max_file_size(1024, None)
+        .await
+        .unwrap();
+    let cfg = state.runtime_cfg_repo.load().await.unwrap();
+    state.runtime_cfg.replace(cfg).await;
+    let (user_id, raw) = create_user_with_token(&state, "http-too-large-write").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let head = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[FileChange::Upsert {
+                path: "seed.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"seed".to_vec(),
+                },
+            }],
+            "seed",
+        )
+        .await
+        .unwrap();
+
+    let (status, _headers, body) = post_mcp(
+        state,
+        Some(&raw),
+        json!({
+            "jsonrpc": "2.0",
+            "id": "too-large-write",
+            "method": "tools/call",
+            "params": {
+                "name": "write_file",
+                "arguments": {
+                    "vault_id": vault.id,
+                    "path": "too-large.md",
+                    "content": "a".repeat(2048),
+                    "parent_commit": head
+                }
+            }
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["error"]["code"], -32000);
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("file exceeds max_file_size of 1024 bytes"));
 }
 
 #[tokio::test]
