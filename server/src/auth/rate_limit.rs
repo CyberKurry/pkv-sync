@@ -201,8 +201,11 @@ impl LoginRateLimiter {
     }
 
     /// Internal: called by AttemptReservation::release for non-attributable
-    /// outcomes (e.g. internal 500). Releases the slot without changing the
-    /// failure counter.
+    /// outcomes (e.g. internal 500, cancellation, or unresolved Drop). Releases
+    /// the slot without changing the failure counter. If the entry has no
+    /// recorded failures and no more in-flight slots remain, any transient burst
+    /// lock set by try_acquire is also cleared, since there is nothing real to
+    /// lock for.
     fn release_neutral(&self, ip: IpAddr) {
         let mut entry = match self.inner.get_mut(&ip) {
             Some(e) => e,
@@ -210,6 +213,12 @@ impl LoginRateLimiter {
         };
         if entry.in_flight > 0 {
             entry.in_flight -= 1;
+        }
+        // If there are no real failures and no more in-flight attempts, remove
+        // any transient burst-protection lock that was set by try_acquire. That
+        // lock was defensive (in-flight counting), not a failure-based lockout.
+        if entry.failures == 0 && entry.in_flight == 0 {
+            entry.locked_until = None;
         }
     }
 
@@ -353,6 +362,11 @@ impl McpAuthRateLimiter {
         if entry.in_flight > 0 {
             entry.in_flight -= 1;
         }
+        // If there are no real failures and no more in-flight attempts, remove
+        // any transient burst-protection lock set by try_acquire.
+        if entry.failures == 0 && entry.in_flight == 0 {
+            entry.locked_until = None;
+        }
     }
 
     pub fn prune_stale(&self) -> usize {
@@ -424,11 +438,15 @@ fn entry_is_stale(entry: &Entry, now: Instant, config: Config) -> bool {
 }
 
 /// Reservation handle returned by `try_acquire`. Holding this object means a
-/// slot has been reserved against the limiter; the holder MUST resolve it
-/// with `success()`, `failure()`, or `release()` before drop. If dropped
-/// without explicit resolution (e.g. due to a panic), the Drop impl treats
-/// the attempt as a failure — pessimistic by design so a panicking handler
-/// cannot silently leak a free attempt.
+/// slot has been reserved against the limiter; the caller SHOULD resolve it
+/// explicitly with `success()`, `failure()`, or `release()`. If dropped
+/// without explicit resolution (e.g. due to cancellation, connection abort, or
+/// a panic), the Drop impl performs a *neutral release*: the in-flight counter
+/// is decremented without charging a failure. This means cancelled or aborted
+/// requests do not consume the authentication failure budget.
+///
+/// Callers that know a real authentication failure occurred MUST call
+/// `.failure()` explicitly; never rely on Drop for failure attribution.
 pub struct AttemptReservation {
     limiter: LoginRateLimiter,
     ip: IpAddr,
@@ -461,9 +479,12 @@ impl AttemptReservation {
 }
 
 impl Drop for AttemptReservation {
+    /// Unresolved drop (cancellation / abort / panic) is treated as a neutral
+    /// release: the in-flight slot is freed without incrementing the failure
+    /// counter. Real authentication failures MUST be attributed via `.failure()`.
     fn drop(&mut self) {
         if !self.resolved {
-            self.limiter.release_failure(self.ip);
+            self.limiter.release_neutral(self.ip);
         }
     }
 }
@@ -492,9 +513,12 @@ impl McpAuthAttemptReservation {
 }
 
 impl Drop for McpAuthAttemptReservation {
+    /// Unresolved drop (cancellation / abort / panic) is treated as a neutral
+    /// release: the in-flight slot is freed without incrementing the failure
+    /// counter. Real authentication failures MUST be attributed via `.failure()`.
     fn drop(&mut self) {
         if !self.resolved {
-            self.limiter.release_failure(&self.key);
+            self.limiter.release_neutral(&self.key);
         }
     }
 }
@@ -570,7 +594,9 @@ mod tests {
     /// the threshold so concurrent attempts cannot all sneak through before
     /// any of them records a failure. With threshold=3, after 3 in-flight
     /// try_acquire calls, the 4th must be rejected even though no failures
-    /// have been recorded yet.
+    /// have been recorded yet. After the burst is dropped (neutral), the limiter
+    /// is unlocked because no failures were charged — only the concurrent slot
+    /// occupancy blocked the 4th attempt while in flight.
     #[test]
     fn try_acquire_blocks_concurrent_burst_before_failures_record() {
         let l = LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
@@ -579,15 +605,45 @@ mod tests {
         let r1 = l.try_acquire(ip()).expect("first reservation");
         let r2 = l.try_acquire(ip()).expect("second reservation");
         let r3 = l.try_acquire(ip()).expect("third reservation");
-        // 4th must be rejected — without H-1 fix, it would proceed because
-        // failures is still 0.
+        // 4th must be rejected while the 3 slots are in flight — without the
+        // in-flight fix, it would proceed because failures is still 0.
         assert!(l.try_acquire(ip()).is_err());
-        // Drop holds without resolution → Drop impl charges them as failures.
+        // Drop without resolution → neutral release (no failure charged).
         drop(r1);
         drop(r2);
         drop(r3);
-        // After all three resolve to failure, the lock is still active.
-        assert!(l.check(ip()).is_err());
+        // All in-flight slots released neutrally: no failures recorded,
+        // limiter should now be open again.
+        assert!(l.check(ip()).is_ok());
+    }
+
+    /// Dropping a reservation without resolving it must not increment the
+    /// failure counter. A single unresolved drop (threshold=1) must leave the
+    /// limiter open so the next try_acquire succeeds.
+    #[test]
+    fn drop_without_resolve_is_neutral_login() {
+        let l = LoginRateLimiter::new(1, Duration::from_secs(60), Duration::from_secs(60));
+        let r = l.try_acquire(ip()).expect("first reservation");
+        drop(r); // neutral: no failure charged
+                 // If Drop had charged a failure, threshold=1 would now be locked and
+                 // the next try_acquire would return Err.
+        assert!(
+            l.try_acquire(ip()).is_ok(),
+            "unresolved drop must not consume failure budget"
+        );
+    }
+
+    /// Explicit .failure() must still increment the counter and lock at
+    /// threshold — the neutral-drop change must not weaken the explicit path.
+    #[test]
+    fn explicit_failure_still_locks_login() {
+        let l = LoginRateLimiter::new(1, Duration::from_secs(60), Duration::from_secs(60));
+        let r = l.try_acquire(ip()).expect("reservation");
+        r.failure(); // explicit failure
+        assert!(
+            l.check(ip()).is_err(),
+            "explicit failure must lock at threshold=1"
+        );
     }
 
     /// Reservation success resets the IP entirely so a legitimate login does
@@ -626,13 +682,42 @@ mod tests {
         let r2 = l.try_acquire("api-auth").expect("second reservation");
         let r3 = l.try_acquire("api-auth").expect("third reservation");
 
+        // 4th for the same key must be rejected while 3 slots are in flight.
         assert!(l.try_acquire("api-auth").is_err());
+        // Different key is unaffected.
         assert!(l.try_acquire("other-auth").is_ok());
 
+        // Drop without resolution → neutral release (no failure charged).
         drop(r1);
         drop(r2);
         drop(r3);
-        assert!(l.check("api-auth").is_err());
+        // All slots released neutrally: limiter must now be open.
+        assert!(l.check("api-auth").is_ok());
+    }
+
+    /// Symmetric to drop_without_resolve_is_neutral_login for the MCP limiter.
+    #[test]
+    fn drop_without_resolve_is_neutral_mcp() {
+        let l = McpAuthRateLimiter::new(1, Duration::from_secs(60), Duration::from_secs(60));
+        let r = l.try_acquire("mcp-key").expect("first reservation");
+        drop(r); // neutral: no failure charged
+        assert!(
+            l.try_acquire("mcp-key").is_ok(),
+            "unresolved drop must not consume mcp failure budget"
+        );
+    }
+
+    /// Explicit .failure() on MCP reservation must still increment the counter
+    /// and lock at threshold.
+    #[test]
+    fn explicit_failure_still_locks_mcp() {
+        let l = McpAuthRateLimiter::new(1, Duration::from_secs(60), Duration::from_secs(60));
+        let r = l.try_acquire("mcp-key").expect("reservation");
+        r.failure(); // explicit failure
+        assert!(
+            l.check("mcp-key").is_err(),
+            "explicit mcp failure must lock at threshold=1"
+        );
     }
 
     #[test]
