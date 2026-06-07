@@ -1,6 +1,7 @@
 use crate::auth::AuthenticatedUser;
 use crate::db::repos::{TokenRepo, UserRepo};
 use crate::middleware::deployment_key;
+use crate::middleware::real_ip::TrustedProxies;
 use crate::service::AppState;
 use axum::body::{to_bytes, Body};
 use axum::extract::{Request, State};
@@ -60,6 +61,22 @@ pub fn router(state: AppState, deployment_key: String) -> Router {
     )
 }
 
+/// Wraps `router` with the `real_ip` middleware so that standalone MCP HTTP
+/// deployments behind a reverse proxy resolve the actual client IP before
+/// rate-limit keys are computed. The embedded path (embed_in_serve=true)
+/// already receives the real_ip layer from the outer application router and
+/// must NOT call this function.
+pub fn standalone_router(
+    state: AppState,
+    deployment_key: String,
+    trusted_proxies: TrustedProxies,
+) -> Router {
+    router(state, deployment_key).layer(axum::middleware::from_fn_with_state(
+        trusted_proxies,
+        crate::middleware::real_ip::middleware,
+    ))
+}
+
 fn router_with_rate_limiter(
     state: AppState,
     limiter: crate::middleware::rate_limit::RequestRateLimiter,
@@ -78,11 +95,17 @@ fn router_with_rate_limiter(
         .with_state(state)
 }
 
-pub async fn run(state: AppState, bind: SocketAddr, deployment_key: String) -> anyhow::Result<()> {
+pub async fn run(
+    state: AppState,
+    bind: SocketAddr,
+    deployment_key: String,
+    trusted_proxies: TrustedProxies,
+) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(bind).await?;
     axum::serve(
         listener,
-        router(state, deployment_key).into_make_service_with_connect_info::<SocketAddr>(),
+        standalone_router(state, deployment_key, trusted_proxies)
+            .into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await?;
     Ok(())
@@ -441,5 +464,139 @@ mod tests {
 
         assert_eq!(first.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    /// Build a request that simulates arriving through a reverse proxy at
+    /// 127.0.0.1 with the given X-Forwarded-For value.
+    fn proxy_req(xff: &str) -> HttpRequest<Body> {
+        use axum::extract::ConnectInfo;
+        let mut r = HttpRequest::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("content-type", "application/json")
+            .header(deployment_key::HEADER, "k_test")
+            .header("x-forwarded-for", xff)
+            .body(Body::from("{}"))
+            .unwrap();
+        // ConnectInfo is needed by real_ip::middleware
+        let socket: std::net::SocketAddr = "127.0.0.1:9999".parse().unwrap();
+        r.extensions_mut().insert(ConnectInfo(socket));
+        r
+    }
+
+    /// standalone_router with real_ip: two requests from different real IPs
+    /// (same proxy ConnectInfo) must not collapse into the same rate-limit bucket.
+    #[tokio::test]
+    async fn standalone_router_uses_real_ip_for_rate_limit() {
+        let trusted = TrustedProxies::from_vec(vec!["127.0.0.1/32".parse().unwrap()]);
+        let limiter = crate::middleware::rate_limit::RequestRateLimiter::new(
+            1,
+            std::time::Duration::from_secs(60),
+        );
+        // Use router_with_rate_limiter so we can inject a tight limiter, then
+        // wrap it with standalone_router's real_ip layer manually.
+        let inner = router_with_rate_limiter(state().await, limiter, "k_test".into());
+        let app = inner.layer(axum::middleware::from_fn_with_state(
+            trusted,
+            crate::middleware::real_ip::middleware,
+        ));
+
+        // Two different real IPs, same proxy peer — each gets their own bucket.
+        let resp_a1 = app.clone().oneshot(proxy_req("203.0.113.1")).await.unwrap();
+        let resp_b1 = app.clone().oneshot(proxy_req("203.0.113.2")).await.unwrap();
+
+        // Both hit auth (bucket not exhausted) because IPs differ.
+        assert_eq!(
+            resp_a1.status(),
+            StatusCode::UNAUTHORIZED,
+            "first request from 203.0.113.1 should reach auth, not be rate-limited"
+        );
+        assert_eq!(
+            resp_b1.status(),
+            StatusCode::UNAUTHORIZED,
+            "first request from 203.0.113.2 should reach auth, not be rate-limited"
+        );
+
+        // Second request from the same real IP IS rate-limited.
+        let resp_a2 = app.clone().oneshot(proxy_req("203.0.113.1")).await.unwrap();
+        assert_eq!(
+            resp_a2.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "second request from same real IP should be rate-limited"
+        );
+    }
+
+    /// Without real_ip middleware the two distinct XFF IPs collapse to the
+    /// proxy peer IP, so the second request (different real IP) is still
+    /// rate-limited — demonstrating the bug that standalone_router fixes.
+    #[tokio::test]
+    async fn plain_router_collapses_xff_ips_to_proxy_bucket() {
+        let limiter = crate::middleware::rate_limit::RequestRateLimiter::new(
+            1,
+            std::time::Duration::from_secs(60),
+        );
+        let app = router_with_rate_limiter(state().await, limiter, "k_test".into());
+
+        let resp_a = app.clone().oneshot(proxy_req("203.0.113.1")).await.unwrap();
+        let resp_b = app.clone().oneshot(proxy_req("203.0.113.2")).await.unwrap();
+
+        assert_eq!(
+            resp_a.status(),
+            StatusCode::UNAUTHORIZED,
+            "first request should reach auth"
+        );
+        // Without real_ip, both XFF values resolve to the same proxy peer IP,
+        // so the second request with a *different* real IP is wrongly throttled.
+        assert_eq!(
+            resp_b.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "without real_ip layer, different XFF IPs collapse to the same bucket"
+        );
+    }
+
+    /// When the ConnectInfo peer is NOT in trusted_proxies the XFF header is
+    /// ignored and the peer IP itself is used as the rate-limit key.
+    #[tokio::test]
+    async fn standalone_router_untrusted_proxy_ignores_xff() {
+        // 10.0.0.1 is NOT in the trusted list.
+        let trusted = TrustedProxies::from_vec(vec!["192.168.1.1/32".parse().unwrap()]);
+        let limiter = crate::middleware::rate_limit::RequestRateLimiter::new(
+            1,
+            std::time::Duration::from_secs(60),
+        );
+        let inner = router_with_rate_limiter(state().await, limiter, "k_test".into());
+        let app = inner.layer(axum::middleware::from_fn_with_state(
+            trusted,
+            crate::middleware::real_ip::middleware,
+        ));
+
+        // Two requests from the *same* peer (10.0.0.1) but different XFF values.
+        // Because the peer is untrusted, XFF is ignored and both map to 10.0.0.1.
+        use axum::extract::ConnectInfo;
+        let make_req = |xff: &str| {
+            let mut r = HttpRequest::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header(deployment_key::HEADER, "k_test")
+                .header("x-forwarded-for", xff)
+                .body(Body::from("{}"))
+                .unwrap();
+            let socket: std::net::SocketAddr = "10.0.0.1:9999".parse().unwrap();
+            r.extensions_mut().insert(ConnectInfo(socket));
+            r
+        };
+
+        let resp1 = app.clone().oneshot(make_req("203.0.113.1")).await.unwrap();
+        let resp2 = app.clone().oneshot(make_req("203.0.113.99")).await.unwrap();
+
+        assert_eq!(resp1.status(), StatusCode::UNAUTHORIZED);
+        // Second request from the same untrusted peer must be rate-limited
+        // regardless of the (ignored) XFF value.
+        assert_eq!(
+            resp2.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "untrusted peer: both requests map to the same IP bucket"
+        );
     }
 }

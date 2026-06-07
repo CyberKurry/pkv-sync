@@ -3,6 +3,7 @@ pub mod tools;
 pub mod transport_http;
 pub mod transport_stdio;
 
+use crate::middleware::real_ip::TrustedProxies;
 use crate::service::AppState;
 use anyhow::Result;
 use std::net::SocketAddr;
@@ -15,6 +16,7 @@ pub enum McpTransport {
     Http {
         bind: SocketAddr,
         deployment_key: String,
+        trusted_proxies: TrustedProxies,
     },
 }
 
@@ -26,6 +28,7 @@ pub async fn run(state: AppState, transport: McpTransport) -> Result<()> {
         McpTransport::Http {
             bind,
             deployment_key,
-        } => transport_http::run(state, bind, deployment_key).await,
+            trusted_proxies,
+        } => transport_http::run(state, bind, deployment_key, trusted_proxies).await,
     }
 }
