@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 1.0.14
+  version: 1.1.0
   license:
     name: AGPL-3.0-only
   contact:
@@ -1698,9 +1698,12 @@ paths:
         deployment key and a bearer device token; Admin WebUI cookies do not
         authenticate MCP requests. JSON-RPC method names and payloads follow
         the MCP protocol plus PKV Sync's documented tool set. MCP search caps
-        each request to 5000 tree files, 500 returned matches, and 256 MiB of
-        searched text in production. Binary/blob read responses above 64 MiB
-        are rejected instead of being base64-expanded into JSON.
+        each request to 5000 visible tree files, 500 returned matches, and 256
+        MiB of searched text in production. `link_graph` scans at most 5000
+        visible text files with the same production text budget, and
+        `changes_since` returns at most 5000 visible change entries.
+        Binary/blob read responses above 64 MiB are rejected instead of being
+        base64-expanded into JSON.
       requestBody:
         required: true
         content:

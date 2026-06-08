@@ -2,7 +2,7 @@
 
 English | [简体中文](./cli-reference.zh-CN.md) | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
-Document version: v1.0.14.
+Document version: v1.1.0.
 
 `pkvsyncd` is the PKV Sync server daemon binary. It hosts the HTTP/WebSocket
 sync API, the admin UI, the MCP server, and a small set of operational
@@ -292,11 +292,14 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 `stdio` mode reads JSON-RPC from stdin and writes JSON-RPC to stdout. `http`
 mode serves a stateless Streamable HTTP MCP endpoint at `/mcp`. Both modes
 expose the same toolset: `list_vaults`, `list_files`, `read_file`,
-`read_file_at_commit`, `search`, `write_file`, and `delete_file`. Write tools
-are rate-limited at 60 writes per minute per `(token, vault)`.
-Search requests scan at most 5000 tree files, return at most 500 matches, and
-stop after 256 MiB of searched text in production. Binary/blob read responses
-above 64 MiB are rejected instead of being base64-expanded into JSON.
+`read_file_at_commit`, `search`, `link_graph`, `changes_since`, `write_file`,
+and `delete_file`. Write tools are rate-limited at 60 writes per minute per
+`(token, vault)`.
+Search requests scan at most 5000 visible tree files, return at most 500
+matches, and stop after 256 MiB of searched text in production. `link_graph`
+scans at most 5000 visible text files with the same production text budget, and
+`changes_since` returns at most 5000 visible change entries. Binary/blob read
+responses above 64 MiB are rejected instead of being base64-expanded into JSON.
 
 `http` mode requires every request to carry the server deployment key header,
 just like the regular sync API.
@@ -327,7 +330,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: show the selected release, asset, and target path without downloading anything.
 - `--yes`: skip the interactive confirmation prompt.
-- `--version <VERSION>`: download a specific release such as `1.0.14` instead of the latest release.
+- `--version <VERSION>`: download a specific release such as `1.1.0` instead of the latest release.
 
 ### Description
 
@@ -351,5 +354,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # Download a specific release
-pkvsyncd upgrade --yes --version 1.0.14
+pkvsyncd upgrade --yes --version 1.1.0
 ```

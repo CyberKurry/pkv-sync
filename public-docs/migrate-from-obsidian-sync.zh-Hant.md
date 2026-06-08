@@ -2,7 +2,7 @@
 
 [English](./migrate-from-obsidian-sync.md) | [简体中文](./migrate-from-obsidian-sync.zh-CN.md) | 繁體中文 | [日本語](./migrate-from-obsidian-sync.ja.md) | [한국어](./migrate-from-obsidian-sync.ko.md)
 
-文件版本：v1.0.14。
+文件版本：v1.1.0。
 
 本文說明如何把已經使用 Obsidian Sync 的 Obsidian 筆記庫目前檔案匯入到新的 PKV Sync 筆記庫。
 

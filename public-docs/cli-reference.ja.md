@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | [简体中文](./cli-reference.zh-CN.md) | [繁體中文](./cli-reference.zh-Hant.md) | 日本語 | [한국어](./cli-reference.ko.md)
 
-ドキュメントバージョン: v1.0.14。
+ドキュメントバージョン: v1.1.0。
 
 `pkvsyncd` は PKV Sync のサーバーデーモンバイナリです。HTTP/WebSocket の同期 API、管理 UI、MCP サーバー、および少数の運用サブコマンドをホストします。
 
@@ -261,7 +261,7 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 
 ### 説明
 
-`stdio` モードは標準入力から JSON-RPC を読み取り、標準出力に JSON-RPC を書き込みます。`http` モードはステートレスな Streamable HTTP MCP エンドポイントを `/mcp` で提供します。どちらのモードも同じツールセットを公開します: `list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`write_file`、`delete_file`。書き込み系ツールは `(token, vault)` ごとに 1 分あたり 60 回までにレート制限されます。検索リクエストは最大 5000 個の tree files を走査し、最大 500 件の一致を返し、本番環境では検索済みテキストが 256 MiB に達すると停止します。64 MiB を超える binary/blob 読み取りレスポンスは、base64 で JSON に展開される代わりに拒否されます。
+`stdio` モードは標準入力から JSON-RPC を読み取り、標準出力に JSON-RPC を書き込みます。`http` モードはステートレスな Streamable HTTP MCP エンドポイントを `/mcp` で提供します。どちらのモードも同じツールセットを公開します: `list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`。書き込み系ツールは `(token, vault)` ごとに 1 分あたり 60 回までにレート制限されます。検索リクエストは最大 5000 個の表示可能な tree files を走査し、最大 500 件の一致を返し、本番環境では検索済みテキストが 256 MiB に達すると停止します。`link_graph` は同じ本番テキスト予算で最大 5000 個の表示可能なテキストファイルを走査し、`changes_since` は最大 5000 件の表示可能な変更エントリを返します。64 MiB を超える binary/blob 読み取りレスポンスは、base64 で JSON に展開される代わりに拒否されます。
 
 `http` モードでは、通常の同期 API と同じく、すべてのリクエストにサーバーのデプロイメントキーヘッダーを付与する必要があります。
 
@@ -291,7 +291,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: 何もダウンロードせずに、選択されたリリース、アセット、対象パスを表示します。
 - `--yes`: 対話的な確認プロンプトをスキップします。
-- `--version <VERSION>`: 最新リリースではなく `1.0.14` のような特定のリリースをダウンロードします。
+- `--version <VERSION>`: 最新リリースではなく `1.1.0` のような特定のリリースをダウンロードします。
 
 ### 説明
 
@@ -309,5 +309,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 特定のリリースをダウンロード
-pkvsyncd upgrade --yes --version 1.0.14
+pkvsyncd upgrade --yes --version 1.1.0
 ```

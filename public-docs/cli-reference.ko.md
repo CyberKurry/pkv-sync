@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | [简体中文](./cli-reference.zh-CN.md) | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | 한국어
 
-문서 버전: v1.0.14.
+문서 버전: v1.1.0.
 
 `pkvsyncd`는 PKV Sync 서버 데몬 바이너리입니다. HTTP/WebSocket 동기화 API, 관리자 UI, MCP 서버, 그리고 소수의 운영용 서브커맨드를 호스팅합니다.
 
@@ -261,7 +261,7 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 
 ### 설명
 
-`stdio` 모드는 stdin에서 JSON-RPC를 읽고 stdout으로 JSON-RPC를 씁니다. `http` 모드는 `/mcp`에서 무상태 Streamable HTTP MCP 엔드포인트를 제공합니다. 두 모드 모두 동일한 툴셋, 즉 `list_vaults`, `list_files`, `read_file`, `read_file_at_commit`, `search`, `write_file`, `delete_file`을 노출합니다. 쓰기 툴은 `(token, vault)`마다 분당 60회 쓰기로 속도 제한됩니다. 검색 요청은 최대 5000개 tree files를 스캔하고 최대 500 matches를 반환하며, 프로덕션에서는 검색한 text가 256 MiB에 도달하면 중단합니다. 64 MiB를 넘는 binary/blob 읽기 응답은 base64로 JSON에 확장되는 대신 거부됩니다.
+`stdio` 모드는 stdin에서 JSON-RPC를 읽고 stdout으로 JSON-RPC를 씁니다. `http` 모드는 `/mcp`에서 무상태 Streamable HTTP MCP 엔드포인트를 제공합니다. 두 모드 모두 동일한 툴셋, 즉 `list_vaults`, `list_files`, `read_file`, `read_file_at_commit`, `search`, `link_graph`, `changes_since`, `write_file`, `delete_file`을 노출합니다. 쓰기 툴은 `(token, vault)`마다 분당 60회 쓰기로 속도 제한됩니다. 검색 요청은 최대 5000개의 표시 가능한 tree files를 스캔하고 최대 500 matches를 반환하며, 프로덕션에서는 검색한 text가 256 MiB에 도달하면 중단합니다. `link_graph`는 같은 프로덕션 text 예산으로 최대 5000개의 표시 가능한 text 파일을 스캔하고, `changes_since`는 최대 5000개의 표시 가능한 변경 항목을 반환합니다. 64 MiB를 넘는 binary/blob 읽기 응답은 base64로 JSON에 확장되는 대신 거부됩니다.
 
 `http` 모드는 일반 동기화 API와 마찬가지로 모든 요청에 서버 배포 키 헤더를 포함해야 합니다.
 
@@ -291,7 +291,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: 아무것도 다운로드하지 않고 선택된 릴리스, 에셋, 대상 경로를 표시합니다.
 - `--yes`: 대화형 확인 프롬프트를 건너뜁니다.
-- `--version <VERSION>`: 최신 릴리스 대신 `1.0.14` 같은 특정 릴리스를 다운로드합니다.
+- `--version <VERSION>`: 최신 릴리스 대신 `1.1.0` 같은 특정 릴리스를 다운로드합니다.
 
 ### 설명
 
@@ -309,5 +309,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 특정 릴리스 다운로드
-pkvsyncd upgrade --yes --version 1.0.14
+pkvsyncd upgrade --yes --version 1.1.0
 ```

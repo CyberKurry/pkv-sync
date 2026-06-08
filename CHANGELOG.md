@@ -7,6 +7,19 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-08
+
+### Added
+
+- Add `link_graph` and `changes_since` MCP tools for LLM-maintained wikis.
+
+### Security
+
+- Hide SyncPathFilter-rejected paths from MCP read tools (`read_file`,
+  `read_file_at_commit`, `list_files`, `search`, plus the new `link_graph`
+  and `changes_since` tools), closing the REST-only visibility gap from
+  1.0.13.
+
 ## [1.0.14] - 2026-06-07
 
 ### Security

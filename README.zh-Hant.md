@@ -5,7 +5,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文件版本：v1.0.14。
+文件版本：v1.1.0。
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | 繁體中文 | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -100,7 +100,7 @@ PKV Sync 1.0 **暫不**提供原生端到端加密——伺服器能讀到筆記
 
 ## 狀態
 
-PKV Sync 1.0.14 是目前穩定 patch 版本。本版包含最新修復：反向代理後的獨立 MCP HTTP transport 會以真實用戶端 IP 正確限流，被取消的認證嘗試不再佔用每 IP 失敗配額，auto-merge 衝突 sidecar 即使命中排除規則也會保留，MCP 寫入允許達到設定的最大檔案大小。
+PKV Sync 1.1.0 是目前穩定功能版本。本版新增用於 LLM 維護 wiki 工作流程的 MCP `link_graph` 和 `changes_since` 讀取工具，發布新的 LLM Wiki 指南，並強化所有 MCP 讀取表面：被 SyncPathFilter 拒絕的路徑會繼續隱藏於檔案列表、讀取、搜尋、連結圖和變更摘要之外。
 
 PKV Sync 1.0 是第一個穩定版。公開 REST API、CLI、儲存布局、外掛包、Docker 映像作為一組同步發版，遵循 semver：1.X.Y 在公開表面保持向後相容，OpenAPI 規範是這個相容契約的權威來源。0.x 建立的 SQLite 資料庫**不支援**就地升級到 1.0.0——請依[1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md)操作。
 

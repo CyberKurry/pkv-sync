@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | [简体中文](./cli-reference.zh-CN.md) | 繁體中文 | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
-文件版本：v1.0.14。
+文件版本：v1.1.0。
 
 `pkvsyncd` 是 PKV Sync 的伺服器常駐程式執行檔，提供 HTTP/WebSocket 同步 API、管理介面、MCP 伺服器，以及一小組維運用的子命令。
 
@@ -261,7 +261,7 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 
 ### 說明
 
-`stdio` 模式從 stdin 讀取 JSON-RPC，並向 stdout 寫入 JSON-RPC。`http` 模式在 `/mcp` 提供無狀態的 Streamable HTTP MCP endpoint。兩種模式皆暴露同一組工具：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`write_file` 與 `delete_file`。寫入類工具有速率限制，每組 `(token, vault)` 每分鐘上限 60 次寫入。搜尋請求最多掃描 5000 個 tree 檔案、返回 500 條匹配，並在生產環境搜尋文字累計達到 256 MiB 後停止。超過 64 MiB 的二進位/blob 讀取回應會被拒絕，而不是被 base64 展開進 JSON。
+`stdio` 模式從 stdin 讀取 JSON-RPC，並向 stdout 寫入 JSON-RPC。`http` 模式在 `/mcp` 提供無狀態的 Streamable HTTP MCP endpoint。兩種模式皆暴露同一組工具：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file` 與 `delete_file`。寫入類工具有速率限制，每組 `(token, vault)` 每分鐘上限 60 次寫入。搜尋請求最多掃描 5000 個可見 tree 檔案、返回 500 條匹配，並在生產環境搜尋文字累計達到 256 MiB 後停止。`link_graph` 最多掃描 5000 個可見文字檔，並使用同一個生產文字預算；`changes_since` 最多返回 5000 條可見變更。超過 64 MiB 的二進位/blob 讀取回應會被拒絕，而不是被 base64 展開進 JSON。
 
 `http` 模式要求每個 request 都必須帶上伺服器部署金鑰的 header，與一般同步 API 相同。
 
@@ -291,7 +291,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`：只顯示選中的 release、asset 與目標路徑，不實際下載。
 - `--yes`：略過互動確認提示。
-- `--version <VERSION>`：下載指定 release，例如 `1.0.14`，而非最新版本。
+- `--version <VERSION>`：下載指定 release，例如 `1.1.0`，而非最新版本。
 
 ### 說明
 
@@ -309,5 +309,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 下載指定 release
-pkvsyncd upgrade --yes --version 1.0.14
+pkvsyncd upgrade --yes --version 1.1.0
 ```
