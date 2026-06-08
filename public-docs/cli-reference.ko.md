@@ -291,7 +291,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: 아무것도 다운로드하지 않고 선택된 릴리스, 에셋, 대상 경로를 표시합니다.
 - `--yes`: 대화형 확인 프롬프트를 건너뜁니다.
-- `--version <VERSION>`: 최신 릴리스 대신 `1.0.13` 같은 특정 릴리스를 다운로드합니다.
+- `--version <VERSION>`: 최신 릴리스 대신 `1.0.14` 같은 특정 릴리스를 다운로드합니다.
 
 ### 설명
 
@@ -309,5 +309,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 특정 릴리스 다운로드
-pkvsyncd upgrade --yes --version 1.0.13
+pkvsyncd upgrade --yes --version 1.0.14
 ```

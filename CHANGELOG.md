@@ -7,6 +7,27 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.0.14] - 2026-06-07
+
+### Security
+
+- Apply the real client IP (honoring `trusted_proxies`) to the standalone MCP
+  HTTP transport so rate-limit and auth-failure buckets are no longer collapsed
+  to the reverse-proxy IP, matching the embedded transport.
+- Release unresolved authentication attempt reservations neutrally so cancelled
+  or aborted requests no longer consume the per-IP failure budget; genuine
+  authentication failures are still attributed explicitly.
+
+### Fixed
+
+- Preserve auto-merge conflict sidecars even when their generated name matches a
+  configured `extra_exclude_globs` pattern or contains percent-escaped
+  characters, so the losing edit is no longer silently dropped.
+- Derive the MCP HTTP request body limit from `max_file_size` (plus JSON
+  encoding overhead) and validate the request content type, so `write_file`
+  payloads up to `max_file_size` are no longer rejected before reaching the
+  tool's size check.
+
 ## [1.0.13] - 2026-06-05
 
 ### Security

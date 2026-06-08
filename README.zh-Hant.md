@@ -100,7 +100,7 @@ PKV Sync 1.0 **暫不**提供原生端到端加密——伺服器能讀到筆記
 
 ## 狀態
 
-PKV Sync 1.0.13 是目前穩定 patch 版本。本版包含最新安全與效能實作：註冊和修改密碼使用 setup 同級強密碼策略，過濾路徑不會從讀取/歷史/diff API 洩露，rollback 與 pull 工作量有邊界，backup/restore helper 不跟隨 symlink，blob 引用中繼資料修復更快。
+PKV Sync 1.0.14 是目前穩定 patch 版本。本版包含最新修復：反向代理後的獨立 MCP HTTP transport 會以真實用戶端 IP 正確限流，被取消的認證嘗試不再佔用每 IP 失敗配額，auto-merge 衝突 sidecar 即使命中排除規則也會保留，MCP 寫入允許達到設定的最大檔案大小。
 
 PKV Sync 1.0 是第一個穩定版。公開 REST API、CLI、儲存布局、外掛包、Docker 映像作為一組同步發版，遵循 semver：1.X.Y 在公開表面保持向後相容，OpenAPI 規範是這個相容契約的權威來源。0.x 建立的 SQLite 資料庫**不支援**就地升級到 1.0.0——請依[1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md)操作。
 

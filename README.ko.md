@@ -148,7 +148,7 @@ E2EE 가 도입되기 전에 필요하다면, 볼트에
 
 ## 상태
 
-PKV Sync 1.0.13은 현재 stable patch release입니다. 이 버전에는 최신 security/performance 구현이 포함됩니다. registration과 password change는 setup과 같은 strong password policy를 사용하고, filtered paths는 read/history/diff API에서 숨겨지며, rollback과 pull 작업량은 bounded이고, backup/restore helpers는 symlink를 따라가지 않으며, blob-reference metadata repair도 더 빨라졌습니다.
+PKV Sync 1.0.14는 현재 안정 패치 릴리스입니다. 이 버전에서는 reverse proxy 뒤의 standalone MCP HTTP transport가 실제 클라이언트 IP를 기준으로 올바르게 rate-limit을 적용하고, 취소된 인증 시도는 IP별 실패 한도를 소비하지 않으며, auto-merge 충돌 sidecar는 exclude 규칙과 일치해도 보존되고, MCP 쓰기는 설정된 최대 파일 크기까지 허용됩니다.
 
 PKV Sync 1.0 은 첫 안정 릴리스입니다. 공개 REST API, CLI 표면, 저장소
 레이아웃, 플러그인 패키지, Docker 이미지는 같은 semver 로 관리됩니다.

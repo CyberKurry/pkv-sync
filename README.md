@@ -151,7 +151,7 @@ For real deployments, also run behind HTTPS, restrict
 
 ## Status
 
-PKV Sync 1.0.13 is the current stable patch release. It includes setup-grade passwords for registration and password changes, hidden filtered paths across read/history/diff APIs, bounded rollback and pull work, symlink-safe backup/restore helpers, and faster blob-reference metadata repair.
+PKV Sync 1.0.14 is the current stable patch release. It includes correct per-client rate limiting for the standalone MCP HTTP transport behind a reverse proxy, cancelled authentication attempts that no longer consume the per-IP failure budget, auto-merge conflict sidecars that are preserved even when they match your exclude rules, and MCP writes allowed up to the configured maximum file size.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together
