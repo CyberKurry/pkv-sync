@@ -1,6 +1,7 @@
 use crate::api::error::ApiError;
 use crate::auth::AuthenticatedUser;
 use crate::db::repos::{BlobRefRepo, NewActivity, SyncActivityRepo, Vault, VaultRepo};
+use crate::service::exclude::SyncPathFilter;
 use crate::service::sync::{self, PushChange, PushReq, RequestMetadata};
 use crate::service::vault::ensure_user_vault;
 use crate::service::AppState;
@@ -25,6 +26,7 @@ const LINK_GRAPH_MAX_NODES: usize = 5000;
 const LINK_GRAPH_MAX_TOTAL_BYTES: usize = 64 * 1024;
 #[cfg(not(test))]
 const LINK_GRAPH_MAX_TOTAL_BYTES: usize = 256 * 1024 * 1024;
+const CHANGES_SINCE_MAX_ENTRIES: usize = 5000;
 #[cfg(test)]
 const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64;
 #[cfg(not(test))]
@@ -138,6 +140,22 @@ pub struct BrokenLink {
 pub enum BrokenReason {
     Missing,
     Ambiguous,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChangesSinceInput {
+    pub vault_id: String,
+    pub since_commit: String,
+    pub path_prefix: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChangesSinceOutput {
+    pub from_commit: String,
+    pub to_commit: String,
+    pub changes: Vec<crate::storage::git::ChangedEntry>,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -452,6 +470,73 @@ pub async fn link_graph(
     })
 }
 
+pub async fn changes_since(
+    state: &AppState,
+    user_id: &str,
+    input: ChangesSinceInput,
+) -> Result<ChangesSinceOutput> {
+    ensure_owned_vault(state, user_id, &input.vault_id).await?;
+    let filter = sync::vault_path_filter(state, &input.vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    let prefix = match input.path_prefix {
+        Some(prefix) if prefix.is_empty() => String::new(),
+        Some(prefix) => normalize_mcp_path(prefix)?,
+        None => String::new(),
+    };
+    let git = state.git_store();
+    let head = git
+        .head(&input.vault_id)
+        .await?
+        .ok_or_else(|| anyhow!("invalid_commit: vault has no commits"))?;
+    match git
+        .is_ancestor(&input.vault_id, &input.since_commit, &head)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => bail!("unrelated_commit: since_commit is not an ancestor of head"),
+        Err(_) => bail!("invalid_commit: unknown since_commit"),
+    }
+
+    let limit = input
+        .limit
+        .unwrap_or(CHANGES_SINCE_MAX_ENTRIES)
+        .min(CHANGES_SINCE_MAX_ENTRIES);
+    let visible = git
+        .list_changes_between(&input.vault_id, &input.since_commit, &head)
+        .await?
+        .into_iter()
+        .filter(|change| {
+            change.path.starts_with(&prefix)
+                && mcp_path_visible(&filter, &change.path)
+                && change
+                    .old_path
+                    .as_ref()
+                    .is_none_or(|old_path| mcp_path_visible(&filter, old_path))
+        });
+
+    let mut changes = Vec::new();
+    let mut truncated = false;
+    for change in visible {
+        if changes.len() >= limit {
+            truncated = true;
+            break;
+        }
+        changes.push(change);
+    }
+
+    Ok(ChangesSinceOutput {
+        from_commit: input.since_commit,
+        to_commit: head,
+        changes,
+        truncated,
+    })
+}
+
+fn mcp_path_visible(filter: &SyncPathFilter, path: &str) -> bool {
+    !crate::service::exclude::is_hidden_path(path) && filter.path_accepts(path)
+}
+
 fn contains_ascii_case_insensitive(haystack: &str, lowercase_needle: &str) -> bool {
     let needle = lowercase_needle.as_bytes();
     if needle.is_empty() {
@@ -763,6 +848,21 @@ pub fn tool_definitions() -> Vec<Tool> {
                     "at": { "type": ["string", "null"] },
                     "path_prefix": { "type": ["string", "null"] },
                     "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": LINK_GRAPH_MAX_NODES }
+                },
+                "additionalProperties": false
+            })),
+        ),
+        tool(
+            "changes_since",
+            "List files in a vault that were added, modified, deleted, or renamed since a given commit. Hidden paths are excluded.",
+            object(serde_json::json!({
+                "type": "object",
+                "required": ["vault_id", "since_commit"],
+                "properties": {
+                    "vault_id": { "type": "string" },
+                    "since_commit": { "type": "string" },
+                    "path_prefix": { "type": ["string", "null"] },
+                    "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": CHANGES_SINCE_MAX_ENTRIES }
                 },
                 "additionalProperties": false
             })),
@@ -1620,6 +1720,319 @@ mod tests {
         assert_eq!(out.nodes.len(), 1);
         assert_eq!(out.nodes[0].path, "b.md");
         assert!(out.truncated);
+    }
+
+    #[tokio::test]
+    async fn changes_since_reports_changes_and_hides_filtered_paths() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let base = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "notes/a.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"old".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "notes/delete.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"delete".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "old-name.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"same".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "secret.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"secret".to_vec(),
+                        },
+                    },
+                ],
+                "base",
+            )
+            .await
+            .unwrap();
+        let head = git
+            .commit_changes(
+                &vault_id,
+                Some(&base),
+                &[
+                    FileChange::Upsert {
+                        path: "notes/a.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"new".to_vec(),
+                        },
+                    },
+                    FileChange::Delete {
+                        path: "notes/delete.md".into(),
+                    },
+                    FileChange::Upsert {
+                        path: "notes/c.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"added".to_vec(),
+                        },
+                    },
+                    FileChange::Delete {
+                        path: "old-name.md".into(),
+                    },
+                    FileChange::Upsert {
+                        path: "notes/new-name.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"same".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "secret.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"new secret".to_vec(),
+                        },
+                    },
+                ],
+                "head",
+            )
+            .await
+            .unwrap();
+        set_user_excludes(&state, vec!["secret.md".into()]).await;
+
+        let out = changes_since(
+            &state,
+            &user_id,
+            ChangesSinceInput {
+                vault_id,
+                since_commit: base.clone(),
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(out.from_commit, base);
+        assert_eq!(out.to_commit, head);
+        assert!(out.changes.contains(&crate::storage::git::ChangedEntry {
+            path: "notes/a.md".into(),
+            status: crate::storage::git::ChangeStatus::Modified,
+            old_path: None,
+        }));
+        assert!(out.changes.contains(&crate::storage::git::ChangedEntry {
+            path: "notes/delete.md".into(),
+            status: crate::storage::git::ChangeStatus::Deleted,
+            old_path: None,
+        }));
+        assert!(out.changes.contains(&crate::storage::git::ChangedEntry {
+            path: "notes/c.md".into(),
+            status: crate::storage::git::ChangeStatus::Added,
+            old_path: None,
+        }));
+        assert!(out.changes.contains(&crate::storage::git::ChangedEntry {
+            path: "notes/new-name.md".into(),
+            status: crate::storage::git::ChangeStatus::Renamed,
+            old_path: Some("old-name.md".into()),
+        }));
+        assert!(!out.changes.iter().any(|change| change.path == "secret.md"));
+        assert!(!out.truncated);
+    }
+
+    #[tokio::test]
+    async fn changes_since_hides_renames_from_filtered_old_paths() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let base = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[FileChange::Upsert {
+                    path: "secret.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"same".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+        git.commit_changes(
+            &vault_id,
+            Some(&base),
+            &[
+                FileChange::Delete {
+                    path: "secret.md".into(),
+                },
+                FileChange::Upsert {
+                    path: "public.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"same".to_vec(),
+                    },
+                },
+            ],
+            "rename secret",
+        )
+        .await
+        .unwrap();
+        set_user_excludes(&state, vec!["secret.md".into()]).await;
+
+        let out = changes_since(
+            &state,
+            &user_id,
+            ChangesSinceInput {
+                vault_id,
+                since_commit: base,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            out.changes.is_empty(),
+            "renames from filtered old paths must be hidden: {:?}",
+            out.changes
+        );
+    }
+
+    #[tokio::test]
+    async fn changes_since_applies_path_prefix_and_limit() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let base = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[FileChange::Upsert {
+                    path: "seed.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"seed".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+        let head = git
+            .commit_changes(
+                &vault_id,
+                Some(&base),
+                &[
+                    FileChange::Upsert {
+                        path: "notes/a.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"a".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "notes/b.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"b".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "other/c.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"c".to_vec(),
+                        },
+                    },
+                ],
+                "head",
+            )
+            .await
+            .unwrap();
+
+        let out = changes_since(
+            &state,
+            &user_id,
+            ChangesSinceInput {
+                vault_id,
+                since_commit: base.clone(),
+                path_prefix: Some("notes/".into()),
+                limit: Some(1),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(out.from_commit, base);
+        assert_eq!(out.to_commit, head);
+        assert_eq!(out.changes.len(), 1);
+        assert!(out.changes[0].path.starts_with("notes/"));
+        assert!(out.truncated);
+    }
+
+    #[tokio::test]
+    async fn changes_since_rejects_unrelated_commit() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let base = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[FileChange::Upsert {
+                    path: "base.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"base".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+        let head = git
+            .commit_changes(
+                &vault_id,
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "head.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"head".to_vec(),
+                    },
+                }],
+                "head",
+            )
+            .await
+            .unwrap();
+        git.set_main_ref(&vault_id, &base, "rewind for sibling")
+            .await
+            .unwrap();
+        let unrelated = git
+            .commit_changes(
+                &vault_id,
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "sibling.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"sibling".to_vec(),
+                    },
+                }],
+                "sibling",
+            )
+            .await
+            .unwrap();
+        git.set_main_ref(&vault_id, &head, "restore head")
+            .await
+            .unwrap();
+
+        let err = changes_since(
+            &state,
+            &user_id,
+            ChangesSinceInput {
+                vault_id,
+                since_commit: unrelated,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("unrelated_commit"));
     }
 
     #[test]
