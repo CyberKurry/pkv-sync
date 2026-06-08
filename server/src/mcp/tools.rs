@@ -349,6 +349,7 @@ pub async fn link_graph(
         .await
         .map_err(api_error_to_anyhow)?;
     let git = state.git_store();
+    let classifier = TextClassifier::default();
     let prefix = input.path_prefix.as_deref().unwrap_or("");
     let mut visible = git
         .list_tree(&input.vault_id, input.at.as_deref())
@@ -356,6 +357,7 @@ pub async fn link_graph(
         .into_iter()
         .filter(|entry| {
             !entry.is_blob_pointer
+                && classifier.is_text_path(&entry.path)
                 && entry.path.starts_with(prefix)
                 && filter.path_accepts(&entry.path)
         })
@@ -1232,6 +1234,38 @@ mod tests {
             broken.from == "index.md"
                 && broken.raw_link == "dup"
                 && broken.reason == BrokenReason::Ambiguous
+        }));
+    }
+
+    #[tokio::test]
+    async fn link_graph_ignores_non_text_paths() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[("index.md", "[[data]]"), ("data.bin", "[[index]]")],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(out.nodes.iter().any(|node| node.path == "index.md"));
+        assert!(!out.nodes.iter().any(|node| node.path == "data.bin"));
+        assert!(out.broken.iter().any(|broken| {
+            broken.from == "index.md"
+                && broken.raw_link == "data"
+                && broken.reason == BrokenReason::Missing
         }));
     }
 
