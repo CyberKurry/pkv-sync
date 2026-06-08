@@ -371,8 +371,12 @@ pub async fn link_graph(
         .min(LINK_GRAPH_MAX_NODES);
     let mut graph_files = Vec::new();
     let mut scanned_bytes = 0usize;
-    let mut truncated = visible.len() > limit;
-    for entry in visible.iter().take(limit) {
+    let mut truncated = false;
+    for entry in &visible {
+        if graph_files.len() >= limit {
+            truncated = true;
+            break;
+        }
         let Some(text) =
             read_text_bytes(&git, &input.vault_id, &entry.path, input.at.as_deref()).await?
         else {
@@ -406,15 +410,21 @@ pub async fn link_graph(
 
     for (path, text) in graph_files {
         let mut outlinks = Vec::new();
-        for raw in extract_links(&text) {
-            match resolve_target(&raw, &paths_by_path, &by_basename) {
+        for link in extract_link_targets(&text) {
+            match resolve_target(
+                &link.raw_link,
+                link.kind,
+                &path,
+                &paths_by_path,
+                &by_basename,
+            ) {
                 Ok(target) => {
                     *inlinks.entry(target.clone()).or_default() += 1;
                     outlinks.push(target);
                 }
                 Err(reason) => broken.push(BrokenLink {
                     from: path.clone(),
-                    raw_link: raw,
+                    raw_link: link.raw_link,
                     reason,
                 }),
             }
@@ -458,7 +468,27 @@ fn contains_ascii_case_insensitive(haystack: &str, lowercase_needle: &str) -> bo
 /// Extract link targets from markdown text: Obsidian wikilinks `[[T]]`,
 /// `[[T#h]]`, `[[T|alias]]`, embeds `![[T]]`, and relative markdown links
 /// `[text](path.md)`. External `http(s)://` and absolute links are ignored.
+#[cfg(test)]
 fn extract_links(text: &str) -> Vec<String> {
+    extract_link_targets(text)
+        .into_iter()
+        .map(|link| link.raw_link)
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinkKind {
+    Wikilink,
+    Markdown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExtractedLink {
+    raw_link: String,
+    kind: LinkKind,
+}
+
+fn extract_link_targets(text: &str) -> Vec<ExtractedLink> {
     let mut out = Vec::new();
     let bytes = text.as_bytes();
     let mut i = 0;
@@ -468,7 +498,10 @@ fn extract_links(text: &str) -> Vec<String> {
                 let inner = &text[i + 2..i + 2 + end];
                 let target = inner.split(['#', '|']).next().unwrap_or("").trim();
                 if !target.is_empty() {
-                    out.push(target.to_string());
+                    out.push(ExtractedLink {
+                        raw_link: target.to_string(),
+                        kind: LinkKind::Wikilink,
+                    });
                 }
                 i = i + 2 + end + 2;
                 continue;
@@ -478,7 +511,10 @@ fn extract_links(text: &str) -> Vec<String> {
             if let Some(end) = text[i + 2..].find(')') {
                 let dest = text[i + 2..i + 2 + end].trim();
                 if markdown_link_dest_is_relative(dest) {
-                    out.push(dest.to_string());
+                    out.push(ExtractedLink {
+                        raw_link: dest.to_string(),
+                        kind: LinkKind::Markdown,
+                    });
                 }
                 i = i + 2 + end + 1;
                 continue;
@@ -504,9 +540,19 @@ fn markdown_link_dest_is_relative(dest: &str) -> bool {
 
 fn resolve_target(
     raw: &str,
+    kind: LinkKind,
+    from_path: &str,
     paths_by_path: &HashSet<String>,
     by_basename: &HashMap<String, Vec<String>>,
 ) -> std::result::Result<String, BrokenReason> {
+    if kind == LinkKind::Markdown {
+        match resolve_markdown_relative_target(raw, from_path, paths_by_path) {
+            Ok(Some(target)) => return Ok(target),
+            Ok(None) => {}
+            Err(()) => return Err(BrokenReason::Missing),
+        }
+    }
+
     let candidate = if raw.ends_with(".md") {
         raw.to_string()
     } else {
@@ -527,6 +573,51 @@ fn resolve_target(
         Some([_, ..]) => Err(BrokenReason::Ambiguous),
         _ => Err(BrokenReason::Missing),
     }
+}
+
+fn resolve_markdown_relative_target(
+    raw: &str,
+    from_path: &str,
+    paths_by_path: &HashSet<String>,
+) -> std::result::Result<Option<String>, ()> {
+    let normalized = normalize_markdown_relative_path(raw, from_path)?;
+    let candidate = if normalized.ends_with(".md") {
+        normalized.clone()
+    } else {
+        format!("{normalized}.md")
+    };
+    if paths_by_path.contains(&normalized) {
+        return Ok(Some(normalized));
+    }
+    if paths_by_path.contains(&candidate) {
+        return Ok(Some(candidate));
+    }
+    Ok(None)
+}
+
+fn normalize_markdown_relative_path(raw: &str, from_path: &str) -> std::result::Result<String, ()> {
+    let mut parts = from_path
+        .rsplit_once('/')
+        .map(|(dir, _)| {
+            dir.split('/')
+                .filter(|part| !part.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let raw = raw.replace('\\', "/");
+    for part in raw.split('/') {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            parts.pop().ok_or(())?;
+        } else {
+            parts.push(part.to_string());
+        }
+    }
+    let joined = parts.join("/");
+    path::normalize(&joined).map_err(|_| ())
 }
 
 async fn read_text_bytes(
@@ -1384,6 +1475,151 @@ mod tests {
                 && broken.raw_link == "bad"
                 && broken.reason == BrokenReason::Missing
         }));
+    }
+
+    #[tokio::test]
+    async fn link_graph_resolves_markdown_links_relative_to_source_directory() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                ("docs/index.md", "[child](child/page.md)"),
+                ("docs/child/page.md", "expected"),
+                ("child/page.md", "wrong root target"),
+            ],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let index = out
+            .nodes
+            .iter()
+            .find(|node| node.path == "docs/index.md")
+            .unwrap();
+        assert!(index.outlinks.contains(&"docs/child/page.md".to_string()));
+        assert!(!index.outlinks.contains(&"child/page.md".to_string()));
+    }
+
+    #[tokio::test]
+    async fn link_graph_resolves_parent_markdown_links_relative_to_source_directory() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                ("docs/sub/index.md", "[parent](../target.md)"),
+                ("docs/target.md", "expected"),
+                ("other/target.md", "ambiguous fallback target"),
+            ],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let index = out
+            .nodes
+            .iter()
+            .find(|node| node.path == "docs/sub/index.md")
+            .unwrap();
+        assert!(index.outlinks.contains(&"docs/target.md".to_string()));
+        assert!(!out.broken.iter().any(|broken| {
+            broken.from == "docs/sub/index.md" && broken.raw_link == "../target.md"
+        }));
+    }
+
+    #[tokio::test]
+    async fn link_graph_does_not_fallback_parent_markdown_links_that_escape_vault_root() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                ("docs/sub/index.md", "[escape](../../../target.md)"),
+                ("target.md", "must not be resolved by basename fallback"),
+            ],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let index = out
+            .nodes
+            .iter()
+            .find(|node| node.path == "docs/sub/index.md")
+            .unwrap();
+        assert!(!index.outlinks.contains(&"target.md".to_string()));
+        assert!(out.broken.iter().any(|broken| {
+            broken.from == "docs/sub/index.md"
+                && broken.raw_link == "../../../target.md"
+                && broken.reason == BrokenReason::Missing
+        }));
+    }
+
+    #[tokio::test]
+    async fn link_graph_limit_counts_utf8_graph_nodes() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_raw_files(
+            &state,
+            &vault_id,
+            &[
+                ("a.md", vec![0xff, 0xfe, 0xfd]),
+                ("b.md", b"valid".to_vec()),
+                ("c.md", b"also valid".to_vec()),
+            ],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: Some(1),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(out.nodes.len(), 1);
+        assert_eq!(out.nodes[0].path, "b.md");
+        assert!(out.truncated);
     }
 
     #[test]
