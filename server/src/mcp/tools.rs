@@ -12,12 +12,19 @@ use anyhow::{anyhow, bail, Result};
 use base64::Engine;
 use rmcp::model::{object, Tool, ToolAnnotations};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 const SEARCH_MAX_TREE_FILES: usize = 5000;
 #[cfg(test)]
 const SEARCH_MAX_TOTAL_BYTES: usize = 64 * 1024;
 #[cfg(not(test))]
 const SEARCH_MAX_TOTAL_BYTES: usize = 256 * 1024 * 1024;
+const LINK_GRAPH_MAX_NODES: usize = 5000;
+#[cfg(test)]
+const LINK_GRAPH_MAX_TOTAL_BYTES: usize = 64 * 1024;
+#[cfg(not(test))]
+const LINK_GRAPH_MAX_TOTAL_BYTES: usize = 256 * 1024 * 1024;
 #[cfg(test)]
 const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64;
 #[cfg(not(test))]
@@ -94,6 +101,43 @@ pub struct SearchMatch {
     pub line: String,
     pub line_number: usize,
     pub snippet: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LinkGraphInput {
+    pub vault_id: String,
+    pub at: Option<String>,
+    pub path_prefix: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LinkGraphOutput {
+    pub nodes: Vec<LinkNode>,
+    pub orphans: Vec<String>,
+    pub broken: Vec<BrokenLink>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LinkNode {
+    pub path: String,
+    pub outlinks: Vec<String>,
+    pub inlinks: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BrokenLink {
+    pub from: String,
+    pub raw_link: String,
+    pub reason: BrokenReason,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BrokenReason {
+    Missing,
+    Ambiguous,
 }
 
 #[derive(Debug, Deserialize)]
@@ -295,6 +339,101 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     Ok(SearchOutput { matches })
 }
 
+pub async fn link_graph(
+    state: &AppState,
+    user_id: &str,
+    input: LinkGraphInput,
+) -> Result<LinkGraphOutput> {
+    ensure_owned_vault(state, user_id, &input.vault_id).await?;
+    let filter = sync::vault_path_filter(state, &input.vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    let git = state.git_store();
+    let prefix = input.path_prefix.as_deref().unwrap_or("");
+    let mut visible = git
+        .list_tree(&input.vault_id, input.at.as_deref())
+        .await?
+        .into_iter()
+        .filter(|entry| {
+            !entry.is_blob_pointer
+                && entry.path.starts_with(prefix)
+                && filter.path_accepts(&entry.path)
+        })
+        .collect::<Vec<_>>();
+    visible.sort_by(|left, right| left.path.cmp(&right.path));
+
+    let paths_by_path = visible
+        .iter()
+        .map(|entry| entry.path.clone())
+        .collect::<HashSet<_>>();
+    let mut by_basename: HashMap<String, Vec<String>> = HashMap::new();
+    for entry in &visible {
+        if let Some(stem) = Path::new(&entry.path).file_stem().and_then(|s| s.to_str()) {
+            by_basename
+                .entry(stem.to_string())
+                .or_default()
+                .push(entry.path.clone());
+        }
+    }
+
+    let limit = input
+        .limit
+        .unwrap_or(LINK_GRAPH_MAX_NODES)
+        .min(LINK_GRAPH_MAX_NODES);
+    let mut nodes = Vec::new();
+    let mut inlinks: HashMap<String, usize> = HashMap::new();
+    let mut broken = Vec::new();
+    let mut truncated = visible.len() > limit;
+    let mut scanned_bytes = 0usize;
+
+    for entry in visible.iter().take(limit) {
+        let Some(text) =
+            read_text_bytes(&git, &input.vault_id, &entry.path, input.at.as_deref()).await?
+        else {
+            continue;
+        };
+        scanned_bytes = scanned_bytes.saturating_add(text.len());
+        if scanned_bytes > LINK_GRAPH_MAX_TOTAL_BYTES {
+            truncated = true;
+            break;
+        }
+        let mut outlinks = Vec::new();
+        for raw in extract_links(&text) {
+            match resolve_target(&raw, &paths_by_path, &by_basename) {
+                Ok(target) => {
+                    *inlinks.entry(target.clone()).or_default() += 1;
+                    outlinks.push(target);
+                }
+                Err(reason) => broken.push(BrokenLink {
+                    from: entry.path.clone(),
+                    raw_link: raw,
+                    reason,
+                }),
+            }
+        }
+        nodes.push(LinkNode {
+            path: entry.path.clone(),
+            outlinks,
+            inlinks: 0,
+        });
+    }
+    for node in &mut nodes {
+        node.inlinks = inlinks.get(&node.path).copied().unwrap_or(0);
+    }
+    let orphans = nodes
+        .iter()
+        .filter(|node| node.inlinks == 0)
+        .map(|node| node.path.clone())
+        .collect();
+
+    Ok(LinkGraphOutput {
+        nodes,
+        orphans,
+        broken,
+        truncated,
+    })
+}
+
 fn contains_ascii_case_insensitive(haystack: &str, lowercase_needle: &str) -> bool {
     let needle = lowercase_needle.as_bytes();
     if needle.is_empty() {
@@ -306,6 +445,83 @@ fn contains_ascii_case_insensitive(haystack: &str, lowercase_needle: &str) -> bo
             .zip(needle)
             .all(|(left, right)| left.to_ascii_lowercase() == *right)
     })
+}
+
+/// Extract link targets from markdown text: Obsidian wikilinks `[[T]]`,
+/// `[[T#h]]`, `[[T|alias]]`, embeds `![[T]]`, and relative markdown links
+/// `[text](path.md)`. External `http(s)://` and absolute links are ignored.
+fn extract_links(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'[' && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            if let Some(end) = text[i + 2..].find("]]") {
+                let inner = &text[i + 2..i + 2 + end];
+                let target = inner.split(['#', '|']).next().unwrap_or("").trim();
+                if !target.is_empty() {
+                    out.push(target.to_string());
+                }
+                i = i + 2 + end + 2;
+                continue;
+            }
+        }
+        if bytes[i] == b']' && i + 1 < bytes.len() && bytes[i + 1] == b'(' {
+            if let Some(end) = text[i + 2..].find(')') {
+                let dest = text[i + 2..i + 2 + end].trim();
+                if !dest.is_empty()
+                    && !dest.starts_with("http://")
+                    && !dest.starts_with("https://")
+                    && !dest.starts_with('/')
+                {
+                    out.push(dest.to_string());
+                }
+                i = i + 2 + end + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+fn resolve_target(
+    raw: &str,
+    paths_by_path: &HashSet<String>,
+    by_basename: &HashMap<String, Vec<String>>,
+) -> std::result::Result<String, BrokenReason> {
+    let candidate = if raw.ends_with(".md") {
+        raw.to_string()
+    } else {
+        format!("{raw}.md")
+    };
+    if paths_by_path.contains(raw) {
+        return Ok(raw.to_string());
+    }
+    if paths_by_path.contains(&candidate) {
+        return Ok(candidate);
+    }
+    let base = Path::new(raw)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(raw);
+    match by_basename.get(base).map(Vec::as_slice) {
+        Some([only]) => Ok(only.clone()),
+        Some([_, ..]) => Err(BrokenReason::Ambiguous),
+        _ => Err(BrokenReason::Missing),
+    }
+}
+
+async fn read_text_bytes(
+    git: &Git2VaultStore,
+    vault_id: &str,
+    path: &str,
+    at: Option<&str>,
+) -> Result<Option<String>> {
+    let Some(StoredFile::Text { bytes }) = git.read_file(vault_id, path, at).await? else {
+        return Ok(None);
+    };
+    Ok(String::from_utf8(bytes).ok())
 }
 
 pub async fn write_file(
@@ -424,6 +640,21 @@ pub fn tool_definitions() -> Vec<Tool> {
                     "query": { "type": "string" },
                     "at": { "type": ["string", "null"] },
                     "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": SEARCH_MAX_LIMIT }
+                },
+                "additionalProperties": false
+            })),
+        ),
+        tool(
+            "link_graph",
+            "Return the wikilink/markdown link graph for a vault: per-file outlinks, computed inlinks, orphaned pages, and broken links. Hidden paths are never reported.",
+            object(serde_json::json!({
+                "type": "object",
+                "required": ["vault_id"],
+                "properties": {
+                    "vault_id": { "type": "string" },
+                    "at": { "type": ["string", "null"] },
+                    "path_prefix": { "type": ["string", "null"] },
+                    "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": LINK_GRAPH_MAX_NODES }
                 },
                 "additionalProperties": false
             })),
@@ -741,6 +972,22 @@ mod tests {
         .unwrap()
     }
 
+    async fn seed_text_files(state: &AppState, vault_id: &str, files: &[(&str, &str)]) -> String {
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let changes = files
+            .iter()
+            .map(|(path, content)| FileChange::Upsert {
+                path: (*path).into(),
+                file: StoredFile::Text {
+                    bytes: content.as_bytes().to_vec(),
+                },
+            })
+            .collect::<Vec<_>>();
+        git.commit_changes(vault_id, None, &changes, "seed text files")
+            .await
+            .unwrap()
+    }
+
     async fn set_user_excludes(state: &AppState, excludes: Vec<String>) {
         state
             .runtime_cfg_repo
@@ -879,6 +1126,113 @@ mod tests {
 
         assert_eq!(out.matches.len(), 1);
         assert_eq!(out.matches[0].path, "note.md");
+    }
+
+    #[test]
+    fn parse_links_extracts_wikilinks_and_md() {
+        let raw = "see [[Target]] and [[Other#h|alias]] and ![[Embed]] and [x](sub/p.md) and [ext](https://a.com)";
+        let links = extract_links(raw);
+        assert_eq!(
+            links,
+            vec![
+                "Target".to_string(),
+                "Other".to_string(),
+                "Embed".to_string(),
+                "sub/p.md".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn link_graph_reports_links_orphans_broken_and_hides_filtered_paths() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                ("index.md", "[[a]] [[ghost]] [[secret]]"),
+                ("a.md", "linked"),
+                ("orphan.md", "alone"),
+                ("secret.md", "[[a]]"),
+            ],
+        )
+        .await;
+        set_user_excludes(&state, vec!["secret.md".into()]).await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let node_paths = out
+            .nodes
+            .iter()
+            .map(|node| node.path.as_str())
+            .collect::<Vec<_>>();
+        assert!(node_paths.contains(&"index.md"));
+        assert!(node_paths.contains(&"a.md"));
+        assert!(node_paths.contains(&"orphan.md"));
+        assert!(!node_paths.contains(&"secret.md"));
+
+        let index = out
+            .nodes
+            .iter()
+            .find(|node| node.path == "index.md")
+            .unwrap();
+        assert!(index.outlinks.contains(&"a.md".to_string()));
+        assert!(!index.outlinks.contains(&"secret.md".to_string()));
+
+        let a = out.nodes.iter().find(|node| node.path == "a.md").unwrap();
+        assert_eq!(a.inlinks, 1);
+        assert!(out.orphans.contains(&"orphan.md".to_string()));
+        assert!(out.broken.iter().any(|broken| {
+            broken.from == "index.md"
+                && broken.raw_link == "ghost"
+                && broken.reason == BrokenReason::Missing
+        }));
+        assert!(!out.truncated);
+    }
+
+    #[tokio::test]
+    async fn link_graph_reports_ambiguous_basename_links() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                ("index.md", "[[dup]]"),
+                ("left/dup.md", "left"),
+                ("right/dup.md", "right"),
+            ],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(out.broken.iter().any(|broken| {
+            broken.from == "index.md"
+                && broken.raw_link == "dup"
+                && broken.reason == BrokenReason::Ambiguous
+        }));
     }
 
     #[tokio::test]

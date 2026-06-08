@@ -253,6 +253,9 @@ async fn call_tool(
         "search" => serde_json::to_value(
             tools::search(state, &user.user_id, serde_json::from_value(arguments)?).await?,
         )?,
+        "link_graph" => serde_json::to_value(
+            tools::link_graph(state, &user.user_id, serde_json::from_value(arguments)?).await?,
+        )?,
         "write_file" => serde_json::to_value(
             tools::write_file(state, user, serde_json::from_value(arguments)?).await?,
         )?,
