@@ -236,7 +236,12 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     let filter = sync::vault_path_filter(state, &input.vault_id)
         .await
         .map_err(api_error_to_anyhow)?;
-    let entries = git.list_tree(&input.vault_id, input.at.as_deref()).await?;
+    let entries = git
+        .list_tree(&input.vault_id, input.at.as_deref())
+        .await?
+        .into_iter()
+        .filter(|entry| filter.path_accepts(&entry.path))
+        .collect::<Vec<_>>();
     if entries.len() > SEARCH_MAX_TREE_FILES {
         bail!("too many files to search: {}", entries.len());
     }
@@ -253,9 +258,6 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     for entry in entries {
         if matches.len() >= limit {
             break;
-        }
-        if !filter.path_accepts(&entry.path) {
-            continue;
         }
         if entry.is_blob_pointer || !classifier.is_text_path(&entry.path) {
             continue;
@@ -820,6 +822,47 @@ mod tests {
         let (state, user_id, vault_id, _tmp) = state_user_vault().await;
         seed_two_files(&state, &vault_id, "note.md", "secret.md").await;
         set_user_excludes(&state, vec!["secret.md".into()]).await;
+
+        let out = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id,
+                query: "needle".into(),
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(out.matches.len(), 1);
+        assert_eq!(out.matches[0].path, "note.md");
+    }
+
+    #[tokio::test]
+    async fn search_file_cap_counts_only_visible_paths() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let mut changes = Vec::with_capacity(SEARCH_MAX_TREE_FILES + 1);
+        for idx in 0..SEARCH_MAX_TREE_FILES {
+            changes.push(FileChange::Upsert {
+                path: format!("hidden/{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: b"hidden needle".to_vec(),
+                },
+            });
+        }
+        changes.push(FileChange::Upsert {
+            path: "note.md".into(),
+            file: StoredFile::Text {
+                bytes: b"visible needle".to_vec(),
+            },
+        });
+        git.commit_changes(&vault_id, None, &changes, "seed many hidden files")
+            .await
+            .unwrap();
+        set_user_excludes(&state, vec!["hidden/**".into()]).await;
 
         let out = search(
             &state,
