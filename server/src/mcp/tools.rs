@@ -359,35 +359,19 @@ pub async fn link_graph(
             !entry.is_blob_pointer
                 && classifier.is_text_path(&entry.path)
                 && entry.path.starts_with(prefix)
+                && !crate::service::exclude::is_hidden_path(&entry.path)
                 && filter.path_accepts(&entry.path)
         })
         .collect::<Vec<_>>();
     visible.sort_by(|left, right| left.path.cmp(&right.path));
 
-    let paths_by_path = visible
-        .iter()
-        .map(|entry| entry.path.clone())
-        .collect::<HashSet<_>>();
-    let mut by_basename: HashMap<String, Vec<String>> = HashMap::new();
-    for entry in &visible {
-        if let Some(stem) = Path::new(&entry.path).file_stem().and_then(|s| s.to_str()) {
-            by_basename
-                .entry(stem.to_string())
-                .or_default()
-                .push(entry.path.clone());
-        }
-    }
-
     let limit = input
         .limit
         .unwrap_or(LINK_GRAPH_MAX_NODES)
         .min(LINK_GRAPH_MAX_NODES);
-    let mut nodes = Vec::new();
-    let mut inlinks: HashMap<String, usize> = HashMap::new();
-    let mut broken = Vec::new();
-    let mut truncated = visible.len() > limit;
+    let mut graph_files = Vec::new();
     let mut scanned_bytes = 0usize;
-
+    let mut truncated = visible.len() > limit;
     for entry in visible.iter().take(limit) {
         let Some(text) =
             read_text_bytes(&git, &input.vault_id, &entry.path, input.at.as_deref()).await?
@@ -399,6 +383,28 @@ pub async fn link_graph(
             truncated = true;
             break;
         }
+        graph_files.push((entry.path.clone(), text));
+    }
+
+    let paths_by_path = graph_files
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect::<HashSet<_>>();
+    let mut by_basename: HashMap<String, Vec<String>> = HashMap::new();
+    for (path, _) in &graph_files {
+        if let Some(stem) = Path::new(path).file_stem().and_then(|s| s.to_str()) {
+            by_basename
+                .entry(stem.to_string())
+                .or_default()
+                .push(path.clone());
+        }
+    }
+
+    let mut nodes = Vec::new();
+    let mut inlinks: HashMap<String, usize> = HashMap::new();
+    let mut broken = Vec::new();
+
+    for (path, text) in graph_files {
         let mut outlinks = Vec::new();
         for raw in extract_links(&text) {
             match resolve_target(&raw, &paths_by_path, &by_basename) {
@@ -407,14 +413,14 @@ pub async fn link_graph(
                     outlinks.push(target);
                 }
                 Err(reason) => broken.push(BrokenLink {
-                    from: entry.path.clone(),
+                    from: path.clone(),
                     raw_link: raw,
                     reason,
                 }),
             }
         }
         nodes.push(LinkNode {
-            path: entry.path.clone(),
+            path,
             outlinks,
             inlinks: 0,
         });
@@ -471,11 +477,7 @@ fn extract_links(text: &str) -> Vec<String> {
         if bytes[i] == b']' && i + 1 < bytes.len() && bytes[i + 1] == b'(' {
             if let Some(end) = text[i + 2..].find(')') {
                 let dest = text[i + 2..i + 2 + end].trim();
-                if !dest.is_empty()
-                    && !dest.starts_with("http://")
-                    && !dest.starts_with("https://")
-                    && !dest.starts_with('/')
-                {
+                if markdown_link_dest_is_relative(dest) {
                     out.push(dest.to_string());
                 }
                 i = i + 2 + end + 1;
@@ -485,6 +487,19 @@ fn extract_links(text: &str) -> Vec<String> {
         i += 1;
     }
     out
+}
+
+fn markdown_link_dest_is_relative(dest: &str) -> bool {
+    if dest.is_empty() || dest.starts_with('/') || dest.starts_with('\\') {
+        return false;
+    }
+    if let Some(colon) = dest.find(':') {
+        let before_colon = &dest[..colon];
+        if !before_colon.is_empty() && before_colon.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+            return false;
+        }
+    }
+    true
 }
 
 fn resolve_target(
@@ -919,7 +934,7 @@ mod tests {
     use crate::auth::password;
     use crate::db::pool;
     use crate::db::repos::{BlobRefRepo, NewUser, RuntimeConfigRepo, UserRepo};
-    use crate::service::vault;
+    use crate::service::{vault, vault_settings};
     use crate::storage::blob::{BlobStore, LocalFsBlobStore};
     use crate::storage::git::{FileChange, GitVaultStore};
     use bytes::Bytes;
@@ -988,6 +1003,34 @@ mod tests {
         git.commit_changes(vault_id, None, &changes, "seed text files")
             .await
             .unwrap()
+    }
+
+    async fn seed_raw_files(state: &AppState, vault_id: &str, files: &[(&str, Vec<u8>)]) -> String {
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let changes = files
+            .iter()
+            .map(|(path, bytes)| FileChange::Upsert {
+                path: (*path).into(),
+                file: StoredFile::Text {
+                    bytes: bytes.clone(),
+                },
+            })
+            .collect::<Vec<_>>();
+        git.commit_changes(vault_id, None, &changes, "seed raw files")
+            .await
+            .unwrap()
+    }
+
+    async fn set_vault_allowlist(state: &AppState, vault_id: &str, globs: Vec<String>) {
+        vault_settings::save(
+            state,
+            vault_id,
+            &vault_settings::VaultSettings {
+                extra_sync_globs: globs,
+            },
+        )
+        .await
+        .unwrap();
     }
 
     async fn set_user_excludes(state: &AppState, excludes: Vec<String>) {
@@ -1238,6 +1281,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn link_graph_never_reports_hidden_paths_even_when_allowlisted() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                ("index.md", "[[graph]]"),
+                (".obsidian/graph.md", "[[index]]"),
+            ],
+        )
+        .await;
+        set_vault_allowlist(&state, &vault_id, vec![".obsidian/**".into()]).await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(out.nodes.iter().any(|node| node.path == "index.md"));
+        assert!(!out
+            .nodes
+            .iter()
+            .any(|node| node.path == ".obsidian/graph.md"));
+        assert!(out.broken.iter().any(|broken| {
+            broken.from == "index.md"
+                && broken.raw_link == "graph"
+                && broken.reason == BrokenReason::Missing
+        }));
+    }
+
+    #[tokio::test]
     async fn link_graph_ignores_non_text_paths() {
         let (state, user_id, vault_id, _tmp) = state_user_vault().await;
         seed_text_files(
@@ -1267,6 +1349,48 @@ mod tests {
                 && broken.raw_link == "data"
                 && broken.reason == BrokenReason::Missing
         }));
+    }
+
+    #[tokio::test]
+    async fn link_graph_ignores_non_utf8_text_targets() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_raw_files(
+            &state,
+            &vault_id,
+            &[
+                ("index.md", b"[[bad]]".to_vec()),
+                ("bad.md", vec![0xff, 0xfe, 0xfd]),
+            ],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(out.nodes.iter().any(|node| node.path == "index.md"));
+        assert!(!out.nodes.iter().any(|node| node.path == "bad.md"));
+        assert!(out.broken.iter().any(|broken| {
+            broken.from == "index.md"
+                && broken.raw_link == "bad"
+                && broken.reason == BrokenReason::Missing
+        }));
+    }
+
+    #[test]
+    fn parse_links_ignores_external_and_absolute_markdown_links() {
+        let raw = "[a](HTTPS://example.com) [b](file:///tmp/x.md) [c](C:/vault/x.md) [d](\\\\server\\share\\x.md) [e](../relative.md)";
+
+        assert_eq!(extract_links(raw), vec!["../relative.md".to_string()]);
     }
 
     #[tokio::test]
