@@ -2,23 +2,27 @@
 
 [English](./mcp-howto.md) | 简体中文 | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
-文档版本：v1.0.14。
+文档版本：v1.1.0。
 
-PKV Sync 可以通过 MCP server 暴露笔记库内容。服务端返回文件内容前会解析 blob pointer，也可以通过显式读写工具写入文件，并且必须使用普通 PKV Sync bearer 设备 token。
+PKV Sync 可以通过 MCP server 暴露笔记库内容。服务端在返回文件内容前会解析 blob pointer，可以通过显式读写工具写入文件，并且要求使用普通的 PKV Sync bearer 设备 token。
 
 ## 工具
 
-- `list_vaults`：列出当前用户可访问的笔记库。
-- `list_files {vault_id, at?}`：列出 HEAD 或在指定 `at` commit SHA 下的路径。
+- `list_vaults`：列出已认证用户可访问的笔记库。
+- `list_files {vault_id, at?}`：列出 HEAD 的路径；设置 `at` 时，列出该 commit SHA 下的路径。
 - `read_file {vault_id, path}`：读取 HEAD 下的文件。
 - `read_file_at_commit {vault_id, path, commit}`：读取指定 commit 下的文件。
-- `search {vault_id, query, at?, limit?}`：在文本文件中执行大小写不敏感的子串搜索。`at` 将搜索范围限定到某个历史 commit；`limit` 限制返回匹配数量。
+- `search {vault_id, query, at?, limit?}`：在文本文件中执行大小写不敏感的子串搜索。`at` 将范围限定到某个历史 commit；`limit` 限制返回的匹配数量。
+- `link_graph {vault_id, at?, path_prefix?, limit?}`：返回笔记库的 wikilink 和 Markdown 链接图。响应包含每个文件节点的 `outlinks` 和计算出的 `inlinks`、孤立页面、带有 `missing` 或 `ambiguous` 原因的断链，以及 `truncated` 标志。
+- `changes_since {vault_id, since_commit, path_prefix?, limit?}`：列出自 `since_commit` 以来新增、修改、删除或重命名的文件。响应包含 `from_commit`、当前 `to_commit`、`changes` 和 `truncated`；如果 `since_commit` 不是 HEAD 的祖先，工具会返回 `unrelated_commit`，以便客户端重新读取笔记库。
 - `write_file {vault_id, path, content, parent_commit}`：以 `parent_commit` 进行乐观并发控制，创建或更新文本文件。
 - `delete_file {vault_id, path, parent_commit}`：以 `parent_commit` 进行乐观并发控制，删除文件。
 
+所有 MCP 读取工具都会遵守当前的 SyncPathFilter。被内置隐藏路径规则或运行时 exclude glob 拒绝的路径，不会被列出、搜索、读取、纳入链接图，也不会作为变更报告。
+
 ## stdio transport
 
-本地 AI 工具需要启动命令时，使用 stdio。stdio 模式只暴露一个笔记库。
+本地 AI 工具需要启动命令时，使用 stdio。stdio 模式限定到一个笔记库。
 
 ```bash
 PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
@@ -32,16 +36,16 @@ pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 
 ## Streamable HTTP transport
 
-当客户端连接一个已经运行的本地或内网 MCP 端点时，使用 HTTP。PKV Sync 提供两种 HTTP 部署模式：
+当客户端连接到一个已经运行的本地或内网 MCP 端点时，使用 HTTP。PKV Sync 提供两种 HTTP 部署模式：
 
-- **内嵌模式**：在 `config.toml` 中设置 `[mcp].embed_in_serve = true`，`pkvsyncd serve` 会在主服务端口挂载 `/mcp`。
-- **独立模式**：运行单独的 MCP 进程，适合专用监听地址、隔离 MCP 或独立扩缩容：
+- **嵌入模式**：在 `config.toml` 中设置 `[mcp].embed_in_serve = true`，然后 `pkvsyncd serve` 会在主服务端口挂载 `/mcp`。
+- **独立模式**：运行单独的 MCP 进程，适合专用监听地址、隔离 MCP，或独立扩缩容：
 
 ```bash
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
 ```
 
-端点路径始终是 `/mcp`；内嵌模式使用主服务 origin，独立模式使用单独的监听地址：
+端点路径始终是 `/mcp`；嵌入模式使用主服务 origin，独立模式使用单独的监听地址：
 
 ```text
 POST http://127.0.0.1:6711/mcp
@@ -55,17 +59,18 @@ X-PKVSync-Deployment-Key: k_xxx
 Authorization: Bearer pks_xxx
 ```
 
-部署密钥来自与主 PKV Sync 服务相同的配置文件。缺少或错误的部署密钥会在 bearer token 认证前直接返回 HTTP `404`。
+部署密钥来自与主 PKV Sync 服务相同的配置文件。缺少或错误的部署密钥会在 bearer token 认证前收到 HTTP `404`。
 
-HTTP transport 使用固定窗口限流，每 60 秒最多 120 次请求。超限时返回 HTTP `429`，JSON-RPC error code 为 `-32029`。失败的 MCP bearer token 认证也会在进程内限流，stdio 和 HTTP transport 合计每 60 秒最多 30 次失败尝试。
+MCP HTTP 使用固定窗口限流，每 60 秒最多 120 次请求。超限时，服务端返回 HTTP `429`，并返回 code 为 `-32029` 的 JSON-RPC error。
+失败的 MCP bearer-token 认证也会在进程内限流，stdio 和 HTTP transport 合计每 60 秒最多 30 次失败尝试。
 
 POST 承载 JSON-RPC 工具调用并返回 JSON 响应。GET 携带 `Accept: text/event-stream` 时订阅 `vault_changed` notification。事件 id 使用 `<vault-id>:<commit-sha>`，客户端重连时可作为 `Last-Event-ID` 传回，以 replay 断线期间错过的 commit。Replay 有上限；如果服务端无法覆盖错过的历史，会发送 `lagged`，客户端应通过同步 API 刷新。
 
-除非放在可信网络控制之后，否则请把 HTTP 绑定到 loopback。bearer token 会授予该用户所有笔记库的读写访问权限。
+除非放在可信网络控制之后，否则请将 HTTP 绑定到 loopback。bearer token 会授予该用户所有笔记库的读写访问权限。
 
 ## 读取和搜索上限
 
-`search` 最多扫描 5000 个 tree 文件，最多返回 500 条匹配，并在生产环境搜索文本累计达到 256 MiB 后停止。`read_file` 和 `read_file_at_commit` 会在返回前解析 blob pointer；超过 64 MiB 的二进制/blob 响应会被拒绝，而不是被 base64 展开进 JSON。
+`search` 最多扫描 5000 个可见 tree 文件，最多返回 500 条匹配，并在生产环境搜索文本累计达到 256 MiB 后停止。`link_graph` 最多扫描 5000 个可见文本文件，并使用相同的生产环境文本预算。`changes_since` 最多返回 5000 条可见变更项。`read_file` 和 `read_file_at_commit` 会在返回前解析 blob pointer；超过 64 MiB 的二进制/blob 响应会被拒绝，而不是被 base64 展开进 JSON。
 
 ## 写入工具
 

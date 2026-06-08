@@ -2,7 +2,7 @@
 
 [English](./mcp-howto.md) | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | 한국어
 
-문서 버전: v1.0.14.
+문서 버전: v1.1.0.
 
 이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
 
@@ -15,8 +15,12 @@ PKV Sync는 MCP server를 통해 vault 내용을 노출할 수 있습니다. 서
 - `read_file {vault_id, path}`: HEAD의 파일을 읽습니다.
 - `read_file_at_commit {vault_id, path, commit}`: 특정 commit의 파일을 읽습니다.
 - `search {vault_id, query, at?, limit?}`: 텍스트 파일에서 대소문자를 구분하지 않는 substring search를 수행합니다. `at`은 과거 commit으로 범위를 한정하고, `limit`은 반환되는 일치 수의 상한을 지정합니다.
+- `link_graph {vault_id, at?, path_prefix?, limit?}`: vault의 wikilink 및 Markdown link graph를 반환합니다. 응답에는 파일별 node와 `outlinks`, 계산된 `inlinks`, orphaned pages, `missing` 또는 `ambiguous` reason이 있는 broken links, 그리고 `truncated` flag가 포함됩니다.
+- `changes_since {vault_id, since_commit, path_prefix?, limit?}`: `since_commit` 이후 추가, 수정, 삭제, rename된 파일을 나열합니다. 응답에는 `from_commit`, 현재 `to_commit`, `changes`, `truncated`가 포함됩니다. `since_commit`이 HEAD의 ancestor가 아니면 클라이언트가 vault를 다시 읽을 수 있도록 `unrelated_commit`을 반환합니다.
 - `write_file {vault_id, path, content, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 텍스트 파일을 만들거나 업데이트합니다.
 - `delete_file {vault_id, path, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 파일을 삭제합니다.
+
+모든 MCP read tools는 현재 SyncPathFilter를 준수합니다. 기본 hidden-path rules 또는 runtime exclude globs에 의해 거부된 paths는 나열, 검색, 읽기, link graph 포함, 변경 사항 보고 대상에서 제외됩니다.
 
 ## stdio transport
 
@@ -67,7 +71,7 @@ POST는 JSON-RPC tool calls를 담고 JSON responses를 반환합니다. `Accept
 
 ## Read and search limits
 
-`search`는 최대 5000개 tree files를 스캔하고 최대 500 matches를 반환하며, 프로덕션에서는 검색한 text가 256 MiB에 도달하면 중단합니다. `read_file`과 `read_file_at_commit`은 응답 전에 blob pointer를 해석합니다. 64 MiB를 넘는 binary/blob response는 base64로 JSON에 확장되는 대신 거부됩니다.
+`search`는 최대 5000개 visible tree files를 스캔하고 최대 500 matches를 반환하며, 프로덕션에서는 검색한 text가 256 MiB에 도달하면 중단합니다. `link_graph`는 최대 5000개 visible text files를 스캔하고 동일한 프로덕션 text budget을 사용합니다. `changes_since`는 최대 5000개 visible change entries를 반환합니다. `read_file`과 `read_file_at_commit`은 응답 전에 blob pointer를 해석합니다. 64 MiB를 넘는 binary/blob response는 base64로 JSON에 확장되는 대신 거부됩니다.
 
 ## Write tools
 

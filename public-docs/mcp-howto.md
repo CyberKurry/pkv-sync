@@ -2,7 +2,7 @@
 
 English | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
-Document version: v1.0.14.
+Document version: v1.1.0.
 
 PKV Sync can expose vault contents through an MCP server. The server resolves
 blob pointers before returning file content, can write through explicit
@@ -15,8 +15,12 @@ read-write tools, and requires a normal PKV Sync bearer device token.
 - `read_file {vault_id, path}`: read a file at HEAD.
 - `read_file_at_commit {vault_id, path, commit}`: read a file at a specific commit.
 - `search {vault_id, query, at?, limit?}`: case-insensitive substring search over text files. `at` scopes to a historical commit; `limit` caps the number of returned matches.
+- `link_graph {vault_id, at?, path_prefix?, limit?}`: return the vault's wikilink and Markdown link graph. The response includes per-file nodes with `outlinks` and computed `inlinks`, orphaned pages, broken links with `missing` or `ambiguous` reasons, and a `truncated` flag.
+- `changes_since {vault_id, since_commit, path_prefix?, limit?}`: list files added, modified, deleted, or renamed since `since_commit`. The response includes `from_commit`, current `to_commit`, `changes`, and `truncated`; if `since_commit` is not an ancestor of HEAD, the tool returns `unrelated_commit` so the client can re-read the vault.
 - `write_file {vault_id, path, content, parent_commit}`: create or update a text file with optimistic concurrency on `parent_commit`.
 - `delete_file {vault_id, path, parent_commit}`: delete a file with optimistic concurrency on `parent_commit`.
+
+All MCP read tools honor the current SyncPathFilter. Paths rejected by built-in hidden-path rules or runtime exclude globs are not listed, searched, read, included in link graphs, or reported as changes.
 
 ## stdio transport
 
@@ -83,8 +87,10 @@ bearer token gives read and write access to every vault owned by that user.
 
 ## Read and search limits
 
-`search` scans at most 5000 tree files, returns at most 500 matches, and stops
-after 256 MiB of searched text in production. `read_file` and
+`search` scans at most 5000 visible tree files, returns at most 500 matches,
+and stops after 256 MiB of searched text in production. `link_graph` scans at
+most 5000 visible text files and uses the same production text budget.
+`changes_since` returns at most 5000 visible change entries. `read_file` and
 `read_file_at_commit` resolve blob pointers before responding; binary/blob
 responses above 64 MiB are rejected instead of being base64-expanded into JSON.
 
