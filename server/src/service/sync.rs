@@ -349,6 +349,16 @@ async fn sync_path_filter(
     ))
 }
 
+/// Build the SyncPathFilter for a vault using the current runtime exclude globs.
+/// Read surfaces (REST and MCP) use this to hide filter-rejected paths.
+pub(crate) async fn vault_path_filter(
+    state: &AppState,
+    vault_id: &str,
+) -> Result<crate::service::exclude::SyncPathFilter, ApiError> {
+    let rc = state.runtime_cfg.snapshot().await;
+    sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await
+}
+
 pub(crate) async fn ensure_path_visible_for_sync_api(
     state: &AppState,
     vault_id: &str,
