@@ -185,12 +185,16 @@ pub async fn list_files(
     input: ListFilesInput,
 ) -> Result<ListFilesOutput> {
     ensure_owned_vault(state, user_id, &input.vault_id).await?;
+    let filter = sync::vault_path_filter(state, &input.vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
     let git = state.git_store();
     let mut paths = git
         .list_tree(&input.vault_id, input.at.as_deref())
         .await?
         .into_iter()
         .map(|entry| entry.path)
+        .filter(|path| filter.path_accepts(path))
         .collect::<Vec<_>>();
     paths.sort();
     Ok(ListFilesOutput { paths })
@@ -201,8 +205,11 @@ pub async fn read_file(
     user_id: &str,
     input: ReadFileInput,
 ) -> Result<ReadFileOutput> {
-    let normalized_path = normalize_mcp_path(input.path)?;
-    read_file_inner(state, user_id, input.vault_id, normalized_path, None).await
+    ensure_owned_vault(state, user_id, &input.vault_id).await?;
+    let path = sync::ensure_path_visible_for_sync_api(state, &input.vault_id, &input.path)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    read_file_inner(state, user_id, input.vault_id, path, None).await
 }
 
 pub async fn read_file_at_commit(
@@ -210,15 +217,11 @@ pub async fn read_file_at_commit(
     user_id: &str,
     input: ReadFileAtCommitInput,
 ) -> Result<ReadFileOutput> {
-    let normalized_path = normalize_mcp_path(input.path)?;
-    read_file_inner(
-        state,
-        user_id,
-        input.vault_id,
-        normalized_path,
-        Some(input.commit),
-    )
-    .await
+    ensure_owned_vault(state, user_id, &input.vault_id).await?;
+    let path = sync::ensure_path_visible_for_sync_api(state, &input.vault_id, &input.path)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    read_file_inner(state, user_id, input.vault_id, path, Some(input.commit)).await
 }
 
 pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Result<SearchOutput> {
@@ -230,6 +233,9 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     }
 
     let git = state.git_store();
+    let filter = sync::vault_path_filter(state, &input.vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
     let entries = git.list_tree(&input.vault_id, input.at.as_deref()).await?;
     if entries.len() > SEARCH_MAX_TREE_FILES {
         bail!("too many files to search: {}", entries.len());
@@ -247,6 +253,9 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     for entry in entries {
         if matches.len() >= limit {
             break;
+        }
+        if !filter.path_accepts(&entry.path) {
+            continue;
         }
         if entry.is_blob_pointer || !classifier.is_text_path(&entry.path) {
             continue;
@@ -674,7 +683,7 @@ mod tests {
     use super::*;
     use crate::auth::password;
     use crate::db::pool;
-    use crate::db::repos::{BlobRefRepo, NewUser, UserRepo};
+    use crate::db::repos::{BlobRefRepo, NewUser, RuntimeConfigRepo, UserRepo};
     use crate::service::vault;
     use crate::storage::blob::{BlobStore, LocalFsBlobStore};
     use crate::storage::git::{FileChange, GitVaultStore};
@@ -698,6 +707,135 @@ mod tests {
             .unwrap();
         let vault = vault::create_vault(&state, &user.id, "main").await.unwrap();
         (state, user.id, vault.id, tmp)
+    }
+
+    async fn seed_two_files(
+        state: &AppState,
+        vault_id: &str,
+        first_path: &str,
+        second_path: &str,
+    ) -> String {
+        let git = Git2VaultStore::new(state.default_vault_root());
+        git.commit_changes(
+            vault_id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: first_path.into(),
+                    file: StoredFile::Text {
+                        bytes: b"visible needle".to_vec(),
+                    },
+                },
+                FileChange::Upsert {
+                    path: second_path.into(),
+                    file: StoredFile::Text {
+                        bytes: b"secret needle".to_vec(),
+                    },
+                },
+            ],
+            "seed files",
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn set_user_excludes(state: &AppState, excludes: Vec<String>) {
+        state
+            .runtime_cfg_repo
+            .set_extra_exclude_globs(excludes, None)
+            .await
+            .unwrap();
+        state
+            .runtime_cfg
+            .replace(state.runtime_cfg_repo.load().await.unwrap())
+            .await;
+    }
+
+    #[tokio::test]
+    async fn list_files_hides_filtered_path() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_two_files(&state, &vault_id, "note.md", "secret.md").await;
+        set_user_excludes(&state, vec!["secret.md".into()]).await;
+
+        let out = list_files(&state, &user_id, ListFilesInput { vault_id, at: None })
+            .await
+            .unwrap();
+
+        assert!(out.paths.contains(&"note.md".to_string()));
+        assert!(
+            !out.paths.contains(&"secret.md".to_string()),
+            "filtered path must be hidden"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_file_hides_filtered_path() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_two_files(&state, &vault_id, "note.md", "secret.md").await;
+        set_user_excludes(&state, vec!["secret.md".into()]).await;
+
+        let err = read_file(
+            &state,
+            &user_id,
+            ReadFileInput {
+                vault_id,
+                path: "secret.md".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("not found"),
+            "must be not_found, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_file_at_commit_hides_filtered_path() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let commit = seed_two_files(&state, &vault_id, "note.md", "secret.md").await;
+        set_user_excludes(&state, vec!["secret.md".into()]).await;
+
+        let err = read_file_at_commit(
+            &state,
+            &user_id,
+            ReadFileAtCommitInput {
+                vault_id,
+                path: "secret.md".into(),
+                commit,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("not found"),
+            "must be not_found, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn search_hides_filtered_path() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_two_files(&state, &vault_id, "note.md", "secret.md").await;
+        set_user_excludes(&state, vec!["secret.md".into()]).await;
+
+        let out = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id,
+                query: "needle".into(),
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(out.matches.len(), 1);
+        assert_eq!(out.matches[0].path, "note.md");
     }
 
     #[tokio::test]
