@@ -43,6 +43,22 @@ pub struct TreeEntry {
     pub blob_hash: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChangedEntry {
+    pub path: String,
+    pub status: ChangeStatus,
+    pub old_path: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum GitStoreError {
     #[error("git: {0}")]
@@ -83,6 +99,18 @@ pub trait GitVaultStore: Send + Sync {
         path: &str,
         at: Option<&str>,
     ) -> Result<Option<StoredFile>, GitStoreError>;
+    async fn list_changes_between(
+        &self,
+        vault_id: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<Vec<ChangedEntry>, GitStoreError>;
+    async fn is_ancestor(
+        &self,
+        vault_id: &str,
+        ancestor: &str,
+        descendant: &str,
+    ) -> Result<bool, GitStoreError>;
 }
 
 #[derive(Clone)]
@@ -681,6 +709,89 @@ impl GitVaultStore for Git2VaultStore {
         .await
         .map_err(|_| GitStoreError::Panic)?
     }
+
+    async fn list_changes_between(
+        &self,
+        vault_id: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<Vec<ChangedEntry>, GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let from = from.to_string();
+        let to = to.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Vec<ChangedEntry>, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let from_tree = repo.revparse_single(&from)?.peel_to_tree()?;
+            let to_tree = repo.revparse_single(&to)?.peel_to_tree()?;
+            let mut diff = repo.diff_tree_to_tree(Some(&from_tree), Some(&to_tree), None)?;
+            let mut find = DiffFindOptions::new();
+            find.renames(true);
+            diff.find_similar(Some(&mut find))?;
+
+            let mut out = Vec::new();
+            for delta in diff.deltas() {
+                let status = delta.status();
+                let entry = match status {
+                    Delta::Added => ChangedEntry {
+                        path: delta_path(delta.new_file().path())?,
+                        status: ChangeStatus::Added,
+                        old_path: None,
+                    },
+                    Delta::Deleted => ChangedEntry {
+                        path: delta_path(delta.old_file().path())?,
+                        status: ChangeStatus::Deleted,
+                        old_path: None,
+                    },
+                    Delta::Renamed => ChangedEntry {
+                        path: delta_path(delta.new_file().path())?,
+                        status: ChangeStatus::Renamed,
+                        old_path: Some(delta_path(delta.old_file().path())?),
+                    },
+                    Delta::Modified | Delta::Typechange => ChangedEntry {
+                        path: delta_path(delta.new_file().path())?,
+                        status: ChangeStatus::Modified,
+                        old_path: None,
+                    },
+                    Delta::Copied => ChangedEntry {
+                        path: delta_path(delta.new_file().path())?,
+                        status: ChangeStatus::Added,
+                        old_path: None,
+                    },
+                    _ => continue,
+                };
+                out.push(entry);
+            }
+            out.sort_by(|left, right| {
+                left.path
+                    .cmp(&right.path)
+                    .then_with(|| left.old_path.cmp(&right.old_path))
+            });
+            Ok(out)
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
+    async fn is_ancestor(
+        &self,
+        vault_id: &str,
+        ancestor: &str,
+        descendant: &str,
+    ) -> Result<bool, GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let ancestor = ancestor.to_string();
+        let descendant = descendant.to_string();
+        tokio::task::spawn_blocking(move || -> Result<bool, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let ancestor = Oid::from_str(&ancestor)?;
+            let descendant = Oid::from_str(&descendant)?;
+            repo.find_commit(ancestor)?;
+            repo.find_commit(descendant)?;
+            Ok(repo.graph_descendant_of(descendant, ancestor)?)
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
 }
 
 #[cfg(test)]
@@ -829,6 +940,159 @@ mod tests {
                 .unwrap(),
             "old commits beyond the test walk budget should not force an unbounded revwalk"
         );
+    }
+
+    #[tokio::test]
+    async fn list_changes_between_reports_add_modify_delete_and_rename() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "a.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"old".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "b.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"delete me".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "old-name.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"same content".to_vec(),
+                        },
+                    },
+                ],
+                "base",
+            )
+            .await
+            .unwrap();
+        let head = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[
+                    FileChange::Upsert {
+                        path: "a.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"new".to_vec(),
+                        },
+                    },
+                    FileChange::Delete {
+                        path: "b.md".into(),
+                    },
+                    FileChange::Upsert {
+                        path: "c.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"added".to_vec(),
+                        },
+                    },
+                    FileChange::Delete {
+                        path: "old-name.md".into(),
+                    },
+                    FileChange::Upsert {
+                        path: "new-name.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"same content".to_vec(),
+                        },
+                    },
+                ],
+                "head",
+            )
+            .await
+            .unwrap();
+
+        let changes = store
+            .list_changes_between("v1", &base, &head)
+            .await
+            .unwrap();
+
+        assert!(changes.contains(&ChangedEntry {
+            path: "a.md".into(),
+            status: ChangeStatus::Modified,
+            old_path: None,
+        }));
+        assert!(changes.contains(&ChangedEntry {
+            path: "b.md".into(),
+            status: ChangeStatus::Deleted,
+            old_path: None,
+        }));
+        assert!(changes.contains(&ChangedEntry {
+            path: "c.md".into(),
+            status: ChangeStatus::Added,
+            old_path: None,
+        }));
+        assert!(changes.contains(&ChangedEntry {
+            path: "new-name.md".into(),
+            status: ChangeStatus::Renamed,
+            old_path: Some("old-name.md".into()),
+        }));
+    }
+
+    #[tokio::test]
+    async fn is_ancestor_reports_true_for_ancestor_and_false_for_unrelated() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "a.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"a".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+        let head = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "b.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"b".to_vec(),
+                    },
+                }],
+                "head",
+            )
+            .await
+            .unwrap();
+        store
+            .set_main_ref("v1", &base, "rewind for sibling")
+            .await
+            .unwrap();
+        let unrelated = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "c.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"c".to_vec(),
+                    },
+                }],
+                "unrelated",
+            )
+            .await
+            .unwrap();
+        store
+            .set_main_ref("v1", &head, "restore head")
+            .await
+            .unwrap();
+
+        assert!(store.is_ancestor("v1", &base, &head).await.unwrap());
+        assert!(!store.is_ancestor("v1", &unrelated, &head).await.unwrap());
     }
 
     #[tokio::test]
