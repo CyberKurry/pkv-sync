@@ -5,6 +5,7 @@ use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::repos::{
     BlobRefRepo, NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
 };
+use pkv_sync_server::mcp::tools;
 use pkv_sync_server::mcp::transport_http;
 use pkv_sync_server::service::sync::{self, PushChange, PushReq};
 use pkv_sync_server::service::AppState;
@@ -921,6 +922,140 @@ async fn different_token_or_different_vault_has_independent_quota() {
     )
     .await;
     assert!(structured(&different_vault)["commit"].is_string());
+}
+
+#[tokio::test]
+async fn move_file_checks_rate_limit_before_tree_or_content_probe() {
+    let (state, _tmp) = test_state().await;
+    state
+        .mcp_write_limiter
+        .update_config(1, std::time::Duration::from_secs(60));
+    let (user, raw) = create_user_with_token(&state, "mcp-move-preflight-rate").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let head = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "source.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"source".to_vec(),
+                    },
+                },
+                FileChange::Upsert {
+                    path: "target.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"target".to_vec(),
+                    },
+                },
+            ],
+            "seed move preflight rate",
+        )
+        .await
+        .unwrap();
+
+    let first = post_tool(
+        state.clone(),
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "quota.md",
+            "content": "consume quota",
+            "parent_commit": head
+        }),
+    )
+    .await;
+    let _commit = structured(&first)["commit"].as_str().unwrap();
+
+    let limited = post_tool(
+        state,
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "source.md",
+            "to": "target.md"
+        }),
+    )
+    .await;
+
+    assert_eq!(limited["error"]["code"], -32000);
+    let message = limited["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("rate_limited"),
+        "must reject before leaking target_exists or source metadata: {message}"
+    );
+    assert!(!message.contains("target_exists"));
+}
+
+#[tokio::test]
+async fn move_file_checks_ownership_before_tree_or_content_probe() {
+    let (state, _tmp) = test_state().await;
+    let (owner, _owner_raw) = create_user_with_token(&state, "mcp-move-owner").await;
+    let (_other, other_raw) = create_user_with_token(&state, "mcp-move-other").await;
+    let vault = state.vaults.create(&owner.user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let head = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "source.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"source".to_vec(),
+                    },
+                },
+                FileChange::Upsert {
+                    path: "target.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"target".to_vec(),
+                    },
+                },
+            ],
+            "seed move preflight owner",
+        )
+        .await
+        .unwrap();
+
+    let body = post_tool(
+        state,
+        &other_raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "source.md",
+            "to": "target.md"
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("not_found") || message.contains("vault not found"),
+        "must reject before leaking target_exists or source metadata: {message}"
+    );
+    assert!(!message.contains("target_exists"));
+    assert!(!message.contains("unsupported_binary_move"));
+}
+
+#[test]
+fn batch_and_move_tools_are_marked_destructive() {
+    let tools = tools::tool_definitions();
+    for name in ["write_files", "move_file"] {
+        let tool = tools
+            .iter()
+            .find(|tool| tool.name == name)
+            .unwrap_or_else(|| panic!("missing tool definition for {name}"));
+        let annotations = tool.annotations.as_ref().unwrap();
+        assert_eq!(annotations.destructive_hint, Some(true), "{name}");
+    }
 }
 
 #[tokio::test]

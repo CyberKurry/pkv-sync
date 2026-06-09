@@ -6,7 +6,7 @@ use crate::service::sync::{self, PushChange, PushReq, RequestMetadata};
 use crate::service::vault::ensure_user_vault;
 use crate::service::AppState;
 use crate::storage::blob::BlobStore;
-use crate::storage::git::{Git2VaultStore, GitVaultStore, StoredFile};
+use crate::storage::git::{Git2VaultStore, GitStoreError, GitVaultStore, StoredFile};
 use crate::storage::path;
 use crate::storage::text_kind::TextClassifier;
 use anyhow::{anyhow, bail, Result};
@@ -866,6 +866,12 @@ pub async fn move_file(
         bail!("invalid_path: from and to are identical");
     }
 
+    let preflight =
+        apply_write_preflight(state, user, &input.vault_id, input.parent_commit.clone()).await?;
+    if let Some(conflict) = preflight {
+        return Ok(conflict);
+    }
+
     let filter = sync::vault_path_filter(state, &input.vault_id)
         .await
         .map_err(api_error_to_anyhow)?;
@@ -889,7 +895,7 @@ pub async fn move_file(
         .await?
         .ok_or_else(|| anyhow!("unsupported_binary_move: '{from}' is not UTF-8 text"))?;
 
-    apply_write_batch(
+    apply_preflighted_write_batch(
         state,
         user,
         WriteBatchRequest {
@@ -1063,7 +1069,7 @@ pub fn tool_definitions() -> Vec<Tool> {
                 },
                 "additionalProperties": false
             })),
-            false,
+            true,
         ),
         write_tool(
             "move_file",
@@ -1079,7 +1085,7 @@ pub fn tool_definitions() -> Vec<Tool> {
                 },
                 "additionalProperties": false
             })),
-            false,
+            true,
         ),
     ]
 }
@@ -1109,15 +1115,52 @@ async fn apply_write_batch(
     user: &AuthenticatedUser,
     input: WriteBatchRequest,
 ) -> Result<WriteToolOutput> {
+    if let Some(conflict) =
+        apply_write_preflight(state, user, &input.vault_id, input.parent_commit.clone()).await?
+    {
+        return Ok(conflict);
+    }
+    apply_preflighted_write_batch(state, user, input).await
+}
+
+async fn apply_write_preflight(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    vault_id: &str,
+    parent_commit: String,
+) -> Result<Option<WriteToolOutput>> {
     state
         .mcp_write_limiter
-        .try_record(&user.token_id, &input.vault_id)
+        .try_record(&user.token_id, vault_id)
         .map_err(|retry_after| {
             anyhow!(
                 "rate_limited: mcp write rate limit (60/min) exceeded for this token+vault; retry in {}s",
                 retry_after.as_secs().max(1)
             )
         })?;
+
+    ensure_owned_vault(state, &user.user_id, vault_id).await?;
+    let parent = (!parent_commit.is_empty()).then_some(parent_commit.as_str());
+    let current_head = state
+        .git_store()
+        .head(vault_id)
+        .await
+        .map_err(git_error_to_anyhow)?;
+    if current_head.as_deref() != parent {
+        return Ok(Some(WriteToolOutput::Conflict {
+            conflict: true,
+            current_head,
+        }));
+    }
+
+    Ok(None)
+}
+
+async fn apply_preflighted_write_batch(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    input: WriteBatchRequest,
+) -> Result<WriteToolOutput> {
     let parent = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
     match sync::push_with_cas(
         state,
@@ -1153,6 +1196,10 @@ async fn apply_write_batch(
             current_head: conflict.current_head,
         }),
     }
+}
+
+fn git_error_to_anyhow(error: GitStoreError) -> anyhow::Error {
+    anyhow!("git: {error}")
 }
 
 async fn record_mcp_write_activity(
