@@ -103,7 +103,7 @@ pub async fn verify_credentials(
         // Return UNAUTHORIZED (not FORBIDDEN) so that disabled accounts cannot
         // be distinguished from wrong-password attempts via the HTTP status
         // code (account state enumeration), and so that the login handler's
-        // 401-only record_failure path consumes rate-limit budget for these
+        // reservation failure path consumes rate-limit budget for these
         // attempts too. The error message is also identical to a wrong
         // password to avoid any leak.
         return Err(ApiError::unauthorized("invalid credentials"));

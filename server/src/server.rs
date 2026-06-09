@@ -499,13 +499,20 @@ mod tests {
             .await
             .unwrap();
         let limiter = LoginRateLimiter::new(1, Duration::from_millis(5), Duration::from_millis(5));
-        limiter.record_failure("127.0.0.1".parse().unwrap());
+        limiter
+            .try_acquire("127.0.0.1".parse().unwrap())
+            .unwrap()
+            .failure();
         state.auth_failure_limiter.update_config(
             1,
             Duration::from_millis(5),
             Duration::from_millis(5),
         );
-        state.auth_failure_limiter.record_failure("api-auth");
+        state
+            .auth_failure_limiter
+            .try_acquire("api-auth")
+            .unwrap()
+            .failure();
         state
             .mcp_write_limiter
             .update_config(1, Duration::from_millis(5));
@@ -516,7 +523,11 @@ mod tests {
         state
             .mcp_auth_limiter
             .update_config(1, Duration::from_millis(5), Duration::from_millis(5));
-        state.mcp_auth_limiter.record_failure("mcp-auth");
+        state
+            .mcp_auth_limiter
+            .try_acquire("mcp-auth")
+            .unwrap()
+            .failure();
         tokio::time::sleep(Duration::from_millis(10)).await;
 
         let (login_removed, auth_failure_removed, mcp_auth_removed, mcp_write_removed) =

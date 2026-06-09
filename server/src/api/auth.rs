@@ -417,9 +417,9 @@ mod tests {
     /// must return UNAUTHORIZED (NOT FORBIDDEN) — same status as wrong
     /// password — so the HTTP status cannot be used to enumerate which
     /// usernames correspond to disabled accounts. Login handler's existing
-    /// 401-only record_failure path therefore automatically charges these
-    /// attempts to the rate-limit budget, closing the bypass where 403
-    /// responses skipped record_failure.
+    /// reservation failure path therefore automatically charges these attempts
+    /// to the rate-limit budget, closing the bypass where 403 responses skipped
+    /// failure attribution.
     #[tokio::test]
     async fn login_disabled_account_returns_401_and_consumes_limiter() {
         use crate::db::repos::UserRepo;

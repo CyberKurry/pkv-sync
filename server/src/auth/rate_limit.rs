@@ -9,9 +9,8 @@ struct Entry {
     failures: u32,
     /// In-flight reservations from try_acquire that have not yet resolved
     /// to success or failure. Counts toward the threshold so a burst of
-    /// concurrent requests cannot all pass check() before any of them
-    /// record_failure(), closing the window between check() and
-    /// record_failure().
+    /// concurrent requests cannot all reserve work before any failure is
+    /// resolved.
     in_flight: u32,
     first_failure: Instant,
     locked_until: Option<Instant>,
@@ -76,47 +75,6 @@ impl LoginRateLimiter {
         };
     }
 
-    pub fn check(&self, ip: IpAddr) -> Result<(), Duration> {
-        let now = Instant::now();
-        let config = *self.config.read().expect("login limiter lock poisoned");
-        let mut stale = false;
-        if let Some(e) = self.inner.get(&ip) {
-            if entry_is_stale(&e, now, config) {
-                stale = true;
-            } else if let Some(until) = e.locked_until {
-                return Err(until - now);
-            }
-        }
-        if stale {
-            self.inner.remove(&ip);
-        }
-        Ok(())
-    }
-
-    pub fn record_failure(&self, ip: IpAddr) {
-        let now = Instant::now();
-        let config = *self.config.read().expect("login limiter lock poisoned");
-        let mut e = self.inner.entry(ip).or_insert(Entry {
-            failures: 0,
-            in_flight: 0,
-            first_failure: now,
-            locked_until: None,
-        });
-        if now.duration_since(e.first_failure) > config.window {
-            e.failures = 0;
-            e.first_failure = now;
-            e.locked_until = None;
-        }
-        e.failures += 1;
-        if e.failures >= config.threshold {
-            e.locked_until = Some(now + config.lock_duration);
-        }
-    }
-
-    pub fn record_success(&self, ip: IpAddr) {
-        self.inner.remove(&ip);
-    }
-
     /// Atomic reservation: in a single dashmap entry lock, check that the IP
     /// is not currently locked and that allowing one more in-flight attempt
     /// won't cross the threshold; if both conditions hold, increment
@@ -126,8 +84,8 @@ impl LoginRateLimiter {
     /// Counting `in_flight` toward threshold closes the concurrent-attempt window:
     /// even if N concurrent requests pass the lock check, after N=`threshold`
     /// reservations are in flight the (N+1)th request is rejected before
-    /// argon2 runs, instead of waiting for one of them to call
-    /// `record_failure` (which historically left a wide CPU-burn window).
+    /// argon2 runs, instead of waiting for one of them to resolve as a
+    /// failure (which historically left a wide CPU-burn window).
     pub fn try_acquire(&self, ip: IpAddr) -> Result<AttemptReservation, Duration> {
         let now = Instant::now();
         let config = *self.config.read().expect("login limiter lock poisoned");
@@ -170,8 +128,6 @@ impl LoginRateLimiter {
 
     /// Internal: called by AttemptReservation::success to release the slot.
     fn release_success(&self, ip: IpAddr) {
-        // Successful auth resets the entry entirely. record_success already
-        // does this; we go through the same path to keep semantics centralised.
         self.inner.remove(&ip);
     }
 
@@ -252,23 +208,6 @@ impl McpAuthRateLimiter {
         };
     }
 
-    pub fn check(&self, key: &str) -> Result<(), Duration> {
-        let now = Instant::now();
-        let config = *self.config.read().expect("mcp auth limiter lock poisoned");
-        let mut stale = false;
-        if let Some(entry) = self.inner.get(key) {
-            if entry_is_stale(&entry, now, config) {
-                stale = true;
-            } else if let Some(until) = entry.locked_until {
-                return Err(until - now);
-            }
-        }
-        if stale {
-            self.inner.remove(key);
-        }
-        Ok(())
-    }
-
     pub fn try_acquire(&self, key: &str) -> Result<McpAuthAttemptReservation, Duration> {
         let now = Instant::now();
         let config = *self.config.read().expect("mcp auth limiter lock poisoned");
@@ -304,27 +243,6 @@ impl McpAuthRateLimiter {
             key,
             resolved: false,
         })
-    }
-
-    pub fn record_failure(&self, key: &str) {
-        let now = Instant::now();
-        let config = *self.config.read().expect("mcp auth limiter lock poisoned");
-        let mut entry = self.inner.entry(key.to_string()).or_insert(Entry {
-            failures: 0,
-            in_flight: 0,
-            first_failure: now,
-            locked_until: None,
-        });
-        if now.duration_since(entry.first_failure) > config.window {
-            entry.failures = 0;
-            entry.in_flight = 0;
-            entry.first_failure = now;
-            entry.locked_until = None;
-        }
-        entry.failures += 1;
-        if entry.failures >= config.threshold {
-            entry.locked_until = Some(now + config.lock_duration);
-        }
     }
 
     fn release_success(&self, key: &str) {
@@ -533,52 +451,94 @@ mod tests {
         IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))
     }
 
+    fn charge_login_failure(limiter: &LoginRateLimiter) {
+        limiter
+            .try_acquire(ip())
+            .expect("login reservation")
+            .failure();
+    }
+
+    fn assert_login_open(limiter: &LoginRateLimiter) {
+        limiter
+            .try_acquire(ip())
+            .expect("login limiter should allow reservation")
+            .release();
+    }
+
+    fn assert_login_locked(limiter: &LoginRateLimiter) {
+        assert!(
+            limiter.try_acquire(ip()).is_err(),
+            "login limiter should reject reservation"
+        );
+    }
+
+    fn charge_mcp_failure(limiter: &McpAuthRateLimiter, key: &str) {
+        limiter
+            .try_acquire(key)
+            .expect("mcp auth reservation")
+            .failure();
+    }
+
+    fn assert_mcp_open(limiter: &McpAuthRateLimiter, key: &str) {
+        limiter
+            .try_acquire(key)
+            .expect("mcp auth limiter should allow reservation")
+            .release();
+    }
+
+    fn assert_mcp_locked(limiter: &McpAuthRateLimiter, key: &str) {
+        assert!(
+            limiter.try_acquire(key).is_err(),
+            "mcp auth limiter should reject reservation"
+        );
+    }
+
     #[test]
     fn allows_below_threshold() {
         let l = LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
-        l.record_failure(ip());
-        l.record_failure(ip());
-        assert!(l.check(ip()).is_ok());
+        charge_login_failure(&l);
+        charge_login_failure(&l);
+        assert_login_open(&l);
     }
 
     #[test]
     fn locks_at_threshold() {
         let l = LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
-        l.record_failure(ip());
-        l.record_failure(ip());
-        l.record_failure(ip());
-        assert!(l.check(ip()).is_err());
+        charge_login_failure(&l);
+        charge_login_failure(&l);
+        charge_login_failure(&l);
+        assert_login_locked(&l);
     }
 
     #[test]
     fn success_resets() {
         let l = LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
-        l.record_failure(ip());
-        l.record_failure(ip());
-        l.record_success(ip());
-        l.record_failure(ip());
-        l.record_failure(ip());
-        assert!(l.check(ip()).is_ok());
+        charge_login_failure(&l);
+        charge_login_failure(&l);
+        l.try_acquire(ip()).expect("success reservation").success();
+        charge_login_failure(&l);
+        charge_login_failure(&l);
+        assert_login_open(&l);
     }
 
     #[test]
     fn lock_expires() {
         let l = LoginRateLimiter::new(2, Duration::from_secs(60), Duration::from_millis(50));
-        l.record_failure(ip());
-        l.record_failure(ip());
-        assert!(l.check(ip()).is_err());
+        charge_login_failure(&l);
+        charge_login_failure(&l);
+        assert_login_locked(&l);
         std::thread::sleep(Duration::from_millis(80));
-        assert!(l.check(ip()).is_ok());
+        assert_login_open(&l);
     }
 
     #[test]
-    fn check_prunes_expired_lock_entry() {
+    fn prune_stale_removes_expired_lock_entry() {
         let l = LoginRateLimiter::new(2, Duration::from_secs(60), Duration::from_millis(50));
-        l.record_failure(ip());
-        l.record_failure(ip());
+        charge_login_failure(&l);
+        charge_login_failure(&l);
         std::thread::sleep(Duration::from_millis(80));
 
-        assert!(l.check(ip()).is_ok());
+        assert_eq!(l.prune_stale(), 1);
         assert_eq!(l.inner.len(), 0);
     }
 
@@ -586,8 +546,8 @@ mod tests {
     fn updated_threshold_applies_to_future_failures() {
         let l = LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
         l.update_config(1, Duration::from_secs(60), Duration::from_secs(60));
-        l.record_failure(ip());
-        assert!(l.check(ip()).is_err());
+        charge_login_failure(&l);
+        assert_login_locked(&l);
     }
 
     /// Regression: in-flight reservations count toward
@@ -614,7 +574,7 @@ mod tests {
         drop(r3);
         // All in-flight slots released neutrally: no failures recorded,
         // limiter should now be open again.
-        assert!(l.check(ip()).is_ok());
+        assert_login_open(&l);
     }
 
     /// Dropping a reservation without resolving it must not increment the
@@ -640,10 +600,7 @@ mod tests {
         let l = LoginRateLimiter::new(1, Duration::from_secs(60), Duration::from_secs(60));
         let r = l.try_acquire(ip()).expect("reservation");
         r.failure(); // explicit failure
-        assert!(
-            l.check(ip()).is_err(),
-            "explicit failure must lock at threshold=1"
-        );
+        assert_login_locked(&l);
     }
 
     /// Reservation success resets the IP entirely so a legitimate login does
@@ -651,8 +608,8 @@ mod tests {
     #[test]
     fn reservation_success_resets_state() {
         let l = LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
-        l.record_failure(ip());
-        l.record_failure(ip());
+        charge_login_failure(&l);
+        charge_login_failure(&l);
         let r = l.try_acquire(ip()).unwrap();
         r.success();
         // Fresh: full budget available again.
@@ -692,7 +649,7 @@ mod tests {
         drop(r2);
         drop(r3);
         // All slots released neutrally: limiter must now be open.
-        assert!(l.check("api-auth").is_ok());
+        assert_mcp_open(&l, "api-auth");
     }
 
     /// Symmetric to drop_without_resolve_is_neutral_login for the MCP limiter.
@@ -712,12 +669,8 @@ mod tests {
     #[test]
     fn explicit_failure_still_locks_mcp() {
         let l = McpAuthRateLimiter::new(1, Duration::from_secs(60), Duration::from_secs(60));
-        let r = l.try_acquire("mcp-key").expect("reservation");
-        r.failure(); // explicit failure
-        assert!(
-            l.check("mcp-key").is_err(),
-            "explicit mcp failure must lock at threshold=1"
-        );
+        charge_mcp_failure(&l, "mcp-key");
+        assert_mcp_locked(&l, "mcp-key");
     }
 
     #[test]
@@ -739,13 +692,44 @@ mod tests {
         let fn_start = source
             .find("pub fn try_acquire(&self, key: &str) -> Result<McpAuthAttemptReservation")
             .expect("MCP try_acquire exists");
-        let record_failure_start = source[fn_start..]
-            .find("pub fn record_failure")
+        let release_success_start = source[fn_start..]
+            .find("fn release_success")
             .map(|idx| fn_start + idx)
-            .expect("record_failure follows try_acquire");
-        let implementation = &source[fn_start..record_failure_start];
+            .expect("release_success follows try_acquire");
+        let implementation = &source[fn_start..release_success_start];
 
         assert!(!implementation.contains("let key = key.to_string();"));
         assert!(implementation.contains("let key = entry.key().clone();"));
+    }
+
+    #[test]
+    fn legacy_auth_limiter_public_apis_are_not_kept() {
+        let source = include_str!("rate_limit.rs");
+        let login_impl_start = source
+            .find("impl LoginRateLimiter")
+            .expect("login limiter impl exists");
+        let mcp_impl_start = source
+            .find("impl McpAuthRateLimiter")
+            .expect("mcp auth limiter impl exists");
+        let write_impl_start = source
+            .find("impl McpWriteRateLimiter")
+            .expect("mcp write limiter impl exists");
+        let login_impl = &source[login_impl_start..mcp_impl_start];
+        let mcp_impl = &source[mcp_impl_start..write_impl_start];
+
+        for legacy_api in [
+            "pub fn check",
+            "pub fn record_failure",
+            "pub fn record_success",
+        ] {
+            assert!(
+                !login_impl.contains(legacy_api),
+                "LoginRateLimiter still exposes legacy API {legacy_api}"
+            );
+            assert!(
+                !mcp_impl.contains(legacy_api),
+                "McpAuthRateLimiter still exposes legacy API {legacy_api}"
+            );
+        }
     }
 }
