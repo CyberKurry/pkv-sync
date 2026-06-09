@@ -441,11 +441,6 @@ pub async fn run(cfg: Arc<Config>) -> crate::Result<()> {
 
     let public_origin =
         format_public_origin(cfg.server.public_host.as_deref(), &cfg.server.bind_addr);
-    let _url = format_share_url(
-        cfg.server.public_host.as_deref(),
-        &cfg.server.bind_addr,
-        &cfg.server.deployment_key,
-    );
     tracing::info!(
         bind = %cfg.server.bind_addr,
         public_origin = %public_origin,

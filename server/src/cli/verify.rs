@@ -76,7 +76,7 @@ impl VerifyReport {
     }
 }
 
-pub fn run(config: &Config, _no_fail: bool) -> anyhow::Result<VerifyReport> {
+pub fn run(config: &Config) -> anyhow::Result<VerifyReport> {
     run_data_dir(&config.storage.data_dir, &config.storage.db_path)
 }
 
@@ -240,4 +240,26 @@ fn verify_blob_store(blobs_dir: &Path, report: &mut VerifyReport) -> anyhow::Res
 
 fn sharded_blob_path(blobs_dir: &Path, hash: &str) -> PathBuf {
     blobs_dir.join(&hash[0..2]).join(&hash[2..4]).join(hash)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn verify_run_does_not_accept_no_fail_flag() {
+        let verify_source = include_str!("verify.rs");
+        let main_source = include_str!("../main.rs");
+        let restore_source = include_str!("restore.rs");
+        let ops_cli_source = include_str!("../../tests/ops_cli.rs");
+        let run_with_flag_signature = concat!("pub fn run(config: &Config, _", ": bool)");
+        let main_call_with_flag = concat!("verify::run(&cfg, no", "_fail)");
+        let restore_call_with_flag = concat!("verify::run(&cfg, false)");
+        let test_call_with_false = concat!("verify", "::", "run(&cfg, false)");
+        let test_call_with_true = concat!("verify", "::", "run(&cfg, true)");
+
+        assert!(!verify_source.contains(run_with_flag_signature));
+        assert!(!main_source.contains(main_call_with_flag));
+        assert!(!restore_source.contains(restore_call_with_flag));
+        assert!(!ops_cli_source.contains(test_call_with_false));
+        assert!(!ops_cli_source.contains(test_call_with_true));
+    }
 }

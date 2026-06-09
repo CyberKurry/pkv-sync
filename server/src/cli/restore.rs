@@ -64,7 +64,7 @@ pub fn run(
     }
 
     let cfg = verify::config_for_data_dir(target_data_dir);
-    let verify = verify::run(&cfg, false)?;
+    let verify = verify::run(&cfg)?;
     verify.print();
     if !verify.should_exit_success(false) {
         anyhow::bail!("restore completed but verification failed");

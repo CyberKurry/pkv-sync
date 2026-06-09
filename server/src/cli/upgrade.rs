@@ -354,7 +354,7 @@ async fn download_verified_binary(
     target_path: &Path,
     expected_sha256: &str,
 ) -> anyhow::Result<u64> {
-    ensure_target_parent(target_path)?;
+    prepare_download_target(target_path)?;
     let temp_path = download_temp_path(target_path);
     let mut response = github_get(client, &asset.browser_download_url)
         .send()
@@ -399,10 +399,6 @@ async fn download_verified_binary(
         )
     })?;
     Ok(bytes_written)
-}
-
-fn ensure_target_parent(target_path: &Path) -> anyhow::Result<()> {
-    prepare_download_target(target_path)
 }
 
 pub fn prepare_download_target(target_path: &Path) -> anyhow::Result<()> {

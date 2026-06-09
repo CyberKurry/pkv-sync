@@ -331,7 +331,7 @@ async fn verify_fails_missing_referenced_blob() {
         .unwrap();
 
     let cfg = make_config(&state.data_dir);
-    let report = verify::run(&cfg, false).unwrap();
+    let report = verify::run(&cfg).unwrap();
     assert_eq!(report.missing_blobs.len(), 1);
     assert!(report.render().contains("missing files: 1"));
     assert!(report.render().contains("Verdict: verification failed"));
@@ -363,7 +363,7 @@ async fn verify_reads_references_from_blob_refs_table() {
         .unwrap();
 
     let cfg = make_config(&state.data_dir);
-    let report = verify::run(&cfg, false).unwrap();
+    let report = verify::run(&cfg).unwrap();
     assert!(report.referenced_blobs.contains(&hash));
     assert!(report.orphan_blobs.is_empty());
     assert!(report.render().contains("references: 1"));
@@ -379,7 +379,7 @@ async fn verify_succeeds_with_orphan_only() {
     blobs.put_verified(&hash, blob).await.unwrap();
 
     let cfg = make_config(&state.data_dir);
-    let report = verify::run(&cfg, false).unwrap();
+    let report = verify::run(&cfg).unwrap();
     assert_eq!(report.orphan_blobs, vec![hash]);
     assert!(report.render().contains("orphans: 1"));
     assert!(report
@@ -405,7 +405,7 @@ async fn verify_no_fail_overrides_corrupt_blob_failure() {
     std::fs::write(blob_path, b"corrupt").unwrap();
 
     let cfg = make_config(&state.data_dir);
-    let report = verify::run(&cfg, true).unwrap();
+    let report = verify::run(&cfg).unwrap();
     assert_eq!(report.corrupt_blobs.len(), 1);
     assert!(!report.should_exit_success(false));
     assert!(report.should_exit_success(true));

@@ -154,7 +154,7 @@ fn main() -> anyhow::Result<()> {
                 cfg.storage.db_path = data_dir.join("metadata.db");
             }
             pkv_sync_server::logging::init_with_config(&cfg.logging);
-            let report = pkv_sync_server::cli::verify::run(&cfg, no_fail)?;
+            let report = pkv_sync_server::cli::verify::run(&cfg)?;
             report.print();
             if !report.should_exit_success(no_fail) {
                 anyhow::bail!("verification failed");
