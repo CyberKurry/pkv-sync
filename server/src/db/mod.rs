@@ -9,7 +9,10 @@ mod tests {
     fn sqlite_safe_bind_limit_is_not_redefined_in_hot_paths() {
         for (path, source) in [
             ("db/repos/blob_ref.rs", include_str!("repos/blob_ref.rs")),
-            ("db/repos/blob_upload.rs", include_str!("repos/blob_upload.rs")),
+            (
+                "db/repos/blob_upload.rs",
+                include_str!("repos/blob_upload.rs"),
+            ),
             ("service/sync.rs", include_str!("../service/sync.rs")),
         ] {
             assert!(

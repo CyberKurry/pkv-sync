@@ -25,33 +25,13 @@ pub fn format_duration_seconds(seconds: u64, lang: &str) -> String {
     let lang = lang.to_ascii_lowercase();
     let (day_unit, hour_unit, minute_unit, second_unit) =
         if lang.starts_with("zh-hant") || lang.starts_with("zh-tw") || lang.starts_with("zh-hk") {
-            (
-                "\u{5929}",
-                "\u{5c0f}\u{6642}",
-                "\u{5206}",
-                "\u{79d2}",
-            )
+            ("\u{5929}", "\u{5c0f}\u{6642}", "\u{5206}", "\u{79d2}")
         } else if lang.starts_with("zh") {
-            (
-                "\u{5929}",
-                "\u{5c0f}\u{65f6}",
-                "\u{5206}",
-                "\u{79d2}",
-            )
+            ("\u{5929}", "\u{5c0f}\u{65f6}", "\u{5206}", "\u{79d2}")
         } else if lang.starts_with("ja") {
-            (
-                "\u{65e5}",
-                "\u{6642}\u{9593}",
-                "\u{5206}",
-                "\u{79d2}",
-            )
+            ("\u{65e5}", "\u{6642}\u{9593}", "\u{5206}", "\u{79d2}")
         } else if lang.starts_with("ko") {
-            (
-                "\u{c77c}",
-                "\u{c2dc}\u{ac04}",
-                "\u{bd84}",
-                "\u{cd08}",
-            )
+            ("\u{c77c}", "\u{c2dc}\u{ac04}", "\u{bd84}", "\u{cd08}")
         } else {
             ("d", "h", "m", "s")
         };
@@ -92,15 +72,30 @@ mod tests {
         );
         assert_eq!(
             format_duration_seconds(105_802, "zh-Hant"),
-            concat!("1\u{5929}", " 5\u{5c0f}\u{6642}", " 23\u{5206}", " 22\u{79d2}")
+            concat!(
+                "1\u{5929}",
+                " 5\u{5c0f}\u{6642}",
+                " 23\u{5206}",
+                " 22\u{79d2}"
+            )
         );
         assert_eq!(
             format_duration_seconds(105_802, "ja"),
-            concat!("1\u{65e5}", " 5\u{6642}\u{9593}", " 23\u{5206}", " 22\u{79d2}")
+            concat!(
+                "1\u{65e5}",
+                " 5\u{6642}\u{9593}",
+                " 23\u{5206}",
+                " 22\u{79d2}"
+            )
         );
         assert_eq!(
             format_duration_seconds(105_802, "ko"),
-            concat!("1\u{c77c}", " 5\u{c2dc}\u{ac04}", " 23\u{bd84}", " 22\u{cd08}")
+            concat!(
+                "1\u{c77c}",
+                " 5\u{c2dc}\u{ac04}",
+                " 23\u{bd84}",
+                " 22\u{cd08}"
+            )
         );
     }
 }

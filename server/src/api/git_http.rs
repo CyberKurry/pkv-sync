@@ -337,8 +337,8 @@ async fn authenticate_basic_inner(
     let auth_header = headers
         .get("authorization")
         .ok_or(BasicAuthErr::Credential)?;
-    let token_raw = git_basic::extract_token_from_basic(auth_header)
-        .ok_or(BasicAuthErr::Credential)?;
+    let token_raw =
+        git_basic::extract_token_from_basic(auth_header).ok_or(BasicAuthErr::Credential)?;
     if !token::looks_valid(&token_raw) {
         return Err(BasicAuthErr::Credential);
     }
@@ -411,10 +411,7 @@ mod tests {
     fn basic_header_for_token(raw: &str) -> HeaderMap {
         let encoded = base64::engine::general_purpose::STANDARD.encode(format!("git:{raw}"));
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "authorization",
-            format!("Basic {encoded}").parse().unwrap(),
-        );
+        headers.insert("authorization", format!("Basic {encoded}").parse().unwrap());
         headers
     }
 

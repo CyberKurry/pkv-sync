@@ -1,8 +1,8 @@
 use crate::api::error::ApiError;
-use crate::db::SQLITE_SAFE_BIND_LIMIT;
 use crate::db::repos::{
     BlobRefRepo, BlobUploadRepo, IdempotencyRepo, NewActivity, RuntimeConfig, SyncActivityRepo,
 };
+use crate::db::SQLITE_SAFE_BIND_LIMIT;
 use crate::service::events::{EventChange, EventKind, VaultEvent};
 use crate::service::exclude::SyncPathFilter;
 use crate::service::merge::MergeOutcome;

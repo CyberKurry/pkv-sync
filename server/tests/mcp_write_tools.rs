@@ -573,7 +573,10 @@ async fn move_file_preserves_content_and_history() {
     .fetch_one(&state.pool)
     .await
     .unwrap();
-    assert!(details.contains("\"path\":\"a.md -> folder/b.md\""), "{details}");
+    assert!(
+        details.contains("\"path\":\"a.md -> folder/b.md\""),
+        "{details}"
+    );
     assert!(details.contains("\"size_bytes\":8"), "{details}");
 
     let changes = post_tool(
@@ -1038,14 +1041,12 @@ async fn move_file_invalid_source_does_not_burn_rate_limit() {
         .commit_changes(
             &vault.id,
             None,
-            &[
-                FileChange::Upsert {
-                    path: "source.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"source".to_vec(),
-                    },
+            &[FileChange::Upsert {
+                path: "source.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"source".to_vec(),
                 },
-            ],
+            }],
             "seed move invalid source rate",
         )
         .await
