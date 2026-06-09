@@ -99,7 +99,12 @@ pub fn is_sha256_hex(s: &str) -> bool {
 #[async_trait]
 impl BlobStore for LocalFsBlobStore {
     async fn has(&self, hash: &str) -> BlobResult<bool> {
-        Ok(tokio::fs::try_exists(self.path_for(hash)?).await?)
+        let path = self.path_for(hash)?;
+        match tokio::fs::symlink_metadata(path).await {
+            Ok(metadata) => Ok(!metadata.file_type().is_symlink()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(err.into()),
+        }
     }
 
     async fn put_verified(&self, expected_hash: &str, bytes: Bytes) -> BlobResult<()> {
@@ -169,7 +174,8 @@ impl BlobStore for LocalFsBlobStore {
 
     async fn size_bytes(&self, hash: &str) -> BlobResult<Option<u64>> {
         let path = self.path_for(hash)?;
-        match tokio::fs::metadata(path).await {
+        match tokio::fs::symlink_metadata(path).await {
+            Ok(metadata) if metadata.file_type().is_symlink() => Ok(None),
             Ok(metadata) => Ok(Some(metadata.len())),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(err.into()),
@@ -291,6 +297,48 @@ mod tests {
         assert!(implementation.contains("is_symlink"));
     }
 
+    #[test]
+    fn has_checks_symlink_metadata_before_reporting_blob_path() {
+        let source = include_str!("blob.rs");
+        let impl_start = source
+            .find("impl BlobStore for LocalFsBlobStore")
+            .expect("blob store impl exists");
+        let fn_start = source[impl_start..]
+            .find("async fn has(&self, hash: &str)")
+            .map(|idx| impl_start + idx)
+            .expect("has implementation exists");
+        let fn_end = source[fn_start..]
+            .find("\n    async fn put_verified")
+            .map(|idx| fn_start + idx)
+            .expect("put_verified follows has");
+        let implementation = &source[fn_start..fn_end];
+
+        assert!(implementation.contains("symlink_metadata"));
+        assert!(implementation.contains("is_symlink"));
+        assert!(!implementation.contains("try_exists"));
+    }
+
+    #[test]
+    fn size_bytes_checks_symlink_metadata_before_reporting_blob_path() {
+        let source = include_str!("blob.rs");
+        let impl_start = source
+            .find("impl BlobStore for LocalFsBlobStore")
+            .expect("blob store impl exists");
+        let fn_start = source[impl_start..]
+            .find("async fn size_bytes(&self, hash: &str)")
+            .map(|idx| impl_start + idx)
+            .expect("size_bytes implementation exists");
+        let fn_end = source[fn_start..]
+            .find("\n    async fn delete")
+            .map(|idx| fn_start + idx)
+            .expect("delete follows size_bytes");
+        let implementation = &source[fn_start..fn_end];
+
+        assert!(implementation.contains("symlink_metadata"));
+        assert!(implementation.contains("is_symlink"));
+        assert!(!implementation.contains("tokio::fs::metadata"));
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn get_rejects_symlinked_blob_path() {
@@ -308,6 +356,24 @@ mod tests {
         let err = store.get(&hash).await.unwrap_err();
 
         assert!(err.to_string().contains("symlink"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn has_and_size_bytes_hide_symlinked_blob_path() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = LocalFsBlobStore::new(dir.path().join("blobs"));
+        let target = dir.path().join("target");
+        std::fs::write(&target, b"secret").unwrap();
+        let hash = LocalFsBlobStore::sha256(b"secret");
+        let path = store.path_for(&hash).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        symlink(&target, &path).unwrap();
+
+        assert!(!store.has(&hash).await.unwrap());
+        assert_eq!(store.size_bytes(&hash).await.unwrap(), None);
     }
 
     #[test]
