@@ -256,7 +256,7 @@ pub async fn list_files(
         .await?
         .into_iter()
         .map(|entry| entry.path)
-        .filter(|path| filter.path_accepts(path))
+        .filter(|path| sync::path_visible_on_read(&filter, path))
         .collect::<Vec<_>>();
     paths.sort();
     Ok(ListFilesOutput { paths })
@@ -302,7 +302,7 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         .list_tree(&input.vault_id, input.at.as_deref())
         .await?
         .into_iter()
-        .filter(|entry| filter.path_accepts(&entry.path))
+        .filter(|entry| sync::path_visible_on_read(&filter, &entry.path))
         .collect::<Vec<_>>();
     if entries.len() > SEARCH_MAX_TREE_FILES {
         bail!("too many files to search: {}", entries.len());
@@ -378,7 +378,7 @@ pub async fn link_graph(
                 && classifier.is_text_path(&entry.path)
                 && entry.path.starts_with(prefix)
                 && !crate::service::exclude::is_hidden_path(&entry.path)
-                && filter.path_accepts(&entry.path)
+                && sync::path_visible_on_read(&filter, &entry.path)
         })
         .collect::<Vec<_>>();
     visible.sort_by(|left, right| left.path.cmp(&right.path));
@@ -534,7 +534,7 @@ pub async fn changes_since(
 }
 
 fn mcp_path_visible(filter: &SyncPathFilter, path: &str) -> bool {
-    !crate::service::exclude::is_hidden_path(path) && filter.path_accepts(path)
+    !crate::service::exclude::is_hidden_path(path) && sync::path_visible_on_read(filter, path)
 }
 
 fn contains_ascii_case_insensitive(haystack: &str, lowercase_needle: &str) -> bool {

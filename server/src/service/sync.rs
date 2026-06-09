@@ -368,11 +368,18 @@ pub(crate) async fn ensure_path_visible_for_sync_api(
         path::normalize(path).map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
     let rc = state.runtime_cfg.snapshot().await;
     let path_filter = sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await?;
-    if path_filter.path_accepts(&normalized) {
+    if path_visible_on_read(&path_filter, &normalized) {
         Ok(normalized)
     } else {
         Err(ApiError::not_found("file not found"))
     }
+}
+
+pub(crate) fn path_visible_on_read(
+    filter: &crate::service::exclude::SyncPathFilter,
+    path: &str,
+) -> bool {
+    filter.path_accepts(path) || is_generated_conflict_sidecar(path)
 }
 
 fn reject_filtered_push_path(
@@ -1150,6 +1157,19 @@ fn conflict_path_for(original: &str, device_name: &str) -> String {
     }
 }
 
+/// A server-generated auto-merge conflict sidecar must remain visible on
+/// read/pull surfaces even when its name matches a user exclude glob.
+pub(crate) fn is_generated_conflict_sidecar(path: &str) -> bool {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    match file.find(".conflict-") {
+        Some(idx) => {
+            let after = &file[idx + ".conflict-".len()..];
+            after.len() > 4 && after.as_bytes()[..4].iter().all(u8::is_ascii_digit)
+        }
+        None => false,
+    }
+}
+
 fn safe_conflict_device_name(name: &str) -> String {
     let mut out = String::new();
     let mut last_dash = false;
@@ -1634,7 +1654,7 @@ async fn pull_for_user(
     let mut deleted = Vec::new();
 
     for (path, cur) in &current {
-        if !path_filter.path_accepts(path) {
+        if !path_visible_on_read(&path_filter, path) {
             continue;
         }
         match base.get(path) {
@@ -1646,7 +1666,7 @@ async fn pull_for_user(
         }
     }
     for path in base.keys() {
-        if !current.contains_key(path) && path_filter.path_accepts(path) {
+        if !current.contains_key(path) && path_visible_on_read(&path_filter, path) {
             deleted.push(path.clone());
         }
     }
@@ -2022,6 +2042,22 @@ mod tests {
             ensure_generated_push_path(&conflict)
                 .expect("generated sidecar with literal percent escape should remain valid");
         }
+    }
+
+    #[test]
+    fn generated_conflict_sidecar_detection_is_narrow() {
+        assert!(is_generated_conflict_sidecar(
+            "notes/daily.conflict-2026-06-09-123456-abcd1234-Laptop.md"
+        ));
+        assert!(is_generated_conflict_sidecar(
+            "conflict.conflict-2026-06-09-123456-abcd1234.md"
+        ));
+        assert!(!is_generated_conflict_sidecar(
+            "notes/daily.conflict-Laptop.md"
+        ));
+        assert!(!is_generated_conflict_sidecar(
+            "notes/conflict-2026-06-09.md"
+        ));
     }
 
     #[test]
@@ -3014,6 +3050,88 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn pull_returns_conflict_sidecar_even_when_excluded() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        state
+            .runtime_cfg_repo
+            .set_extra_exclude_globs(vec!["*.conflict-*".into()], None)
+            .await
+            .unwrap();
+        state
+            .runtime_cfg
+            .replace(state.runtime_cfg_repo.load().await.unwrap())
+            .await;
+
+        let base = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("base".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "base\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let current = push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("remote".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "remote\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let merged = push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("Laptop".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "local\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        assert_ne!(merged.new_commit, current.new_commit);
+
+        let pulled = pull(&state, &user.user_id, &vid, Some(&base.new_commit))
+            .await
+            .unwrap();
+
+        assert!(
+            pulled
+                .added
+                .iter()
+                .any(|file| file.path.contains(".conflict-")),
+            "expected generated conflict sidecar in pull added set, got {:?}",
+            pulled
+                .added
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[tokio::test]
