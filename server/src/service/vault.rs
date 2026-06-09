@@ -69,6 +69,16 @@ pub async fn rollback_to_commit_as(
 
     let push_lock = state.vault_push_lock(vault_id);
     let _push_guard = push_lock.lock().await;
+    let vault = state
+        .vaults
+        .find_by_id(vault_id)
+        .await
+        .map_err(rollback_db_error)?
+        .ok_or(RollbackError::NotFound)?;
+    if !actor.is_admin && vault.user_id != actor.user_id {
+        return Err(RollbackError::Forbidden);
+    }
+
     let git = state.git_store();
     let from_commit = git.head(vault_id).await.map_err(rollback_git_error)?;
     let reachable = git
@@ -315,6 +325,7 @@ mod tests {
     use crate::db::pool;
     use crate::db::repos::{NewUser, UserRepo};
     use crate::service::vault_settings;
+    use crate::storage::git::{FileChange, StoredFile};
 
     fn expected_starter_extra_sync_globs() -> Vec<String> {
         [
@@ -516,5 +527,70 @@ mod tests {
         drop(lock);
         s.remove_vault_push_lock(&v.id);
         assert_eq!(s.vault_push_lock_count_for_tests(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rollback_rechecks_vault_after_waiting_for_push_lock() {
+        let (s, uid, _tmp) = state_and_user().await;
+        let v = create_vault(&s, &uid, "main").await.unwrap();
+        let git = s.git_store();
+        let first = git
+            .commit_changes(
+                &v.id,
+                None,
+                &[FileChange::Upsert {
+                    path: "note.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"first".to_vec(),
+                    },
+                }],
+                "first",
+            )
+            .await
+            .unwrap();
+        git.commit_changes(
+            &v.id,
+            Some(&first),
+            &[FileChange::Upsert {
+                path: "note.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"second".to_vec(),
+                },
+            }],
+            "second",
+        )
+        .await
+        .unwrap();
+
+        let push_lock = s.vault_push_lock(&v.id);
+        let push_guard = push_lock.lock().await;
+        let rollback_state = s.clone();
+        let rollback_user_id = uid.clone();
+        let rollback_vault_id = v.id.clone();
+        let rollback_target = first.clone();
+        let rollback = tokio::spawn(async move {
+            let actor = RollbackActor {
+                user_id: &rollback_user_id,
+                is_admin: false,
+                token_id: None,
+                device_id: "rollback-test",
+            };
+            rollback_to_commit_as(&rollback_state, actor, &rollback_vault_id, &rollback_target)
+                .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            !rollback.is_finished(),
+            "rollback should be waiting for the vault push lock"
+        );
+        assert!(s.vaults.delete_for_user(&uid, &v.id).await.unwrap());
+        drop(push_guard);
+
+        let err = rollback.await.unwrap().unwrap_err();
+        assert!(
+            matches!(err, RollbackError::NotFound),
+            "rollback should re-check vault ownership after acquiring the lock, got {err:?}"
+        );
     }
 }
