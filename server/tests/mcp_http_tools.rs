@@ -175,8 +175,8 @@ async fn http_mcp_auth_failures_are_limited_per_client_source() {
 
     assert_eq!(first.0, StatusCode::UNAUTHORIZED);
     assert_eq!(second.0, StatusCode::UNAUTHORIZED);
-    assert_eq!(first.2["error"]["message"], "invalid token format");
-    assert_eq!(second.2["error"]["message"], "invalid token format");
+    assert_eq!(first.2["error"]["message"], "invalid or revoked token");
+    assert_eq!(second.2["error"]["message"], "invalid or revoked token");
 }
 
 #[tokio::test]
