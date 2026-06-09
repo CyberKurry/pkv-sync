@@ -7,6 +7,29 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-09
+
+### Security
+
+- Keep generated auto-merge conflict sidecars visible on read and MCP surfaces
+  even when their filenames match user exclude globs.
+- Harden authentication, authorization, path, Git, and database edge cases,
+  including generic MCP auth errors, neutral rate-limit release on internal MCP
+  auth failures, rightmost trusted-proxy `X-Forwarded-For` handling, atomic
+  password changes, atomic invite registration, strict Git OID parsing, and
+  private SQLite file permissions on Unix.
+- Preserve filtered-path guarantees for read and diff surfaces while documenting
+  the internal helper precondition.
+
+### Fixed
+
+- Return admin template render failures as internal errors instead of panicking.
+- Log orphaned vault storage paths when vault deletion removes the database row
+  but filesystem cleanup fails.
+- Bound low-level Git change-list and tree-recursion work, clamp MCP JSON body
+  limits, reject generated backslash paths, reject symlinked blob files, and
+  normalize `link_graph` path prefixes.
+
 ## [1.1.0] - 2026-06-08
 
 ### Added

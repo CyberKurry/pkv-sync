@@ -2,7 +2,7 @@
 
 [English](./deployment-hardening.md) | [简体中文](./deployment-hardening.zh-CN.md) | 繁體中文 | [日本語](./deployment-hardening.ja.md) | [한국어](./deployment-hardening.ko.md)
 
-文件版本：v1.1.0。
+文件版本：v1.1.1。
 
 本文假設部署對象是自己、家庭、團隊或可信朋友使用的小型自託管服務。PKV Sync 運維上比較簡單，但服務端會保存可讀的倉庫內容，因此主機和備份衛生很重要。
 

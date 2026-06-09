@@ -2,7 +2,7 @@
 
 [English](./upgrade-notes-v1.0.md) | 简体中文 | [繁體中文](./upgrade-notes-v1.0.zh-Hant.md) | [日本語](./upgrade-notes-v1.0.ja.md) | [한국어](./upgrade-notes-v1.0.ko.md)
 
-文档版本：v1.1.0。
+文档版本：v1.1.1。
 
 PKV Sync 1.0 是第一个稳定版。它也为后续 1.x 维护重置了 SQLite migration 基线。
 

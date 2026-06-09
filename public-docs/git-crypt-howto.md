@@ -2,7 +2,7 @@
 
 English | [简体中文](./git-crypt-howto.zh-CN.md) | [繁體中文](./git-crypt-howto.zh-Hant.md) | [日本語](./git-crypt-howto.ja.md) | [한국어](./git-crypt-howto.ko.md)
 
-Document version: v1.1.0.
+Document version: v1.1.1.
 
 > **Note:** This is a stop-gap guide for end-to-end encryption (E2EE) before
 > native E2EE ships. The PKV Sync server can still see filenames and commit

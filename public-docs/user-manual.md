@@ -2,7 +2,7 @@
 
 English | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
-Document version: v1.1.0.
+Document version: v1.1.1.
 
 This manual is for Obsidian users who connect to an existing PKV Sync server.
 Ask your server administrator for the server share URL and an account or invite
