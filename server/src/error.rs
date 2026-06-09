@@ -16,9 +16,6 @@ pub enum Error {
     #[error("io error at {0}: {1}")]
     Io(PathBuf, #[source] std::io::Error),
 
-    #[error("invalid configuration: {0}")]
-    InvalidConfig(String),
-
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -37,8 +34,10 @@ mod tests {
     }
 
     #[test]
-    fn invalid_config_renders() {
-        let e = Error::InvalidConfig("bind_addr empty".into());
-        assert_eq!(e.to_string(), "invalid configuration: bind_addr empty");
+    fn error_type_does_not_keep_unused_invalid_config_variant() {
+        let source = include_str!("error.rs");
+        let invalid_config_variant = concat!("Invalid", "Config");
+
+        assert!(!source.contains(invalid_config_variant));
     }
 }

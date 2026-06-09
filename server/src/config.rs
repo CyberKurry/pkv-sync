@@ -1,9 +1,9 @@
 use ipnet::IpNet;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub server: ServerConfig,
     pub storage: StorageConfig,
@@ -16,7 +16,7 @@ pub struct Config {
     pub mcp: McpConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub bind_addr: SocketAddr,
     /// Required. Use `pkvsyncd genkey` to generate.
@@ -26,19 +26,19 @@ pub struct ServerConfig {
     pub public_host: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct StorageConfig {
     pub data_dir: PathBuf,
     pub db_path: PathBuf,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct NetworkConfig {
     /// IPs/CIDRs whose `X-Forwarded-For` we trust.
     pub trusted_proxies: Vec<IpNet>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct LoggingConfig {
     #[serde(default = "default_log_level")]
     pub level: String,
@@ -46,7 +46,7 @@ pub struct LoggingConfig {
     pub format: LoggingFormat,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct UpdateCheckConfig {
     #[serde(default = "default_update_check_enabled")]
     pub enabled: bool,
@@ -56,13 +56,13 @@ pub struct UpdateCheckConfig {
     pub repo: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct McpConfig {
     #[serde(default)]
     pub embed_in_serve: bool,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum LoggingFormat {
     #[default]
     Json,
@@ -102,15 +102,6 @@ fn default_update_check_interval_seconds() -> u64 {
 
 fn default_update_check_repo() -> String {
     "cyberkurry/pkv-sync".to_string()
-}
-
-impl LoggingFormat {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Json => "json",
-            Self::Pretty => "pretty",
-        }
-    }
 }
 
 impl<'de> Deserialize<'de> for LoggingFormat {
@@ -222,7 +213,7 @@ mod tests {
         assert_eq!(cfg.server.deployment_key, VALID_DEPLOYMENT_KEY);
         assert_eq!(cfg.network.trusted_proxies.len(), 2);
         assert_eq!(cfg.logging.level, "info");
-        assert_eq!(cfg.logging.format.as_str(), "json");
+        assert_eq!(cfg.logging.format, LoggingFormat::Json);
     }
 
     #[test]
@@ -247,7 +238,7 @@ mod tests {
         );
         let cfg = Config::load(f.path()).expect("config loads");
         assert_eq!(cfg.logging.level, "debug");
-        assert_eq!(cfg.logging.format.as_str(), "pretty");
+        assert_eq!(cfg.logging.format, LoggingFormat::Pretty);
     }
 
     #[test]
@@ -464,5 +455,15 @@ mod tests {
         );
         let cfg = Config::load(f.path()).unwrap();
         assert!(cfg.mcp.embed_in_serve);
+    }
+
+    #[test]
+    fn config_types_do_not_keep_unused_serialization_helpers() {
+        let source = include_str!("config.rs");
+        let serialize_ident = concat!("Serial", "ize");
+        let as_str_method = concat!("pub fn as", "_str");
+
+        assert!(!source.contains(serialize_ident));
+        assert!(!source.contains(as_str_method));
     }
 }
