@@ -301,7 +301,12 @@ async fn remove_vault_storage(state: &AppState, vault_id: &str) -> Result<(), Ap
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => {
-            tracing::error!(vault_id = %vault_id, path = %path.display(), error = %e, "failed to remove vault storage");
+            tracing::error!(
+                vault_id = %vault_id,
+                path = %path.display(),
+                error = %e,
+                "orphaned vault storage after database row deletion"
+            );
             Err(ApiError::internal("failed to remove vault storage"))
         }
     }
@@ -326,6 +331,7 @@ mod tests {
     use crate::db::repos::{NewUser, UserRepo};
     use crate::service::vault_settings;
     use crate::storage::git::{FileChange, StoredFile};
+    use std::sync::{Arc, Mutex};
 
     fn expected_starter_extra_sync_globs() -> Vec<String> {
         [
@@ -359,6 +365,42 @@ mod tests {
             .await
             .unwrap();
         (state, u.id, tmp)
+    }
+
+    #[derive(Clone, Default)]
+    struct CapturedLogs {
+        bytes: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl CapturedLogs {
+        fn text(&self) -> String {
+            String::from_utf8(self.bytes.lock().unwrap().clone()).unwrap()
+        }
+    }
+
+    struct CapturedLogWriter {
+        bytes: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl std::io::Write for CapturedLogWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.bytes.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'writer> tracing_subscriber::fmt::MakeWriter<'writer> for CapturedLogs {
+        type Writer = CapturedLogWriter;
+
+        fn make_writer(&'writer self) -> Self::Writer {
+            CapturedLogWriter {
+                bytes: self.bytes.clone(),
+            }
+        }
     }
 
     #[tokio::test]
@@ -519,10 +561,28 @@ mod tests {
             .await
             .unwrap();
         let lock = s.vault_push_lock(&v.id);
+        let logs = CapturedLogs::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::ERROR)
+            .with_writer(logs.clone())
+            .without_time()
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
 
         let err = delete_vault_for_user(&s, &uid, &v.id).await.unwrap_err();
 
         assert_eq!(err.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(s.vaults.find_by_id(&v.id).await.unwrap().is_none());
+        let log_output = logs.text();
+        assert!(log_output.contains(&v.id), "{log_output}");
+        assert!(
+            log_output.contains(&repo_path.display().to_string()),
+            "{log_output}"
+        );
+        assert!(
+            log_output.contains("orphaned vault storage after database row deletion"),
+            "{log_output}"
+        );
         assert_eq!(s.vault_push_lock_count_for_tests(), 1);
         drop(lock);
         s.remove_vault_push_lock(&v.id);

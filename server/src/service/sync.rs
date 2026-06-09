@@ -1828,6 +1828,10 @@ fn pointer_bytes(bytes: &[u8], require_magic: bool) -> Option<StoredFile> {
     Some(StoredFile::BlobPointer { hash, size, mime })
 }
 
+/// Read a normalized vault path after the caller has enforced read visibility.
+///
+/// REST and MCP handlers must call `ensure_path_visible_for_sync_api` (or an
+/// equivalent read-surface filter) before reaching this helper.
 pub async fn read_file(
     state: &AppState,
     user_id: &str,

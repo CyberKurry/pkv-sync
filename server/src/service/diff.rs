@@ -32,6 +32,10 @@ pub struct UnifiedDiff {
     pub patch: String,
 }
 
+/// Build a unified diff for a vault path after the caller has enforced read visibility.
+///
+/// REST handlers must call `sync::ensure_path_visible_for_sync_api` before this
+/// helper so user exclude globs remain hidden from diff/read surfaces.
 pub async fn unified_diff(
     state: &AppState,
     user_id: &str,
