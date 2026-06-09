@@ -1,4 +1,5 @@
 use crate::api::error::ApiError;
+use crate::db::SQLITE_SAFE_BIND_LIMIT;
 use crate::db::repos::{
     BlobRefRepo, BlobUploadRepo, IdempotencyRepo, NewActivity, RuntimeConfig, SyncActivityRepo,
 };
@@ -31,7 +32,6 @@ const MAX_SSE_INLINE_PUSH_BYTES: usize = 64 * 1024;
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
 const MAX_COMMIT_DEVICE_NAME_CHARS: usize = 128;
 const MAX_PULL_TREE_ENTRIES: usize = 50_000;
-const SQLITE_SAFE_BIND_LIMIT: usize = 900;
 const BLOB_REF_BINDS_PER_ROW: usize = 3;
 const BLOB_UPLOAD_DELETE_SHARED_BINDS: usize = 1;
 #[cfg(test)]

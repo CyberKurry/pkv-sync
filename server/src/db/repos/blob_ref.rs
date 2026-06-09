@@ -1,8 +1,8 @@
+use crate::db::SQLITE_SAFE_BIND_LIMIT;
 use async_trait::async_trait;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::HashSet;
 
-const SQLITE_SAFE_BIND_LIMIT: usize = 900;
 const ADD_REFS_BINDS_PER_ROW: usize = 3;
 const QUERY_REFS_SHARED_BINDS: usize = 1;
 

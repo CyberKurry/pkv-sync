@@ -1,8 +1,8 @@
+use crate::db::SQLITE_SAFE_BIND_LIMIT;
 use async_trait::async_trait;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::HashSet;
 
-const SQLITE_SAFE_BIND_LIMIT: usize = 900;
 const DELETE_UPLOADS_SHARED_BINDS: usize = 1;
 const QUERY_UPLOADS_SHARED_BINDS: usize = 1;
 
