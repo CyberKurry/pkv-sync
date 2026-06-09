@@ -368,7 +368,11 @@ pub async fn link_graph(
         .map_err(api_error_to_anyhow)?;
     let git = state.git_store();
     let classifier = TextClassifier::default();
-    let prefix = input.path_prefix.as_deref().unwrap_or("");
+    let prefix = match input.path_prefix {
+        Some(prefix) if prefix.is_empty() => String::new(),
+        Some(prefix) => normalize_mcp_path(prefix)?,
+        None => String::new(),
+    };
     let mut visible = git
         .list_tree(&input.vault_id, input.at.as_deref())
         .await?
@@ -376,7 +380,7 @@ pub async fn link_graph(
         .filter(|entry| {
             !entry.is_blob_pointer
                 && classifier.is_text_path(&entry.path)
-                && entry.path.starts_with(prefix)
+                && entry.path.starts_with(&prefix)
                 && !crate::service::exclude::is_hidden_path(&entry.path)
                 && sync::path_visible_on_read(&filter, &entry.path)
         })
@@ -1469,6 +1473,41 @@ mod tests {
                 && broken.raw_link == "dup"
                 && broken.reason == BrokenReason::Ambiguous
         }));
+    }
+
+    #[tokio::test]
+    async fn link_graph_normalizes_path_prefix() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                ("docs/a.md", "[[b]]"),
+                ("docs/b.md", "linked"),
+                ("other.md", "outside prefix"),
+            ],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: Some("./docs".into()),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let node_paths = out
+            .nodes
+            .iter()
+            .map(|node| node.path.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(node_paths, vec!["docs/a.md", "docs/b.md"]);
     }
 
     #[tokio::test]
