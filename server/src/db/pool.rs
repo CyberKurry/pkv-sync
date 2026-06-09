@@ -1,8 +1,11 @@
 use crate::Result;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{ConnectOptions, SqlitePool};
+#[cfg(any(unix, test))]
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(any(unix, test))]
+use std::path::PathBuf;
 #[cfg(test)]
 use std::str::FromStr;
 
@@ -31,6 +34,7 @@ pub async fn connect(db_path: &Path) -> Result<SqlitePool> {
     Ok(pool)
 }
 
+#[cfg(any(unix, test))]
 fn sqlite_permission_targets(db_path: &Path) -> Vec<PathBuf> {
     [None, Some("-wal"), Some("-shm")]
         .into_iter()
