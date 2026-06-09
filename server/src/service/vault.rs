@@ -190,7 +190,7 @@ fn rollback_git_error(err: GitStoreError) -> RollbackError {
     }
 }
 
-pub fn validate_vault_name(name: &str) -> Result<(), ApiError> {
+pub fn validate_vault_name(name: &str) -> Result<&str, ApiError> {
     let trimmed = name.trim();
     if trimmed.is_empty() || trimmed.len() > 64 {
         return Err(ApiError::bad_request(
@@ -198,23 +198,23 @@ pub fn validate_vault_name(name: &str) -> Result<(), ApiError> {
             "vault name length must be 1-64",
         ));
     }
-    if name.contains('/') || name.contains('\\') {
+    if trimmed.contains('/') || trimmed.contains('\\') {
         return Err(ApiError::bad_request(
             "invalid_vault_name",
             "vault name cannot contain path separators",
         ));
     }
-    if name.chars().any(char::is_control) {
+    if trimmed.chars().any(char::is_control) {
         return Err(ApiError::bad_request(
             "invalid_vault_name",
             "vault name cannot contain control characters",
         ));
     }
-    Ok(())
+    Ok(trimmed)
 }
 
 pub async fn create_vault(state: &AppState, user_id: &str, name: &str) -> Result<Vault, ApiError> {
-    validate_vault_name(name)?;
+    let name = validate_vault_name(name)?;
     let vault = state.vaults.create(user_id, name).await.map_err(|err| {
         if repos::vault::is_user_name_unique_error(&err) {
             ApiError::conflict("vault_name_taken", "vault name already exists")
@@ -411,6 +411,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_vault_trims_name_before_storing() {
+        let (s, uid, _tmp) = state_and_user().await;
+        let v = create_vault(&s, &uid, " main ").await.unwrap();
+
+        assert_eq!(v.name, "main");
+        assert_eq!(
+            s.vaults.find_by_id(&v.id).await.unwrap().unwrap().name,
+            "main"
+        );
+    }
+
+    #[tokio::test]
     async fn create_vault_saves_starter_settings() {
         let (s, uid, _tmp) = state_and_user().await;
         let v = create_vault(&s, &uid, "main").await.unwrap();
@@ -449,6 +461,16 @@ mod tests {
         create_vault(&s, &uid, "main").await.unwrap();
         let err = create_vault(&s, &uid, "main").await.unwrap_err();
         assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn duplicate_name_conflicts_after_trimming() {
+        let (s, uid, _tmp) = state_and_user().await;
+        create_vault(&s, &uid, "main").await.unwrap();
+        let err = create_vault(&s, &uid, " main ").await.unwrap_err();
+
+        assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
+        assert_eq!(err.code, "vault_name_taken");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
