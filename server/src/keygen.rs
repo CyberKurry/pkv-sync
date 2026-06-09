@@ -4,7 +4,7 @@ use rand::{rngs::OsRng, RngCore};
 pub fn generate_deployment_key() -> String {
     let mut bytes = [0u8; 16];
     OsRng.fill_bytes(&mut bytes);
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let hex = hex::encode(bytes);
     format!("k_{hex}")
 }
 
@@ -27,5 +27,14 @@ mod tests {
         for _ in 0..100 {
             assert!(set.insert(generate_deployment_key()));
         }
+    }
+
+    #[test]
+    fn deployment_key_uses_hex_encoder() {
+        let source = include_str!("keygen.rs");
+        let hex_encoder_call = concat!("hex", "::", "encode");
+        let per_byte_format_call = concat!("format!", "(\"", "{b:02x}", "\")");
+        assert!(source.contains(hex_encoder_call));
+        assert!(!source.contains(per_byte_format_call));
     }
 }
