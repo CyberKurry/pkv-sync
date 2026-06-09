@@ -18,7 +18,6 @@ use crate::middleware::real_ip::{ClientIp, ForwardedFromTrustedProxy};
 use crate::service::auth::validate_username;
 use crate::service::AppState;
 use crate::storage::git::{GitVaultStore, StoredFile, TreeEntry};
-use askama::Template;
 use axum::extract::{Extension, Form, Path, Query, State};
 use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::middleware::Next;
@@ -115,6 +114,24 @@ fn admin_text(headers: &HeaderMap, cookies: &Cookies) -> crate::admin::i18n::Adm
     crate::admin::i18n::detect(headers, cookies).text()
 }
 
+fn render_html<T: askama::Template>(template: T) -> Response {
+    match template.render() {
+        Ok(html) => Html(html).into_response(),
+        Err(err) => {
+            tracing::error!(error = %err, "admin template render failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+        }
+    }
+}
+
+fn render_html_with_status<T: askama::Template>(status: StatusCode, template: T) -> Response {
+    let mut response = render_html(template);
+    if response.status() == StatusCode::OK {
+        *response.status_mut() = status;
+    }
+    response
+}
+
 fn fmt_ts(timestamp: i64, timezone: &str) -> String {
     crate::time::format_unix_seconds(timestamp, timezone)
 }
@@ -177,7 +194,7 @@ async fn login_page(
     headers: HeaderMap,
     cookies: Cookies,
     Query(params): Query<HashMap<String, String>>,
-) -> Html<String> {
+) -> Response {
     let t = admin_text(&headers, &cookies);
     let login_csrf = generate_csrf_token("lc");
     cookies.add(csrf_cookie(
@@ -190,19 +207,15 @@ async fn login_page(
         .get("setup")
         .filter(|value| value.as_str() == "complete")
         .map(|_| t.setup_success);
-    Html(
-        LoginTemplate {
-            t,
-            error: None,
-            success,
-            setup_required: state.is_setup_pending().await,
-            username_value: String::new(),
-            login_csrf,
-            version: env!("CARGO_PKG_VERSION"),
-        }
-        .render()
-        .unwrap(),
-    )
+    render_html(LoginTemplate {
+        t,
+        error: None,
+        success,
+        setup_required: state.is_setup_pending().await,
+        username_value: String::new(),
+        login_csrf,
+        version: env!("CARGO_PKG_VERSION"),
+    })
 }
 
 pub async fn setup_redirect_middleware(
@@ -366,18 +379,13 @@ async fn setup_get(
     }
     let setup_csrf = generate_setup_csrf();
     cookies.add(setup_csrf_cookie(setup_csrf.clone(), cookie_policy.secure));
-    Html(
-        SetupTemplate {
-            t: admin_text(&headers, &cookies),
-            error: None,
-            username_value: String::new(),
-            setup_csrf,
-            version: env!("CARGO_PKG_VERSION"),
-        }
-        .render()
-        .unwrap(),
-    )
-    .into_response()
+    render_html(SetupTemplate {
+        t: admin_text(&headers, &cookies),
+        error: None,
+        username_value: String::new(),
+        setup_csrf,
+        version: env!("CARGO_PKG_VERSION"),
+    })
 }
 
 async fn setup_post(
@@ -472,21 +480,16 @@ fn setup_error(
 ) -> Response {
     let setup_csrf = generate_setup_csrf();
     cookies.add(setup_csrf_cookie(setup_csrf.clone(), secure_cookie));
-    (
+    render_html_with_status(
         status,
-        Html(
-            SetupTemplate {
-                t,
-                error: Some(message),
-                username_value,
-                setup_csrf,
-                version: env!("CARGO_PKG_VERSION"),
-            }
-            .render()
-            .unwrap(),
-        ),
+        SetupTemplate {
+            t,
+            error: Some(message),
+            username_value,
+            setup_csrf,
+            version: env!("CARGO_PKG_VERSION"),
+        },
     )
-        .into_response()
 }
 
 enum SetupUsernameValidationError {
@@ -625,43 +628,33 @@ fn login_error(
         secure_cookie,
         "/admin/login",
     ));
-    (
+    render_html_with_status(
         status,
-        Html(
-            LoginTemplate {
-                t,
-                error: Some(message),
-                success: None,
-                setup_required: false,
-                username_value: String::new(),
-                login_csrf,
-                version: env!("CARGO_PKG_VERSION"),
-            }
-            .render()
-            .unwrap(),
-        ),
+        LoginTemplate {
+            t,
+            error: Some(message),
+            success: None,
+            setup_required: false,
+            username_value: String::new(),
+            login_csrf,
+            version: env!("CARGO_PKG_VERSION"),
+        },
     )
-        .into_response()
 }
 
 fn setup_required_login(t: crate::admin::i18n::AdminText, status: StatusCode) -> Response {
-    (
+    render_html_with_status(
         status,
-        Html(
-            LoginTemplate {
-                t,
-                error: None,
-                success: None,
-                setup_required: true,
-                username_value: String::new(),
-                login_csrf: String::new(),
-                version: env!("CARGO_PKG_VERSION"),
-            }
-            .render()
-            .unwrap(),
-        ),
+        LoginTemplate {
+            t,
+            error: None,
+            success: None,
+            setup_required: true,
+            username_value: String::new(),
+            login_csrf: String::new(),
+            version: env!("CARGO_PKG_VERSION"),
+        },
     )
-        .into_response()
 }
 
 async fn logout(
@@ -680,7 +673,7 @@ async fn dashboard(
     headers: HeaderMap,
     cookies: Cookies,
     session: AdminSession,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let dashboard_summary = dashboard_summary(&state).await?;
     let metrics = collect_dashboard_metrics(state.data_dir.clone()).await?;
     let t = admin_text(&headers, &cookies);
@@ -707,35 +700,31 @@ async fn dashboard(
     } else {
         "quiet"
     };
-    Ok(Html(
-        DashboardTemplate {
-            disk_used_display: crate::human::format_bytes(metrics.disk_used_bytes),
-            disk_total_display: crate::human::format_bytes(metrics.disk_total_bytes),
-            uptime_display: crate::human::format_duration_seconds(uptime_seconds, t.html_lang),
-            t,
-            username: session.user.username,
-            users: dashboard_summary.users,
-            vaults: dashboard_summary.vaults,
-            cpu_percent: metrics.cpu_percent,
-            cpu_display: format!("{:.0}", metrics.cpu_percent),
-            cpu_cores_display: crate::admin::system::format_cpu_cores(metrics.cpu_cores),
-            memory_display: crate::human::format_bytes(
-                metrics.memory_used_mb.saturating_mul(1024 * 1024),
-            ),
-            memory_total_display: crate::human::format_bytes(
-                metrics.memory_total_mb.saturating_mul(1024 * 1024),
-            ),
-            update_status,
-            current_version: env!("CARGO_PKG_VERSION"),
-            last_update_check_display,
-            sse_subscribers,
-            last_sync_activity_display,
-            sync_status_state,
-            recent_activities,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(DashboardTemplate {
+        disk_used_display: crate::human::format_bytes(metrics.disk_used_bytes),
+        disk_total_display: crate::human::format_bytes(metrics.disk_total_bytes),
+        uptime_display: crate::human::format_duration_seconds(uptime_seconds, t.html_lang),
+        t,
+        username: session.user.username,
+        users: dashboard_summary.users,
+        vaults: dashboard_summary.vaults,
+        cpu_percent: metrics.cpu_percent,
+        cpu_display: format!("{:.0}", metrics.cpu_percent),
+        cpu_cores_display: crate::admin::system::format_cpu_cores(metrics.cpu_cores),
+        memory_display: crate::human::format_bytes(
+            metrics.memory_used_mb.saturating_mul(1024 * 1024),
+        ),
+        memory_total_display: crate::human::format_bytes(
+            metrics.memory_total_mb.saturating_mul(1024 * 1024),
+        ),
+        update_status,
+        current_version: env!("CARGO_PKG_VERSION"),
+        last_update_check_display,
+        sse_subscribers,
+        last_sync_activity_display,
+        sync_status_state,
+        recent_activities,
+    }))
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -787,7 +776,7 @@ async fn users_page(
     cookies: Cookies,
     _session: AdminSession,
     Query(filters): Query<UserFilters>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let timezone = state.runtime_cfg.snapshot().await.timezone;
     let query = filters.q.unwrap_or_default().trim().to_string();
     let status = match filters.status.as_deref() {
@@ -795,17 +784,13 @@ async fn users_page(
         _ => String::new(),
     };
     let users = list_admin_users(&state, &timezone, &query, &status).await?;
-    Ok(Html(
-        UsersTemplate {
-            t: admin_text(&headers, &cookies),
-            users,
-            query,
-            status,
-            message: None,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(UsersTemplate {
+        t: admin_text(&headers, &cookies),
+        users,
+        query,
+        status,
+        message: None,
+    }))
 }
 
 async fn list_admin_users(
@@ -929,7 +914,7 @@ async fn user_detail(
     cookies: Cookies,
     _session: AdminSession,
     Path(id): Path<String>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let user = state
         .users
         .find_by_id(&id)
@@ -943,18 +928,14 @@ async fn user_detail(
         .into_iter()
         .map(|token| token_view(token, &timezone))
         .collect();
-    Ok(Html(
-        UserDetailTemplate {
-            t: admin_text(&headers, &cookies),
-            user: user_view(user, &timezone),
-            tokens,
-            message: None,
-            error: None,
-            created_token: None,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(UserDetailTemplate {
+        t: admin_text(&headers, &cookies),
+        user: user_view(user, &timezone),
+        tokens,
+        message: None,
+        error: None,
+        created_token: None,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -986,7 +967,7 @@ async fn create_token_form(
     _session: AdminSession,
     Path(id): Path<String>,
     Form(form): Form<TokenForm>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let user = state
         .users
         .find_by_id(&id)
@@ -1013,18 +994,14 @@ async fn create_token_form(
         .into_iter()
         .map(|token| token_view(token, &timezone))
         .collect();
-    Ok(Html(
-        UserDetailTemplate {
-            t: admin_text(&headers, &cookies),
-            user: user_view(user, &timezone),
-            tokens,
-            message: Some("Device token created".into()),
-            error: None,
-            created_token: Some(raw),
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(UserDetailTemplate {
+        t: admin_text(&headers, &cookies),
+        user: user_view(user, &timezone),
+        tokens,
+        message: Some("Device token created".into()),
+        error: None,
+        created_token: Some(raw),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1131,22 +1108,17 @@ async fn user_detail_error(
         .into_iter()
         .map(|token| token_view(token, &timezone))
         .collect();
-    Ok((
+    Ok(render_html_with_status(
         status,
-        Html(
-            UserDetailTemplate {
-                t: admin_text(headers, cookies),
-                user: user_view(user, &timezone),
-                tokens,
-                message: None,
-                error: Some(error),
-                created_token: None,
-            }
-            .render()
-            .unwrap(),
-        ),
-    )
-        .into_response())
+        UserDetailTemplate {
+            t: admin_text(headers, cookies),
+            user: user_view(user, &timezone),
+            tokens,
+            message: None,
+            error: Some(error),
+            created_token: None,
+        },
+    ))
 }
 
 async fn revoke_token_form(
@@ -1200,17 +1172,13 @@ async fn devices_page(
     headers: HeaderMap,
     cookies: Cookies,
     _session: AdminSession,
-) -> Result<Html<String>, ApiError> {
-    Ok(Html(
-        DevicesTemplate {
-            t: admin_text(&headers, &cookies),
-            users: list_user_options(&state).await?,
-            tokens: list_admin_device_tokens(&state).await?,
-            created_token: None,
-        }
-        .render()
-        .unwrap(),
-    ))
+) -> Result<Response, ApiError> {
+    Ok(render_html(DevicesTemplate {
+        t: admin_text(&headers, &cookies),
+        users: list_user_options(&state).await?,
+        tokens: list_admin_device_tokens(&state).await?,
+        created_token: None,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1225,7 +1193,7 @@ async fn create_device_token_form(
     cookies: Cookies,
     _session: AdminSession,
     Form(form): Form<CreateDeviceTokenForm>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     state
         .users
         .find_by_id(&form.user_id)
@@ -1248,16 +1216,12 @@ async fn create_device_token_form(
         device_name = %device_name,
         "admin created device token from devices page"
     );
-    Ok(Html(
-        DevicesTemplate {
-            t: admin_text(&headers, &cookies),
-            users: list_user_options(&state).await?,
-            tokens: list_admin_device_tokens(&state).await?,
-            created_token: Some(raw),
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(DevicesTemplate {
+        t: admin_text(&headers, &cookies),
+        users: list_user_options(&state).await?,
+        tokens: list_admin_device_tokens(&state).await?,
+        created_token: Some(raw),
+    }))
 }
 
 async fn revoke_device_token_form(
@@ -1334,25 +1298,21 @@ async fn vaults_page(
     headers: HeaderMap,
     cookies: Cookies,
     _session: AdminSession,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let cfg = state.runtime_cfg.snapshot().await;
     let vaults = list_admin_vaults(&state).await?;
     let total_size: u64 = vaults.iter().map(|v| v.size_bytes.max(0) as u64).sum();
     let synced_today = count_vaults_synced_today(&state).await?;
-    Ok(Html(
-        VaultsTemplate {
-            t: admin_text(&headers, &cookies),
-            total_vaults: vaults.len(),
-            total_size_display: crate::human::format_bytes(total_size),
-            synced_today,
-            vaults,
-            users: list_user_options(&state).await?,
-            message: None,
-            enable_history_ui: cfg.enable_history_ui,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(VaultsTemplate {
+        t: admin_text(&headers, &cookies),
+        total_vaults: vaults.len(),
+        total_size_display: crate::human::format_bytes(total_size),
+        synced_today,
+        vaults,
+        users: list_user_options(&state).await?,
+        message: None,
+        enable_history_ui: cfg.enable_history_ui,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1380,7 +1340,7 @@ async fn vault_files_page(
     cookies: Cookies,
     _session: AdminSession,
     Path(id): Path<String>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     ensure_admin_history_enabled(&state).await?;
     let (_vault, vault_view) = admin_vault(&state, &id).await?;
     let store = state.git_store();
@@ -1392,15 +1352,11 @@ async fn vault_files_page(
         .into_iter()
         .map(|entry| file_entry_view(&id, entry))
         .collect();
-    Ok(Html(
-        VaultFilesTemplate {
-            t: admin_text(&headers, &cookies),
-            vault: vault_view,
-            files,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(VaultFilesTemplate {
+        t: admin_text(&headers, &cookies),
+        vault: vault_view,
+        files,
+    }))
 }
 
 async fn vault_file_view_page(
@@ -1411,7 +1367,7 @@ async fn vault_file_view_page(
     session: AdminSession,
     Path((id, path)): Path<(String, String)>,
     Query(query): Query<FileViewQuery>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     ensure_admin_history_enabled(&state).await?;
     vault_file_view_html(
         state,
@@ -1435,7 +1391,7 @@ async fn vault_file_history_page(
     cookies: Cookies,
     session: AdminSession,
     Path((id, path)): Path<(String, String)>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     ensure_admin_history_enabled(&state).await?;
     vault_file_history_html(
         state,
@@ -1457,7 +1413,7 @@ async fn vault_file_view_html(
     id: String,
     path: String,
     query: FileViewQuery,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let cfg = state.runtime_cfg.snapshot().await;
     let (_vault, vault_view) = admin_vault(&state, &id).await?;
     let path = crate::storage::path::normalize(&path)
@@ -1496,22 +1452,18 @@ async fn vault_file_view_html(
         request.client_ip,
     )
     .await?;
-    Ok(Html(
-        VaultFileViewTemplate {
-            t: admin_text(&request.headers, &request.cookies),
-            vault: vault_view,
-            path,
-            at: query.at,
-            size_display: crate::human::format_bytes(size_bytes),
-            binary,
-            content,
-            history_url,
-            diff_url,
-            enable_diff_endpoint: cfg.enable_diff_endpoint,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(VaultFileViewTemplate {
+        t: admin_text(&request.headers, &request.cookies),
+        vault: vault_view,
+        path,
+        at: query.at,
+        size_display: crate::human::format_bytes(size_bytes),
+        binary,
+        content,
+        history_url,
+        diff_url,
+        enable_diff_endpoint: cfg.enable_diff_endpoint,
+    }))
 }
 
 async fn vault_file_history_html(
@@ -1519,7 +1471,7 @@ async fn vault_file_history_html(
     request: AdminViewRequest,
     id: String,
     path: &str,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     ensure_admin_history_enabled(&state).await?;
     let (vault, vault_view) = admin_vault(&state, &id).await?;
     let path = crate::storage::path::normalize(path)
@@ -1541,16 +1493,12 @@ async fn vault_file_history_html(
         request.client_ip,
     )
     .await?;
-    Ok(Html(
-        VaultHistoryTemplate {
-            t: admin_text(&request.headers, &request.cookies),
-            vault: vault_view,
-            path,
-            entries,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(VaultHistoryTemplate {
+        t: admin_text(&request.headers, &request.cookies),
+        vault: vault_view,
+        path,
+        entries,
+    }))
 }
 
 async fn vault_diff_page(
@@ -1561,7 +1509,7 @@ async fn vault_diff_page(
     session: AdminSession,
     Path(id): Path<String>,
     Query(query): Query<DiffQuery>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let cfg = state.runtime_cfg.snapshot().await;
     if !cfg.enable_history_ui || !cfg.enable_diff_endpoint {
         return Err(ApiError::not_found("history disabled"));
@@ -1594,22 +1542,18 @@ async fn vault_diff_page(
         client_ip,
     )
     .await?;
-    Ok(Html(
-        VaultDiffTemplate {
-            t: admin_text(&headers, &cookies),
-            vault: vault_view,
-            path: diff.path,
-            from: diff.from,
-            to,
-            from_label,
-            to_label,
-            binary: diff.binary,
-            truncated: diff.truncated,
-            rows,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(VaultDiffTemplate {
+        t: admin_text(&headers, &cookies),
+        vault: vault_view,
+        path: diff.path,
+        from: diff.from,
+        to,
+        from_label,
+        to_label,
+        binary: diff.binary,
+        truncated: diff.truncated,
+        rows,
+    }))
 }
 
 async fn ensure_admin_history_enabled(state: &AppState) -> Result<(), ApiError> {
@@ -1644,18 +1588,14 @@ async fn vault_settings_page(
     cookies: Cookies,
     _session: AdminSession,
     Path(id): Path<String>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let (_vault, vault_view) = admin_vault(&state, &id).await?;
     let settings = crate::service::vault_settings::load(&state, &id).await?;
-    Ok(Html(
-        VaultSettingsTemplate {
-            t: admin_text(&headers, &cookies),
-            vault: vault_view,
-            extra_sync_globs_display: settings.extra_sync_globs.join("\n"),
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(VaultSettingsTemplate {
+        t: admin_text(&headers, &cookies),
+        vault: vault_view,
+        extra_sync_globs_display: settings.extra_sync_globs.join("\n"),
+    }))
 }
 
 async fn vault_settings_post(
@@ -2138,6 +2078,31 @@ fn strip_diff_prefix(line: &str) -> &str {
 mod tests {
     use super::*;
 
+    struct FailingTemplate;
+
+    impl std::fmt::Display for FailingTemplate {
+        fn fmt(&self, _formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            Err(std::fmt::Error)
+        }
+    }
+
+    impl askama::Template for FailingTemplate {
+        fn render_into(&self, _writer: &mut (impl std::fmt::Write + ?Sized)) -> askama::Result<()> {
+            Err(askama::Error::Fmt(std::fmt::Error))
+        }
+
+        const EXTENSION: Option<&'static str> = Some("html");
+        const SIZE_HINT: usize = 0;
+        const MIME_TYPE: &'static str = "text/html";
+    }
+
+    #[test]
+    fn render_html_returns_internal_server_error_when_template_render_fails() {
+        let response = render_html(FailingTemplate);
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
     #[test]
     fn masks_client_ips_for_admin_activity_views() {
         assert_eq!(mask_client_ip("203.0.113.42"), "203.0.113.*");
@@ -2563,7 +2528,7 @@ async fn invites_page(
     headers: HeaderMap,
     cookies: Cookies,
     _session: AdminSession,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let timezone = state.runtime_cfg.snapshot().await.timezone;
     let invites: Vec<InviteAdminView> = state
         .invites
@@ -2579,16 +2544,12 @@ async fn invites_page(
         .collect();
     let used_invites = state.invites.count_used().await?;
     let pending_invites = invites.len();
-    Ok(Html(
-        InvitesTemplate {
-            t: admin_text(&headers, &cookies),
-            invites,
-            pending_invites,
-            used_invites,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(InvitesTemplate {
+        t: admin_text(&headers, &cookies),
+        invites,
+        pending_invites,
+        used_invites,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -2652,20 +2613,16 @@ async fn settings_page(
     headers: HeaderMap,
     cookies: Cookies,
     _session: AdminSession,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let cfg = state.runtime_cfg.snapshot().await;
-    Ok(Html(
-        SettingsTemplate {
-            t: admin_text(&headers, &cookies),
-            max_file_size_display: crate::human::format_bytes(cfg.max_file_size),
-            text_extensions_display: cfg.text_extensions.join(", "),
-            extra_exclude_globs_display: cfg.extra_exclude_globs.join("\n"),
-            cfg,
-            git_available: state.git_available,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(SettingsTemplate {
+        t: admin_text(&headers, &cookies),
+        max_file_size_display: crate::human::format_bytes(cfg.max_file_size),
+        text_extensions_display: cfg.text_extensions.join(", "),
+        extra_exclude_globs_display: cfg.extra_exclude_globs.join("\n"),
+        cfg,
+        git_available: state.git_available,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -2966,20 +2923,16 @@ async fn activity_page(
     cookies: Cookies,
     _session: AdminSession,
     Query(filters): Query<ActivityFilters>,
-) -> Result<Html<String>, ApiError> {
+) -> Result<Response, ApiError> {
     let selected_user_id = filters.user_id.clone().unwrap_or_default();
     let selected_action = filters.action.clone().unwrap_or_default();
-    Ok(Html(
-        ActivityTemplate {
-            t: admin_text(&headers, &cookies),
-            activities: list_admin_activities(&state, ADMIN_ACTIVITY_LIMIT, &filters).await?,
-            users: list_activity_filter_users(&state).await?,
-            selected_user_id,
-            selected_action,
-        }
-        .render()
-        .unwrap(),
-    ))
+    Ok(render_html(ActivityTemplate {
+        t: admin_text(&headers, &cookies),
+        activities: list_admin_activities(&state, ADMIN_ACTIVITY_LIMIT, &filters).await?,
+        users: list_activity_filter_users(&state).await?,
+        selected_user_id,
+        selected_action,
+    }))
 }
 
 async fn run_gc_form(
