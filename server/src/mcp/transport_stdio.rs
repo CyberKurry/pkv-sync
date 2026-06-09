@@ -283,6 +283,9 @@ async fn call_tool(
         "delete_file" => serde_json::to_value(
             tools::delete_file(state, user, serde_json::from_value(arguments)?).await?,
         )?,
+        "write_files" => serde_json::to_value(
+            tools::write_files(state, user, serde_json::from_value(arguments)?).await?,
+        )?,
         _ => return Err(anyhow!("unknown tool: {}", params.name)),
     };
 

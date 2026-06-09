@@ -34,6 +34,7 @@ const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
 const DEFAULT_SEARCH_LIMIT: usize = 100;
 const SEARCH_MAX_LIMIT: usize = 500;
 const LIST_VAULTS_HEAD_CONCURRENCY: usize = 16;
+const WRITE_FILES_MAX_FILES: usize = 100;
 const _: () = assert!(LIST_VAULTS_HEAD_CONCURRENCY > 0);
 const _: () = assert!(LIST_VAULTS_HEAD_CONCURRENCY <= 32);
 
@@ -171,6 +172,22 @@ pub struct DeleteFileInput {
     pub vault_id: String,
     pub path: String,
     pub parent_commit: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileWrite {
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WriteFilesInput {
+    pub vault_id: String,
+    pub parent_commit: String,
+    #[serde(default)]
+    pub writes: Vec<FileWrite>,
+    #[serde(default)]
+    pub deletes: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -780,6 +797,56 @@ pub async fn delete_file(
     .await
 }
 
+pub async fn write_files(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    input: WriteFilesInput,
+) -> Result<WriteToolOutput> {
+    let total = input.writes.len() + input.deletes.len();
+    if total == 0 {
+        bail!("empty_batch: provide at least one write or delete");
+    }
+    if total > WRITE_FILES_MAX_FILES {
+        bail!("batch_too_large: {total} changes exceeds limit of {WRITE_FILES_MAX_FILES}");
+    }
+
+    let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
+    let mut changes = Vec::with_capacity(total);
+    let mut total_bytes = 0usize;
+
+    for write in input.writes {
+        let path = normalize_mcp_path(write.path)?;
+        let size = write.content.len();
+        if size as u64 > max_file_size {
+            bail!("file '{path}' exceeds max_file_size of {max_file_size} bytes");
+        }
+        total_bytes = total_bytes.saturating_add(size);
+        changes.push(PushChange::Text {
+            path,
+            content: write.content,
+        });
+    }
+
+    for delete in input.deletes {
+        let path = normalize_mcp_path(delete)?;
+        changes.push(PushChange::Delete { path });
+    }
+
+    apply_write_batch(
+        state,
+        user,
+        WriteBatchRequest {
+            vault_id: input.vault_id,
+            parent_commit: input.parent_commit,
+            activity_action: "mcp_write",
+            activity_path: format!("{total} files"),
+            activity_size_bytes: total_bytes,
+            changes,
+        },
+    )
+    .await
+}
+
 fn normalize_mcp_path(raw_path: String) -> Result<String> {
     path::normalize(&raw_path).map_err(|err| anyhow!("invalid_path: {err}"))
 }
@@ -910,6 +977,33 @@ pub fn tool_definitions() -> Vec<Tool> {
                 "additionalProperties": false
             })),
             true,
+        ),
+        write_tool(
+            "write_files",
+            "Atomically create/update and/or delete multiple text files in a vault in a single commit, using optimistic concurrency on parent_commit.",
+            object(serde_json::json!({
+                "type": "object",
+                "required": ["vault_id", "parent_commit"],
+                "properties": {
+                    "vault_id": { "type": "string" },
+                    "parent_commit": { "type": "string" },
+                    "writes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["path", "content"],
+                            "properties": {
+                                "path": { "type": "string" },
+                                "content": { "type": "string" }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "deletes": { "type": "array", "items": { "type": "string" } }
+                },
+                "additionalProperties": false
+            })),
+            false,
         ),
     ]
 }

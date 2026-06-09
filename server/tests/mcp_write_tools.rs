@@ -286,6 +286,208 @@ async fn delete_file_returns_conflict_when_parent_stale() {
 }
 
 #[tokio::test]
+async fn write_files_commits_all_or_nothing() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-files-ok").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "seed.md", "seed").await;
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "writes": [
+                { "path": "wiki/a.md", "content": "alpha" },
+                { "path": "wiki/b.md", "content": "bravo" },
+                { "path": "wiki/c.md", "content": "charlie" }
+            ]
+        }),
+    )
+    .await;
+
+    let commit = structured(&body)["commit"].as_str().unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    for (path, expected) in [
+        ("wiki/a.md", "alpha"),
+        ("wiki/b.md", "bravo"),
+        ("wiki/c.md", "charlie"),
+    ] {
+        let file = git.read_file(&vault.id, path, Some(commit)).await.unwrap();
+        assert_eq!(
+            file,
+            Some(StoredFile::Text {
+                bytes: expected.as_bytes().to_vec()
+            })
+        );
+    }
+    let tree = git.list_tree(&vault.id, Some(commit)).await.unwrap();
+    assert!(tree.iter().any(|entry| entry.path == "wiki/a.md"));
+    assert!(tree.iter().any(|entry| entry.path == "wiki/b.md"));
+    assert!(tree.iter().any(|entry| entry.path == "wiki/c.md"));
+}
+
+#[tokio::test]
+async fn write_files_rejects_invalid_path_without_committing() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-files-invalid").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "seed.md", "seed").await;
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "writes": [
+                { "path": "ok.md", "content": "must not commit" },
+                { "path": "../x", "content": "bad" }
+            ]
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("invalid_path"));
+    let git = Git2VaultStore::new(state.default_vault_root());
+    assert_eq!(
+        git.head(&vault.id).await.unwrap().as_deref(),
+        Some(head.as_str())
+    );
+    assert!(git
+        .read_file(&vault.id, "ok.md", Some(&head))
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
+async fn write_files_conflict_on_stale_parent() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-files-stale").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let first = seed_text(&state, &user, &vault.id, None, "note.md", "one").await;
+    let current = seed_text(&state, &user, &vault.id, Some(&first), "note.md", "two").await;
+
+    let body = post_tool(
+        state,
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": first,
+            "writes": [{ "path": "stale.md", "content": "nope" }]
+        }),
+    )
+    .await;
+
+    assert_eq!(structured(&body)["conflict"], true);
+    assert_eq!(structured(&body)["current_head"], current);
+}
+
+#[tokio::test]
+async fn write_files_rejects_empty_and_oversized() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-files-size").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "seed.md", "seed").await;
+
+    let empty = post_tool(
+        state.clone(),
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "writes": [],
+            "deletes": []
+        }),
+    )
+    .await;
+    assert_eq!(empty["error"]["code"], -32000);
+    assert!(empty["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("empty_batch"));
+
+    let writes = (0..101)
+        .map(|idx| json!({ "path": format!("bulk/{idx}.md"), "content": "x" }))
+        .collect::<Vec<_>>();
+    let oversized = post_tool(
+        state,
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "writes": writes
+        }),
+    )
+    .await;
+    assert_eq!(oversized["error"]["code"], -32000);
+    assert!(oversized["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("batch_too_large"));
+}
+
+#[tokio::test]
+async fn write_files_counts_one_rate_limit_record() {
+    let (state, _tmp) = test_state().await;
+    state
+        .mcp_write_limiter
+        .update_config(1, std::time::Duration::from_secs(60));
+    let (user, raw) = create_user_with_token(&state, "mcp-write-files-quota").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "seed.md", "seed").await;
+
+    let batch = post_tool(
+        state.clone(),
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "writes": [
+                { "path": "batch/1.md", "content": "1" },
+                { "path": "batch/2.md", "content": "2" },
+                { "path": "batch/3.md", "content": "3" },
+                { "path": "batch/4.md", "content": "4" },
+                { "path": "batch/5.md", "content": "5" }
+            ]
+        }),
+    )
+    .await;
+    let commit = structured(&batch)["commit"].as_str().unwrap();
+
+    let second = post_tool(
+        state,
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "after.md",
+            "content": "blocked",
+            "parent_commit": commit
+        }),
+    )
+    .await;
+
+    assert_eq!(second["error"]["code"], -32000);
+    assert!(second["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("rate_limited"));
+}
+
+#[tokio::test]
 async fn write_file_records_normalized_mcp_path() {
     let (state, _tmp) = test_state().await;
     let (user, raw) = create_user_with_token(&state, "mcp-write-normalize").await;
