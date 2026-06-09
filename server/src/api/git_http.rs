@@ -16,6 +16,7 @@ use axum::extract::{Extension, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
+use std::fmt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -242,6 +243,8 @@ pub async fn upload_pack(
 // Helpers
 // ---------------------------------------------------------------------------
 
+const GENERIC_GIT_AUTH_ERROR: &str = "invalid or revoked token";
+
 /// Check that the git smart HTTP feature is enabled both at the binary level
 /// (git binary available) and the runtime config level.
 async fn check_enabled(state: &AppState) -> Result<(), ApiError> {
@@ -301,13 +304,28 @@ async fn authenticate_basic(
             reservation.success();
             Ok(user)
         }
-        Err(err) => {
-            if err.status == StatusCode::UNAUTHORIZED {
-                reservation.failure();
-            } else {
-                reservation.release();
-            }
-            Err(err)
+        Err(BasicAuthErr::Credential) => {
+            reservation.failure();
+            Err(ApiError::unauthorized(GENERIC_GIT_AUTH_ERROR))
+        }
+        Err(BasicAuthErr::Internal(err)) => {
+            reservation.release();
+            tracing::error!(error = %err, "git http basic authentication failed internally");
+            Err(ApiError::unauthorized(GENERIC_GIT_AUTH_ERROR))
+        }
+    }
+}
+
+enum BasicAuthErr {
+    Credential,
+    Internal(String),
+}
+
+impl fmt::Display for BasicAuthErr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Credential => f.write_str("credential error"),
+            Self::Internal(err) => f.write_str(err),
         }
     }
 }
@@ -315,28 +333,30 @@ async fn authenticate_basic(
 async fn authenticate_basic_inner(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<AuthenticatedUser, ApiError> {
+) -> Result<AuthenticatedUser, BasicAuthErr> {
     let auth_header = headers
         .get("authorization")
-        .ok_or_else(|| ApiError::unauthorized("missing authorization"))?;
+        .ok_or(BasicAuthErr::Credential)?;
     let token_raw = git_basic::extract_token_from_basic(auth_header)
-        .ok_or_else(|| ApiError::unauthorized("invalid basic auth"))?;
+        .ok_or(BasicAuthErr::Credential)?;
     if !token::looks_valid(&token_raw) {
-        return Err(ApiError::unauthorized("invalid token format"));
+        return Err(BasicAuthErr::Credential);
     }
     let h = token::hash(&token_raw);
     let (row, user_id) = state
         .tokens
         .find_by_hash(&h)
-        .await?
-        .ok_or_else(|| ApiError::unauthorized("invalid or revoked token"))?;
+        .await
+        .map_err(|err| BasicAuthErr::Internal(err.to_string()))?
+        .ok_or(BasicAuthErr::Credential)?;
     let user = state
         .users
         .find_by_id(&user_id)
-        .await?
-        .ok_or_else(|| ApiError::unauthorized("user no longer exists"))?;
+        .await
+        .map_err(|err| BasicAuthErr::Internal(err.to_string()))?
+        .ok_or(BasicAuthErr::Credential)?;
     if !user.is_active {
-        return Err(ApiError::unauthorized("invalid or revoked token"));
+        return Err(BasicAuthErr::Credential);
     }
     let _ = state
         .tokens
@@ -372,6 +392,129 @@ fn pkt_line(data: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::pool;
+    use crate::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
+    use base64::Engine;
+    use std::time::Duration;
+
+    const GENERIC_AUTH_ERROR: &str = "invalid or revoked token";
+
+    async fn test_state() -> AppState {
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap()
+    }
+
+    fn basic_header_for_token(raw: &str) -> HeaderMap {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(format!("git:{raw}"));
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            format!("Basic {encoded}").parse().unwrap(),
+        );
+        headers
+    }
+
+    async fn create_user_token(state: &AppState, username: &str) -> (String, String) {
+        let user = state
+            .users
+            .create(NewUser {
+                username: username.into(),
+                password_hash: "hash".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let raw = token::generate();
+        state
+            .tokens
+            .create(NewToken {
+                user_id: &user.id,
+                token_hash: &token::hash(&raw),
+                device_id: "git-http-test",
+                device_name: "Git HTTP Test",
+            })
+            .await
+            .unwrap();
+        (user.id, raw)
+    }
+
+    async fn expect_basic_auth_error(
+        state: &AppState,
+        headers: &HeaderMap,
+        failure_key: &str,
+    ) -> ApiError {
+        authenticate_basic(state, headers, failure_key.to_string())
+            .await
+            .expect_err("basic auth should fail")
+    }
+
+    #[tokio::test]
+    async fn authenticate_basic_credential_failures_use_generic_message() {
+        let state = test_state().await;
+        let unknown_token_headers = basic_header_for_token(&token::generate());
+        let invalid_format_headers = basic_header_for_token("not-a-token");
+        let mut malformed_basic_headers = HeaderMap::new();
+        malformed_basic_headers.insert("authorization", "Basic !!!not-base64!!!".parse().unwrap());
+        let missing_headers = HeaderMap::new();
+
+        let (deleted_user_id, deleted_user_token) =
+            create_user_token(&state, "deleted-git-http").await;
+        state.users.delete(&deleted_user_id).await.unwrap();
+        let deleted_user_headers = basic_header_for_token(&deleted_user_token);
+
+        let (disabled_user_id, disabled_user_token) =
+            create_user_token(&state, "disabled-git-http").await;
+        state
+            .users
+            .set_active(&disabled_user_id, false)
+            .await
+            .unwrap();
+        let disabled_user_headers = basic_header_for_token(&disabled_user_token);
+
+        let cases = [
+            ("missing-header", &missing_headers),
+            ("malformed-basic", &malformed_basic_headers),
+            ("invalid-token-format", &invalid_format_headers),
+            ("unknown-token", &unknown_token_headers),
+            ("deleted-user", &deleted_user_headers),
+            ("disabled-user", &disabled_user_headers),
+        ];
+
+        for (name, headers) in cases {
+            let err = expect_basic_auth_error(&state, headers, name).await;
+            assert_eq!(err.status, StatusCode::UNAUTHORIZED, "{name}");
+            assert_eq!(err.code, "unauthorized", "{name}");
+            assert_eq!(err.message, GENERIC_AUTH_ERROR, "{name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn authenticate_basic_internal_errors_are_sanitized_and_release_limiter() {
+        let state = test_state().await;
+        state.auth_failure_limiter.update_config(
+            1,
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+        );
+        let headers = basic_header_for_token(&token::generate());
+        state.pool.close().await;
+
+        let err = expect_basic_auth_error(&state, &headers, "git-internal-error").await;
+
+        assert_eq!(err.status, StatusCode::UNAUTHORIZED);
+        assert_eq!(err.code, "unauthorized");
+        assert_eq!(err.message, GENERIC_AUTH_ERROR);
+        assert!(!err.message.contains("database"));
+        assert!(!err.message.contains("pool"));
+        state
+            .auth_failure_limiter
+            .try_acquire("git-internal-error")
+            .expect("internal auth errors must release the limiter reservation neutrally");
+    }
 
     #[test]
     fn pkt_line_encodes_service_header() {
