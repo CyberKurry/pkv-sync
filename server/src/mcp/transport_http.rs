@@ -21,7 +21,9 @@ use tokio::time::{Interval, MissedTickBehavior};
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use tokio_stream::StreamExt;
 
-use super::transport_stdio::{authenticate_token, handle_jsonrpc, jsonrpc_error};
+use super::transport_stdio::{
+    authenticate_token, handle_jsonrpc, jsonrpc_error, GENERIC_MCP_AUTH_ERROR,
+};
 
 #[derive(Clone, Debug)]
 struct McpAuthLimitKey(String);
@@ -145,9 +147,15 @@ async fn post_mcp(
     let user = match authenticate_token(&state, raw, &auth_limit_key.0).await {
         Ok(user) => user,
         Err(err) => {
+            let message = err.to_string();
+            let public_message = if message.starts_with("rate_limited:") {
+                message.as_str()
+            } else {
+                GENERIC_MCP_AUTH_ERROR
+            };
             return (
                 StatusCode::UNAUTHORIZED,
-                Json(jsonrpc_error(Value::Null, -32001, &err.to_string())),
+                Json(jsonrpc_error(Value::Null, -32001, public_message)),
             )
                 .into_response();
         }
@@ -199,9 +207,15 @@ async fn get_mcp_sse(
     let user = match authenticate_token(&state, raw, &auth_limit_key.0).await {
         Ok(user) => user,
         Err(err) => {
+            let message = err.to_string();
+            let public_message = if message.starts_with("rate_limited:") {
+                message.as_str()
+            } else {
+                GENERIC_MCP_AUTH_ERROR
+            };
             return (
                 StatusCode::UNAUTHORIZED,
-                Json(jsonrpc_error(Value::Null, -32001, &err.to_string())),
+                Json(jsonrpc_error(Value::Null, -32001, public_message)),
             )
                 .into_response();
         }
@@ -425,7 +439,9 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::token;
     use crate::db::pool;
+    use crate::db::repos::{NewToken, NewUser};
     use axum::body::Body;
     use axum::http::Request as HttpRequest;
     use tower::ServiceExt;
@@ -437,6 +453,81 @@ mod tests {
         AppState::new(p, tmp.path().to_path_buf(), "t".into(), true)
             .await
             .unwrap()
+    }
+
+    async fn create_user_token(state: &AppState, username: &str) -> (String, String) {
+        let user = state
+            .users
+            .create(NewUser {
+                username: username.into(),
+                password_hash: "hash".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let raw = token::generate();
+        state
+            .tokens
+            .create(NewToken {
+                user_id: &user.id,
+                token_hash: &token::hash(&raw),
+                device_id: "mcp-http-test",
+                device_name: "MCP HTTP Test",
+            })
+            .await
+            .unwrap();
+        (user.id, raw)
+    }
+
+    fn mcp_post_with_bearer(raw: &str) -> HttpRequest<Body> {
+        HttpRequest::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("content-type", "application/json")
+            .header(deployment_key::HEADER, "k_test")
+            .header(header::AUTHORIZATION, format!("Bearer {raw}"))
+            .body(Body::from("{}"))
+            .unwrap()
+    }
+
+    async fn mcp_error_message(response: Response) -> String {
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        body["error"]["message"].as_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn mcp_http_auth_failures_use_generic_message_for_disabled_and_bad_tokens() {
+        let state = state().await;
+        let (user_id, disabled_token) = create_user_token(&state, "disabled-mcp").await;
+        state.users.set_active(&user_id, false).await.unwrap();
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::new(
+                100,
+                std::time::Duration::from_secs(60),
+            ),
+            "k_test".into(),
+        );
+
+        let disabled = app
+            .clone()
+            .oneshot(mcp_post_with_bearer(&disabled_token))
+            .await
+            .unwrap();
+        let bad = app
+            .oneshot(mcp_post_with_bearer(&token::generate()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            mcp_error_message(disabled).await,
+            "invalid or revoked token"
+        );
+        assert_eq!(mcp_error_message(bad).await, "invalid or revoked token");
     }
 
     #[tokio::test]

@@ -7,6 +7,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
+pub(crate) const GENERIC_MCP_AUTH_ERROR: &str = "invalid or revoked token";
+
 #[derive(Clone)]
 pub struct StdioSession {
     state: AppState,
@@ -109,12 +111,14 @@ pub(crate) async fn authenticate_token(
             Ok(user)
         }
         Err(AuthErr::Credential(err)) => {
+            let _ = err;
             reservation.failure();
-            Err(err)
+            Err(anyhow!(GENERIC_MCP_AUTH_ERROR))
         }
         Err(AuthErr::Internal(err)) => {
             reservation.release();
-            Err(err)
+            tracing::error!(error = %err, "mcp token authentication failed internally");
+            Err(anyhow!(GENERIC_MCP_AUTH_ERROR))
         }
     }
 }

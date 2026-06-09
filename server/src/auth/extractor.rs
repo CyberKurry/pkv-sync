@@ -77,7 +77,7 @@ async fn authenticate_from_parts(
         .users
         .find_by_id(&user_id)
         .await?
-        .ok_or_else(|| ApiError::unauthorized("user no longer exists"))?;
+        .ok_or_else(|| ApiError::unauthorized("invalid or revoked token"))?;
     if !user.is_active {
         return Err(ApiError::unauthorized("invalid or revoked token"));
     }
@@ -206,6 +206,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn auth_extractor_does_not_expose_deleted_account_state() {
+        let source = include_str!("extractor.rs");
+        let leaked = ["user no longer", " exists"].concat();
+
+        assert!(!source.contains(&leaked));
     }
 
     #[tokio::test]
