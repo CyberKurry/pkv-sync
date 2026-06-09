@@ -36,7 +36,7 @@ pub async fn middleware(
         req.headers()
             .get("x-forwarded-for")
             .and_then(|h| h.to_str().ok())
-            .and_then(|s| s.split(',').next())
+            .and_then(|s| s.rsplit(',').next())
             .map(str::trim)
             .and_then(|s| s.parse::<IpAddr>().ok())
             .unwrap_or(socket_ip)
@@ -113,13 +113,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn picks_leftmost_xff_value() {
+    async fn picks_rightmost_xff_value_from_trusted_proxy() {
         let app = app(vec!["127.0.0.1/32".parse().unwrap()]);
         let resp = app
-            .oneshot(req_with("127.0.0.1", Some("203.0.113.42, 10.0.0.1")))
+            .oneshot(req_with("127.0.0.1", Some("1.2.3.4, 9.9.9.9")))
             .await
             .unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 100).await.unwrap();
-        assert_eq!(&body[..], b"203.0.113.42");
+        assert_eq!(&body[..], b"9.9.9.9");
     }
 }
