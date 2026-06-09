@@ -194,6 +194,15 @@ struct WriteToolRequest {
     change: PushChange,
 }
 
+struct WriteBatchRequest {
+    vault_id: String,
+    parent_commit: String,
+    activity_action: &'static str,
+    activity_path: String,
+    activity_size_bytes: usize,
+    changes: Vec<PushChange>,
+}
+
 pub async fn list_vaults(state: &AppState, user_id: &str) -> Result<ListVaultsOutput> {
     let git = state.git_store();
     let vaults = state.vaults.list_for_user(user_id).await?;
@@ -910,6 +919,26 @@ async fn apply_write_tool(
     user: &AuthenticatedUser,
     input: WriteToolRequest,
 ) -> Result<WriteToolOutput> {
+    apply_write_batch(
+        state,
+        user,
+        WriteBatchRequest {
+            vault_id: input.vault_id,
+            parent_commit: input.parent_commit,
+            activity_action: input.activity_action,
+            activity_path: input.activity_path,
+            activity_size_bytes: input.activity_size_bytes,
+            changes: vec![input.change],
+        },
+    )
+    .await
+}
+
+async fn apply_write_batch(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    input: WriteBatchRequest,
+) -> Result<WriteToolOutput> {
     state
         .mcp_write_limiter
         .try_record(&user.token_id, &input.vault_id)
@@ -927,7 +956,7 @@ async fn apply_write_tool(
         parent,
         RequestMetadata::default(),
         PushReq {
-            changes: vec![input.change],
+            changes: input.changes,
             device_name: Some("MCP".into()),
         },
     )
