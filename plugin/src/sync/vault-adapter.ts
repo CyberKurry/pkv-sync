@@ -4,6 +4,8 @@ import { sha256Bytes, sha256Text } from "./hash";
 import { textByteLength } from "./text-encoding";
 import type { LocalFileSnapshot, LocalIndex } from "./types";
 
+const SCAN_SNAPSHOT_BATCH_SIZE = 8;
+
 export interface VaultAdapter {
   listFiles(): TFile[];
   readText(path: string): Promise<string>;
@@ -100,22 +102,33 @@ export class ObsidianVaultAdapter implements VaultAdapter {
   ): Promise<LocalFileSnapshot[]> {
     const files = this.listFiles().filter((file) => shouldSyncPath(file.path));
     const out: LocalFileSnapshot[] = [];
-    for (const file of files) {
+    const changedFiles: Array<{ index: number; path: string }> = [];
+    for (const [index, file] of files.entries()) {
       const previous = previousIndex?.files[file.path];
       if (
         previous?.lastSyncedMtime === file.stat.mtime &&
         previous.size === file.stat.size
       ) {
-        out.push({
+        out[index] = {
           path: file.path,
           hash: previous.lastSyncedHash,
           size: file.stat.size,
           mtime: file.stat.mtime,
           kind: previous.kind
-        });
+        };
         continue;
       }
-      out.push(await this.snapshot(file.path, textExtensions));
+      changedFiles.push({ index, path: file.path });
+    }
+    for (let i = 0; i < changedFiles.length; i += SCAN_SNAPSHOT_BATCH_SIZE) {
+      const batch = changedFiles.slice(i, i + SCAN_SNAPSHOT_BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(({ path }) => this.snapshot(path, textExtensions))
+      );
+      for (const [batchIndex, result] of results.entries()) {
+        if (result.status === "rejected") throw result.reason;
+        out[batch[batchIndex].index] = result.value;
+      }
     }
     return out;
   }

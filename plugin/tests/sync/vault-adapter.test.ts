@@ -176,6 +176,156 @@ describe("ObsidianVaultAdapter", () => {
     expect(snapshots[2].hash).not.toBe("old-hash");
   });
 
+  it("snapshots changed files with bounded concurrency while preserving scan order", async () => {
+    const unchanged = tfile("unchanged.md", {
+      mtime: 1_700_000_000_000,
+      size: 10
+    });
+    const changedFiles = Array.from({ length: 9 }, (_, index) =>
+      tfile(`changed-${index + 1}.md`, {
+        mtime: 1_700_000_000_100 + index,
+        size: `changed ${index + 1}`.length
+      })
+    );
+    const contents = new Map(
+      changedFiles.map((file, index) => [file.path, `changed ${index + 1}`])
+    );
+    const vault = new FakeVault();
+    vault.files = [unchanged, ...changedFiles];
+
+    type PendingRead = {
+      resolve(content: string): void;
+    };
+
+    const pendingReads = new Map<string, PendingRead>();
+    const readPaths: string[] = [];
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const read = vi.spyOn(vault, "read").mockImplementation((file: TFile) => {
+      readPaths.push(file.path);
+      activeReads += 1;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+
+      let resolve!: (content: string) => void;
+      const promise = new Promise<string>((settle) => {
+        resolve = (content: string) => {
+          activeReads -= 1;
+          settle(content);
+        };
+      });
+      pendingReads.set(file.path, { resolve });
+      return promise;
+    });
+    const adapter = new ObsidianVaultAdapter(vault as any);
+
+    let scanSettled = false;
+    const scanPromise = adapter
+      .scan(new Set(["md"]), {
+        lastSyncedCommit: "commit-1",
+        files: {
+          "unchanged.md": {
+            lastSyncedHash: "hash-from-index",
+            lastSyncedAt: 1_700_000_000_050,
+            lastSyncedMtime: unchanged.stat.mtime,
+            kind: "text",
+            size: unchanged.stat.size
+          }
+        }
+      })
+      .finally(() => {
+        scanSettled = true;
+      });
+
+    const resolvePendingReads = async () => {
+      for (const path of [...pendingReads.keys()].reverse()) {
+        const pending = pendingReads.get(path);
+        if (!pending) continue;
+        pendingReads.delete(path);
+        pending.resolve(contents.get(path) ?? "");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+
+    try {
+      await Promise.resolve();
+
+      expect(readPaths).not.toContain("unchanged.md");
+      expect(maxActiveReads).toBeGreaterThan(1);
+      expect(maxActiveReads).toBeLessThanOrEqual(8);
+
+      for (let attempt = 0; attempt <= changedFiles.length && !scanSettled; attempt += 1) {
+        await resolvePendingReads();
+      }
+
+      const snapshots = await scanPromise;
+
+      expect(read).toHaveBeenCalledTimes(changedFiles.length);
+      expect(readPaths).toEqual(changedFiles.map((file) => file.path));
+      expect(snapshots.map((snapshot) => snapshot.path)).toEqual([
+        "unchanged.md",
+        ...changedFiles.map((file) => file.path)
+      ]);
+      expect(snapshots[0]).toEqual({
+        path: "unchanged.md",
+        hash: "hash-from-index",
+        size: 10,
+        kind: "text",
+        mtime: 1_700_000_000_000
+      });
+      for (const [index, snapshot] of snapshots.slice(1).entries()) {
+        expect(snapshot).toMatchObject({
+          path: `changed-${index + 1}.md`,
+          size: `changed ${index + 1}`.length,
+          kind: "text",
+          content: `changed ${index + 1}`,
+          mtime: 1_700_000_000_100 + index
+        });
+      }
+    } finally {
+      for (let attempt = 0; attempt <= changedFiles.length && !scanSettled; attempt += 1) {
+        await resolvePendingReads();
+      }
+      await scanPromise.catch(() => undefined);
+    }
+  });
+
+  it("reports concurrent snapshot errors in scan order", async () => {
+    const first = tfile("first.md");
+    const second = tfile("second.md");
+    const vault = new FakeVault();
+    vault.files = [first, second];
+
+    type PendingRead = {
+      reject(error: Error): void;
+    };
+
+    const pendingReads = new Map<string, PendingRead>();
+    vi.spyOn(vault, "read").mockImplementation((file: TFile) => {
+      let reject!: (error: Error) => void;
+      const promise = new Promise<string>((_resolve, rejectPromise) => {
+        reject = rejectPromise;
+      });
+      pendingReads.set(file.path, { reject });
+      return promise;
+    });
+    const adapter = new ObsidianVaultAdapter(vault as any);
+    const scanError = adapter.scan(new Set(["md"])).then(
+      () => new Error("scan unexpectedly resolved"),
+      (error: Error) => error
+    );
+
+    await Promise.resolve();
+
+    expect([...pendingReads.keys()]).toEqual(["first.md", "second.md"]);
+
+    pendingReads.get("second.md")?.reject(new Error("second failed"));
+    await Promise.resolve();
+    pendingReads.get("first.md")?.reject(new Error("first failed"));
+
+    const error = await scanError;
+    expect(error.message).toBe("first failed");
+  });
+
   it("rejects unsafe remote write paths before touching the vault", async () => {
     const vault = new FakeVault();
     const adapter = new ObsidianVaultAdapter(vault as any);
