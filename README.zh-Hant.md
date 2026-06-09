@@ -5,7 +5,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文件版本：v1.1.1。
+文件版本：v1.2.0。
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | 繁體中文 | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -94,13 +94,14 @@ PKV Sync 1.0 **暫不**提供原生端到端加密——伺服器能讀到筆記
 | 反向代理、TLS、備份、加固 | [部署加固](./public-docs/deployment-hardening.zh-Hant.md) |
 | HTTP API 契約 | [OpenAPI 規範](./public-docs/openapi.yaml) |
 | MCP 安裝與工具列表 | [MCP 操作指南](./public-docs/mcp-howto.zh-Hant.md) |
+| LLM 維護的 Wiki 工作流 | [LLM Wiki 操作指南](./public-docs/llm-wiki-howto.zh-Hant.md) |
 | 從 Obsidian Sync 遷移 | [遷移指南](./public-docs/migrate-from-obsidian-sync.zh-Hant.md) |
 | 安全漏洞通報 | [SECURITY.md](./SECURITY.md) |
 | 發布紀錄 | [CHANGELOG.md](./CHANGELOG.md) |
 
 ## 狀態
 
-PKV Sync 1.1.1 是目前穩定安全修補版本。本版讓自動合併衝突副本即使符合使用者排除規則，也能繼續在讀取和 MCP 表面可見，修正 MCP 認證錯誤列舉與限流扣減邊界情況，並強化可信代理 IP、密碼變更、邀請註冊、SQLite 權限、Git OID、路徑處理和請求大小上限等安全邊界。
+PKV Sync 1.2.0 是目前面向 LLM 維護 Wiki 工作流的穩定版本。本版新增原子化 `write_files` 多檔案 MCP 提交，以及保留歷史的 `move_file` 重新命名／移動工具，並包含 v1.1.1 的安全加固；Agent 循環請看 [LLM Wiki 操作指南](./public-docs/llm-wiki-howto.zh-Hant.md)。
 
 PKV Sync 1.0 是第一個穩定版。公開 REST API、CLI、儲存布局、外掛包、Docker 映像作為一組同步發版，遵循 semver：1.X.Y 在公開表面保持向後相容，OpenAPI 規範是這個相容契約的權威來源。0.x 建立的 SQLite 資料庫**不支援**就地升級到 1.0.0——請依[1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md)操作。
 

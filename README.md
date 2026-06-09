@@ -8,7 +8,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.1.1.
+Document version: v1.2.0.
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -145,13 +145,14 @@ For real deployments, also run behind HTTPS, restrict
 | Reverse proxy, TLS, backups, hardening | [deployment hardening](./public-docs/deployment-hardening.md) |
 | HTTP API contract | [OpenAPI spec](./public-docs/openapi.yaml) |
 | MCP setup and tool list | [MCP how-to](./public-docs/mcp-howto.md) |
+| LLM-maintained wiki workflow | [LLM Wiki how-to](./public-docs/llm-wiki-howto.md) |
 | Migrating from Obsidian Sync | [migration guide](./public-docs/migrate-from-obsidian-sync.md) |
 | Security disclosures | [SECURITY.md](./SECURITY.md) |
 | Release history | [CHANGELOG.md](./CHANGELOG.md) |
 
 ## Status
 
-PKV Sync 1.1.1 is the current stable security patch release. It keeps generated auto-merge conflict sidecars visible on read and MCP surfaces, closes MCP auth enumeration and rate-limit edge cases, and hardens trusted-proxy IP handling, password changes, invite registration, SQLite permissions, Git OID parsing, path handling, and request-size limits.
+PKV Sync 1.2.0 is the current stable release for LLM-maintained wiki workflows. It adds atomic `write_files` multi-file MCP commits and a history-preserving `move_file` rename/move tool, with the v1.1.1 security hardening included; see the [LLM Wiki how-to](./public-docs/llm-wiki-howto.md) for the agent loop.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together

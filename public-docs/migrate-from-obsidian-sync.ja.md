@@ -2,7 +2,7 @@
 
 [English](./migrate-from-obsidian-sync.md) | [简体中文](./migrate-from-obsidian-sync.zh-CN.md) | [繁體中文](./migrate-from-obsidian-sync.zh-Hant.md) | 日本語 | [한국어](./migrate-from-obsidian-sync.ko.md)
 
-ドキュメントバージョン: v1.1.1。
+ドキュメントバージョン: v1.2.0。
 
 この文書は機械翻訳による初版です。公開前にネイティブ話者によるレビューを推奨します。
 

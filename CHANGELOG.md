@@ -7,6 +7,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-09
+
+### Added
+
+- Add the `write_files` MCP tool for atomic multi-file text writes and deletes
+  in one optimistic-concurrency commit.
+- Add the `move_file` MCP tool for history-preserving text file renames and
+  moves in LLM-maintained wiki workflows.
+
 ## [1.1.1] - 2026-06-09
 
 ### Security
