@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::auth::{password, token};
-use crate::db::repos::{InviteRepo, NewToken, NewUser, RegistrationMode, TokenRepo, UserRepo};
+use crate::db::repos::{InviteRepo, NewToken, NewUser, RegistrationMode, UserRepo};
 use crate::service::AppState;
 use serde::{Deserialize, Serialize};
 
@@ -223,15 +223,23 @@ pub async fn change_password(
         return Err(ApiError::unauthorized("current password incorrect"));
     }
     let new_hash = hash_auth_password(&req.new_password)?;
-    state.users.update_password(user_id, &new_hash).await?;
-    state
-        .tokens
-        .revoke_all_for_user(
-            user_id,
-            chrono::Utc::now().timestamp(),
-            Some(current_token_id),
-        )
+    let now = chrono::Utc::now().timestamp();
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+        .bind(&new_hash)
+        .bind(user_id)
+        .execute(&mut *tx)
         .await?;
+    sqlx::query(
+        "UPDATE tokens SET revoked_at = ?
+         WHERE user_id = ? AND id != ? AND revoked_at IS NULL",
+    )
+    .bind(now)
+    .bind(user_id)
+    .bind(current_token_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -764,6 +772,74 @@ mod tests {
         assert!(verify_credentials(&s, "userx", "Passw0rdStrong")
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn change_password_keeps_old_password_when_token_revoke_fails() {
+        let s = make_state(RegistrationMode::Open).await;
+        let resp = register(
+            &s,
+            RegisterReq {
+                username: "userx".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "device-change-rollback-1".into(),
+                device_name: "d1".into(),
+                invite_code: None,
+            },
+        )
+        .await
+        .unwrap();
+        login(
+            &s,
+            LoginReq {
+                username: "userx".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "device-change-rollback-2".into(),
+                device_name: "d2".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let token_id = s
+            .tokens
+            .list_for_user(&resp.user_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|t| t.device_id == "device-change-rollback-1")
+            .unwrap()
+            .id;
+        sqlx::query(
+            "CREATE TRIGGER fail_token_revoke
+             BEFORE UPDATE OF revoked_at ON tokens
+             WHEN NEW.revoked_at IS NOT NULL
+             BEGIN
+               SELECT RAISE(FAIL, 'token revoke blocked');
+             END",
+        )
+        .execute(&s.pool)
+        .await
+        .unwrap();
+
+        let err = change_password(
+            &s,
+            &resp.user_id,
+            &token_id,
+            ChangePasswordReq {
+                current_password: "Passw0rdStrong".into(),
+                new_password: "Newpass1234Strong".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(verify_credentials(&s, "userx", "Passw0rdStrong")
+            .await
+            .is_ok());
+        assert!(verify_credentials(&s, "userx", "Newpass1234Strong")
+            .await
+            .is_err());
     }
 
     #[tokio::test]
