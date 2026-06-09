@@ -190,6 +190,14 @@ pub struct WriteFilesInput {
     pub deletes: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct MoveFileInput {
+    pub vault_id: String,
+    pub parent_commit: String,
+    pub from: String,
+    pub to: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum WriteToolOutput {
@@ -847,6 +855,58 @@ pub async fn write_files(
     .await
 }
 
+pub async fn move_file(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    input: MoveFileInput,
+) -> Result<WriteToolOutput> {
+    let from = normalize_mcp_path(input.from)?;
+    let to = normalize_mcp_path(input.to)?;
+    if from == to {
+        bail!("invalid_path: from and to are identical");
+    }
+
+    let filter = sync::vault_path_filter(state, &input.vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    let git = state.git_store();
+    let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
+    let tree = git.list_tree(&input.vault_id, at).await?;
+
+    if tree.iter().any(|entry| entry.path == to) {
+        bail!("target_exists: '{to}' already exists");
+    }
+
+    let from_entry = tree
+        .iter()
+        .find(|entry| entry.path == from && mcp_path_visible(&filter, &entry.path))
+        .ok_or_else(|| anyhow!("not_found: '{from}' does not exist"))?;
+    if from_entry.is_blob_pointer {
+        bail!("unsupported_binary_move: '{from}' is binary; v1 supports text only");
+    }
+
+    let content = read_text_bytes(&git, &input.vault_id, &from, at)
+        .await?
+        .ok_or_else(|| anyhow!("unsupported_binary_move: '{from}' is not UTF-8 text"))?;
+
+    apply_write_batch(
+        state,
+        user,
+        WriteBatchRequest {
+            vault_id: input.vault_id,
+            parent_commit: input.parent_commit,
+            activity_action: "mcp_write",
+            activity_path: format!("{from} -> {to}"),
+            activity_size_bytes: 0,
+            changes: vec![
+                PushChange::Delete { path: from },
+                PushChange::Text { path: to, content },
+            ],
+        },
+    )
+    .await
+}
+
 fn normalize_mcp_path(raw_path: String) -> Result<String> {
     path::normalize(&raw_path).map_err(|err| anyhow!("invalid_path: {err}"))
 }
@@ -1000,6 +1060,22 @@ pub fn tool_definitions() -> Vec<Tool> {
                         }
                     },
                     "deletes": { "type": "array", "items": { "type": "string" } }
+                },
+                "additionalProperties": false
+            })),
+            false,
+        ),
+        write_tool(
+            "move_file",
+            "Move or rename a text file within a vault in a single commit, preserving git history. Fails if the target exists or the source is binary.",
+            object(serde_json::json!({
+                "type": "object",
+                "required": ["vault_id", "parent_commit", "from", "to"],
+                "properties": {
+                    "vault_id": { "type": "string" },
+                    "parent_commit": { "type": "string" },
+                    "from": { "type": "string" },
+                    "to": { "type": "string" }
                 },
                 "additionalProperties": false
             })),

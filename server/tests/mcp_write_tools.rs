@@ -1,13 +1,15 @@
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
+use bytes::Bytes;
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::repos::{
-    NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
+    BlobRefRepo, NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
 };
 use pkv_sync_server::mcp::transport_http;
 use pkv_sync_server::service::sync::{self, PushChange, PushReq};
 use pkv_sync_server::service::AppState;
-use pkv_sync_server::storage::git::{Git2VaultStore, GitVaultStore, StoredFile};
+use pkv_sync_server::storage::blob::{BlobStore, LocalFsBlobStore};
+use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
@@ -485,6 +487,221 @@ async fn write_files_counts_one_rate_limit_record() {
         .as_str()
         .unwrap()
         .contains("rate_limited"));
+}
+
+#[tokio::test]
+async fn move_file_preserves_content_and_history() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-move-ok").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "a.md", "original").await;
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "a.md",
+            "to": "folder/b.md"
+        }),
+    )
+    .await;
+
+    let commit = structured(&body)["commit"].as_str().unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    assert!(git
+        .read_file(&vault.id, "a.md", Some(commit))
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        git.read_file(&vault.id, "folder/b.md", Some(commit))
+            .await
+            .unwrap(),
+        Some(StoredFile::Text {
+            bytes: b"original".to_vec()
+        })
+    );
+
+    let changes = post_tool(
+        state,
+        &raw,
+        "changes_since",
+        json!({
+            "vault_id": vault.id,
+            "since_commit": head
+        }),
+    )
+    .await;
+    assert!(structured(&changes)["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|change| {
+            change["status"] == "renamed"
+                && change["path"] == "folder/b.md"
+                && change["old_path"] == "a.md"
+        }));
+}
+
+#[tokio::test]
+async fn move_file_rejects_existing_target() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-move-target").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let head = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "a.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"source".to_vec(),
+                    },
+                },
+                FileChange::Upsert {
+                    path: "b.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"target".to_vec(),
+                    },
+                },
+            ],
+            "seed move target",
+        )
+        .await
+        .unwrap();
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "a.md",
+            "to": "b.md"
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("target_exists"));
+    assert_eq!(
+        git.head(&vault.id).await.unwrap().as_deref(),
+        Some(head.as_str())
+    );
+}
+
+#[tokio::test]
+async fn move_file_rejects_binary() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-move-binary").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let blob = LocalFsBlobStore::new(state.default_blob_root());
+    let data = Bytes::from_static(b"binary payload");
+    let hash = LocalFsBlobStore::sha256(&data);
+    blob.put_verified(&hash, data.clone()).await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let head = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[FileChange::Upsert {
+                path: "asset.bin".into(),
+                file: StoredFile::BlobPointer {
+                    hash: hash.clone(),
+                    size: data.len() as u64,
+                    mime: Some("application/octet-stream".into()),
+                },
+            }],
+            "seed binary",
+        )
+        .await
+        .unwrap();
+    state
+        .blob_refs
+        .add_refs(&vault.id, &head, std::slice::from_ref(&hash))
+        .await
+        .unwrap();
+
+    let body = post_tool(
+        state,
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "asset.bin",
+            "to": "moved.bin"
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("unsupported_binary_move"));
+}
+
+#[tokio::test]
+async fn move_file_not_found() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-move-not-found").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "secret.md", "hidden").await;
+    state
+        .runtime_cfg_repo
+        .set_extra_exclude_globs(vec!["secret.md".into()], None)
+        .await
+        .unwrap();
+    state
+        .runtime_cfg
+        .replace(state.runtime_cfg_repo.load().await.unwrap())
+        .await;
+
+    let hidden = post_tool(
+        state.clone(),
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "secret.md",
+            "to": "visible.md"
+        }),
+    )
+    .await;
+    assert_eq!(hidden["error"]["code"], -32000);
+    assert!(hidden["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("not_found"));
+
+    let missing = post_tool(
+        state,
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "missing.md",
+            "to": "visible.md"
+        }),
+    )
+    .await;
+    assert_eq!(missing["error"]["code"], -32000);
+    assert!(missing["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("not_found"));
 }
 
 #[tokio::test]
