@@ -49,4 +49,27 @@ describe("plugin time formatting", () => {
       calls.filter((options) => options?.timeZone === "Mars/Base")
     ).toHaveLength(1);
   });
+
+  it("reuses display formatters for repeated calls in the same timezone", () => {
+    const RealDateTimeFormat = Intl.DateTimeFormat;
+    const calls: Array<Intl.DateTimeFormatOptions | undefined> = [];
+    vi.spyOn(Intl, "DateTimeFormat").mockImplementation(
+      (function (
+        locales?: Intl.LocalesArgument,
+        options?: Intl.DateTimeFormatOptions
+      ) {
+        calls.push(options);
+        return new RealDateTimeFormat(locales, options);
+      } as typeof Intl.DateTimeFormat)
+    );
+
+    formatUnixSeconds(0, "UTC");
+    formatUnixSeconds(60, "UTC");
+
+    expect(
+      calls.filter(
+        (options) => options?.timeZone === "UTC" && options.year === "numeric"
+      )
+    ).toHaveLength(1);
+  });
 });

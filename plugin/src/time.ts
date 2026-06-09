@@ -14,6 +14,7 @@ export const TIMEZONE_OPTIONS = [
 ];
 
 const TIMEZONE_VALIDATION_CACHE = new Map<string, string>();
+const UNIX_SECONDS_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>();
 
 function normalizeTimezone(value: string | null | undefined): string {
   const timezone = value?.trim() || DEFAULT_TIMEZONE;
@@ -29,15 +30,12 @@ function normalizeTimezone(value: string | null | undefined): string {
   }
 }
 
-export function formatUnixSeconds(
-  timestamp: number | null | undefined,
-  timezone: string
-): string {
-  if (timestamp === null || timestamp === undefined) return "";
-  const date = new Date(timestamp * 1000);
-  if (Number.isNaN(date.getTime())) return String(timestamp);
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: normalizeTimezone(timezone),
+function getUnixSecondsFormatter(timezone: string): Intl.DateTimeFormat {
+  const normalizedTimezone = normalizeTimezone(timezone);
+  const cached = UNIX_SECONDS_FORMATTER_CACHE.get(normalizedTimezone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: normalizedTimezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -46,7 +44,19 @@ export function formatUnixSeconds(
     second: "2-digit",
     hour12: false,
     hourCycle: "h23"
-  }).formatToParts(date);
+  });
+  UNIX_SECONDS_FORMATTER_CACHE.set(normalizedTimezone, formatter);
+  return formatter;
+}
+
+export function formatUnixSeconds(
+  timestamp: number | null | undefined,
+  timezone: string
+): string {
+  if (timestamp === null || timestamp === undefined) return "";
+  const date = new Date(timestamp * 1000);
+  if (Number.isNaN(date.getTime())) return String(timestamp);
+  const parts = getUnixSecondsFormatter(timezone).formatToParts(date);
   const value = (type: string): string =>
     parts.find((part) => part.type === type)?.value ?? "00";
   return `${value("year")}-${value("month")}-${value("day")} ${value("hour")}:${value("minute")}:${value("second")}`;
