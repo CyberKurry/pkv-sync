@@ -174,7 +174,7 @@ async fn stdio_session_rejects_invalid_token() {
         .await
         .unwrap_err();
 
-    assert!(err.to_string().contains("invalid token"));
+    assert!(err.to_string().contains("invalid or revoked token"));
 }
 
 #[tokio::test]
