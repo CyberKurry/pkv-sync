@@ -379,6 +379,9 @@ pub(crate) fn path_visible_on_read(
     filter: &crate::service::exclude::SyncPathFilter,
     path: &str,
 ) -> bool {
+    // Read APIs may expose vault-allowlisted hidden paths and generated
+    // conflict sidecars. MCP mutating/graph/history tools layer on a stricter
+    // hidden-path check so LLM agents cannot address hidden files for actions.
     filter.path_accepts(path) || is_generated_conflict_sidecar(path)
 }
 
