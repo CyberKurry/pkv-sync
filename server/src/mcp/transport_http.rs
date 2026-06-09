@@ -29,13 +29,15 @@ use super::transport_stdio::{
 struct McpAuthLimitKey(String);
 
 const MCP_JSON_BODY_OVERHEAD_BYTES: u64 = 1024 * 1024;
+const MCP_JSON_BODY_LIMIT_CEILING_BYTES: u64 = 100 * 1024 * 1024 * 1024;
 
 fn mcp_json_body_limit_bytes(max_file_size: u64) -> usize {
     max_file_size
         .saturating_mul(6)
         .saturating_add(MCP_JSON_BODY_OVERHEAD_BYTES)
+        .min(MCP_JSON_BODY_LIMIT_CEILING_BYTES)
         .try_into()
-        .unwrap_or(usize::MAX)
+        .unwrap_or(usize::MAX / 2)
 }
 
 fn is_json_content_type(headers: &HeaderMap) -> bool {
@@ -528,6 +530,15 @@ mod tests {
             "invalid or revoked token"
         );
         assert_eq!(mcp_error_message(bad).await, "invalid or revoked token");
+    }
+
+    #[test]
+    fn mcp_json_body_limit_clamps_huge_max_file_size() {
+        assert_ne!(mcp_json_body_limit_bytes(u64::MAX), usize::MAX);
+        assert_eq!(
+            mcp_json_body_limit_bytes(u64::MAX),
+            mcp_json_body_limit_bytes(100 * 1024 * 1024 * 1024)
+        );
     }
 
     #[tokio::test]

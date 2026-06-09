@@ -16,6 +16,10 @@ const MAX_REACHABLE_WALK: usize = 10_000;
 const LIST_CHANGES_MAX: usize = 8;
 #[cfg(not(test))]
 const LIST_CHANGES_MAX: usize = 10_000;
+#[cfg(test)]
+const MAX_TREE_DEPTH: usize = 4;
+#[cfg(not(test))]
+const MAX_TREE_DEPTH: usize = 256;
 pub const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
 pub const POINTER_VERSION: u64 = 1;
 
@@ -457,8 +461,12 @@ fn read_tree_recursive(
     repo: &Repository,
     tree: &Tree<'_>,
     prefix: &str,
+    depth: usize,
     out: &mut BTreeMap<String, StoredFile>,
 ) -> Result<(), GitStoreError> {
+    if depth > MAX_TREE_DEPTH {
+        return Err(git2::Error::from_str("tree depth exceeds maximum").into());
+    }
     for entry in tree.iter() {
         let Some(name) = entry.name() else {
             continue;
@@ -477,7 +485,7 @@ fn read_tree_recursive(
             }
             Some(ObjectType::Tree) => {
                 let subtree = repo.find_tree(entry.id())?;
-                read_tree_recursive(repo, &subtree, &path, out)?;
+                read_tree_recursive(repo, &subtree, &path, depth + 1, out)?;
             }
             _ => {}
         }
@@ -552,8 +560,12 @@ fn tree_entries_recursive(
     repo: &Repository,
     tree: &Tree<'_>,
     prefix: &str,
+    depth: usize,
     out: &mut Vec<TreeEntry>,
 ) -> Result<(), GitStoreError> {
+    if depth > MAX_TREE_DEPTH {
+        return Err(git2::Error::from_str("tree depth exceeds maximum").into());
+    }
     for entry in tree.iter() {
         let Some(name) = entry.name() else {
             continue;
@@ -592,7 +604,7 @@ fn tree_entries_recursive(
             }
             Some(ObjectType::Tree) => {
                 let subtree = repo.find_tree(entry.id())?;
-                tree_entries_recursive(repo, &subtree, &path, out)?;
+                tree_entries_recursive(repo, &subtree, &path, depth + 1, out)?;
             }
             _ => {}
         }
@@ -645,7 +657,7 @@ impl GitVaultStore for Git2VaultStore {
             };
             if let Some(pc) = &parent_commit {
                 let tree = pc.tree()?;
-                read_tree_recursive(&repo, &tree, "", &mut current)?;
+                read_tree_recursive(&repo, &tree, "", 0, &mut current)?;
             }
             for ch in changes {
                 match ch {
@@ -686,7 +698,7 @@ impl GitVaultStore for Git2VaultStore {
             let commit = repo.find_commit(oid)?;
             let tree = commit.tree()?;
             let mut out = Vec::new();
-            tree_entries_recursive(&repo, &tree, "", &mut out)?;
+            tree_entries_recursive(&repo, &tree, "", 0, &mut out)?;
             Ok(out)
         })
         .await
@@ -1335,6 +1347,31 @@ mod tests {
             .collect();
         assert!(listed.contains(&"folder/note.md".to_string()));
         assert!(listed.contains(&"folder/sub/other.md".to_string()));
+    }
+
+    #[tokio::test]
+    async fn list_tree_rejects_trees_deeper_than_explicit_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let deep_path = format!("{}/note.md", ["a", "b", "c", "d", "e"].join("/"));
+        let commit = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: deep_path,
+                    file: StoredFile::Text {
+                        bytes: b"deep".to_vec(),
+                    },
+                }],
+                "deep",
+            )
+            .await
+            .unwrap();
+
+        let err = store.list_tree("v1", Some(&commit)).await.unwrap_err();
+
+        assert!(err.to_string().contains("tree depth"));
     }
 
     #[tokio::test]

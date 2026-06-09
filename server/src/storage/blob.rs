@@ -144,11 +144,16 @@ impl BlobStore for LocalFsBlobStore {
 
     async fn get(&self, hash: &str) -> BlobResult<Option<Bytes>> {
         let path = self.path_for(hash)?;
-        let metadata = match tokio::fs::metadata(&path).await {
+        let metadata = match tokio::fs::symlink_metadata(&path).await {
             Ok(metadata) => metadata,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(err) => return Err(err.into()),
         };
+        if metadata.file_type().is_symlink() {
+            return Err(BlobError::Io(std::io::Error::other(
+                "blob path is a symlink",
+            )));
+        }
         if metadata.len() > BLOB_HARD_MAX_BYTES {
             return Err(BlobError::TooLarge {
                 limit: BLOB_HARD_MAX_BYTES,
@@ -264,6 +269,45 @@ mod tests {
 
         assert!(implementation.contains("entry.metadata()"));
         assert!(!implementation.contains("std::fs::metadata"));
+    }
+
+    #[test]
+    fn get_checks_symlink_metadata_before_reading_blob_path() {
+        let source = include_str!("blob.rs");
+        let impl_start = source
+            .find("impl BlobStore for LocalFsBlobStore")
+            .expect("blob store impl exists");
+        let fn_start = source[impl_start..]
+            .find("async fn get(&self, hash: &str)")
+            .map(|idx| impl_start + idx)
+            .expect("get implementation exists");
+        let fn_end = source[fn_start..]
+            .find("\n    async fn size_bytes")
+            .map(|idx| fn_start + idx)
+            .expect("size_bytes follows get");
+        let implementation = &source[fn_start..fn_end];
+
+        assert!(implementation.contains("symlink_metadata"));
+        assert!(implementation.contains("is_symlink"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn get_rejects_symlinked_blob_path() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = LocalFsBlobStore::new(dir.path().join("blobs"));
+        let target = dir.path().join("target");
+        std::fs::write(&target, b"secret").unwrap();
+        let hash = LocalFsBlobStore::sha256(b"secret");
+        let path = store.path_for(&hash).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        symlink(&target, &path).unwrap();
+
+        let err = store.get(&hash).await.unwrap_err();
+
+        assert!(err.to_string().contains("symlink"));
     }
 
     #[test]

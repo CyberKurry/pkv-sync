@@ -406,6 +406,7 @@ fn generated_push_path_is_valid(path: &str) -> bool {
             && part != "."
             && part != ".."
             && !part.eq_ignore_ascii_case(".git")
+            && !part.contains('\\')
             && part.len() <= 255
     })
 }
@@ -2042,6 +2043,12 @@ mod tests {
             ensure_generated_push_path(&conflict)
                 .expect("generated sidecar with literal percent escape should remain valid");
         }
+    }
+
+    #[test]
+    fn generated_push_path_rejects_backslash_parts() {
+        assert!(!generated_push_path_is_valid("notes\\daily.md"));
+        assert!(!generated_push_path_is_valid("notes/daily\\todo.md"));
     }
 
     #[test]
