@@ -108,11 +108,20 @@ pub(crate) async fn authenticate_token(
             reservation.success();
             Ok(user)
         }
-        Err(err) => {
+        Err(AuthErr::Credential(err)) => {
             reservation.failure();
             Err(err)
         }
+        Err(AuthErr::Internal(err)) => {
+            reservation.release();
+            Err(err)
+        }
     }
+}
+
+enum AuthErr {
+    Credential(anyhow::Error),
+    Internal(anyhow::Error),
 }
 
 async fn stdio_token_still_valid(
@@ -132,23 +141,28 @@ async fn stdio_token_still_valid(
     db_user.is_active
 }
 
-async fn authenticate_token_inner(state: &AppState, token_raw: &str) -> Result<AuthenticatedUser> {
+async fn authenticate_token_inner(
+    state: &AppState,
+    token_raw: &str,
+) -> std::result::Result<AuthenticatedUser, AuthErr> {
     if !token::looks_valid(token_raw) {
-        return Err(anyhow!("invalid token format"));
+        return Err(AuthErr::Credential(anyhow!("invalid token format")));
     }
     let token_hash = token::hash(token_raw);
     let (row, user_id) = state
         .tokens
         .find_by_hash(&token_hash)
-        .await?
-        .ok_or_else(|| anyhow!("invalid or revoked token"))?;
+        .await
+        .map_err(|err| AuthErr::Internal(anyhow!(err)))?
+        .ok_or_else(|| AuthErr::Credential(anyhow!("invalid or revoked token")))?;
     let user = state
         .users
         .find_by_id(&user_id)
-        .await?
-        .ok_or_else(|| anyhow!("user no longer exists"))?;
+        .await
+        .map_err(|err| AuthErr::Internal(anyhow!(err)))?
+        .ok_or_else(|| AuthErr::Credential(anyhow!("user no longer exists")))?;
     if !user.is_active {
-        return Err(anyhow!("account disabled"));
+        return Err(AuthErr::Credential(anyhow!("account disabled")));
     }
     let _ = state
         .tokens
@@ -294,4 +308,62 @@ pub(crate) fn jsonrpc_error(id: Value, code: i64, message: &str) -> Value {
             "message": message
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::pool;
+    use std::time::Duration;
+
+    async fn test_state() -> AppState {
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap()
+    }
+
+    fn set_single_attempt_limit(state: &AppState) {
+        state
+            .mcp_auth_limiter
+            .update_config(1, Duration::from_secs(60), Duration::from_secs(60));
+    }
+
+    #[tokio::test]
+    async fn authenticate_token_releases_limiter_neutrally_on_internal_error() {
+        let state = test_state().await;
+        set_single_attempt_limit(&state);
+        state.pool.close().await;
+
+        let err = authenticate_token(&state, &token::generate(), "internal-error-key")
+            .await
+            .expect_err("closed database should fail token lookup internally");
+        assert!(
+            !err.to_string().contains("rate_limited"),
+            "first attempt should report database access failure, got {err}"
+        );
+
+        state
+            .mcp_auth_limiter
+            .try_acquire("internal-error-key")
+            .expect("internal auth errors must release the limiter reservation neutrally");
+    }
+
+    #[tokio::test]
+    async fn authenticate_token_charges_limiter_on_bad_token() {
+        let state = test_state().await;
+        set_single_attempt_limit(&state);
+
+        let err = authenticate_token(&state, &token::generate(), "bad-token-key")
+            .await
+            .expect_err("unknown but well-formed token should be rejected");
+        assert_eq!(err.to_string(), "invalid or revoked token");
+
+        assert!(
+            state.mcp_auth_limiter.try_acquire("bad-token-key").is_err(),
+            "credential failures must still consume the failure budget"
+        );
+    }
 }
