@@ -1,6 +1,6 @@
 use crate::api::error::ApiError;
 use crate::auth::{password, token};
-use crate::db::repos::{InviteRepo, NewToken, NewUser, RegistrationMode, UserRepo};
+use crate::db::repos::{InviteRepo, NewToken, NewUser, RegistrationMode, User, UserRepo};
 use crate::service::AppState;
 use serde::{Deserialize, Serialize};
 
@@ -151,32 +151,25 @@ pub async fn register(state: &AppState, req: RegisterReq) -> Result<AuthResp, Ap
         ));
     }
     let pwd_hash = hash_auth_password(&req.password)?;
-    let user = state
-        .users
-        .create(NewUser {
-            username: req.username.clone(),
-            password_hash: pwd_hash,
-            is_admin: false,
-        })
-        .await
-        .map_err(|e| {
-            if is_unique_error(&e) {
-                ApiError::conflict("username_taken", "username already exists")
-            } else {
-                ApiError::from(e)
-            }
-        })?;
-    if let Some(code) = &req.invite_code {
-        let now = chrono::Utc::now().timestamp();
-        let claimed = state.invites.mark_used(code, &user.id, now).await?;
-        if !claimed {
-            let _ = state.users.delete(&user.id).await;
-            return Err(ApiError::bad_request(
-                "invalid_invite",
-                "invite not available",
-            ));
-        }
-    }
+    let user = if let Some(code) = &req.invite_code {
+        create_user_claiming_invite(state, req.username.clone(), pwd_hash, code).await?
+    } else {
+        state
+            .users
+            .create(NewUser {
+                username: req.username.clone(),
+                password_hash: pwd_hash,
+                is_admin: false,
+            })
+            .await
+            .map_err(|e| {
+                if is_unique_error(&e) {
+                    ApiError::conflict("username_taken", "username already exists")
+                } else {
+                    ApiError::from(e)
+                }
+            })?
+    };
     issue_token(
         state,
         &user.id,
@@ -186,6 +179,63 @@ pub async fn register(state: &AppState, req: RegisterReq) -> Result<AuthResp, Ap
         device_name,
     )
     .await
+}
+
+async fn create_user_claiming_invite(
+    state: &AppState,
+    username: String,
+    password_hash: String,
+    invite_code: &str,
+) -> Result<User, ApiError> {
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let now = chrono::Utc::now().timestamp();
+    let mut tx = state.pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO users (id, username, password_hash, is_admin, is_active, created_at)
+         VALUES (?, ?, ?, 0, 1, ?)",
+    )
+    .bind(&id)
+    .bind(&username)
+    .bind(&password_hash)
+    .bind(now)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        if is_unique_error(&e) {
+            ApiError::conflict("username_taken", "username already exists")
+        } else {
+            ApiError::from(e)
+        }
+    })?;
+
+    let claimed = sqlx::query(
+        "UPDATE invites SET used_at = ?, used_by = ?
+         WHERE code = ? AND used_at IS NULL AND (expires_at IS NULL OR expires_at > ?)",
+    )
+    .bind(now)
+    .bind(&id)
+    .bind(invite_code)
+    .bind(now)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected()
+        == 1;
+    if !claimed {
+        return Err(ApiError::bad_request(
+            "invalid_invite",
+            "invite not available",
+        ));
+    }
+    tx.commit().await?;
+    Ok(User {
+        id,
+        username,
+        password_hash,
+        is_admin: false,
+        is_active: true,
+        created_at: now,
+        last_login_at: None,
+    })
 }
 
 pub async fn login(state: &AppState, req: LoginReq) -> Result<AuthResp, ApiError> {
@@ -562,6 +612,84 @@ mod tests {
         .unwrap();
         assert_eq!(registered_users, 1);
         assert_eq!(registered_tokens, 1);
+    }
+
+    #[tokio::test]
+    async fn register_invite_race_does_not_leave_user_when_delete_fails() {
+        let s = make_state(RegistrationMode::InviteOnly).await;
+        let creator = s
+            .users
+            .create(NewUser {
+                username: "admin".into(),
+                password_hash: "hash".into(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        let winner = s
+            .users
+            .create(NewUser {
+                username: "winner".into(),
+                password_hash: "hash".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        s.invites.create(&creator.id, None).await.unwrap();
+        sqlx::query(
+            "CREATE TRIGGER mark_invite_used_after_loser_insert
+             AFTER INSERT ON users
+             WHEN NEW.username = 'race_loser'
+             BEGIN
+               UPDATE invites
+               SET used_at = 123, used_by = (SELECT id FROM users WHERE username = 'winner')
+               WHERE used_at IS NULL;
+             END",
+        )
+        .execute(&s.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TRIGGER block_loser_delete
+             BEFORE DELETE ON users
+             WHEN OLD.username = 'race_loser'
+             BEGIN
+               SELECT RAISE(FAIL, 'delete blocked');
+             END",
+        )
+        .execute(&s.pool)
+        .await
+        .unwrap();
+        let invite = s
+            .invites
+            .list_active(chrono::Utc::now().timestamp())
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+
+        let err = register(
+            &s,
+            RegisterReq {
+                username: "race_loser".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "device-race-loser".into(),
+                device_name: "loser".into(),
+                invite_code: Some(invite.code),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "invalid_invite");
+        assert_eq!(winner.username, "winner");
+        let (registered_users,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM users WHERE username = 'race_loser'")
+                .fetch_one(&s.pool)
+                .await
+                .unwrap();
+        assert_eq!(registered_users, 0);
     }
 
     #[tokio::test]
