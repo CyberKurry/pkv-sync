@@ -2,7 +2,7 @@
 
 [English](./llm-wiki-howto.md) | 简体中文 | [繁體中文](./llm-wiki-howto.zh-Hant.md) | [日本語](./llm-wiki-howto.ja.md) | [한국어](./llm-wiki-howto.ko.md)
 
-文档版本：v1.1.1。
+文档版本：v1.2.0。
 
 PKV Sync 为由 LLM 维护的 wiki 提供存储、历史和 MCP 基底。你自己的 MCP-capable agent 负责运行 LLM，通过普通的 PKV Sync 设备 token 读写，并把每个已接受的改动提交到笔记库的 git 历史中。
 
@@ -90,9 +90,9 @@ captured: 2026-06-08
 
 ## Agent 循环
 
-1. Ingest：在 `sources/` 下新增或更新页面，尽量保留原始措辞。
+1. Ingest：在 `sources/` 下新增或更新 source 材料，尽量保留原始措辞。当一个 source 会展开成 10 到 25 个 source 和 wiki 页面时，使用 `write_files`，让整个 ingest 以一个原子 commit 落地。
 2. Query：要求 agent 读取相关 source 和 wiki 页面，然后提出 `wiki/` 下的更新。
-3. Write：只有在 agent 拿到当前 `parent_commit` 后，才允许它使用 `write_file` 或 `delete_file`。
+3. Write：只有在 agent 拿到当前 `parent_commit` 后，才允许它使用 `write_file`、`write_files`、`move_file` 或 `delete_file`。页面合并、拆分和归档移动时使用 `move_file`，让 git 能报告重命名，而不是丢失历史。
 4. Lint：运行 `link_graph` 查找孤立链接、缺失链接或有歧义的链接；从上次 review 过的 commit 开始运行 `changes_since`，总结发生了什么变化。
 5. Review：检查提出的 commit，解决冲突，并把不确定的主张留在 sources 中，直到人类将其提升为 wiki 页面。
 

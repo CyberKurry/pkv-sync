@@ -2,7 +2,7 @@
 
 English | [简体中文](./llm-wiki-howto.zh-CN.md) | [繁體中文](./llm-wiki-howto.zh-Hant.md) | [日本語](./llm-wiki-howto.ja.md) | [한국어](./llm-wiki-howto.ko.md)
 
-Document version: v1.1.1.
+Document version: v1.2.0.
 
 PKV Sync provides the storage, history, and MCP substrate for an LLM-maintained wiki. Your own MCP-capable agent runs the LLM, reads and writes through a normal PKV Sync device token, and commits every accepted change into the vault's git history.
 
@@ -90,9 +90,9 @@ captured: 2026-06-08
 
 ## Agent loop
 
-1. Ingest: add or update pages under `sources/`, preserving original wording where possible.
+1. Ingest: add or update source material under `sources/`, preserving original wording where possible. When one source fans out into 10-25 source and wiki pages, use `write_files` so the whole ingest lands atomically in one commit.
 2. Query: ask the agent to read relevant source and wiki pages, then propose updates under `wiki/`.
-3. Write: let the agent use `write_file` or `delete_file` only after it has a current `parent_commit`.
+3. Write: let the agent use `write_file`, `write_files`, `move_file`, or `delete_file` only after it has a current `parent_commit`. Use `move_file` for page merges, splits, and archival moves so git can report the rename instead of losing history.
 4. Lint: run `link_graph` to find orphaned, missing, or ambiguous links; run `changes_since` from the last reviewed commit to summarize what changed.
 5. Review: inspect the proposed commits, resolve conflicts, and keep uncertain claims in sources until a human promotes them into wiki pages.
 

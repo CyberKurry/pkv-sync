@@ -2,7 +2,7 @@
 
 [English](./mcp-howto.md) | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | 한국어
 
-문서 버전: v1.1.1.
+문서 버전: v1.2.0.
 
 이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
 
@@ -19,6 +19,8 @@ PKV Sync는 MCP server를 통해 vault 내용을 노출할 수 있습니다. 서
 - `changes_since {vault_id, since_commit, path_prefix?, limit?}`: `since_commit` 이후 추가, 수정, 삭제, rename된 파일을 나열합니다. 응답에는 `from_commit`, 현재 `to_commit`, `changes`, `truncated`가 포함됩니다. `since_commit`이 HEAD의 ancestor가 아니면 클라이언트가 vault를 다시 읽을 수 있도록 `unrelated_commit`을 반환합니다.
 - `write_file {vault_id, path, content, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 텍스트 파일을 만들거나 업데이트합니다.
 - `delete_file {vault_id, path, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 파일을 삭제합니다.
+- `write_files {vault_id, parent_commit, writes?, deletes?}`: 여러 텍스트 파일의 생성, 업데이트, 삭제를 하나의 commit으로 atomically 수행합니다. `writes[]`에는 `{path, content}` objects가 들어가고, `deletes[]`에는 paths가 들어갑니다.
+- `move_file {vault_id, parent_commit, from, to}`: 텍스트 파일을 하나의 commit에서 이동하거나 rename하며 git rename history를 보존합니다. target path는 이미 존재하면 안 됩니다.
 
 모든 MCP read tools는 현재 SyncPathFilter를 준수합니다. 기본 hidden-path rules 또는 runtime exclude globs에 의해 거부된 paths는 나열, 검색, 읽기, link graph 포함, 변경 사항 보고 대상에서 제외됩니다.
 
@@ -75,10 +77,12 @@ POST는 JSON-RPC tool calls를 담고 JSON responses를 반환합니다. `Accept
 
 ## Write tools
 
-PKV Sync는 읽기 tools와 함께 두 개의 MCP write tools를 제공합니다.
+PKV Sync는 읽기 tools와 함께 네 개의 MCP write tools를 제공합니다.
 
 - `write_file(vault_id, path, content, parent_commit)`: 텍스트 파일을 만들거나 업데이트합니다.
 - `delete_file(vault_id, path, parent_commit)`: 파일을 삭제합니다.
+- `write_files(vault_id, parent_commit, writes[], deletes[])`: 여러 텍스트 파일을 하나의 commit에서 atomically 만들고, 업데이트하고, 삭제합니다. path가 유효하지 않거나, 파일이 `max_file_size`를 넘거나, batch가 비어 있거나(`empty_batch`), batch가 100 changes를 넘으면(`batch_too_large`) 아무것도 commit하지 않습니다. 오래된 `parent_commit`은 일반 `Conflict` response를 반환합니다.
+- `move_file(vault_id, parent_commit, from, to)`: 하나의 텍스트 파일을 단일 commit에서 이동하거나 rename합니다. 이미 존재하는 target(`target_exists`), binary/blob-pointer source(`unsupported_binary_move`), 없거나 hidden인 source(`not_found`)는 거부합니다.
 
 ### Optimistic concurrency control
 
@@ -86,11 +90,11 @@ PKV Sync는 읽기 tools와 함께 두 개의 MCP write tools를 제공합니다
 
 ### Rate limit
 
-Write tools는 `(token, vault)` 쌍별로 분당 60 writes로 제한됩니다. Read tools와 SSE subscriptions는 이 write quota의 영향을 받지 않습니다.
+Write tools는 `(token, vault)` 쌍별로 분당 60 writes로 제한됩니다. `write_files`는 batch 전체에 대해 rate-limit record 하나만 사용합니다. Read tools와 SSE subscriptions는 이 write quota의 영향을 받지 않습니다.
 
 ### Audit trail
 
-성공한 모든 write 또는 delete는 activity log에 `mcp_write` 또는 `mcp_delete`로 기록되며, details에는 path, commit, size가 포함됩니다. 관리자는 activity page에서 AI-driven changes를 검토할 수 있습니다.
+성공한 모든 write, batch write, move, delete는 activity log에 `mcp_write` 또는 `mcp_delete`로 기록되며, details에는 path summary, commit, size가 포함됩니다. 관리자는 activity page에서 AI-driven changes를 검토할 수 있습니다.
 
 ### Caveat: writes enter git history
 

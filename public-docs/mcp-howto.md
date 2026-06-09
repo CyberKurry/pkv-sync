@@ -2,7 +2,7 @@
 
 English | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
-Document version: v1.1.1.
+Document version: v1.2.0.
 
 PKV Sync can expose vault contents through an MCP server. The server resolves
 blob pointers before returning file content, can write through explicit
@@ -19,6 +19,8 @@ read-write tools, and requires a normal PKV Sync bearer device token.
 - `changes_since {vault_id, since_commit, path_prefix?, limit?}`: list files added, modified, deleted, or renamed since `since_commit`. The response includes `from_commit`, current `to_commit`, `changes`, and `truncated`; if `since_commit` is not an ancestor of HEAD, the tool returns `unrelated_commit` so the client can re-read the vault.
 - `write_file {vault_id, path, content, parent_commit}`: create or update a text file with optimistic concurrency on `parent_commit`.
 - `delete_file {vault_id, path, parent_commit}`: delete a file with optimistic concurrency on `parent_commit`.
+- `write_files {vault_id, parent_commit, writes?, deletes?}`: atomically create, update, and/or delete multiple text files in one commit. `writes[]` contains `{path, content}` objects; `deletes[]` contains paths.
+- `move_file {vault_id, parent_commit, from, to}`: move or rename a text file in one commit while preserving git rename history. The target must not already exist.
 
 All MCP read tools honor the current SyncPathFilter. Paths rejected by built-in hidden-path rules or runtime exclude globs are not listed, searched, read, included in link graphs, or reported as changes.
 
@@ -96,10 +98,12 @@ responses above 64 MiB are rejected instead of being base64-expanded into JSON.
 
 ## Write tools
 
-PKV Sync exposes two MCP write tools alongside the read tools:
+PKV Sync exposes four MCP write tools alongside the read tools:
 
 - `write_file(vault_id, path, content, parent_commit)`: create or update a text file.
 - `delete_file(vault_id, path, parent_commit)`: delete a file.
+- `write_files(vault_id, parent_commit, writes[], deletes[])`: create, update, and delete multiple text files atomically in one commit. If any path is invalid, a file exceeds `max_file_size`, the batch is empty (`empty_batch`), or the batch exceeds 100 changes (`batch_too_large`), nothing is committed. A stale `parent_commit` returns the normal `Conflict` response.
+- `move_file(vault_id, parent_commit, from, to)`: move or rename one text file in a single commit. It refuses existing targets (`target_exists`), binary/blob-pointer sources (`unsupported_binary_move`), and missing or hidden sources (`not_found`).
 
 ### Optimistic concurrency control
 
@@ -112,13 +116,15 @@ writing. The client must re-read, merge if needed, and retry with the new
 ### Rate limit
 
 Write tools are rate-limited per `(token, vault)` pair at 60 writes per minute.
-Read tools and SSE subscriptions are unaffected by this write quota.
+`write_files` spends one rate-limit record for the whole batch. Read tools and
+SSE subscriptions are unaffected by this write quota.
 
 ### Audit trail
 
-Every successful write or delete is recorded in the activity log as
-`mcp_write` or `mcp_delete`, with the path, commit, and size in the details.
-Admins can review AI-driven changes from the activity page.
+Every successful write, batch write, move, or delete is recorded in the
+activity log as `mcp_write` or `mcp_delete`, with a path summary, commit, and
+size in the details. Admins can review AI-driven changes from the activity
+page.
 
 ### Caveat: writes enter git history
 
