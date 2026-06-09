@@ -1,7 +1,7 @@
 use crate::auth::token;
 use async_trait::async_trait;
 use serde::Serialize;
-use sqlx::SqlitePool;
+use sqlx::{Executor, Sqlite, SqlitePool};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,45 +76,53 @@ impl SqliteTokenRepo {
     }
 
     pub async fn create_replacing_device(&self, n: NewToken<'_>) -> Result<TokenRow, sqlx::Error> {
-        let id = Uuid::new_v4().simple().to_string();
-        let now = chrono::Utc::now().timestamp();
-        let expires_at = now + token::TOKEN_TTL_SECONDS;
         let mut tx = self.pool.begin().await?;
-        sqlx::query(
-            "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(n.user_id)
-        .bind(n.token_hash)
-        .bind(n.device_id)
-        .bind(n.device_name)
-        .bind(now)
-        .bind(expires_at)
-        .execute(&mut *tx)
-        .await?;
+        let row = insert_token(&mut *tx, n).await?;
         sqlx::query(
             "UPDATE tokens SET revoked_at = ?
              WHERE user_id = ? AND device_id = ? AND id != ? AND revoked_at IS NULL",
         )
-        .bind(now)
-        .bind(n.user_id)
-        .bind(n.device_id)
-        .bind(&id)
+        .bind(row.created_at)
+        .bind(&row.user_id)
+        .bind(&row.device_id)
+        .bind(&row.id)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        Ok(TokenRow {
-            id,
-            user_id: n.user_id.into(),
-            device_id: n.device_id.into(),
-            device_name: n.device_name.into(),
-            created_at: now,
-            expires_at,
-            last_used_at: None,
-            revoked_at: None,
-        })
+        Ok(row)
     }
+}
+
+async fn insert_token<'e, E>(executor: E, n: NewToken<'_>) -> Result<TokenRow, sqlx::Error>
+where
+    E: Executor<'e, Database = Sqlite>,
+{
+    let id = Uuid::new_v4().simple().to_string();
+    let now = chrono::Utc::now().timestamp();
+    let expires_at = now + token::TOKEN_TTL_SECONDS;
+    sqlx::query(
+        "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(n.user_id)
+    .bind(n.token_hash)
+    .bind(n.device_id)
+    .bind(n.device_name)
+    .bind(now)
+    .bind(expires_at)
+    .execute(executor)
+    .await?;
+    Ok(TokenRow {
+        id,
+        user_id: n.user_id.into(),
+        device_id: n.device_id.into(),
+        device_name: n.device_name.into(),
+        created_at: now,
+        expires_at,
+        last_used_at: None,
+        revoked_at: None,
+    })
 }
 
 fn row_to_token_row(t: TokenRowTuple) -> TokenRow {
@@ -133,32 +141,7 @@ fn row_to_token_row(t: TokenRowTuple) -> TokenRow {
 #[async_trait]
 impl TokenRepo for SqliteTokenRepo {
     async fn create(&self, n: NewToken<'_>) -> Result<TokenRow, sqlx::Error> {
-        let id = Uuid::new_v4().simple().to_string();
-        let now = chrono::Utc::now().timestamp();
-        let expires_at = now + token::TOKEN_TTL_SECONDS;
-        sqlx::query(
-            "INSERT INTO tokens (id, user_id, token_hash, device_id, device_name, created_at, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(n.user_id)
-        .bind(n.token_hash)
-        .bind(n.device_id)
-        .bind(n.device_name)
-        .bind(now)
-        .bind(expires_at)
-        .execute(&self.pool)
-        .await?;
-        Ok(TokenRow {
-            id,
-            user_id: n.user_id.into(),
-            device_id: n.device_id.into(),
-            device_name: n.device_name.into(),
-            created_at: now,
-            expires_at,
-            last_used_at: None,
-            revoked_at: None,
-        })
+        insert_token(&self.pool, n).await
     }
 
     async fn find_by_hash(&self, hash: &str) -> Result<Option<(TokenRow, String)>, sqlx::Error> {
@@ -380,6 +363,57 @@ mod tests {
             .await
             .unwrap();
         (users, tokens, u.id)
+    }
+
+    fn assert_new_token_row(row: &TokenRow, user_id: &str, device_id: &str, device_name: &str) {
+        assert_eq!(row.user_id, user_id);
+        assert_eq!(row.device_id, device_id);
+        assert_eq!(row.device_name, device_name);
+        assert_eq!(row.expires_at, row.created_at + token::TOKEN_TTL_SECONDS);
+        assert!(row.last_used_at.is_none());
+        assert!(row.revoked_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn create_paths_return_equivalent_new_rows_and_replacing_revokes_old_device_token() {
+        let (_users, tokens, uid) = setup().await;
+        let plain = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "plain-equivalent",
+                device_id: "device-plain-equivalent",
+                device_name: "Plain Device",
+            })
+            .await
+            .unwrap();
+        let old_same_device = tokens
+            .create(NewToken {
+                user_id: &uid,
+                token_hash: "old-replaced",
+                device_id: "device-replaced",
+                device_name: "Old Device",
+            })
+            .await
+            .unwrap();
+
+        let replacing = tokens
+            .create_replacing_device(NewToken {
+                user_id: &uid,
+                token_hash: "new-replacing",
+                device_id: "device-replaced",
+                device_name: "Replacement Device",
+            })
+            .await
+            .unwrap();
+
+        assert_new_token_row(&plain, &uid, "device-plain-equivalent", "Plain Device");
+        assert_new_token_row(&replacing, &uid, "device-replaced", "Replacement Device");
+
+        let rows = tokens.list_for_user(&uid).await.unwrap();
+        let old_same_device = rows.iter().find(|t| t.id == old_same_device.id).unwrap();
+        let replacing = rows.iter().find(|t| t.id == replacing.id).unwrap();
+        assert!(old_same_device.revoked_at.is_some());
+        assert!(replacing.revoked_at.is_none());
     }
 
     #[tokio::test]
