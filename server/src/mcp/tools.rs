@@ -571,6 +571,9 @@ pub async fn changes_since(
     })
 }
 
+// MCP read surfaces such as list_files/search use path_visible_on_read(), which
+// may expose vault-allowlisted hidden paths. Mutating and graph/history tools use
+// this stricter policy so hidden/excluded paths remain non-addressable to agents.
 fn mcp_path_visible(filter: &SyncPathFilter, path: &str) -> bool {
     !crate::service::exclude::is_hidden_path(path) && sync::path_visible_on_read(filter, path)
 }
@@ -821,9 +824,13 @@ pub async fn write_files(
     let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
     let mut changes = Vec::with_capacity(total);
     let mut total_bytes = 0usize;
+    let mut write_paths = HashSet::new();
 
     for write in input.writes {
         let path = normalize_mcp_path(write.path)?;
+        if !write_paths.insert(path.clone()) {
+            bail!("duplicate_path: '{path}' appears more than once");
+        }
         let size = write.content.len();
         if size as u64 > max_file_size {
             bail!("file '{path}' exceeds max_file_size of {max_file_size} bytes");
@@ -835,8 +842,12 @@ pub async fn write_files(
         });
     }
 
+    let mut delete_paths = HashSet::new();
     for delete in input.deletes {
         let path = normalize_mcp_path(delete)?;
+        if write_paths.contains(&path) || !delete_paths.insert(path.clone()) {
+            bail!("duplicate_path: '{path}' appears in conflicting batch changes");
+        }
         changes.push(PushChange::Delete { path });
     }
 
@@ -866,9 +877,10 @@ pub async fn move_file(
         bail!("invalid_path: from and to are identical");
     }
 
-    let preflight =
-        apply_write_preflight(state, user, &input.vault_id, input.parent_commit.clone()).await?;
-    if let Some(conflict) = preflight {
+    if let Some(conflict) =
+        ensure_write_ready_without_rate_limit(state, user, &input.vault_id, &input.parent_commit)
+            .await?
+    {
         return Ok(conflict);
     }
 
@@ -877,23 +889,27 @@ pub async fn move_file(
         .map_err(api_error_to_anyhow)?;
     let git = state.git_store();
     let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
-    let tree = git.list_tree(&input.vault_id, at).await?;
+    if !mcp_path_visible(&filter, &from) {
+        bail!("not_found: '{from}' does not exist");
+    }
+    if !mcp_path_visible(&filter, &to) {
+        bail!("invalid_path: target path is not writable through MCP");
+    }
 
-    if tree.iter().any(|entry| entry.path == to) {
+    let content = match git.read_file(&input.vault_id, &from, at).await? {
+        Some(StoredFile::Text { bytes }) => String::from_utf8(bytes)
+            .map_err(|_| anyhow!("unsupported_binary_move: '{from}' is not UTF-8 text"))?,
+        Some(StoredFile::BlobPointer { .. }) => {
+            bail!("unsupported_binary_move: '{from}' is binary; v1 supports text only");
+        }
+        None => bail!("not_found: '{from}' does not exist"),
+    };
+
+    record_mcp_write_rate_limit(state, user, &input.vault_id)?;
+    if git.read_file(&input.vault_id, &to, at).await?.is_some() {
         bail!("target_exists: '{to}' already exists");
     }
-
-    let from_entry = tree
-        .iter()
-        .find(|entry| entry.path == from && mcp_path_visible(&filter, &entry.path))
-        .ok_or_else(|| anyhow!("not_found: '{from}' does not exist"))?;
-    if from_entry.is_blob_pointer {
-        bail!("unsupported_binary_move: '{from}' is binary; v1 supports text only");
-    }
-
-    let content = read_text_bytes(&git, &input.vault_id, &from, at)
-        .await?
-        .ok_or_else(|| anyhow!("unsupported_binary_move: '{from}' is not UTF-8 text"))?;
+    let activity_size_bytes = content.len();
 
     apply_preflighted_write_batch(
         state,
@@ -903,7 +919,7 @@ pub async fn move_file(
             parent_commit: input.parent_commit,
             activity_action: "mcp_write",
             activity_path: format!("{from} -> {to}"),
-            activity_size_bytes: 0,
+            activity_size_bytes,
             changes: vec![
                 PushChange::Delete { path: from },
                 PushChange::Text { path: to, content },
@@ -1129,6 +1145,15 @@ async fn apply_write_preflight(
     vault_id: &str,
     parent_commit: String,
 ) -> Result<Option<WriteToolOutput>> {
+    record_mcp_write_rate_limit(state, user, vault_id)?;
+    ensure_write_ready_without_rate_limit(state, user, vault_id, &parent_commit).await
+}
+
+fn record_mcp_write_rate_limit(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    vault_id: &str,
+) -> Result<()> {
     state
         .mcp_write_limiter
         .try_record(&user.token_id, vault_id)
@@ -1139,8 +1164,17 @@ async fn apply_write_preflight(
             )
         })?;
 
+    Ok(())
+}
+
+async fn ensure_write_ready_without_rate_limit(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    vault_id: &str,
+    parent_commit: &str,
+) -> Result<Option<WriteToolOutput>> {
     ensure_owned_vault(state, &user.user_id, vault_id).await?;
-    let parent = (!parent_commit.is_empty()).then_some(parent_commit.as_str());
+    let parent = (!parent_commit.is_empty()).then_some(parent_commit);
     let current_head = state
         .git_store()
         .head(vault_id)

@@ -372,6 +372,43 @@ async fn write_files_rejects_invalid_path_without_committing() {
 }
 
 #[tokio::test]
+async fn write_files_rejects_duplicate_paths_across_writes_and_deletes() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-files-duplicate").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "notes/a.md", "old").await;
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "writes": [{ "path": "./notes/a.md", "content": "important" }],
+            "deletes": ["notes/a.md"]
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("duplicate_path") || message.contains("conflicting_path"),
+        "{message}"
+    );
+    let git = Git2VaultStore::new(state.default_vault_root());
+    assert_eq!(
+        git.read_file(&vault.id, "notes/a.md", Some(&head))
+            .await
+            .unwrap(),
+        Some(StoredFile::Text {
+            bytes: b"old".to_vec()
+        })
+    );
+}
+
+#[tokio::test]
 async fn write_files_conflict_on_stale_parent() {
     let (state, _tmp) = test_state().await;
     let (user, raw) = create_user_with_token(&state, "mcp-write-files-stale").await;
@@ -525,6 +562,19 @@ async fn move_file_preserves_content_and_history() {
             bytes: b"original".to_vec()
         })
     );
+    let (details,): (String,) = sqlx::query_as(
+        "SELECT details
+         FROM sync_activity
+         WHERE vault_id = ? AND action = 'mcp_write'
+         ORDER BY id DESC
+         LIMIT 1",
+    )
+    .bind(&vault.id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert!(details.contains("\"path\":\"a.md -> folder/b.md\""), "{details}");
+    assert!(details.contains("\"size_bytes\":8"), "{details}");
 
     let changes = post_tool(
         state,
@@ -545,6 +595,57 @@ async fn move_file_preserves_content_and_history() {
                 && change["path"] == "folder/b.md"
                 && change["old_path"] == "a.md"
         }));
+}
+
+#[tokio::test]
+async fn move_file_target_exists_check_does_not_leak_excluded_paths() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-move-hidden-target").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let head = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "visible.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"visible".to_vec(),
+                    },
+                },
+                FileChange::Upsert {
+                    path: ".obsidian/plugins/secret/data.json".into(),
+                    file: StoredFile::Text {
+                        bytes: b"secret".to_vec(),
+                    },
+                },
+            ],
+            "seed hidden target",
+        )
+        .await
+        .unwrap();
+
+    let body = post_tool(
+        state,
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "visible.md",
+            "to": ".obsidian/plugins/secret/data.json"
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("invalid_path") || message.contains("not_found"),
+        "{message}"
+    );
+    assert!(!message.contains("target_exists"), "{message}");
 }
 
 #[tokio::test]
@@ -925,12 +1026,12 @@ async fn different_token_or_different_vault_has_independent_quota() {
 }
 
 #[tokio::test]
-async fn move_file_checks_rate_limit_before_tree_or_content_probe() {
+async fn move_file_invalid_source_does_not_burn_rate_limit() {
     let (state, _tmp) = test_state().await;
     state
         .mcp_write_limiter
         .update_config(1, std::time::Duration::from_secs(60));
-    let (user, raw) = create_user_with_token(&state, "mcp-move-preflight-rate").await;
+    let (user, raw) = create_user_with_token(&state, "mcp-move-invalid-source-rate").await;
     let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
     let git = Git2VaultStore::new(state.default_vault_root());
     let head = git
@@ -944,33 +1045,32 @@ async fn move_file_checks_rate_limit_before_tree_or_content_probe() {
                         bytes: b"source".to_vec(),
                     },
                 },
-                FileChange::Upsert {
-                    path: "target.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"target".to_vec(),
-                    },
-                },
             ],
-            "seed move preflight rate",
+            "seed move invalid source rate",
         )
         .await
         .unwrap();
 
-    let first = post_tool(
-        state.clone(),
-        &raw,
-        "write_file",
-        json!({
-            "vault_id": vault.id,
-            "path": "quota.md",
-            "content": "consume quota",
-            "parent_commit": head
-        }),
-    )
-    .await;
-    let _commit = structured(&first)["commit"].as_str().unwrap();
+    for _ in 0..5 {
+        let invalid = post_tool(
+            state.clone(),
+            &raw,
+            "move_file",
+            json!({
+                "vault_id": vault.id,
+                "parent_commit": head,
+                "from": "missing.md",
+                "to": "moved.md"
+            }),
+        )
+        .await;
+        assert_eq!(invalid["error"]["code"], -32000);
+        let message = invalid["error"]["message"].as_str().unwrap();
+        assert!(message.contains("not_found"), "{message}");
+        assert!(!message.contains("rate_limited"), "{message}");
+    }
 
-    let limited = post_tool(
+    let moved = post_tool(
         state,
         &raw,
         "move_file",
@@ -978,18 +1078,15 @@ async fn move_file_checks_rate_limit_before_tree_or_content_probe() {
             "vault_id": vault.id,
             "parent_commit": head,
             "from": "source.md",
-            "to": "target.md"
+            "to": "moved.md"
         }),
     )
     .await;
 
-    assert_eq!(limited["error"]["code"], -32000);
-    let message = limited["error"]["message"].as_str().unwrap();
     assert!(
-        message.contains("rate_limited"),
-        "must reject before leaking target_exists or source metadata: {message}"
+        structured(&moved)["commit"].is_string(),
+        "invalid source failures must not consume MCP write quota: {moved}"
     );
-    assert!(!message.contains("target_exists"));
 }
 
 #[tokio::test]
