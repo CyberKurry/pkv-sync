@@ -12,6 +12,10 @@ const MAIN_REF: &str = "refs/heads/main";
 const MAX_REACHABLE_WALK: usize = 3;
 #[cfg(not(test))]
 const MAX_REACHABLE_WALK: usize = 10_000;
+#[cfg(test)]
+const LIST_CHANGES_MAX: usize = 8;
+#[cfg(not(test))]
+const LIST_CHANGES_MAX: usize = 10_000;
 pub const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
 pub const POINTER_VERSION: u64 = 1;
 
@@ -305,6 +309,13 @@ fn delta_path(path: Option<&Path>) -> Result<String, GitStoreError> {
         .ok_or(GitStoreError::NotFound)?
         .to_string_lossy()
         .replace('\\', "/"))
+}
+
+fn parse_full_oid(value: &str) -> Result<Oid, GitStoreError> {
+    if value.len() != 40 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(git2::Error::from_str("invalid object id").into());
+    }
+    Ok(Oid::from_str(value)?)
 }
 
 fn is_binary_delta(
@@ -721,8 +732,10 @@ impl GitVaultStore for Git2VaultStore {
         let to = to.to_string();
         tokio::task::spawn_blocking(move || -> Result<Vec<ChangedEntry>, GitStoreError> {
             let repo = Repository::open_bare(&p)?;
-            let from_tree = repo.revparse_single(&from)?.peel_to_tree()?;
-            let to_tree = repo.revparse_single(&to)?.peel_to_tree()?;
+            let from_commit = repo.find_commit(parse_full_oid(&from)?)?;
+            let to_commit = repo.find_commit(parse_full_oid(&to)?)?;
+            let from_tree = from_commit.tree()?;
+            let to_tree = to_commit.tree()?;
             let mut diff = repo.diff_tree_to_tree(Some(&from_tree), Some(&to_tree), None)?;
             let mut find = DiffFindOptions::new();
             find.renames(true);
@@ -730,6 +743,9 @@ impl GitVaultStore for Git2VaultStore {
 
             let mut out = Vec::new();
             for delta in diff.deltas() {
+                if out.len() >= LIST_CHANGES_MAX {
+                    break;
+                }
                 let status = delta.status();
                 let entry = match status {
                     Delta::Added => ChangedEntry {
@@ -1034,6 +1050,92 @@ mod tests {
             status: ChangeStatus::Renamed,
             old_path: Some("old-name.md".into()),
         }));
+    }
+
+    #[tokio::test]
+    async fn list_changes_between_rejects_refs_and_short_oids() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "a.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"a".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+        let head = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "b.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"b".to_vec(),
+                    },
+                }],
+                "head",
+            )
+            .await
+            .unwrap();
+
+        assert!(store
+            .list_changes_between("v1", "HEAD", &head)
+            .await
+            .is_err());
+        assert!(store
+            .list_changes_between("v1", &base, "HEAD")
+            .await
+            .is_err());
+        assert!(store
+            .list_changes_between("v1", &base[..7], &head)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn list_changes_between_caps_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "seed.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"seed".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+        let changes: Vec<_> = (0..9)
+            .map(|idx| FileChange::Upsert {
+                path: format!("note-{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: idx.to_string().into_bytes(),
+                },
+            })
+            .collect();
+        let head = store
+            .commit_changes("v1", Some(&base), &changes, "head")
+            .await
+            .unwrap();
+
+        let changes = store
+            .list_changes_between("v1", &base, &head)
+            .await
+            .unwrap();
+
+        assert_eq!(changes.len(), 8);
     }
 
     #[tokio::test]
