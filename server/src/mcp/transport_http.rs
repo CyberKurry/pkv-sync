@@ -29,7 +29,7 @@ use super::transport_stdio::{
 struct McpAuthLimitKey(String);
 
 const MCP_JSON_BODY_OVERHEAD_BYTES: u64 = 1024 * 1024;
-const MCP_JSON_BODY_LIMIT_CEILING_BYTES: u64 = 100 * 1024 * 1024 * 1024;
+const MCP_JSON_BODY_LIMIT_CEILING_BYTES: u64 = 100 * 1024 * 1024;
 
 fn mcp_json_body_limit_bytes(max_file_size: u64) -> usize {
     max_file_size
@@ -38,6 +38,14 @@ fn mcp_json_body_limit_bytes(max_file_size: u64) -> usize {
         .min(MCP_JSON_BODY_LIMIT_CEILING_BYTES)
         .try_into()
         .unwrap_or(usize::MAX / 2)
+}
+
+fn mcp_auth_error_public_message(message: &str) -> &str {
+    if message.starts_with("rate_limited:") {
+        message
+    } else {
+        GENERIC_MCP_AUTH_ERROR
+    }
 }
 
 fn is_json_content_type(headers: &HeaderMap) -> bool {
@@ -150,14 +158,13 @@ async fn post_mcp(
         Ok(user) => user,
         Err(err) => {
             let message = err.to_string();
-            let public_message = if message.starts_with("rate_limited:") {
-                message.as_str()
-            } else {
-                GENERIC_MCP_AUTH_ERROR
-            };
             return (
                 StatusCode::UNAUTHORIZED,
-                Json(jsonrpc_error(Value::Null, -32001, public_message)),
+                Json(jsonrpc_error(
+                    Value::Null,
+                    -32001,
+                    mcp_auth_error_public_message(&message),
+                )),
             )
                 .into_response();
         }
@@ -210,14 +217,13 @@ async fn get_mcp_sse(
         Ok(user) => user,
         Err(err) => {
             let message = err.to_string();
-            let public_message = if message.starts_with("rate_limited:") {
-                message.as_str()
-            } else {
-                GENERIC_MCP_AUTH_ERROR
-            };
             return (
                 StatusCode::UNAUTHORIZED,
-                Json(jsonrpc_error(Value::Null, -32001, public_message)),
+                Json(jsonrpc_error(
+                    Value::Null,
+                    -32001,
+                    mcp_auth_error_public_message(&message),
+                )),
             )
                 .into_response();
         }
@@ -533,12 +539,21 @@ mod tests {
     }
 
     #[test]
+    fn mcp_auth_error_public_message_only_preserves_rate_limit_errors() {
+        assert_eq!(
+            mcp_auth_error_public_message("rate_limited: retry later"),
+            "rate_limited: retry later"
+        );
+        assert_eq!(
+            mcp_auth_error_public_message("database unavailable"),
+            GENERIC_MCP_AUTH_ERROR
+        );
+    }
+
+    #[test]
     fn mcp_json_body_limit_clamps_huge_max_file_size() {
         assert_ne!(mcp_json_body_limit_bytes(u64::MAX), usize::MAX);
-        assert_eq!(
-            mcp_json_body_limit_bytes(u64::MAX),
-            mcp_json_body_limit_bytes(100 * 1024 * 1024 * 1024)
-        );
+        assert_eq!(mcp_json_body_limit_bytes(u64::MAX), 100 * 1024 * 1024);
     }
 
     #[tokio::test]
