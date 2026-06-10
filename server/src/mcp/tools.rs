@@ -332,14 +332,14 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     let filter = sync::vault_path_filter(state, &input.vault_id)
         .await
         .map_err(api_error_to_anyhow)?;
-    let entries = git
-        .list_tree(&input.vault_id, input.at.as_deref())
-        .await?
-        .into_iter()
+    let tree = git.list_tree(&input.vault_id, input.at.as_deref()).await?;
+    let visible_count = tree
+        .iter()
         .filter(|entry| sync::path_visible_on_read(&filter, &entry.path))
-        .collect::<Vec<_>>();
-    if entries.len() > SEARCH_MAX_TREE_FILES {
-        bail!("too many files to search: {}", entries.len());
+        .take(SEARCH_MAX_TREE_FILES + 1)
+        .count();
+    if visible_count > SEARCH_MAX_TREE_FILES {
+        bail!("too many files to search: {}", visible_count);
     }
 
     let classifier = TextClassifier::default();
@@ -351,7 +351,10 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     let mut matches = Vec::new();
     let mut searched_bytes = 0usize;
 
-    for entry in entries {
+    for entry in tree
+        .into_iter()
+        .filter(|entry| sync::path_visible_on_read(&filter, &entry.path))
+    {
         if matches.len() >= limit {
             break;
         }
@@ -406,19 +409,8 @@ pub async fn link_graph(
         Some(prefix) => normalize_mcp_path(prefix)?,
         None => String::new(),
     };
-    let mut visible = git
-        .list_tree(&input.vault_id, input.at.as_deref())
-        .await?
-        .into_iter()
-        .filter(|entry| {
-            !entry.is_blob_pointer
-                && classifier.is_text_path(&entry.path)
-                && entry.path.starts_with(&prefix)
-                && !crate::service::exclude::is_hidden_path(&entry.path)
-                && sync::path_visible_on_read(&filter, &entry.path)
-        })
-        .collect::<Vec<_>>();
-    visible.sort_by(|left, right| left.path.cmp(&right.path));
+    let mut tree = git.list_tree(&input.vault_id, input.at.as_deref()).await?;
+    tree.sort_by(|left, right| left.path.cmp(&right.path));
 
     let limit = input
         .limit
@@ -427,7 +419,13 @@ pub async fn link_graph(
     let mut graph_files = Vec::new();
     let mut scanned_bytes = 0usize;
     let mut truncated = false;
-    for entry in &visible {
+    for entry in tree.into_iter().filter(|entry| {
+        !entry.is_blob_pointer
+            && classifier.is_text_path(&entry.path)
+            && entry.path.starts_with(&prefix)
+            && !crate::service::exclude::is_hidden_path(&entry.path)
+            && sync::path_visible_on_read(&filter, &entry.path)
+    }) {
         if graph_files.len() >= limit {
             truncated = true;
             break;
@@ -2543,6 +2541,35 @@ mod tests {
         assert!(
             !function.contains("vec!["),
             "tool_definitions should not allocate and rebuild schemas on each call"
+        );
+    }
+
+    #[test]
+    fn search_and_link_graph_filter_tree_entries_without_extra_vec_collect() {
+        let source = include_str!("tools.rs");
+        let search_start = source.find("pub async fn search").expect("search exists");
+        let link_graph_start = source[search_start..]
+            .find("pub async fn link_graph")
+            .map(|idx| search_start + idx)
+            .expect("link_graph exists");
+        let changes_since_start = source[link_graph_start..]
+            .find("pub async fn changes_since")
+            .map(|idx| link_graph_start + idx)
+            .expect("changes_since exists");
+        let search_fn = &source[search_start..link_graph_start];
+        let link_graph_fn = &source[link_graph_start..changes_since_start];
+
+        assert!(
+            !search_fn.contains("let entries = git"),
+            "search should iterate filtered tree entries without collecting an extra Vec"
+        );
+        assert!(
+            !link_graph_fn.contains("let mut visible = git"),
+            "link_graph should iterate filtered tree entries without collecting an extra Vec"
+        );
+        assert!(
+            !link_graph_fn.contains("visible.sort_by"),
+            "link_graph should sort the existing tree entries instead of a filtered copy"
         );
     }
 
