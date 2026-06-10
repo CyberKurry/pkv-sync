@@ -26,6 +26,12 @@ import {
 
 const BLOB_UPLOAD_CONCURRENCY = 4;
 
+interface PendingScan {
+  pending: LocalFileSnapshot[];
+  deleted: string[];
+  index: LocalIndex;
+}
+
 export interface IndexPersistence {
   loadIndex(): Promise<LocalIndex>;
   saveIndex(index: LocalIndex): Promise<void>;
@@ -72,6 +78,7 @@ export interface SyncEngineOptions {
   ): void;
   labels?: Pick<Strings, "inlineApplyFailed">;
   onSyncSuccess?(): void | Promise<void>;
+  vaultSettingsReader?: (vaultId: string) => Promise<VaultSettings>;
 }
 
 export class SyncEngine {
@@ -194,6 +201,13 @@ export class SyncEngine {
   }> {
     const index = await this.opts.index.loadIndex();
     const current = await this.opts.vault.scan(this.opts.textExtensions, index);
+    return this.scanPendingFrom(index, current);
+  }
+
+  private scanPendingFrom(
+    index: LocalIndex,
+    current: LocalFileSnapshot[]
+  ): PendingScan {
     const pathAccepted = this.currentPathMatcher();
     const filtered = current.filter((f) => pathAccepted(f.path));
     const currentPaths = new Set(filtered.map((f) => f.path));
@@ -216,8 +230,8 @@ export class SyncEngine {
     this.opts.setStatus("syncing");
     try {
       await this.refreshVaultSettings();
-      await this.pullIfChanged();
-      await this.pushPendingWithHeadMismatchRetry();
+      const scan = await this.pullIfChanged();
+      await this.pushPendingWithHeadMismatchRetry(scan);
       this.opts.setStatus("connected");
       await this.opts.onSyncSuccess?.();
     } catch (error) {
@@ -251,31 +265,24 @@ export class SyncEngine {
   private vaultSettingsReader():
     | ((vaultId: string) => Promise<VaultSettings>)
     | null {
-    const api = this.opts.api as unknown as {
-      getVaultSettings?: (vaultId: string) => Promise<VaultSettings>;
-      api?: { getVaultSettings?: (vaultId: string) => Promise<VaultSettings> };
-    };
-    if (api.getVaultSettings) return api.getVaultSettings.bind(api);
-    if (api.api?.getVaultSettings) return api.api.getVaultSettings.bind(api.api);
-    return null;
+    return (
+      this.opts.vaultSettingsReader ??
+      this.opts.api.getVaultSettings?.bind(this.opts.api) ??
+      null
+    );
   }
 
-  private async pullIfChanged(): Promise<void> {
+  private async pullIfChanged(): Promise<PendingScan | null> {
     const index = await this.opts.index.loadIndex();
-    const state = await this.opts.api.state(
-      this.opts.vaultId,
-      index.lastSyncedCommit
-    );
-    if (!state.changed_since) return;
     const pull = await this.opts.api.pull(
       this.opts.vaultId,
       index.lastSyncedCommit
     );
-    await this.applyPull(pull);
+    return this.applyPull(pull);
   }
 
-  private async pushPending(): Promise<void> {
-    const { pending, deleted, index } = await this.scanPending();
+  private async pushPending(scan?: PendingScan | null): Promise<void> {
+    const { pending, deleted, index } = scan ?? await this.scanPending();
     if (pending.length === 0 && deleted.length === 0) return;
 
     const blobFiles = pending.filter((file) => file.kind === "blob");
@@ -327,28 +334,31 @@ export class SyncEngine {
     await this.opts.index.saveIndex(next);
   }
 
-  private async pushPendingWithHeadMismatchRetry(): Promise<void> {
+  private async pushPendingWithHeadMismatchRetry(
+    scan: PendingScan | null
+  ): Promise<void> {
     try {
-      await this.pushPending();
+      await this.pushPending(scan);
     } catch (error) {
       if (
         error instanceof ApiError &&
         error.status === 409 &&
         error.code === "head_mismatch"
       ) {
-        await this.pullIfChanged();
-        await this.pushPending();
+        const retryScan = await this.pullIfChanged();
+        await this.pushPending(retryScan);
         return;
       }
       throw error;
     }
   }
 
-  private async applyPull(pull: PullResponse): Promise<void> {
-    if (!pull.to) return;
+  private async applyPull(pull: PullResponse): Promise<PendingScan | null> {
+    if (!pull.to) return null;
     let index = await this.opts.index.loadIndex();
     const current = await this.opts.vault.scan(this.opts.textExtensions, index);
     const currentByPath = new Map(current.map((file) => [file.path, file]));
+    const nextCurrentByPath = new Map(currentByPath);
     const pathAccepted = this.currentPathMatcher();
     const pulledText = new Map<string, string>();
     const touched: LocalFileSnapshot[] = [];
@@ -436,6 +446,15 @@ export class SyncEngine {
       pull.deleted.filter((path) => shouldSyncPath(path) && pathAccepted(path))
     );
     await this.opts.index.saveIndex(index);
+    for (const file of touched) {
+      if (shouldSyncPath(file.path)) {
+        nextCurrentByPath.set(file.path, file);
+      }
+    }
+    for (const path of deleted) {
+      nextCurrentByPath.delete(path);
+    }
+    return this.scanPendingFrom(index, [...nextCurrentByPath.values()]);
   }
 
   private async pulledTextContent(

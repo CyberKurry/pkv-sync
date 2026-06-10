@@ -97,6 +97,40 @@ describe("SyncEngine pull", () => {
     vi.mocked(subscribeVaultEvents).mockReset();
   });
 
+  it("uses conditional pull without a state preflight when the remote head is unchanged", async () => {
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const api = {
+      state: vi.fn().mockRejectedValue(new Error("state should not be called")),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c0",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect(api.state).not.toHaveBeenCalled();
+    expect(api.pull).toHaveBeenCalledWith("v", "c0");
+  });
+
   it("applies inline text pull and updates index without re-pushing it", async () => {
     const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
     const vault = new FakeVault([]);
@@ -493,7 +527,6 @@ describe("SyncEngine pull", () => {
       extra_sync_globs: [".obsidian/themes/**"]
     });
     const api = {
-      api: { getVaultSettings },
       state: vi.fn().mockResolvedValue({
         current_head: "c1",
         changed_since: true
@@ -531,7 +564,8 @@ describe("SyncEngine pull", () => {
       vault: vault as any,
       api: api as any,
       index: idx,
-      setStatus: vi.fn()
+      setStatus: vi.fn(),
+      vaultSettingsReader: getVaultSettings
     });
 
     await engine.syncNow();
@@ -949,11 +983,17 @@ describe("SyncEngine pull", () => {
       .mockImplementation(originalWriteText);
     const setStatus = vi.fn();
     const api = {
-      state: vi
+      state: vi.fn(),
+      pull: vi
         .fn()
         .mockRejectedValueOnce(new Error("server offline"))
-        .mockResolvedValue({ current_head: null, changed_since: false }),
-      pull: vi.fn(),
+        .mockResolvedValue({
+          from: null,
+          to: null,
+          added: [],
+          modified: [],
+          deleted: []
+        }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
       push: vi.fn(),
@@ -992,7 +1032,7 @@ describe("SyncEngine pull", () => {
       ]
     });
     await vi.waitFor(() => {
-      expect(api.state).toHaveBeenCalledTimes(1);
+      expect(api.pull).toHaveBeenCalledTimes(1);
     });
 
     options.onEvent({

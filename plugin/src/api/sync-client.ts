@@ -1,6 +1,6 @@
 import { ApiClient } from "./client";
 import { encodePathSegments } from "./history-client";
-import type { RollbackResult } from "./types";
+import type { RollbackResult, VaultSettings } from "./types";
 import type {
   PullResponse,
   PushChange,
@@ -10,6 +10,10 @@ import type {
 
 export class SyncApi {
   constructor(private api: ApiClient) {}
+
+  getVaultSettings(vaultId: string): Promise<VaultSettings> {
+    return this.api.getVaultSettings(vaultId);
+  }
 
   state(vaultId: string, headSince: string | null): Promise<StateResponse> {
     const query = headSince ? `?head_since=${encodeURIComponent(headSince)}` : "";

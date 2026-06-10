@@ -54,7 +54,13 @@ describe("SyncEngine serialization", () => {
       vault: { scan: vi.fn(async () => []) } as any,
       api: {
         state: vi.fn(async () => ({ current_head: null, changed_since: false })),
-        pull: vi.fn(),
+        pull: vi.fn().mockResolvedValue({
+          from: null,
+          to: null,
+          added: [],
+          modified: [],
+          deleted: []
+        }),
         uploadCheck: vi.fn(),
         uploadBlob: vi.fn(),
         push: vi.fn(),
@@ -106,11 +112,17 @@ describe("SyncEngine serialization", () => {
   it("coalesces concurrent syncNow calls into one sync pass", async () => {
     const gate = deferred();
     const api = {
-      state: vi.fn(async () => {
+      state: vi.fn(),
+      pull: vi.fn(async () => {
         await gate.promise;
-        return { current_head: null, changed_since: false };
+        return {
+          from: null,
+          to: null,
+          added: [],
+          modified: [],
+          deleted: []
+        };
       }),
-      pull: vi.fn(),
       uploadCheck: vi.fn(),
       uploadBlob: vi.fn(),
       push: vi.fn(),
@@ -126,9 +138,10 @@ describe("SyncEngine serialization", () => {
     const second = engine.syncNow();
     await flushMicrotasks();
 
-    expect(api.state).toHaveBeenCalledTimes(1);
+    expect(api.pull).toHaveBeenCalledTimes(1);
     gate.resolve();
     await Promise.all([first, second]);
-    expect(api.state).toHaveBeenCalledTimes(1);
+    expect(api.pull).toHaveBeenCalledTimes(1);
+    expect(api.state).not.toHaveBeenCalled();
   });
 });

@@ -64,7 +64,13 @@ describe("SyncEngine push", () => {
         current_head: null,
         changed_since: false
       }),
-      pull: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
       push: vi.fn().mockResolvedValue({ new_commit: "c1", files_changed: 1 }),
@@ -97,6 +103,50 @@ describe("SyncEngine push", () => {
     expect(idx.saved?.files["a.md"].lastSyncedHash).toBe("h");
   });
 
+  it("reuses the unchanged pull scan when pushing pending files", async () => {
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: "h",
+        size: 2,
+        kind: "text",
+        content: "hi"
+      }
+    ]);
+    const scan = vi.spyOn(vault, "scan");
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c0",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({ new_commit: "c1", files_changed: 1 }),
+      downloadBlob: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect(api.push).toHaveBeenCalledWith("v", "c0", [
+      { kind: "text", path: "a.md", content: "hi" }
+    ], "d");
+  });
+
   it("fetches vault settings and filters hidden push candidates with cached allowlist fallback", async () => {
     const idx = new FakeIndex({ lastSyncedCommit: null, files: {} });
     const getVaultSettings = vi
@@ -109,12 +159,17 @@ describe("SyncEngine push", () => {
     process.env.NODE_ENV = "development";
     const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
     const api = {
-      api: { getVaultSettings },
       state: vi.fn().mockResolvedValue({
         current_head: null,
         changed_since: false
       }),
-      pull: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
       push: vi
@@ -154,7 +209,8 @@ describe("SyncEngine push", () => {
       vault: vault as any,
       api: api as any,
       index: idx,
-      setStatus: vi.fn()
+      setStatus: vi.fn(),
+      vaultSettingsReader: getVaultSettings
     });
 
     try {
@@ -213,6 +269,63 @@ describe("SyncEngine push", () => {
     }
   });
 
+  it("uses an explicit vault settings reader for allowlisted push candidates", async () => {
+    const idx = new FakeIndex({ lastSyncedCommit: null, files: {} });
+    const vaultSettingsReader = vi.fn().mockResolvedValue({
+      extra_sync_globs: [".obsidian/themes/**"]
+    });
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({ new_commit: "c1", files_changed: 1 }),
+      downloadBlob: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["css", "js"]),
+      vault: new FakeVault([
+        {
+          path: ".obsidian/themes/custom.css",
+          hash: "h1",
+          size: 6,
+          kind: "text",
+          content: "theme"
+        },
+        {
+          path: ".obsidian/plugins/foo/main.js",
+          hash: "h2",
+          size: 6,
+          kind: "text",
+          content: "plugin"
+        }
+      ]) as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn(),
+      vaultSettingsReader
+    });
+
+    await engine.syncNow();
+
+    expect(vaultSettingsReader).toHaveBeenCalledWith("v");
+    expect(api.push).toHaveBeenCalledWith("v", null, [
+      {
+        kind: "text",
+        path: ".obsidian/themes/custom.css",
+        content: "theme"
+      }
+    ], "d");
+  });
+
   it("notifies after a successful sync", async () => {
     const idx = new FakeIndex({ lastSyncedCommit: null, files: {} });
     const onSyncSuccess = vi.fn();
@@ -221,7 +334,13 @@ describe("SyncEngine push", () => {
         current_head: null,
         changed_since: false
       }),
-      pull: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
       push: vi.fn().mockResolvedValue({ new_commit: "c1", files_changed: 1 }),
@@ -259,7 +378,13 @@ describe("SyncEngine push", () => {
         current_head: "c0",
         changed_since: false
       }),
-      pull: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: ["blob-hash"] }),
       uploadBlob: vi.fn().mockResolvedValue(undefined),
       push: vi.fn().mockResolvedValue({ new_commit: "c1", files_changed: 1 }),
@@ -315,7 +440,13 @@ describe("SyncEngine push", () => {
         current_head: "c0",
         changed_since: false
       }),
-      pull: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: ["h1", "h2", "h3"] }),
       uploadBlob: vi.fn((vaultId: string, hash: string, bytes: ArrayBuffer) => {
         uploadStarts.push(hash);
@@ -422,7 +553,13 @@ describe("SyncEngine push", () => {
         current_head: null,
         changed_since: false
       }),
-      pull: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
       push: vi.fn().mockResolvedValue({ new_commit: "c1", files_changed: 1 }),
@@ -464,7 +601,13 @@ describe("SyncEngine push", () => {
         current_head: null,
         changed_since: false
       }),
-      pull: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
       push: vi.fn(),
@@ -509,13 +652,22 @@ describe("SyncEngine push", () => {
           current_head: "c1",
           changed_since: true
         }),
-      pull: vi.fn().mockResolvedValue({
-        from: "c0",
-        to: "c1",
-        added: [],
-        modified: [],
-        deleted: []
-      }),
+      pull: vi
+        .fn()
+        .mockResolvedValueOnce({
+          from: "c0",
+          to: "c0",
+          added: [],
+          modified: [],
+          deleted: []
+        })
+        .mockResolvedValueOnce({
+          from: "c0",
+          to: "c1",
+          added: [],
+          modified: [],
+          deleted: []
+        }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
       push: vi
