@@ -21,7 +21,8 @@ diff, restore, and vault-level rollback.
 - Full version history: per-file diff/restore and vault-level rollback
 - Three-way automatic merge for concurrent text edits; remaining conflicts
   surface as resolvable `.conflict-*` files with an in-app diff view
-- Git-native access: `git clone` your vault over HTTPS with any Git tooling
+- Git-native access: read-only `git clone` of your vault over HTTPS with any
+  Git tooling
 - Built-in MCP server, so your own AI agent can read and maintain your notes
 - Admin web UI, Prometheus metrics, and a backup/restore/verify CLI
 - Available in English, 简体中文, 繁體中文, 日本語, and 한국어
@@ -49,7 +50,9 @@ The plugin communicates only with the server URL you configure. There is no
 telemetry and no analytics. The server administrator (you) can read vault
 content stored on the server; see the
 [security policy](https://github.com/CyberKurry/pkv-sync/blob/main/SECURITY.md)
-for details and hardening guidance.
+and the
+[deployment hardening guide](https://github.com/CyberKurry/pkv-sync/blob/main/public-docs/deployment-hardening.md)
+for details.
 
 ## Documentation and support
 
