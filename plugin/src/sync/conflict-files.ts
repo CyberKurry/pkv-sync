@@ -5,7 +5,7 @@ export interface ConflictFileVault {
   delete(file: TFile): Promise<void>;
 }
 
-export interface ConflictFileReader {
+interface ConflictFileReader {
   read(file: TFile): Promise<string>;
 }
 

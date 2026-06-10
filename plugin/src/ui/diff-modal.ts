@@ -3,7 +3,6 @@ import type { HistoryApi } from "../api/history-client";
 import type { CommitSummary, UnifiedDiff } from "../api/types";
 import {
   parseUnifiedDiffSideBySide,
-  type DiffLineKind,
   type SideBySideDiffRow
 } from "../sync/unified-diff";
 import { DEFAULT_TIMEZONE, formatUnixSeconds } from "../time";
@@ -32,10 +31,6 @@ export interface DiffModalOptions {
   allowRestoreRight?: boolean;
   labels: DiffModalLabels;
   onRestore?: (commit: string, isBinary: boolean) => void | Promise<void>;
-}
-
-export function diffLineClass(kind: DiffLineKind): string {
-  return `pkvsync-diff-${kind}`;
 }
 
 export function diffTitle(

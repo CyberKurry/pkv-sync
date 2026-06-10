@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  deletedFiles,
   markDeleted,
   markSynced,
   normalizeIndex,
@@ -45,15 +44,6 @@ describe("index-store", () => {
         (x) => x.path
       )
     ).toEqual(["b.md"]);
-  });
-
-  it("deletedFiles returns indexed paths missing now", () => {
-    const idx = markSynced(
-      { lastSyncedCommit: null, files: {} },
-      "c1",
-      [f("a.md", "h1"), f("b.md", "h2")]
-    );
-    expect(deletedFiles(idx, [f("a.md", "h1")])).toEqual(["b.md"]);
   });
 
   it("markDeleted removes paths", () => {

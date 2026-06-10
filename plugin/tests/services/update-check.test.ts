@@ -4,8 +4,6 @@ import { ApiClient } from "../../src/api/client";
 import {
   UpdateCheckService,
   compareVersions,
-  extractSha256,
-  resolvePluginAssetPath,
   type PluginFileAdapter
 } from "../../src/services/update-check";
 import { sha256Text } from "../../src/sync/hash";
@@ -192,18 +190,6 @@ describe("plugin update check", () => {
       releaseNotesUrl:
         "https://github.com/cyberkurry/pkv-sync/releases/tag/v0.8.1"
     });
-  });
-
-  it("extracts sha256 before the filename from release notes", () => {
-    const sha = "a".repeat(64);
-
-    expect(extractSha256(`Checksums:\n${sha}  main.js`, "main.js")).toBe(sha);
-  });
-
-  it("extracts sha256 after the filename from release notes", () => {
-    const sha = "b".repeat(64);
-
-    expect(extractSha256(`Checksums:\nmain.js  ${sha}`, "main.js")).toBe(sha);
   });
 
   it("rejects sha256 mismatches before writing plugin files", async () => {
@@ -399,9 +385,4 @@ describe("plugin update check", () => {
     );
   });
 
-  it("rejects plugin asset path traversal", () => {
-    expect(() =>
-      resolvePluginAssetPath(".obsidian", "pkv-sync", "../evil.js")
-    ).toThrow(/unsafe/i);
-  });
 });

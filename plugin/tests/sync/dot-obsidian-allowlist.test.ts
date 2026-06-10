@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { pathAccepts } from "../../src/sync/exclude";
+import { createPathMatcher, type PathAcceptsOptions } from "../../src/sync/exclude";
+
+function pathAccepts(path: string, opts: PathAcceptsOptions): boolean {
+  return createPathMatcher(opts)(path);
+}
 
 describe("pathAccepts", () => {
   it("accepts normal paths without excludes", () => {

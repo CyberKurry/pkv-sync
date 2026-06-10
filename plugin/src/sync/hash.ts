@@ -12,7 +12,7 @@ export async function sha256Text(text: string): Promise<string> {
   return sha256Bytes(TEXT_ENCODER.encode(text).buffer);
 }
 
-export function toHex(bytes: Uint8Array): string {
+function toHex(bytes: Uint8Array): string {
   let hex = "";
   for (const byte of bytes) {
     hex += HEX_BYTES[byte];

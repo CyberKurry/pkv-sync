@@ -17,14 +17,6 @@ export interface PathAcceptsOptions {
 
 type PathMatcher = (path: string) => boolean;
 
-export function isExcluded(path: string, globs: string[]): boolean {
-  return createExcludeMatcher(globs)(path);
-}
-
-export function pathAccepts(path: string, opts: PathAcceptsOptions): boolean {
-  return createPathMatcher(opts)(path);
-}
-
 export function createPathMatcher(opts: PathAcceptsOptions): PathMatcher {
   const hardExclude = createExcludeMatcher(HARD_EXCLUDE_GLOBS);
   const userExcludes = createExcludeMatcher(opts.userExcludes);

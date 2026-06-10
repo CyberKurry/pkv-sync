@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createPathMatcher, isExcluded, pathAccepts } from "../../src/sync/exclude";
+import { createPathMatcher, type PathAcceptsOptions } from "../../src/sync/exclude";
+
+function pathAccepts(path: string, opts: PathAcceptsOptions): boolean {
+  return createPathMatcher(opts)(path);
+}
+
+function isExcluded(path: string, globs: string[]): boolean {
+  return !pathAccepts(path, {
+    userExcludes: globs,
+    userAllowlist: ["**"]
+  });
+}
 
 describe("isExcluded", () => {
   it("returns false for empty globs", () => {

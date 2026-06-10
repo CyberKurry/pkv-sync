@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   recoverPendingUpdate,
-  resolvePluginAssetPath,
   type PluginFileAdapter
 } from "../../src/services/update-check";
 import { sha256Text } from "../../src/sync/hash";
@@ -35,7 +34,7 @@ const opts = (adapter: PluginFileAdapter) => ({
 });
 
 const pathFor = (fileName: string) =>
-  resolvePluginAssetPath(".obsidian", "pkv-sync", fileName);
+  `.obsidian/plugins/pkv-sync/${fileName}`;
 
 describe("plugin update recovery", () => {
   it("promotes staged main.js when expected sha matches", async () => {

@@ -58,11 +58,3 @@ export function pendingFiles(
     (file) => index.files[file.path]?.lastSyncedHash !== file.hash
   );
 }
-
-export function deletedFiles(
-  index: LocalIndex,
-  current: LocalFileSnapshot[]
-): string[] {
-  const currentPaths = new Set(current.map((file) => file.path));
-  return Object.keys(index.files).filter((path) => !currentPaths.has(path));
-}

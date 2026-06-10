@@ -32,7 +32,7 @@ const TEXT_DETECT_EXTENSIONS = new Set([
   "rst"
 ]);
 
-export function mergeMarkerLineClass(line: string): string {
+function mergeMarkerLineClass(line: string): string {
   if (line.startsWith("<<<<<<<")) return "pkvsync-merge-marker-local";
   if (line === "=======") return "pkvsync-merge-marker-separator";
   if (line.startsWith(">>>>>>>")) return "pkvsync-merge-marker-remote";

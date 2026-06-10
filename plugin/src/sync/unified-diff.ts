@@ -1,9 +1,4 @@
-export type DiffLineKind = "context" | "add" | "del" | "hunk" | "meta";
-
-export interface DiffLine {
-  kind: DiffLineKind;
-  text: string;
-}
+type DiffLineKind = "context" | "add" | "del" | "hunk" | "meta";
 
 export type SideBySideDiffRowKind =
   | "context"
@@ -20,14 +15,6 @@ export interface SideBySideDiffRow {
   rightLine?: number;
   leftText?: string;
   rightText?: string;
-}
-
-export function parseUnifiedDiff(patch: string): DiffLine[] {
-  if (!patch) return [];
-  return patch.split(/\r?\n/).map((text) => ({
-    text,
-    kind: classifyLine(text)
-  }));
 }
 
 export function parseUnifiedDiffSideBySide(patch: string): SideBySideDiffRow[] {

@@ -9,7 +9,7 @@ export type Lang = Exclude<PluginLanguage, "auto">;
 export type Strings = typeof en;
 export type FormatValue = string | number | boolean | null | undefined;
 
-export const languageBundles = {
+const languageBundles = {
   en,
   "zh-CN": zh,
   "zh-Hant": zhHant,

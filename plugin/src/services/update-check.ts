@@ -300,17 +300,6 @@ export function compareVersions(left: string, right: string): number {
   return a.prerelease ? -1 : 1;
 }
 
-export function resolvePluginAssetPath(
-  configDir: string,
-  pluginId: string,
-  fileName: string
-): string {
-  return resolvePluginAssetPathInDirectory(
-    fallbackPluginDirectory(configDir, pluginId),
-    fileName
-  );
-}
-
 function resolvePluginAssetPathInDirectory(pluginDir: string, fileName: string): string {
   if (
     fileName.includes("/") ||
@@ -349,7 +338,7 @@ function findAsset(
   return assets.find((asset) => asset.name === name);
 }
 
-export function extractSha256(notes: string, fileName: string): string | null {
+function extractSha256(notes: string, fileName: string): string | null {
   const escaped = fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const sha = "([a-fA-F0-9]{64})";
   const shaBeforeFile = new RegExp(`\\b${sha}\\b[^\\n]*${escaped}`);
