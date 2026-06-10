@@ -34,6 +34,8 @@
     </div>
     <dl class="detail-list">
       <div class="detail-row"><dt>{{ t.username }}</dt><dd>{{ user.username }}</dd></div>
+      <div class="detail-row"><dt>{{ t.vaults }}</dt><dd>{{ user.vault_count }}</dd></div>
+      <div class="detail-row"><dt>{{ t.last_sync }}</dt><dd>{% if let Some(ts) = user.last_sync_at %}{{ ts }}{% else %}<span class="muted-text">{{ t.never_synced }}</span>{% endif %}</dd></div>
       <div class="detail-row"><dt>{{ t.created }}</dt><dd>{{ user.created_at }}</dd></div>
       <div class="detail-row"><dt>{{ t.id }}</dt><dd><code class="muted-code">{{ user.id }}</code></dd></div>
     </dl>

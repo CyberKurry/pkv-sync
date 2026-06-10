@@ -9,6 +9,7 @@ use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{
     NewActivity, NewToken, NewUser, RuntimeConfigRepo, SyncActivityRepo, TokenRepo, UserRepo,
+    VaultRepo,
 };
 use pkv_sync_server::server;
 use pkv_sync_server::service::AppState;
@@ -305,6 +306,34 @@ async fn admin_can_create_device_token_and_plaintext_is_one_time() {
     let detail_body = read_body(detail_resp).await;
     assert!(detail_body.contains("desktop"));
     assert!(!detail_body.contains("pks_"));
+}
+
+#[tokio::test]
+async fn user_detail_shows_real_vault_count_and_last_sync() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let user_id = first_admin_user_id(&app, &session_cookie).await;
+    let vault = state.vaults.create(&user_id, "notes").await.unwrap();
+    state
+        .vaults
+        .update_stats(&vault.id, 123, 4, 1_700_000_000)
+        .await
+        .unwrap();
+
+    let mut detail_req = request(
+        Method::GET,
+        &format!("/admin/users/{user_id}"),
+        Body::empty(),
+    );
+    detail_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let detail_resp = app.oneshot(detail_req).await.unwrap();
+
+    assert_eq!(detail_resp.status(), StatusCode::OK);
+    let detail_body = read_body(detail_resp).await;
+    assert!(detail_body.contains("<dt>Vaults</dt><dd>1</dd>"));
+    assert!(detail_body.contains("<dt>Last sync</dt><dd>2023-11-15 06:13:20</dd>"));
 }
 
 #[tokio::test]

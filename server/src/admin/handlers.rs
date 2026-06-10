@@ -157,7 +157,24 @@ fn token_fingerprint(id: &str) -> String {
     format!("{prefix}...{suffix}")
 }
 
-fn user_view(user: User, timezone: &str) -> UserAdminView {
+struct UserAdminStats {
+    vault_count: i64,
+    last_sync_at: Option<i64>,
+}
+
+async fn user_admin_stats(state: &AppState, user_id: &str) -> Result<UserAdminStats, ApiError> {
+    let (vault_count, last_sync_at): (i64, Option<i64>) =
+        sqlx::query_as("SELECT COUNT(id), MAX(last_sync_at) FROM vaults WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(&state.pool)
+            .await?;
+    Ok(UserAdminStats {
+        vault_count,
+        last_sync_at,
+    })
+}
+
+fn user_view(user: User, timezone: &str, stats: UserAdminStats) -> UserAdminView {
     UserAdminView {
         id: user.id,
         avatar_label: avatar_label(&user.username),
@@ -165,8 +182,8 @@ fn user_view(user: User, timezone: &str) -> UserAdminView {
         is_admin: user.is_admin,
         is_active: user.is_active,
         created_at: fmt_ts(user.created_at, timezone),
-        vault_count: 0,
-        last_sync_at: None,
+        vault_count: stats.vault_count,
+        last_sync_at: fmt_opt_ts(stats.last_sync_at, timezone),
     }
 }
 
@@ -921,6 +938,7 @@ async fn user_detail(
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
     let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let stats = user_admin_stats(&state, &id).await?;
     let tokens = state
         .tokens
         .list_for_user(&id)
@@ -930,7 +948,7 @@ async fn user_detail(
         .collect();
     Ok(render_html(UserDetailTemplate {
         t: admin_text(&headers, &cookies),
-        user: user_view(user, &timezone),
+        user: user_view(user, &timezone, stats),
         tokens,
         message: None,
         error: None,
@@ -987,6 +1005,7 @@ async fn create_token_form(
         .await?;
     tracing::info!(user_id = %id, device_name = %device_name, "admin created device token");
     let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let stats = user_admin_stats(&state, &id).await?;
     let tokens = state
         .tokens
         .list_for_user(&id)
@@ -996,7 +1015,7 @@ async fn create_token_form(
         .collect();
     Ok(render_html(UserDetailTemplate {
         t: admin_text(&headers, &cookies),
-        user: user_view(user, &timezone),
+        user: user_view(user, &timezone, stats),
         tokens,
         message: Some("Device token created".into()),
         error: None,
@@ -1101,6 +1120,7 @@ async fn user_detail_error(
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
     let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let stats = user_admin_stats(state, id).await?;
     let tokens = state
         .tokens
         .list_for_user(id)
@@ -1112,7 +1132,7 @@ async fn user_detail_error(
         status,
         UserDetailTemplate {
             t: admin_text(headers, cookies),
-            user: user_view(user, &timezone),
+            user: user_view(user, &timezone, stats),
             tokens,
             message: None,
             error: Some(error),
