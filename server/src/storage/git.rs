@@ -154,6 +154,42 @@ impl Git2VaultStore {
         Ok(entries.into_iter().map(|e| (e.path.clone(), e)).collect())
     }
 
+    pub async fn file_size_at(
+        &self,
+        vault_id: &str,
+        path: &str,
+        at: Option<&str>,
+    ) -> Result<Option<u64>, GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let path = path.to_string();
+        let at = at.map(str::to_string);
+        tokio::task::spawn_blocking(move || -> Result<Option<u64>, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let oid = match at {
+                Some(h) => Oid::from_str(&h)?,
+                None => main_ref_target(&repo)?.ok_or(GitStoreError::NotFound)?,
+            };
+            let commit = repo.find_commit(oid)?;
+            let tree = commit.tree()?;
+            let Ok(entry) = tree.get_path(Path::new(&path)) else {
+                return Ok(None);
+            };
+            if entry.kind() != Some(ObjectType::Blob) {
+                return Ok(None);
+            }
+            let blob = repo.find_blob(entry.id())?;
+            let pointer = parse_blob_pointer_if_candidate(&blob)
+                .and_then(|pointer| pointer.into_file_for_path(&path));
+            let size = match pointer {
+                Some(StoredFile::BlobPointer { size, .. }) => size,
+                _ => blob.size() as u64,
+            };
+            Ok(Some(size))
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
     pub async fn commit_parent(
         &self,
         vault_id: &str,
@@ -1405,6 +1441,71 @@ mod tests {
         assert!(entries[0].is_blob_pointer);
         assert_eq!(entries[0].size, 12);
         assert_eq!(entries[0].blob_hash.as_ref(), Some(&"b".repeat(64)));
+    }
+
+    #[tokio::test]
+    async fn file_size_at_reports_target_file_size_without_directory_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let commit = store
+            .commit_changes(
+                "v1",
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "note.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"hello".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "img.png".into(),
+                        file: StoredFile::BlobPointer {
+                            hash: "c".repeat(64),
+                            size: 12,
+                            mime: Some("image/png".into()),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "dir/a.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"nested".to_vec(),
+                        },
+                    },
+                ],
+                "seed",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .file_size_at("v1", "note.md", Some(&commit))
+                .await
+                .unwrap(),
+            Some(5)
+        );
+        assert_eq!(
+            store
+                .file_size_at("v1", "img.png", Some(&commit))
+                .await
+                .unwrap(),
+            Some(12)
+        );
+        assert_eq!(
+            store
+                .file_size_at("v1", "dir", Some(&commit))
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .file_size_at("v1", "missing.md", Some(&commit))
+                .await
+                .unwrap(),
+            None
+        );
     }
 
     #[tokio::test]

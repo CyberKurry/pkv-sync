@@ -20,7 +20,7 @@ use git2::{Oid, Repository};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{QueryBuilder, Sqlite};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
 
@@ -145,6 +145,12 @@ struct CommitPushInput<'a> {
     idempotency_key: Option<&'a str>,
     request_hash: Option<&'a str>,
     request_metadata: RequestMetadata<'a>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct PushStatsDelta {
+    size_delta: i64,
+    file_count_delta: i64,
 }
 
 struct AutoMergePushInput<'a> {
@@ -864,6 +870,8 @@ async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, Ap
         vault_id,
         new_commit: &new_commit,
         blob_hashes: &prepared.blob_hashes,
+        parent: input.parent.as_deref(),
+        git_changes: &prepared.git_changes,
         files_changed: prepared.git_changes.len(),
         idempotency_key: input.idempotency_key,
         request_hash: input.request_hash,
@@ -928,6 +936,73 @@ async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<PushResp, Ap
         "push completed"
     );
     Ok(resp)
+}
+
+async fn push_stats_delta(
+    git: &Git2VaultStore,
+    vault_id: &str,
+    parent: Option<&str>,
+    changes: &[FileChange],
+) -> Result<PushStatsDelta, GitStoreError> {
+    let mut old_sizes = BTreeMap::<String, Option<u64>>::new();
+    let mut final_sizes = BTreeMap::<String, Option<u64>>::new();
+
+    for change in changes {
+        let (path, new_size) = match change {
+            FileChange::Upsert { path, file } => (path, Some(stored_file_size(file))),
+            FileChange::Delete { path } => (path, None),
+        };
+        if !old_sizes.contains_key(path) {
+            let old_size = match parent {
+                Some(parent) => git.file_size_at(vault_id, path, Some(parent)).await?,
+                None => None,
+            };
+            old_sizes.insert(path.clone(), old_size);
+        }
+        final_sizes.insert(path.clone(), new_size);
+    }
+
+    let mut delta = PushStatsDelta::default();
+    for (path, new_size) in final_sizes {
+        let old_size = old_sizes.get(&path).copied().unwrap_or(None);
+        delta = add_stats_change(delta, old_size, new_size);
+    }
+    Ok(delta)
+}
+
+fn stored_file_size(file: &StoredFile) -> u64 {
+    match file {
+        StoredFile::Text { bytes } => bytes.len() as u64,
+        StoredFile::BlobPointer { size, .. } => *size,
+    }
+}
+
+fn add_stats_change(
+    delta: PushStatsDelta,
+    old_size: Option<u64>,
+    new_size: Option<u64>,
+) -> PushStatsDelta {
+    let old_file_size = old_size.map(clamped_file_size).unwrap_or(0);
+    let new_file_size = new_size.map(clamped_file_size).unwrap_or(0);
+    let size_delta =
+        (new_file_size as i128 - old_file_size as i128).clamp(i64::MIN as i128, i64::MAX as i128);
+    let file_count_delta = new_size.is_some() as i64 - old_size.is_some() as i64;
+
+    PushStatsDelta {
+        size_delta: delta.size_delta.saturating_add(size_delta as i64),
+        file_count_delta: delta.file_count_delta.saturating_add(file_count_delta),
+    }
+}
+
+fn clamped_file_size(size: u64) -> i64 {
+    size.min(i64::MAX as u64) as i64
+}
+
+fn apply_push_stats_delta(size_bytes: i64, file_count: i64, delta: PushStatsDelta) -> (i64, i64) {
+    (
+        size_bytes.saturating_add(delta.size_delta).max(0),
+        file_count.saturating_add(delta.file_count_delta).max(0),
+    )
 }
 
 async fn try_auto_merge_push(input: AutoMergePushInput<'_>) -> Result<Option<PushResp>, ApiError> {
@@ -1307,6 +1382,8 @@ struct PushMetadataInput<'a> {
     vault_id: &'a str,
     new_commit: &'a str,
     blob_hashes: &'a [String],
+    parent: Option<&'a str>,
+    git_changes: &'a [FileChange],
     files_changed: usize,
     idempotency_key: Option<&'a str>,
     request_hash: Option<&'a str>,
@@ -1318,11 +1395,9 @@ struct PushMetadataInput<'a> {
 async fn record_push_metadata(input: PushMetadataInput<'_>) -> Result<(), ApiError> {
     let state = input.state;
     let git = state.git_store();
-    let tree = git
-        .list_tree(input.vault_id, Some(input.new_commit))
+    let stats_delta = push_stats_delta(&git, input.vault_id, input.parent, input.git_changes)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
-    let (size, file_count) = tree_stats(&tree);
     let now = chrono::Utc::now().timestamp();
     let details = serde_json::json!({ "files_changed": input.files_changed }).to_string();
     let response_json = match input.idempotency_key {
@@ -1336,6 +1411,14 @@ async fn record_push_metadata(input: PushMetadataInput<'_>) -> Result<(), ApiErr
     insert_blob_refs_in_tx(&mut tx, input.vault_id, input.new_commit, input.blob_hashes)
         .await
         .map_err(ApiError::from)?;
+    let (previous_size, previous_file_count): (i64, i64) =
+        sqlx::query_as("SELECT size_bytes, file_count FROM vaults WHERE id = ?")
+            .bind(input.vault_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(ApiError::from)?;
+    let (size, file_count) =
+        apply_push_stats_delta(previous_size, previous_file_count, stats_delta);
     sqlx::query("UPDATE vaults SET size_bytes = ?, file_count = ?, last_sync_at = ? WHERE id = ?")
         .bind(size)
         .bind(file_count)
@@ -2166,6 +2249,27 @@ mod tests {
         assert!(!protect_impl.contains("for hash in blob_hashes"));
         assert!(record_impl.contains("insert_blob_refs_in_tx"));
         assert!(protect_impl.contains("insert_blob_refs_in_tx"));
+    }
+
+    #[test]
+    fn record_push_metadata_uses_incremental_stats_not_full_tree_walk() {
+        let source = include_str!("sync.rs");
+        let record_start = source
+            .find("async fn record_push_metadata")
+            .expect("record_push_metadata exists");
+        let next_fn = source[record_start + 1..]
+            .find("\nasync fn insert_blob_refs_in_tx")
+            .map(|idx| record_start + 1 + idx)
+            .expect("insert helper follows record_push_metadata");
+        let record_impl = &source[record_start..next_fn];
+
+        assert!(
+            !record_impl.contains(".list_tree("),
+            "record_push_metadata should use incremental stats from the prepared push"
+        );
+        assert!(record_impl.contains("push_stats_delta("));
+        assert!(record_impl.contains("input.git_changes"));
+        assert!(record_impl.contains("SELECT size_bytes, file_count FROM vaults"));
     }
 
     #[test]
@@ -3657,6 +3761,71 @@ mod integration_tests {
             .await
             .unwrap();
         assert!(has_blob_ref);
+    }
+
+    #[tokio::test]
+    async fn push_stats_handle_overwrite_delete_and_blob_pointer_size() {
+        let (state, user, vid, _tmp) = setup().await;
+        let data = Bytes::from_static(b"hello");
+        let hash = LocalFsBlobStore::sha256(&data);
+        upload_blob(&state, &user.user_id, &vid, &hash, data)
+            .await
+            .unwrap();
+
+        let first = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("test".into()),
+                changes: vec![
+                    PushChange::Text {
+                        path: "note.md".into(),
+                        content: "old text".into(),
+                    },
+                    PushChange::Text {
+                        path: "remove.md".into(),
+                        content: "delete me".into(),
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+
+        let _second = push(
+            &state,
+            &user,
+            &vid,
+            Some(&first.new_commit),
+            None,
+            PushReq {
+                device_name: Some("test".into()),
+                changes: vec![
+                    PushChange::Text {
+                        path: "note.md".into(),
+                        content: "new".into(),
+                    },
+                    PushChange::Delete {
+                        path: "remove.md".into(),
+                    },
+                    PushChange::Blob {
+                        path: "img.png".into(),
+                        blob_hash: hash,
+                        size: 5,
+                        mime: Some("image/png".into()),
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+
+        let vault = state.vaults.find_by_id(&vid).await.unwrap().unwrap();
+        assert_eq!(vault.file_count, 2);
+        assert_eq!(vault.size_bytes, 8);
     }
 
     #[tokio::test]
