@@ -68,7 +68,9 @@ describe("SyncEngine serialization", () => {
 
   it("delegates SSE reconnects to the events client", async () => {
     subscribeVaultEventsMock.mockReturnValue(vi.fn());
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "development";
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
 
     const engine = new SyncEngine({
       ...baseEngineOptions(),
@@ -79,21 +81,26 @@ describe("SyncEngine serialization", () => {
       pluginVersion: "0.4.0"
     });
 
-    engine.startEventSubscription();
-    expect(subscribeVaultEventsMock).toHaveBeenCalledTimes(1);
+    try {
+      engine.startEventSubscription();
+      expect(subscribeVaultEventsMock).toHaveBeenCalledTimes(1);
 
-    const firstSubscribe = subscribeVaultEventsMock.mock.calls[0]?.[0] as
-      | SubscribeOptions
-      | undefined;
-    firstSubscribe?.onError(new Error("network down"));
+      const firstSubscribe = subscribeVaultEventsMock.mock.calls[0]?.[0] as
+        | SubscribeOptions
+        | undefined;
+      firstSubscribe?.onError(new Error("network down"));
 
-    expect(subscribeVaultEventsMock).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(
-      "[pkv-sync] SSE event stream error; automatic reconnect will continue:",
-      expect.any(Error)
-    );
+      expect(subscribeVaultEventsMock).toHaveBeenCalledTimes(1);
+      expect(debug).toHaveBeenCalledWith(
+        "[pkv-sync] SSE event stream error; automatic reconnect will continue:",
+        expect.any(Error)
+      );
 
-    engine.stopEventSubscription();
+      engine.stopEventSubscription();
+    } finally {
+      process.env.NODE_ENV = previousNodeEnv;
+      debug.mockRestore();
+    }
   });
 
   it("coalesces concurrent syncNow calls into one sync pass", async () => {

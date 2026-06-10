@@ -57,7 +57,7 @@ import {
   type PluginFileAdapter,
   type PluginUpdateStatus
 } from "./services/update-check";
-import { errorToMessage, extensionOf } from "./util";
+import { debugLog, errorToMessage, extensionOf } from "./util";
 
 export default class PKVSyncPlugin extends Plugin {
   settings: PKVSyncSettings = DEFAULT_SETTINGS;
@@ -236,7 +236,7 @@ export default class PKVSyncPlugin extends Plugin {
       try {
         await engine.flushOnUnload(3000);
       } catch (error) {
-        console.warn("[pkv-sync] final unload sync failed:", error);
+        debugLog("[pkv-sync] final unload sync failed:", error);
       }
     }
     this.syncGeneration++;

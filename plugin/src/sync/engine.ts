@@ -17,7 +17,7 @@ import {
 import { textByteLength } from "./text-encoding";
 import type { PushChange } from "./types";
 import type { LocalFileSnapshot, LocalIndex, PullFile, PullResponse } from "./types";
-import { errorToMessage } from "../util";
+import { debugLog, errorToMessage } from "../util";
 import {
   shouldAcceptRemoteConflictPath,
   shouldSyncPath,
@@ -163,7 +163,7 @@ export class SyncEngine {
               ) {
                 this.reportInlineApplyFailure(change.path, err);
               } else if (!(err instanceof InlineApplyDirtyError)) {
-                console.warn("[pkv-sync] inline apply failed, falling back to pull:", err);
+                debugLog("[pkv-sync] inline apply failed, falling back to pull:", err);
               }
               needFallbackPull = true;
             }
@@ -177,7 +177,7 @@ export class SyncEngine {
         this.eventChain = task.catch(() => undefined);
       },
       onError: (err: Error) => {
-        console.warn("[pkv-sync] SSE event stream error; automatic reconnect will continue:", err);
+        debugLog("[pkv-sync] SSE event stream error; automatic reconnect will continue:", err);
       },
     });
   }
@@ -244,7 +244,7 @@ export class SyncEngine {
           : []
       });
     } catch (error) {
-      console.warn("[pkv-sync] failed to refresh vault settings; using cached settings:", error);
+      debugLog("[pkv-sync] failed to refresh vault settings; using cached settings:", error);
     }
   }
 
@@ -552,7 +552,7 @@ export class SyncEngine {
         reason: errorToMessage(error)
       }
     );
-    console.warn("[pkv-sync] inline apply failed, falling back to pull:", error);
+    debugLog("[pkv-sync] inline apply failed, falling back to pull:", error);
     new Notice(message);
     this.opts.setStatus("error", message);
   }

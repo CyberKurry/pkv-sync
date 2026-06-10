@@ -105,7 +105,9 @@ describe("SyncEngine push", () => {
         extra_sync_globs: [".obsidian/themes/**"]
       })
       .mockRejectedValueOnce(new Error("settings unavailable"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "development";
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
     const api = {
       api: { getVaultSettings },
       state: vi.fn().mockResolvedValue({
@@ -155,55 +157,60 @@ describe("SyncEngine push", () => {
       setStatus: vi.fn()
     });
 
-    await engine.syncNow();
-    vault.files = [
-      {
-        path: ".obsidian/themes/other.css",
-        hash: "h4",
-        size: 5,
-        kind: "text",
-        content: "other"
-      },
-      {
-        path: ".obsidian/plugins/bar/main.js",
-        hash: "h5",
-        size: 6,
-        kind: "text",
-        content: "plugin"
-      },
-      {
-        path: "notes/private/secret.md",
-        hash: "h6",
-        size: 6,
-        kind: "text",
-        content: "secret"
-      }
-    ];
-    await engine.syncNow();
+    try {
+      await engine.syncNow();
+      vault.files = [
+        {
+          path: ".obsidian/themes/other.css",
+          hash: "h4",
+          size: 5,
+          kind: "text",
+          content: "other"
+        },
+        {
+          path: ".obsidian/plugins/bar/main.js",
+          hash: "h5",
+          size: 6,
+          kind: "text",
+          content: "plugin"
+        },
+        {
+          path: "notes/private/secret.md",
+          hash: "h6",
+          size: 6,
+          kind: "text",
+          content: "secret"
+        }
+      ];
+      await engine.syncNow();
 
-    expect(getVaultSettings).toHaveBeenCalledTimes(2);
-    expect(getVaultSettings).toHaveBeenCalledWith("v");
-    expect(warn).toHaveBeenCalledWith(
-      "[pkv-sync] failed to refresh vault settings; using cached settings:",
-      expect.any(Error)
-    );
-    expect(api.push).toHaveBeenNthCalledWith(1, "v", null, [
-      { kind: "text", path: "notes/a.md", content: "hi" },
-      {
-        kind: "text",
-        path: ".obsidian/themes/custom.css",
-        content: "theme"
-      }
-    ], "d");
-    expect(api.push).toHaveBeenNthCalledWith(2, "v", "c1", [
-      {
-        kind: "text",
-        path: ".obsidian/themes/other.css",
-        content: "other"
-      },
-      { kind: "delete", path: "notes/a.md" },
-      { kind: "delete", path: ".obsidian/themes/custom.css" }
-    ], "d");
+      expect(getVaultSettings).toHaveBeenCalledTimes(2);
+      expect(getVaultSettings).toHaveBeenCalledWith("v");
+      expect(debug).toHaveBeenCalledWith(
+        "[pkv-sync] failed to refresh vault settings; using cached settings:",
+        expect.any(Error)
+      );
+      expect(api.push).toHaveBeenNthCalledWith(1, "v", null, [
+        { kind: "text", path: "notes/a.md", content: "hi" },
+        {
+          kind: "text",
+          path: ".obsidian/themes/custom.css",
+          content: "theme"
+        }
+      ], "d");
+      expect(api.push).toHaveBeenNthCalledWith(2, "v", "c1", [
+        {
+          kind: "text",
+          path: ".obsidian/themes/other.css",
+          content: "other"
+        },
+        { kind: "delete", path: "notes/a.md" },
+        { kind: "delete", path: ".obsidian/themes/custom.css" }
+      ], "d");
+    } finally {
+      process.env.NODE_ENV = previousNodeEnv;
+      debug.mockRestore();
+    }
   });
 
   it("notifies after a successful sync", async () => {
