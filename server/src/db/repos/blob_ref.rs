@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn blob_ref_repo_does_not_expose_production_dead_apis() {
-        let source = include_str!("blob_ref.rs");
+        let source = include_str!("blob_ref.rs").replace("\r\n", "\n");
         let trait_start = source
             .find("pub trait BlobRefRepo")
             .expect("BlobRefRepo trait exists");
