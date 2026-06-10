@@ -2,6 +2,8 @@ use crate::auth::token;
 use async_trait::async_trait;
 use serde::Serialize;
 use sqlx::{Executor, Sqlite, SqlitePool};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,17 +70,29 @@ pub trait TokenRepo: Send + Sync {
 
 pub struct SqliteTokenRepo {
     pool: SqlitePool,
+    validity_epoch: Arc<AtomicU64>,
 }
 
 impl SqliteTokenRepo {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            validity_epoch: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub fn validity_epoch(&self) -> u64 {
+        self.validity_epoch.load(Ordering::Acquire)
+    }
+
+    fn bump_validity_epoch(&self) {
+        self.validity_epoch.fetch_add(1, Ordering::AcqRel);
     }
 
     pub async fn create_replacing_device(&self, n: NewToken<'_>) -> Result<TokenRow, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let row = insert_token(&mut *tx, n).await?;
-        sqlx::query(
+        let revoked = sqlx::query(
             "UPDATE tokens SET revoked_at = ?
              WHERE user_id = ? AND device_id = ? AND id != ? AND revoked_at IS NULL",
         )
@@ -87,8 +101,12 @@ impl SqliteTokenRepo {
         .bind(&row.device_id)
         .bind(&row.id)
         .execute(&mut *tx)
-        .await?;
+        .await?
+        .rows_affected();
         tx.commit().await?;
+        if revoked > 0 {
+            self.bump_validity_epoch();
+        }
         Ok(row)
     }
 }
@@ -274,11 +292,16 @@ impl TokenRepo for SqliteTokenRepo {
     }
 
     async fn revoke(&self, id: &str, ts: i64) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
-            .bind(ts)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let revoked =
+            sqlx::query("UPDATE tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
+                .bind(ts)
+                .bind(id)
+                .execute(&self.pool)
+                .await?
+                .rows_affected();
+        if revoked > 0 {
+            self.bump_validity_epoch();
+        }
         Ok(())
     }
 
@@ -288,28 +311,29 @@ impl TokenRepo for SqliteTokenRepo {
         ts: i64,
         except: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        match except {
-            Some(skip) => {
-                sqlx::query(
-                    "UPDATE tokens SET revoked_at = ?
+        let revoked = match except {
+            Some(skip) => sqlx::query(
+                "UPDATE tokens SET revoked_at = ?
                      WHERE user_id = ? AND id != ? AND revoked_at IS NULL",
-                )
-                .bind(ts)
-                .bind(user_id)
-                .bind(skip)
-                .execute(&self.pool)
-                .await?;
-            }
-            None => {
-                sqlx::query(
-                    "UPDATE tokens SET revoked_at = ?
+            )
+            .bind(ts)
+            .bind(user_id)
+            .bind(skip)
+            .execute(&self.pool)
+            .await?
+            .rows_affected(),
+            None => sqlx::query(
+                "UPDATE tokens SET revoked_at = ?
                      WHERE user_id = ? AND revoked_at IS NULL",
-                )
-                .bind(ts)
-                .bind(user_id)
-                .execute(&self.pool)
-                .await?;
-            }
+            )
+            .bind(ts)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?
+            .rows_affected(),
+        };
+        if revoked > 0 {
+            self.bump_validity_epoch();
         }
         Ok(())
     }
@@ -321,7 +345,7 @@ impl TokenRepo for SqliteTokenRepo {
         ts: i64,
         except: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        let revoked = sqlx::query(
             "UPDATE tokens SET revoked_at = ?
              WHERE user_id = ? AND device_id = ? AND id != ? AND revoked_at IS NULL",
         )
@@ -330,7 +354,11 @@ impl TokenRepo for SqliteTokenRepo {
         .bind(device_id)
         .bind(except)
         .execute(&self.pool)
-        .await?;
+        .await?
+        .rows_affected();
+        if revoked > 0 {
+            self.bump_validity_epoch();
+        }
         Ok(())
     }
 

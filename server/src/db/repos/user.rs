@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,11 +57,23 @@ pub trait UserRepo: Send + Sync {
 
 pub struct SqliteUserRepo {
     pool: SqlitePool,
+    auth_epoch: Arc<AtomicU64>,
 }
 
 impl SqliteUserRepo {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            auth_epoch: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub fn auth_epoch(&self) -> u64 {
+        self.auth_epoch.load(Ordering::Acquire)
+    }
+
+    fn bump_auth_epoch(&self) {
+        self.auth_epoch.fetch_add(1, Ordering::AcqRel);
     }
 }
 
@@ -171,11 +185,15 @@ impl UserRepo for SqliteUserRepo {
     }
 
     async fn set_active(&self, id: &str, active: bool) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE users SET is_active = ? WHERE id = ?")
+        let affected = sqlx::query("UPDATE users SET is_active = ? WHERE id = ?")
             .bind(active)
             .bind(id)
             .execute(&self.pool)
-            .await?;
+            .await?
+            .rows_affected();
+        if affected > 0 {
+            self.bump_auth_epoch();
+        }
         Ok(())
     }
 
@@ -221,10 +239,14 @@ impl UserRepo for SqliteUserRepo {
     }
 
     async fn delete(&self, id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM users WHERE id = ?")
+        let affected = sqlx::query("DELETE FROM users WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
-            .await?;
+            .await?
+            .rows_affected();
+        if affected > 0 {
+            self.bump_auth_epoch();
+        }
         Ok(())
     }
 

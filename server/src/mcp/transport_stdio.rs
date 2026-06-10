@@ -1,21 +1,22 @@
 use crate::auth::{token, AuthenticatedUser};
 use crate::db::repos::{TokenRepo, UserRepo, VaultRepo};
-use crate::mcp::auth::mcp_token_still_valid;
+use crate::mcp::auth::{mcp_token_still_valid, TokenValidityCache};
 use crate::mcp::tools;
 use crate::service::AppState;
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::sync::Mutex;
 
 pub(crate) const GENERIC_MCP_AUTH_ERROR: &str = "invalid or revoked token";
 
-#[derive(Clone)]
 pub struct StdioSession {
     state: AppState,
     user: AuthenticatedUser,
     vault_id: String,
     token_hash: String,
+    validity_cache: Mutex<TokenValidityCache>,
 }
 
 impl std::fmt::Debug for StdioSession {
@@ -53,14 +54,24 @@ impl StdioSession {
             user,
             vault_id,
             token_hash,
+            validity_cache: Mutex::new(TokenValidityCache::default()),
         })
     }
 
     pub async fn handle_jsonrpc(&self, request: Value) -> Value {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
-        if !mcp_token_still_valid(&self.state, &self.token_hash, &self.user).await {
+        let mut validity_cache = self.validity_cache.lock().await;
+        if !mcp_token_still_valid(
+            &self.state,
+            &self.token_hash,
+            &self.user,
+            &mut validity_cache,
+        )
+        .await
+        {
             return jsonrpc_error(id, -32000, "invalid or revoked token");
         }
+        drop(validity_cache);
         handle_jsonrpc(
             &self.state,
             &self.user,

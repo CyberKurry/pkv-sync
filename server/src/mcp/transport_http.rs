@@ -20,7 +20,7 @@ use tokio::time::{Interval, MissedTickBehavior};
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use tokio_stream::StreamExt;
 
-use super::auth::mcp_token_still_valid;
+use super::auth::{mcp_token_still_valid, TokenValidityCache};
 use super::transport_stdio::{
     authenticate_token, handle_jsonrpc, jsonrpc_error, GENERIC_MCP_AUTH_ERROR,
 };
@@ -293,6 +293,7 @@ async fn get_mcp_sse(
             app: state,
             token_hash,
             user,
+            validity_cache: TokenValidityCache::default(),
             replay_items,
             streams,
             auth_interval,
@@ -309,6 +310,7 @@ struct McpSseState {
     app: AppState,
     token_hash: String,
     user: AuthenticatedUser,
+    validity_cache: TokenValidityCache,
     replay_items: VecDeque<McpSseItem>,
     streams: tokio_stream::StreamMap<String, BroadcastStream<crate::service::events::VaultEvent>>,
     auth_interval: Interval,
@@ -338,7 +340,14 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
             break;
         }
         if let Some(item) = sse.replay_items.pop_front() {
-            if !mcp_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
+            if !mcp_token_still_valid(
+                &sse.app,
+                &sse.token_hash,
+                &sse.user,
+                &mut sse.validity_cache,
+            )
+            .await
+            {
                 break;
             }
             if tx.send(Ok(item.into_event())).await.is_err() {
@@ -351,7 +360,12 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                 break;
             }
             _ = sse.auth_interval.tick() => {
-                if !mcp_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
+                if !mcp_token_still_valid(
+                    &sse.app,
+                    &sse.token_hash,
+                    &sse.user,
+                    &mut sse.validity_cache,
+                ).await {
                     break;
                 }
             }
@@ -359,7 +373,12 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                 let Some((_vault_id, Ok(event))) = event else {
                     break;
                 };
-                if !mcp_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
+                if !mcp_token_still_valid(
+                    &sse.app,
+                    &sse.token_hash,
+                    &sse.user,
+                    &mut sse.validity_cache,
+                ).await {
                     break;
                 }
                 let commit = event.commit.clone();
