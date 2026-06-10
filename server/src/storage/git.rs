@@ -22,6 +22,7 @@ const MAX_TREE_DEPTH: usize = 4;
 const MAX_TREE_DEPTH: usize = 256;
 pub const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
 pub const POINTER_VERSION: u64 = 1;
+const POINTER_BLOB_MAX_BYTES: usize = 512;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum StoredFile {
@@ -373,15 +374,57 @@ fn tree_path_is_pointer(
         Some(probe) => probe,
         None => {
             let blob = repo.find_blob(entry.id())?;
+            let candidate = parse_blob_pointer_if_candidate(&blob);
             let probe = PointerProbe {
-                modern: is_pointer_bytes(blob.content()).is_some(),
-                legacy: is_legacy_pointer_bytes(blob.content()).is_some(),
+                modern: candidate.as_ref().is_some_and(|pointer| pointer.has_magic),
+                legacy: candidate.is_some(),
             };
             pointer_cache.insert(entry.id(), probe);
             probe
         }
     };
     Ok(probe.modern || (!TextClassifier::default_ref().is_text_path(path) && probe.legacy))
+}
+
+#[derive(Clone)]
+struct BlobPointerCandidate {
+    has_magic: bool,
+    file: StoredFile,
+}
+
+impl BlobPointerCandidate {
+    fn into_file_for_path(self, path: &str) -> Option<StoredFile> {
+        if self.has_magic || !TextClassifier::default_ref().is_text_path(path) {
+            Some(self.file)
+        } else {
+            None
+        }
+    }
+}
+
+fn parse_blob_pointer_if_candidate(blob: &git2::Blob<'_>) -> Option<BlobPointerCandidate> {
+    if blob.size() > POINTER_BLOB_MAX_BYTES {
+        return None;
+    }
+    let bytes = blob.content();
+    if bytes.first() != Some(&b'{') {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let has_magic = value.get(POINTER_MAGIC_KEY).and_then(|v| v.as_u64()) == Some(POINTER_VERSION);
+    let hash = value.get("blob")?.as_str()?.to_string();
+    if !is_sha256_hex(&hash) {
+        return None;
+    }
+    let size = value.get("size")?.as_u64()?;
+    let mime = value
+        .get("mime")
+        .and_then(|m| m.as_str())
+        .map(str::to_string);
+    Some(BlobPointerCandidate {
+        has_magic,
+        file: StoredFile::BlobPointer { hash, size, mime },
+    })
 }
 
 fn is_valid_storage_vault_id(vault_id: &str) -> bool {
@@ -597,17 +640,11 @@ fn tree_entries_recursive(
         match entry.kind() {
             Some(ObjectType::Blob) => {
                 let blob = repo.find_blob(entry.id())?;
-                let bytes = blob.content();
-                let pointer = is_pointer_bytes(bytes).or_else(|| {
-                    if TextClassifier::default_ref().is_text_path(&path) {
-                        None
-                    } else {
-                        is_legacy_pointer_bytes(bytes)
-                    }
-                });
+                let pointer = parse_blob_pointer_if_candidate(&blob)
+                    .and_then(|pointer| pointer.into_file_for_path(&path));
                 let size = match &pointer {
                     Some(StoredFile::BlobPointer { size, .. }) => *size,
-                    _ => bytes.len() as u64,
+                    _ => blob.size() as u64,
                 };
                 let blob_hash = match &pointer {
                     Some(StoredFile::BlobPointer { hash, .. }) => Some(hash.clone()),
@@ -869,6 +906,29 @@ mod tests {
         assert!(
             is_binary_delta.matches("tree_path_is_pointer(").count() == 2,
             "is_binary_delta should keep exactly the new/old path pointer checks"
+        );
+    }
+
+    #[test]
+    fn pointer_detection_rejects_large_or_non_json_blobs_before_parsing() {
+        let source = include_str!("git.rs");
+        let tree_entries_start = source.find("fn tree_entries_recursive").unwrap();
+        let list_tree_start = source[tree_entries_start..]
+            .find("async fn list_tree")
+            .map(|idx| tree_entries_start + idx)
+            .unwrap();
+        let helper_start = source[..tree_entries_start]
+            .find("fn parse_blob_pointer_if_candidate")
+            .unwrap_or(tree_entries_start);
+        let helper_and_tree_entries = &source[helper_start..list_tree_start];
+
+        assert!(
+            helper_and_tree_entries.contains("POINTER_BLOB_MAX_BYTES"),
+            "pointer detection should skip blobs larger than the pointer JSON bound"
+        );
+        assert!(
+            helper_and_tree_entries.contains("bytes.first() != Some(&b'{')"),
+            "pointer detection should reject non-JSON-looking blobs before serde parsing"
         );
     }
 
