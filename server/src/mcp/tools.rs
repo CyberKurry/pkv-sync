@@ -15,6 +15,7 @@ use rmcp::model::{object, Tool, ToolAnnotations};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::LazyLock;
 
 const SEARCH_MAX_TREE_FILES: usize = 5000;
 #[cfg(test)]
@@ -933,7 +934,7 @@ fn normalize_mcp_path(raw_path: String) -> Result<String> {
     path::normalize(&raw_path).map_err(|err| anyhow!("invalid_path: {err}"))
 }
 
-pub fn tool_definitions() -> Vec<Tool> {
+static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
     vec![
         tool(
             "list_vaults",
@@ -1104,6 +1105,10 @@ pub fn tool_definitions() -> Vec<Tool> {
             true,
         ),
     ]
+});
+
+pub fn tool_definitions() -> Vec<Tool> {
+    TOOL_DEFINITIONS.clone()
 }
 
 async fn apply_write_tool(
@@ -2513,6 +2518,33 @@ mod tests {
         assert!(
             !implementation.contains("serde_json::json!"),
             "activity details should avoid building an intermediate Value"
+        );
+    }
+
+    #[test]
+    fn tool_definitions_are_cached_in_static_lazy_lock() {
+        let source = include_str!("tools.rs");
+        let fn_start = source
+            .find("pub fn tool_definitions")
+            .expect("tool_definitions exists");
+        let fn_end = source[fn_start..]
+            .find("async fn apply_write_tool")
+            .map(|idx| fn_start + idx)
+            .expect("tool_definitions should end before apply_write_tool");
+        let before_function_end = &source[..fn_end];
+        let function = &source[fn_start..fn_end];
+
+        assert!(
+            before_function_end.contains("LazyLock<Vec<Tool>>"),
+            "tool definitions should be stored in a static LazyLock"
+        );
+        assert!(
+            function.contains("TOOL_DEFINITIONS.clone()"),
+            "tool_definitions should clone cached tool definitions instead of rebuilding schemas"
+        );
+        assert!(
+            !function.contains("vec!["),
+            "tool_definitions should not allocate and rebuild schemas on each call"
         );
     }
 
