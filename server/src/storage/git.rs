@@ -23,6 +23,8 @@ const MAX_TREE_DEPTH: usize = 256;
 pub const POINTER_MAGIC_KEY: &str = "pkvsync_pointer";
 pub const POINTER_VERSION: u64 = 1;
 const POINTER_BLOB_MAX_BYTES: usize = 512;
+const TREE_FILEMODE: i32 = 0o040000;
+const BLOB_FILEMODE: i32 = 0o100644;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum StoredFile {
@@ -555,103 +557,157 @@ fn decode_file(path: &str, bytes: Vec<u8>) -> StoredFile {
     StoredFile::Text { bytes }
 }
 
-fn read_tree_recursive(
-    repo: &Repository,
-    tree: &Tree<'_>,
-    prefix: &str,
-    depth: usize,
-    out: &mut BTreeMap<String, StoredFile>,
-) -> Result<(), GitStoreError> {
-    if depth > MAX_TREE_DEPTH {
-        return Err(git2::Error::from_str("tree depth exceeds maximum").into());
-    }
-    for entry in tree.iter() {
-        let Some(name) = entry.name() else {
-            continue;
-        };
-        let path = if prefix.is_empty() {
-            name.to_string()
+enum EditOp {
+    Upsert(StoredFile),
+    Delete,
+}
+
+#[derive(Default)]
+struct TreeEdit {
+    op: Option<EditOp>,
+    children: BTreeMap<String, TreeEdit>,
+}
+
+fn tree_edits_from_changes(changes: Vec<FileChange>) -> TreeEdit {
+    fn insert_edit(node: &mut TreeEdit, parts: &[&str], op: EditOp) {
+        let child = node.children.entry(parts[0].to_string()).or_default();
+        if parts.len() == 1 {
+            child.op = Some(op);
         } else {
-            format!("{prefix}/{name}")
-        };
-        match entry.kind() {
-            Some(ObjectType::Blob) => {
-                let blob = repo.find_blob(entry.id())?;
-                let bytes = blob.content().to_vec();
-                let file = decode_file(&path, bytes);
-                out.insert(path, file);
+            insert_edit(child, &parts[1..], op);
+        }
+    }
+
+    let mut root = TreeEdit::default();
+    for change in changes {
+        match change {
+            FileChange::Upsert { path, file } => {
+                let parts: Vec<&str> = path.split('/').collect();
+                insert_edit(&mut root, &parts, EditOp::Upsert(file));
             }
-            Some(ObjectType::Tree) => {
-                let subtree = repo.find_tree(entry.id())?;
-                read_tree_recursive(repo, &subtree, &path, depth + 1, out)?;
+            FileChange::Delete { path } => {
+                let parts: Vec<&str> = path.split('/').collect();
+                insert_edit(&mut root, &parts, EditOp::Delete);
             }
-            _ => {}
+        }
+    }
+    root
+}
+
+fn write_tree_with_edits(
+    repo: &Repository,
+    base_tree: Option<&Tree<'_>>,
+    changes: Vec<FileChange>,
+) -> Result<Oid, GitStoreError> {
+    let edits = tree_edits_from_changes(changes);
+    match write_tree_contents(repo, base_tree, &edits.children, "")? {
+        Some(oid) => Ok(oid),
+        None => Ok(repo.treebuilder(None)?.write()?),
+    }
+}
+
+fn write_tree_contents(
+    repo: &Repository,
+    base_tree: Option<&Tree<'_>>,
+    edits: &BTreeMap<String, TreeEdit>,
+    prefix: &str,
+) -> Result<Option<Oid>, GitStoreError> {
+    if edits.is_empty() {
+        return Ok(base_tree.map(|tree| tree.id()));
+    }
+
+    let mut builder = repo.treebuilder(base_tree)?;
+    for (name, edit) in edits {
+        apply_tree_child(repo, &mut builder, name, edit, prefix)?;
+    }
+    if builder.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(builder.write()?))
+    }
+}
+
+fn apply_tree_child(
+    repo: &Repository,
+    builder: &mut git2::TreeBuilder<'_>,
+    name: &str,
+    edit: &TreeEdit,
+    prefix: &str,
+) -> Result<(), GitStoreError> {
+    let full_path = if prefix.is_empty() {
+        name.to_string()
+    } else {
+        format!("{prefix}/{name}")
+    };
+    let (base_kind, base_subtree) = match builder.get(name)? {
+        Some(entry) => {
+            let kind = entry.kind();
+            let subtree = if kind == Some(ObjectType::Tree) {
+                Some(repo.find_tree(entry.id())?)
+            } else {
+                None
+            };
+            (kind, subtree)
+        }
+        None => (None, None),
+    };
+    let edited_subtree = if edit.children.is_empty() {
+        None
+    } else {
+        write_tree_contents(repo, base_subtree.as_ref(), &edit.children, &full_path)?
+    };
+
+    match edit.op.as_ref() {
+        Some(EditOp::Upsert(file)) => {
+            if (edit.children.is_empty() && base_kind == Some(ObjectType::Tree))
+                || edited_subtree.is_some()
+            {
+                return Err(GitStoreError::PathConflict(full_path));
+            }
+            insert_blob(repo, builder, name, file)?;
+        }
+        Some(EditOp::Delete) => {
+            if let Some(oid) = edited_subtree {
+                builder.insert(name, oid, TREE_FILEMODE)?;
+            } else if edit.children.is_empty() {
+                if base_kind == Some(ObjectType::Blob) {
+                    remove_if_present(builder, name)?;
+                }
+            } else if base_kind.is_some() {
+                remove_if_present(builder, name)?;
+            }
+        }
+        None => {
+            if let Some(oid) = edited_subtree {
+                if base_kind == Some(ObjectType::Blob) {
+                    return Err(GitStoreError::PathConflict(full_path));
+                }
+                builder.insert(name, oid, TREE_FILEMODE)?;
+            } else if !edit.children.is_empty() && base_kind == Some(ObjectType::Tree) {
+                remove_if_present(builder, name)?;
+            }
         }
     }
     Ok(())
 }
 
-fn build_tree_recursive(
+fn insert_blob(
     repo: &Repository,
-    files: BTreeMap<String, StoredFile>,
-) -> Result<Oid, GitStoreError> {
-    enum TreeNode {
-        File(StoredFile),
-        Dir(BTreeMap<String, TreeNode>),
-    }
+    builder: &mut git2::TreeBuilder<'_>,
+    name: &str,
+    file: &StoredFile,
+) -> Result<(), GitStoreError> {
+    let bytes = encode_file(file.clone())?;
+    let oid = repo.blob(&bytes)?;
+    builder.insert(name, oid, BLOB_FILEMODE)?;
+    Ok(())
+}
 
-    fn insert(
-        full_path: &str,
-        parts: &[&str],
-        file: StoredFile,
-        node: &mut BTreeMap<String, TreeNode>,
-    ) -> Result<(), GitStoreError> {
-        if parts.len() == 1 {
-            if matches!(node.get(parts[0]), Some(TreeNode::Dir(_))) {
-                return Err(GitStoreError::PathConflict(full_path.to_string()));
-            }
-            node.insert(parts[0].to_string(), TreeNode::File(file));
-        } else {
-            let child = node
-                .entry(parts[0].to_string())
-                .or_insert_with(|| TreeNode::Dir(BTreeMap::new()));
-            match child {
-                TreeNode::Dir(map) => insert(full_path, &parts[1..], file, map)?,
-                TreeNode::File(_) => {
-                    return Err(GitStoreError::PathConflict(full_path.to_string()))
-                }
-            }
-        }
-        Ok(())
+fn remove_if_present(builder: &mut git2::TreeBuilder<'_>, name: &str) -> Result<(), GitStoreError> {
+    if builder.get(name)?.is_some() {
+        builder.remove(name)?;
     }
-
-    fn write_node(
-        repo: &Repository,
-        node: BTreeMap<String, TreeNode>,
-    ) -> Result<Oid, GitStoreError> {
-        let mut builder = repo.treebuilder(None)?;
-        for (name, value) in node {
-            match value {
-                TreeNode::File(file) => {
-                    let bytes = encode_file(file)?;
-                    let oid = repo.blob(&bytes)?;
-                    builder.insert(name, oid, 0o100644)?;
-                }
-                TreeNode::Dir(children) => {
-                    let oid = write_node(repo, children)?;
-                    builder.insert(name, oid, 0o040000)?;
-                }
-            }
-        }
-        Ok(builder.write()?)
-    }
-
-    let mut root = BTreeMap::new();
-    for (path, file) in files {
-        let parts: Vec<&str> = path.split('/').collect();
-        insert(&path, &parts, file, &mut root)?;
-    }
-    write_node(repo, root)
+    Ok(())
 }
 
 fn tree_entries_recursive(
@@ -742,26 +798,15 @@ impl GitVaultStore for Git2VaultStore {
         let parent = parent.map(|s| s.to_string());
         tokio::task::spawn_blocking(move || -> Result<String, GitStoreError> {
             let repo = open_or_init_bare_main(&p)?;
-            let mut current: BTreeMap<String, StoredFile> = BTreeMap::new();
             let parent_commit = match parent {
                 Some(ref h) => Some(repo.find_commit(Oid::from_str(h)?)?),
                 None => main_ref_target(&repo)?.and_then(|oid| repo.find_commit(oid).ok()),
             };
-            if let Some(pc) = &parent_commit {
-                let tree = pc.tree()?;
-                read_tree_recursive(&repo, &tree, "", 0, &mut current)?;
-            }
-            for ch in changes {
-                match ch {
-                    FileChange::Upsert { path, file } => {
-                        current.insert(path, file);
-                    }
-                    FileChange::Delete { path } => {
-                        current.remove(&path);
-                    }
-                }
-            }
-            let tree_oid = build_tree_recursive(&repo, current)?;
+            let parent_tree = parent_commit
+                .as_ref()
+                .map(|commit| commit.tree())
+                .transpose()?;
+            let tree_oid = write_tree_with_edits(&repo, parent_tree.as_ref(), changes)?;
             let tree = repo.find_tree(tree_oid)?;
             let sig = sig()?;
             let oid = match parent_commit {
@@ -968,6 +1013,57 @@ mod tests {
         );
     }
 
+    #[test]
+    fn commit_changes_does_not_call_whole_tree_helpers() {
+        let source = include_str!("git.rs");
+        let impl_start = source
+            .find("impl GitVaultStore for Git2VaultStore")
+            .expect("store trait impl exists");
+        let commit_start = source[impl_start..]
+            .find("async fn commit_changes")
+            .map(|idx| impl_start + idx)
+            .expect("commit_changes implementation exists");
+        let list_tree_start = source[commit_start..]
+            .find("\n    async fn list_tree")
+            .map(|idx| commit_start + idx)
+            .expect("list_tree follows commit_changes");
+        let implementation = &source[commit_start..list_tree_start];
+
+        assert!(
+            !implementation.contains("read_tree_recursive("),
+            "commit_changes must not deserialize the whole tree before applying edits"
+        );
+        assert!(
+            !implementation.contains("build_tree_recursive("),
+            "commit_changes must not rebuild the whole tree from a flat map"
+        );
+        assert!(
+            !implementation.contains("BTreeMap<String, StoredFile>"),
+            "commit_changes should mutate git tree entries directly"
+        );
+    }
+
+    fn commit_tree_oid(root: &Path, vault_id: &str, commit: &str) -> Oid {
+        let repo = Repository::open_bare(root.join(vault_id)).unwrap();
+        let oid = repo
+            .find_commit(Oid::from_str(commit).unwrap())
+            .unwrap()
+            .tree_id();
+        oid
+    }
+
+    fn commit_entry_oid(root: &Path, vault_id: &str, commit: &str, path: &str) -> Oid {
+        let repo = Repository::open_bare(root.join(vault_id)).unwrap();
+        let commit = repo.find_commit(Oid::from_str(commit).unwrap()).unwrap();
+        let oid = commit
+            .tree()
+            .unwrap()
+            .get_path(Path::new(path))
+            .unwrap()
+            .id();
+        oid
+    }
+
     #[tokio::test]
     async fn commit_and_read_text() {
         let dir = tempfile::tempdir().unwrap();
@@ -1032,6 +1128,194 @@ mod tests {
             .await
             .unwrap();
         assert!(store.read_file("v1", "a.md", None).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn commit_preserves_untouched_subtree_oid() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "keep/a.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"keep".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "touch/b.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"old".to_vec(),
+                        },
+                    },
+                ],
+                "base",
+            )
+            .await
+            .unwrap();
+        let base_root = commit_tree_oid(dir.path(), "v1", &base);
+        let base_keep_tree = commit_entry_oid(dir.path(), "v1", &base, "keep");
+        let base_keep_blob = commit_entry_oid(dir.path(), "v1", &base, "keep/a.md");
+        let base_touch_tree = commit_entry_oid(dir.path(), "v1", &base, "touch");
+
+        let head = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "touch/b.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"new".to_vec(),
+                    },
+                }],
+                "touch one subtree",
+            )
+            .await
+            .unwrap();
+
+        assert_ne!(commit_tree_oid(dir.path(), "v1", &head), base_root);
+        assert_eq!(
+            commit_entry_oid(dir.path(), "v1", &head, "keep"),
+            base_keep_tree
+        );
+        assert_eq!(
+            commit_entry_oid(dir.path(), "v1", &head, "keep/a.md"),
+            base_keep_blob
+        );
+        assert_ne!(
+            commit_entry_oid(dir.path(), "v1", &head, "touch"),
+            base_touch_tree
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_path_keeps_tree_oid() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "note.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"hello".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+        let base_tree = commit_tree_oid(dir.path(), "v1", &base);
+
+        let head = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Delete {
+                    path: "missing.md".into(),
+                }],
+                "delete missing",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(commit_tree_oid(dir.path(), "v1", &head), base_tree);
+    }
+
+    #[tokio::test]
+    async fn delete_directory_path_does_not_remove_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "dir/a.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"nested".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+        let base_tree = commit_tree_oid(dir.path(), "v1", &base);
+
+        let head = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Delete { path: "dir".into() }],
+                "delete directory path",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(commit_tree_oid(dir.path(), "v1", &head), base_tree);
+        assert_eq!(
+            store
+                .read_file("v1", "dir/a.md", Some(&head))
+                .await
+                .unwrap(),
+            Some(StoredFile::Text {
+                bytes: b"nested".to_vec()
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn commit_changes_none_parent_uses_current_main_as_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "base.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"base".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+
+        let head = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "next.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"next".to_vec(),
+                    },
+                }],
+                "next",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store.commit_parent("v1", &head).await.unwrap().as_deref(),
+            Some(base.as_str())
+        );
+        assert!(store
+            .read_file("v1", "base.md", Some(&head))
+            .await
+            .unwrap()
+            .is_some());
+        assert!(store
+            .read_file("v1", "next.md", Some(&head))
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
@@ -1645,6 +1929,94 @@ mod tests {
             .await;
 
         assert!(result.is_err(), "conflicting paths must not commit");
+    }
+
+    #[tokio::test]
+    async fn upsert_parent_after_deleting_all_children_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "notes/todo.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"nested".to_vec(),
+                    },
+                }],
+                "nested",
+            )
+            .await
+            .unwrap();
+
+        let head = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[
+                    FileChange::Delete {
+                        path: "notes/todo.md".into(),
+                    },
+                    FileChange::Upsert {
+                        path: "notes".into(),
+                        file: StoredFile::Text {
+                            bytes: b"file".to_vec(),
+                        },
+                    },
+                ],
+                "replace subtree with file",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store.read_file("v1", "notes", Some(&head)).await.unwrap(),
+            Some(StoredFile::Text {
+                bytes: b"file".to_vec()
+            })
+        );
+        assert!(store
+            .read_file("v1", "notes/todo.md", Some(&head))
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn upsert_parent_while_child_remains_rejects_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "notes/todo.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"nested".to_vec(),
+                    },
+                }],
+                "nested",
+            )
+            .await
+            .unwrap();
+
+        let result = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "notes".into(),
+                    file: StoredFile::Text {
+                        bytes: b"file".to_vec(),
+                    },
+                }],
+                "conflict",
+            )
+            .await;
+
+        assert!(matches!(result, Err(GitStoreError::PathConflict(_))));
     }
 
     #[tokio::test]
