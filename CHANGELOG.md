@@ -7,6 +7,34 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-06-10
+
+### Security
+
+- Generalize Git HTTP Basic authentication failures and deduplicate MCP auth
+  sanitization so credential states are not exposed through response text.
+- Preserve hidden and excluded path boundaries in MCP write/move flows, reject
+  conflicting normalized write/delete paths, and harden blob symlink probes.
+- Clamp oversized MCP JSON request bodies and keep write rate-limit tokens from
+  being consumed by invalid move sources.
+
+### Fixed
+
+- Record the actual moved text size in activity logs, show real vault counts
+  and last-sync timestamps in admin user detail views, localize duration labels
+  across all shipped languages, and store vault names after trimming.
+- Replace unsafe plugin vault-settings access and gate production warning logs
+  behind debug-only logging.
+
+### Performance
+
+- Mutate Git commit trees incrementally, update push metadata without full tree
+  walks, cache vault filters/token checks/pointer detection, and avoid
+  unnecessary full-tree scans in MCP and sync paths.
+- Batch pull-side file reads, reconcile vaults concurrently with bounds, reuse
+  plugin sync scans, use conditional pulls, parallelize plugin vault scans, and
+  cache timestamp formatters.
+
 ## [1.2.0] - 2026-06-09
 
 ### Added

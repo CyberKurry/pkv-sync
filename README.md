@@ -8,7 +8,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.2.0.
+Document version: v1.2.1.
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -152,7 +152,7 @@ For real deployments, also run behind HTTPS, restrict
 
 ## Status
 
-PKV Sync 1.2.0 is the current stable release for LLM-maintained wiki workflows. It adds atomic `write_files` multi-file MCP commits and a history-preserving `move_file` rename/move tool, with the v1.1.1 security hardening included; see the [LLM Wiki how-to](./public-docs/llm-wiki-howto.md) for the agent loop.
+PKV Sync 1.2.1 is the current stable patch release for LLM-maintained wiki workflows. It hardens MCP and Git auth, hidden-path, duplicate-write, and blob symlink edge cases while making large-vault push/pull, MCP tool paths, cleanup, and plugin scans more incremental and cache-aware; see the [LLM Wiki how-to](./public-docs/llm-wiki-howto.md) for the agent loop.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together

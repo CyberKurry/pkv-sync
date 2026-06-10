@@ -5,7 +5,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文件版本：v1.2.0。
+文件版本：v1.2.1。
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | 繁體中文 | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -101,7 +101,7 @@ PKV Sync 1.0 **暫不**提供原生端到端加密——伺服器能讀到筆記
 
 ## 狀態
 
-PKV Sync 1.2.0 是目前面向 LLM 維護 Wiki 工作流的穩定版本。本版新增原子化 `write_files` 多檔案 MCP 提交，以及保留歷史的 `move_file` 重新命名／移動工具，並包含 v1.1.1 的安全加固；Agent 循環請看 [LLM Wiki 操作指南](./public-docs/llm-wiki-howto.zh-Hant.md)。
+PKV Sync 1.2.1 是目前面向 LLM 維護 Wiki 工作流的穩定修補版本。本版加固 MCP 與 Git 驗證、隱藏路徑、重複寫入和 blob 符號連結等邊界，並讓大型 vault 的 push/pull、MCP 工具路徑、清理工作和外掛掃描更增量化、更善用快取；Agent 循環請看 [LLM Wiki 操作指南](./public-docs/llm-wiki-howto.zh-Hant.md)。
 
 PKV Sync 1.0 是第一個穩定版。公開 REST API、CLI、儲存布局、外掛包、Docker 映像作為一組同步發版，遵循 semver：1.X.Y 在公開表面保持向後相容，OpenAPI 規範是這個相容契約的權威來源。0.x 建立的 SQLite 資料庫**不支援**就地升級到 1.0.0——請依[1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md)操作。
 
