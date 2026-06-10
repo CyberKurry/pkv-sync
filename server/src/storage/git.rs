@@ -3,7 +3,7 @@ use crate::storage::text_kind::TextClassifier;
 use async_trait::async_trait;
 use git2::{Delta, DiffFindOptions, ObjectType, Oid, Repository, Signature, Tree};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -255,6 +255,7 @@ impl Git2VaultStore {
                 find.renames(true);
                 let _ = diff.find_similar(Some(&mut find));
                 let mut changes = Vec::new();
+                let mut pointer_cache = HashMap::new();
                 for delta in diff.deltas() {
                     let status = delta.status();
                     let (path, old_path, change_type) = match status {
@@ -291,6 +292,7 @@ impl Git2VaultStore {
                         &new_tree,
                         &path,
                         old_path.as_deref(),
+                        &mut pointer_cache,
                     )?;
                     changes.push(crate::service::diff::CommitChange {
                         path,
@@ -328,6 +330,7 @@ fn is_binary_delta(
     new_tree: &Tree<'_>,
     path: &str,
     old_path: Option<&str>,
+    pointer_cache: &mut HashMap<Oid, PointerProbe>,
 ) -> Result<bool, GitStoreError> {
     let classifier = TextClassifier::default_ref();
     let text_path = classifier.is_text_path(path)
@@ -337,21 +340,28 @@ fn is_binary_delta(
     if !text_path {
         return Ok(true);
     }
-    if tree_path_is_pointer(repo, Some(new_tree), path)? {
+    if tree_path_is_pointer(repo, Some(new_tree), path, pointer_cache)? {
         return Ok(true);
     }
     if let Some(old_path) = old_path.or(Some(path)) {
-        if tree_path_is_pointer(repo, old_tree, old_path)? {
+        if tree_path_is_pointer(repo, old_tree, old_path, pointer_cache)? {
             return Ok(true);
         }
     }
     Ok(false)
 }
 
+#[derive(Clone, Copy)]
+struct PointerProbe {
+    modern: bool,
+    legacy: bool,
+}
+
 fn tree_path_is_pointer(
     repo: &Repository,
     tree: Option<&Tree<'_>>,
     path: &str,
+    pointer_cache: &mut HashMap<Oid, PointerProbe>,
 ) -> Result<bool, GitStoreError> {
     let Some(tree) = tree else {
         return Ok(false);
@@ -359,10 +369,19 @@ fn tree_path_is_pointer(
     let Ok(entry) = tree.get_path(Path::new(path)) else {
         return Ok(false);
     };
-    let blob = repo.find_blob(entry.id())?;
-    Ok(is_pointer_bytes(blob.content()).is_some()
-        || (!TextClassifier::default_ref().is_text_path(path)
-            && is_legacy_pointer_bytes(blob.content()).is_some()))
+    let probe = match pointer_cache.get(&entry.id()).copied() {
+        Some(probe) => probe,
+        None => {
+            let blob = repo.find_blob(entry.id())?;
+            let probe = PointerProbe {
+                modern: is_pointer_bytes(blob.content()).is_some(),
+                legacy: is_legacy_pointer_bytes(blob.content()).is_some(),
+            };
+            pointer_cache.insert(entry.id(), probe);
+            probe
+        }
+    };
+    Ok(probe.modern || (!TextClassifier::default_ref().is_text_path(path) && probe.legacy))
 }
 
 fn is_valid_storage_vault_id(vault_id: &str) -> bool {
@@ -825,6 +844,33 @@ impl GitVaultStore for Git2VaultStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tree_diff_caches_pointer_checks_per_blob_oid() {
+        let source = include_str!("git.rs");
+        let tree_diff_start = source.find("pub async fn tree_diff").unwrap();
+        let delta_path_start = source[tree_diff_start..]
+            .find("fn delta_path")
+            .map(|idx| tree_diff_start + idx)
+            .unwrap();
+        let is_binary_delta_start = source.find("fn is_binary_delta").unwrap();
+        let tree_path_is_pointer_start = source.find("fn tree_path_is_pointer").unwrap();
+        let tree_diff = &source[tree_diff_start..delta_path_start];
+        let is_binary_delta = &source[is_binary_delta_start..tree_path_is_pointer_start];
+
+        assert!(
+            tree_diff.contains("pointer_cache"),
+            "tree_diff should create a pointer result cache for all deltas"
+        );
+        assert!(
+            is_binary_delta.contains("pointer_cache"),
+            "is_binary_delta should reuse the pointer result cache"
+        );
+        assert!(
+            is_binary_delta.matches("tree_path_is_pointer(").count() == 2,
+            "is_binary_delta should keep exactly the new/old path pointer checks"
+        );
+    }
 
     #[tokio::test]
     async fn commit_and_read_text() {
