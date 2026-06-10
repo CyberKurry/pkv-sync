@@ -3,6 +3,7 @@ import { isConflictPath } from "./conflict-files";
 import { sha256Bytes, sha256Text } from "./hash";
 import { textByteLength } from "./text-encoding";
 import type { LocalFileSnapshot, LocalIndex } from "./types";
+import { extensionOf } from "../util";
 
 const SCAN_SNAPSHOT_BATCH_SIZE = 8;
 
@@ -73,7 +74,7 @@ export class ObsidianVaultAdapter implements VaultAdapter {
   ): Promise<LocalFileSnapshot> {
     path = requireSafeVaultPath(path);
     const file = this.requireFile(path);
-    const ext = path.includes(".") ? path.split(".").pop()!.toLowerCase() : "";
+    const ext = extensionOf(path);
     if (textExtensions.has(ext)) {
       const content = await this.readText(path);
       return {

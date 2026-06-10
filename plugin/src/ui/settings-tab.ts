@@ -24,6 +24,7 @@ import {
   TIMEZONE_OPTIONS
 } from "../time";
 import { parseServerUrl } from "../url";
+import { errorToMessage } from "../util";
 
 type ButtonVariant = "primary" | "secondary" | "ghost";
 
@@ -133,7 +134,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
           new Notice(t.setupRequiredNotice);
           return;
         }
-        new Notice(error instanceof Error ? error.message : String(error));
+        new Notice(errorToMessage(error));
       }
     });
     this.renderConflictCleanup(panel);
@@ -259,7 +260,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       new Notice(this.plugin.text().loggedIn);
       this.display();
     } catch (error) {
-      new Notice(error instanceof ApiError ? error.message : String(error));
+      new Notice(errorToMessage(error));
     }
   }
 
@@ -285,7 +286,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       new Notice(this.plugin.text().registeredAndLoggedIn);
       this.display();
     } catch (error) {
-      new Notice(error instanceof ApiError ? error.message : String(error));
+      new Notice(errorToMessage(error));
     }
   }
 
@@ -310,7 +311,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       if (renderId !== this.renderId) return;
       body.empty();
       body.createDiv({
-        text: error instanceof Error ? error.message : String(error),
+        text: errorToMessage(error),
         cls: "pkv-sync-error"
       });
       this.renderButton(body, this.plugin.text().logout, "secondary", () =>
@@ -432,11 +433,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
           });
           new Notice(t.vaultSyncAllowlistSaved);
         } catch (error) {
-          new Notice(
-            error instanceof Error
-              ? `${t.vaultSyncAllowlistSaveFailed}: ${error.message}`
-              : `${t.vaultSyncAllowlistSaveFailed}: ${String(error)}`
-          );
+          new Notice(`${t.vaultSyncAllowlistSaveFailed}: ${errorToMessage(error)}`);
         } finally {
           saveButton.disabled = false;
         }
@@ -449,11 +446,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         .getVaultSettings(vaultId);
       textarea.value = this.formatGlobTextarea(settings.extra_sync_globs);
     } catch (error) {
-      new Notice(
-        error instanceof Error
-          ? `${t.vaultSyncAllowlistLoadFailed}: ${error.message}`
-          : `${t.vaultSyncAllowlistLoadFailed}: ${String(error)}`
-      );
+      new Notice(`${t.vaultSyncAllowlistLoadFailed}: ${errorToMessage(error)}`);
     }
   }
 
@@ -572,11 +565,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         new Notice(format(t.createdVaultNotice, { name: vault.name }));
         this.display();
       } catch (error) {
-        new Notice(
-          error instanceof Error
-            ? `${t.createVaultFailed}: ${error.message}`
-            : `${t.createVaultFailed}: ${String(error)}`
-        );
+        new Notice(`${t.createVaultFailed}: ${errorToMessage(error)}`);
       }
     });
   }

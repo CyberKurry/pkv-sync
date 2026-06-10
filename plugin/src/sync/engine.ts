@@ -17,6 +17,7 @@ import {
 import { textByteLength } from "./text-encoding";
 import type { PushChange } from "./types";
 import type { LocalFileSnapshot, LocalIndex, PullFile, PullResponse } from "./types";
+import { errorToMessage } from "../util";
 import {
   shouldAcceptRemoteConflictPath,
   shouldSyncPath,
@@ -225,7 +226,7 @@ export class SyncEngine {
       } else {
         this.opts.setStatus(
           "error",
-          error instanceof Error ? error.message : String(error)
+          errorToMessage(error)
         );
       }
       throw error;
@@ -548,7 +549,7 @@ export class SyncEngine {
       (this.opts.labels ?? strings()).inlineApplyFailed,
       {
         path,
-        reason: error instanceof Error ? error.message : String(error)
+        reason: errorToMessage(error)
       }
     );
     console.warn("[pkv-sync] inline apply failed, falling back to pull:", error);

@@ -1,6 +1,7 @@
 import { type App, Modal, Notice } from "obsidian";
 import { formatBytes } from "../format";
 import { format, type Strings } from "../i18n";
+import { errorToMessage } from "../util";
 import type {
   MigrationProgress,
   MigrationResult,
@@ -141,7 +142,7 @@ export class MigrateModal extends Modal {
 
   private renderFailure(error: unknown): void {
     this.statusEl?.setText(this.labels.migrateFailed);
-    this.progressEl?.setText(error instanceof Error ? error.message : String(error));
+    this.progressEl?.setText(errorToMessage(error));
   }
 
   private updateStartState(): void {

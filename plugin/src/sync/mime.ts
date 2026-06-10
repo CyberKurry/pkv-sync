@@ -1,3 +1,5 @@
+import { extensionOf } from "../util";
+
 const MIME_BY_EXTENSION: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",
@@ -11,6 +13,6 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 };
 
 export function guessMime(path: string): string | undefined {
-  const ext = path.split(".").pop()?.toLowerCase();
+  const ext = extensionOf(path);
   return ext ? MIME_BY_EXTENSION[ext] : undefined;
 }

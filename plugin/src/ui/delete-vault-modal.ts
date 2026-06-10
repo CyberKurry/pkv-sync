@@ -1,6 +1,7 @@
 import { type App, Modal, Notice } from "obsidian";
 import type { VaultSummary } from "../api/types";
 import { format, type Strings } from "../i18n";
+import { errorToMessage } from "../util";
 
 export class DeleteVaultModal extends Modal {
   private confirmInput: HTMLInputElement | null = null;
@@ -69,11 +70,7 @@ export class DeleteVaultModal extends Modal {
       await this.onConfirm();
       this.close();
     } catch (error) {
-      new Notice(
-        error instanceof Error
-          ? `${this.labels.deleteVaultFailed}: ${error.message}`
-          : this.labels.deleteVaultFailed
-      );
+      new Notice(`${this.labels.deleteVaultFailed}: ${errorToMessage(error)}`);
       if (this.deleteButton) this.deleteButton.disabled = false;
     }
   }

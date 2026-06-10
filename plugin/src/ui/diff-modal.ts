@@ -7,6 +7,7 @@ import {
   type SideBySideDiffRow
 } from "../sync/unified-diff";
 import { DEFAULT_TIMEZONE, formatUnixSeconds } from "../time";
+import { errorToMessage } from "../util";
 import { shortCommit } from "./history-modal";
 
 export interface DiffModalLabels {
@@ -108,7 +109,7 @@ export class DiffModal extends Modal {
       this.historyRows = rows;
       this.renderDiff(diff);
     } catch (error) {
-      this.renderError(error instanceof Error ? error.message : String(error));
+      this.renderError(errorToMessage(error));
     }
   }
 

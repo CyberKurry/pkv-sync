@@ -4,6 +4,7 @@ import { sha256Bytes, sha256Text } from "./hash";
 import { guessMime } from "./mime";
 import { textByteLength } from "./text-encoding";
 import type { LocalFileSnapshot, LocalIndex, PushChange, PushResponse, StateResponse } from "./types";
+import { errorToMessage, extensionOf } from "../util";
 
 const COMMUNITY_PLUGINS_PATH = ".obsidian/community-plugins.json";
 const SYNC_DIR_PATH = ".obsidian/sync";
@@ -335,7 +336,7 @@ function buildMigrationIndex(files: LocalFileSnapshot[], commit: string | null):
 }
 
 function isTextPath(path: string, textExtensions: Set<string>): boolean {
-  const ext = path.includes(".") ? path.split(".").pop()?.toLowerCase() : "";
+  const ext = extensionOf(path);
   return !!ext && textExtensions.has(ext);
 }
 
@@ -344,6 +345,4 @@ function normalizeBatchSize(value: number | undefined): number {
   return Math.max(1, Math.floor(value));
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+const errorMessage = errorToMessage;

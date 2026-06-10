@@ -1,5 +1,6 @@
 import { type App, Modal, Notice } from "obsidian";
 import { format, type Strings } from "../i18n";
+import { errorToMessage } from "../util";
 
 export interface RollbackConfirmModalOptions {
   vaultName: string;
@@ -95,11 +96,7 @@ export class RollbackConfirmModal extends Modal {
       await this.options.onConfirm(this.confirmInput.value);
       this.close();
     } catch (error) {
-      new Notice(
-        error instanceof Error
-          ? `${this.options.labels.rollbackFailed}: ${error.message}`
-          : this.options.labels.rollbackFailed
-      );
+      new Notice(`${this.options.labels.rollbackFailed}: ${errorToMessage(error)}`);
       this.submitting = false;
       this.updateButtonState();
     }

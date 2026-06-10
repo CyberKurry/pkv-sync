@@ -1,5 +1,6 @@
 import type { Vault } from "obsidian";
 import type { HistoryApi } from "../api/history-client";
+import { errorToMessage } from "../util";
 import { textByteLength } from "./text-encoding";
 import { ObsidianVaultAdapter } from "./vault-adapter";
 
@@ -30,7 +31,7 @@ export async function restoreFileToCommit(
     return {
       ok: false,
       reason: "fetch_failed",
-      detail: error instanceof Error ? error.message : String(error)
+      detail: errorToMessage(error)
     };
   }
 
@@ -55,7 +56,7 @@ export async function restoreFileToCommit(
     return {
       ok: false,
       reason: "write_failed",
-      detail: error instanceof Error ? error.message : String(error)
+      detail: errorToMessage(error)
     };
   }
 }

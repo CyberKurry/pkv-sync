@@ -57,6 +57,7 @@ import {
   type PluginFileAdapter,
   type PluginUpdateStatus
 } from "./services/update-check";
+import { errorToMessage, extensionOf } from "./util";
 
 export default class PKVSyncPlugin extends Plugin {
   settings: PKVSyncSettings = DEFAULT_SETTINGS;
@@ -132,7 +133,7 @@ export default class PKVSyncPlugin extends Plugin {
           await this.saveSettings();
           new Notice(format(t.refreshedVaults, { count: me.vaults.length }));
         } catch (error) {
-          new Notice(error instanceof Error ? error.message : String(error));
+          new Notice(errorToMessage(error));
           this.statusEl?.setText(statusText("error", t.refreshFailed, t));
         }
       }
@@ -314,7 +315,7 @@ export default class PKVSyncPlugin extends Plugin {
       if (showNotice) {
         new Notice(
           format(this.text().updateFailed, {
-            reason: error instanceof Error ? error.message : String(error)
+            reason: errorToMessage(error)
           })
         );
       }
@@ -328,7 +329,7 @@ export default class PKVSyncPlugin extends Plugin {
       this.availableUpdate = null;
       new Notice(format(this.text().updateSuccess, { version: update.version }));
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = errorToMessage(error);
       const message = /sha256/i.test(reason)
         ? this.text().updateSha256Mismatch
         : format(this.text().updateFailed, { reason });
@@ -726,7 +727,7 @@ export default class PKVSyncPlugin extends Plugin {
         : t.historyEmpty;
       new SyncStatusModal(this.app, t.showVaultHistoryCommand, text).open();
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error));
+      new Notice(errorToMessage(error));
     }
   }
 
@@ -753,7 +754,7 @@ export default class PKVSyncPlugin extends Plugin {
         entry.change_type !== "deleted"
       );
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error));
+      new Notice(errorToMessage(error));
     }
   }
 
@@ -774,7 +775,7 @@ export default class PKVSyncPlugin extends Plugin {
       const to = head?.commit ?? entry.commit;
       await this.openDiffFor(path, entry.commit, to);
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error));
+      new Notice(errorToMessage(error));
     }
   }
 
@@ -799,7 +800,7 @@ export default class PKVSyncPlugin extends Plugin {
         file.text
       ).open();
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error));
+      new Notice(errorToMessage(error));
     }
   }
 
@@ -922,7 +923,7 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   private isBinaryPath(path: string): boolean {
-    const ext = path.includes(".") ? path.split(".").pop()?.toLowerCase() : "";
+    const ext = extensionOf(path);
     return !ext || !this.settings.textExtensions.includes(ext);
   }
 
@@ -946,7 +947,7 @@ export default class PKVSyncPlugin extends Plugin {
       await this.engine.syncNow();
       new Notice(t.noticeSyncComplete);
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error));
+      new Notice(errorToMessage(error));
     }
   }
 
@@ -1000,7 +1001,7 @@ export default class PKVSyncPlugin extends Plugin {
         }
       }).open();
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error));
+      new Notice(errorToMessage(error));
     }
   }
 
@@ -1030,7 +1031,7 @@ export default class PKVSyncPlugin extends Plugin {
       );
       return count;
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : String(error));
+      new Notice(errorToMessage(error));
       return 0;
     }
   }

@@ -1,6 +1,7 @@
 import { requestUrl, type RequestUrlParam } from "obsidian";
 import { ApiClient } from "../api/client";
 import { sha256Text } from "../sync/hash";
+import { errorToMessage } from "../util";
 
 export type UpdateSource = "server" | "github";
 
@@ -390,7 +391,7 @@ async function ensureDirectory(
 }
 
 function isAlreadyExistsError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorToMessage(error);
   return /\b(EEXIST|already exists|exists)\b/i.test(message);
 }
 

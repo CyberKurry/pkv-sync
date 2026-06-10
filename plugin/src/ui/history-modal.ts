@@ -2,6 +2,7 @@ import { App, Modal } from "obsidian";
 import type { HistoryApi } from "../api/history-client";
 import type { CommitSummary } from "../api/types";
 import { formatUnixSeconds } from "../time";
+import { errorToMessage } from "../util";
 
 export interface HistoryEntryView {
   commit: string;
@@ -99,7 +100,7 @@ export class HistoryModal extends Modal {
       );
       this.renderRows(rows);
     } catch (error) {
-      this.renderError(error instanceof Error ? error.message : String(error));
+      this.renderError(errorToMessage(error));
     }
   }
 
