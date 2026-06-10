@@ -1674,9 +1674,26 @@ async fn pull_for_user(
             deleted.push(path.clone());
         }
     }
-    let vault_root = state.vault_root();
-    let added = files_to_pull(vault_root, vault_id, &h, added_paths).await?;
-    let modified = files_to_pull(vault_root, vault_id, &h, modified_paths).await?;
+    let mut pull_paths = Vec::with_capacity(added_paths.len() + modified_paths.len());
+    pull_paths.extend(
+        added_paths
+            .into_iter()
+            .map(|path| (PullFileBucket::Added, path)),
+    );
+    pull_paths.extend(
+        modified_paths
+            .into_iter()
+            .map(|path| (PullFileBucket::Modified, path)),
+    );
+    let pulled = files_to_pull(state.vault_root(), vault_id, &h, pull_paths).await?;
+    let mut added = Vec::new();
+    let mut modified = Vec::new();
+    for (bucket, file) in pulled {
+        match bucket {
+            PullFileBucket::Added => added.push(file),
+            PullFileBucket::Modified => modified.push(file),
+        }
+    }
     if !added.is_empty() {
         state
             .metrics
@@ -1736,36 +1753,45 @@ async fn pull_for_user(
     })
 }
 
+#[derive(Clone, Copy)]
+enum PullFileBucket {
+    Added,
+    Modified,
+}
+
 async fn files_to_pull(
     vault_root: &Path,
     vault_id: &str,
     head: &str,
-    paths: Vec<String>,
-) -> Result<Vec<PullFile>, ApiError> {
+    paths: Vec<(PullFileBucket, String)>,
+) -> Result<Vec<(PullFileBucket, PullFile)>, ApiError> {
     if paths.is_empty() {
         return Ok(Vec::new());
     }
     let repo_path = vault_root.join(vault_id);
     let head = head.to_string();
-    tokio::task::spawn_blocking(move || -> Result<Vec<PullFile>, GitStoreError> {
-        let repo = Repository::open_bare(&repo_path)?;
-        let oid = Oid::from_str(&head)?;
-        let commit = repo.find_commit(oid)?;
-        let tree = commit.tree()?;
-        let mut files = Vec::with_capacity(paths.len());
-        for path in paths {
-            let entry = tree
-                .get_path(Path::new(&path))
-                .map_err(|_| GitStoreError::NotFound)?;
-            let blob = repo.find_blob(entry.id())?;
-            let file = decode_pull_file(&path, blob.content().to_vec());
-            files.push(match file {
-                StoredFile::Text { bytes } => text_pull_file(&path, bytes),
-                StoredFile::BlobPointer { hash, size, .. } => blob_pull_file(&path, hash, size),
-            });
-        }
-        Ok(files)
-    })
+    tokio::task::spawn_blocking(
+        move || -> Result<Vec<(PullFileBucket, PullFile)>, GitStoreError> {
+            let repo = Repository::open_bare(&repo_path)?;
+            let oid = Oid::from_str(&head)?;
+            let commit = repo.find_commit(oid)?;
+            let tree = commit.tree()?;
+            let mut files = Vec::with_capacity(paths.len());
+            for (bucket, path) in paths {
+                let entry = tree
+                    .get_path(Path::new(&path))
+                    .map_err(|_| GitStoreError::NotFound)?;
+                let blob = repo.find_blob(entry.id())?;
+                let file = decode_pull_file(&path, blob.content().to_vec());
+                let file = match file {
+                    StoredFile::Text { bytes } => text_pull_file(&path, bytes),
+                    StoredFile::BlobPointer { hash, size, .. } => blob_pull_file(&path, hash, size),
+                };
+                files.push((bucket, file));
+            }
+            Ok(files)
+        },
+    )
     .await
     .map_err(|_| ApiError::internal("pull file read task panicked"))?
     .map_err(|e| {
@@ -2132,6 +2158,23 @@ mod tests {
         assert!(!protect_impl.contains("for hash in blob_hashes"));
         assert!(record_impl.contains("insert_blob_refs_in_tx"));
         assert!(protect_impl.contains("insert_blob_refs_in_tx"));
+    }
+
+    #[test]
+    fn pull_for_user_batches_added_and_modified_file_reads() {
+        let source = include_str!("sync.rs");
+        let fn_start = source.find("async fn pull_for_user").unwrap();
+        let next_fn = source[fn_start + 1..]
+            .find("\nasync fn files_to_pull")
+            .map(|idx| fn_start + 1 + idx)
+            .unwrap();
+        let implementation = &source[fn_start..next_fn];
+
+        assert_eq!(
+            implementation.matches("files_to_pull(").count(),
+            1,
+            "pull_for_user should read added and modified files in one files_to_pull call"
+        );
     }
 
     async fn state_user_vault() -> (AppState, AuthenticatedUser, String, tempfile::TempDir) {
