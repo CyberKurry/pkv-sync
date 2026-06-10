@@ -3,7 +3,7 @@ use axum::http::{Request, StatusCode};
 use bytes::Bytes;
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::repos::{
-    BlobRefRepo, NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
+    NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
 };
 use pkv_sync_server::mcp::tools;
 use pkv_sync_server::mcp::transport_http;
@@ -26,6 +26,20 @@ async fn test_state() -> (AppState, tempfile::TempDir) {
         .await
         .unwrap();
     (state, tmp)
+}
+
+async fn add_blob_refs(state: &AppState, vault_id: &str, commit_hash: &str, hashes: &[String]) {
+    for hash in hashes {
+        sqlx::query(
+            "INSERT OR IGNORE INTO blob_refs (blob_hash, vault_id, commit_hash) VALUES (?, ?, ?)",
+        )
+        .bind(hash)
+        .bind(vault_id)
+        .bind(commit_hash)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    }
 }
 
 async fn create_user_with_token(state: &AppState, username: &str) -> (AuthenticatedUser, String) {
@@ -730,11 +744,7 @@ async fn move_file_rejects_binary() {
         )
         .await
         .unwrap();
-    state
-        .blob_refs
-        .add_refs(&vault.id, &head, std::slice::from_ref(&hash))
-        .await
-        .unwrap();
+    add_blob_refs(&state, &vault.id, &head, std::slice::from_ref(&hash)).await;
 
     let body = post_tool(
         state,

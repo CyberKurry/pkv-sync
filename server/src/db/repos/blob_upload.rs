@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::HashSet;
 
-const DELETE_UPLOADS_SHARED_BINDS: usize = 1;
 const QUERY_UPLOADS_SHARED_BINDS: usize = 1;
 
 #[async_trait]
@@ -14,14 +13,12 @@ pub trait BlobUploadRepo: Send + Sync {
         hash: &str,
         uploaded_at: i64,
     ) -> Result<(), sqlx::Error>;
-    async fn has_upload(&self, vault_id: &str, hash: &str) -> Result<bool, sqlx::Error>;
     async fn uploaded_hashes_for_vault(
         &self,
         vault_id: &str,
         hashes: &[String],
     ) -> Result<HashSet<String>, sqlx::Error>;
     async fn all_hashes(&self) -> Result<HashSet<String>, sqlx::Error>;
-    async fn delete_uploads(&self, vault_id: &str, hashes: &[String]) -> Result<(), sqlx::Error>;
 }
 
 pub struct SqliteBlobUploadRepo {
@@ -52,17 +49,6 @@ impl BlobUploadRepo for SqliteBlobUploadRepo {
         .execute(&self.pool)
         .await?;
         Ok(())
-    }
-
-    async fn has_upload(&self, vault_id: &str, hash: &str) -> Result<bool, sqlx::Error> {
-        let (n,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM blob_uploads WHERE vault_id = ? AND blob_hash = ?",
-        )
-        .bind(vault_id)
-        .bind(hash)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(n > 0)
     }
 
     async fn uploaded_hashes_for_vault(
@@ -99,42 +85,10 @@ impl BlobUploadRepo for SqliteBlobUploadRepo {
             .await?;
         Ok(rows.into_iter().map(|t| t.0).collect())
     }
-
-    async fn delete_uploads(&self, vault_id: &str, hashes: &[String]) -> Result<(), sqlx::Error> {
-        if hashes.is_empty() {
-            return Ok(());
-        }
-        let mut tx = self.pool.begin().await?;
-        for chunk in hashes.chunks(delete_uploads_chunk_size()) {
-            let mut query =
-                QueryBuilder::<Sqlite>::new("DELETE FROM blob_uploads WHERE vault_id = ");
-            query.push_bind(vault_id);
-            query.push(" AND blob_hash IN (");
-            let mut separated = query.separated(", ");
-            for hash in chunk {
-                separated.push_bind(hash);
-            }
-            separated.push_unseparated(")");
-            query.build().execute(&mut *tx).await?;
-        }
-        tx.commit().await?;
-        Ok(())
-    }
-}
-
-fn delete_uploads_chunk_size() -> usize {
-    SQLITE_SAFE_BIND_LIMIT - DELETE_UPLOADS_SHARED_BINDS
 }
 
 fn query_uploads_chunk_size() -> usize {
     SQLITE_SAFE_BIND_LIMIT - QUERY_UPLOADS_SHARED_BINDS
-}
-
-#[cfg(test)]
-fn delete_uploads_chunk_lengths(hashes: &[String]) -> impl Iterator<Item = usize> + '_ {
-    hashes
-        .chunks(delete_uploads_chunk_size())
-        .map(<[String]>::len)
 }
 
 #[cfg(test)]
@@ -170,20 +124,17 @@ mod tests {
 
         repo.record_upload(&first.id, "a", 1).await.unwrap();
 
-        assert!(repo.has_upload(&first.id, "a").await.unwrap());
-        assert!(!repo.has_upload(&second.id, "a").await.unwrap());
-        repo.delete_uploads(&first.id, &["a".into()]).await.unwrap();
-        assert!(!repo.has_upload(&first.id, "a").await.unwrap());
-    }
-
-    #[test]
-    fn delete_uploads_chunks_stay_under_sqlite_bind_limit() {
-        let hashes: Vec<String> = (0..1000).map(|n| format!("sha:{n}")).collect();
-        let chunks: Vec<usize> = delete_uploads_chunk_lengths(&hashes).collect();
-
-        assert_eq!(chunks.iter().sum::<usize>(), hashes.len());
-        assert!(chunks.iter().all(|len| *len < SQLITE_SAFE_BIND_LIMIT));
-        assert!(chunks.len() > 1);
+        assert_eq!(
+            repo.uploaded_hashes_for_vault(&first.id, &["a".into()])
+                .await
+                .unwrap(),
+            HashSet::from(["a".to_string()])
+        );
+        assert!(repo
+            .uploaded_hashes_for_vault(&second.id, &["a".into()])
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -192,8 +143,26 @@ mod tests {
         let chunks: Vec<usize> = query_uploads_chunk_lengths(&hashes).collect();
 
         assert_eq!(chunks.iter().sum::<usize>(), hashes.len());
-        assert!(chunks.iter().all(|len| *len < SQLITE_SAFE_BIND_LIMIT));
+        assert!(chunks
+            .iter()
+            .all(|len| *len < crate::db::SQLITE_SAFE_BIND_LIMIT));
         assert!(chunks.len() > 1);
+    }
+
+    #[test]
+    fn blob_upload_repo_trait_does_not_expose_test_only_dead_apis() {
+        let source = include_str!("blob_upload.rs");
+        let trait_start = source
+            .find("pub trait BlobUploadRepo")
+            .expect("BlobUploadRepo trait exists");
+        let trait_end = source[trait_start..]
+            .find("\npub struct SqliteBlobUploadRepo")
+            .map(|idx| trait_start + idx)
+            .expect("SqliteBlobUploadRepo follows BlobUploadRepo");
+        let trait_source = &source[trait_start..trait_end];
+
+        assert!(!trait_source.contains("has_upload("));
+        assert!(!trait_source.contains("delete_uploads("));
     }
 
     #[tokio::test]

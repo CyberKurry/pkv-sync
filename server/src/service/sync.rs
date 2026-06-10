@@ -1857,8 +1857,7 @@ mod tests {
     use crate::auth::{token, AuthenticatedUser};
     use crate::db::pool;
     use crate::db::repos::{
-        BlobRefRepo, BlobUploadRepo, NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo,
-        VaultRepo,
+        BlobUploadRepo, NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
     };
     use crate::service::{vault, AppState};
     use crate::storage::blob::LocalFsBlobStore;

@@ -3,7 +3,7 @@
 use pkv_sync_server::cli::{backup, restore, verify};
 use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
 use pkv_sync_server::db::pool;
-use pkv_sync_server::db::repos::{BlobRefRepo, NewUser, UserRepo, VaultRepo};
+use pkv_sync_server::db::repos::{NewUser, UserRepo, VaultRepo};
 use pkv_sync_server::service::AppState;
 use pkv_sync_server::storage::blob::{BlobStore, LocalFsBlobStore};
 use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
@@ -12,6 +12,8 @@ use bytes::Bytes;
 use ipnet::IpNet;
 use serde_json::Value;
 use std::path::Path;
+
+const TEST_CONFIG_TOML: &str = "# copied by backup tests\n";
 
 #[cfg(unix)]
 fn symlink_file_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
@@ -71,15 +73,25 @@ fn make_config(data_dir: &Path) -> Config {
     }
 }
 
+async fn add_blob_refs(state: &AppState, vault_id: &str, commit_hash: &str, hashes: &[String]) {
+    for hash in hashes {
+        sqlx::query(
+            "INSERT OR IGNORE INTO blob_refs (blob_hash, vault_id, commit_hash) VALUES (?, ?, ?)",
+        )
+        .bind(hash)
+        .bind(vault_id)
+        .bind(commit_hash)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    }
+}
+
 #[tokio::test]
 async fn backup_writes_manifest_and_copies_components_without_config_by_default() {
     let (state, tmp) = setup_state().await;
     let cfg = make_config(&state.data_dir);
-    std::fs::write(
-        tmp.path().join("config.toml"),
-        toml::to_string(&cfg).unwrap(),
-    )
-    .unwrap();
+    std::fs::write(tmp.path().join("config.toml"), TEST_CONFIG_TOML).unwrap();
 
     let blobs = LocalFsBlobStore::new(state.default_blob_root());
     let blob = Bytes::from_static(b"binary attachment");
@@ -136,7 +148,7 @@ async fn backup_includes_config_when_requested() {
     let (state, tmp) = setup_state().await;
     let cfg = make_config(&state.data_dir);
     let config_path = tmp.path().join("config.toml");
-    std::fs::write(&config_path, toml::to_string(&cfg).unwrap()).unwrap();
+    std::fs::write(&config_path, TEST_CONFIG_TOML).unwrap();
 
     let out = tmp.path().join("backup-with-config");
     backup::run(&cfg, Some(&config_path), &out, false).unwrap();
@@ -324,11 +336,7 @@ async fn verify_fails_missing_referenced_blob() {
     )
     .await
     .unwrap();
-    state
-        .blob_refs
-        .add_refs(&vault.id, "commit-with-missing-blob", &[hash])
-        .await
-        .unwrap();
+    add_blob_refs(&state, &vault.id, "commit-with-missing-blob", &[hash]).await;
 
     let cfg = make_config(&state.data_dir);
     let report = verify::run(&cfg).unwrap();
@@ -356,11 +364,13 @@ async fn verify_reads_references_from_blob_refs_table() {
     let blob = Bytes::from_static(b"db referenced");
     let hash = LocalFsBlobStore::sha256(&blob);
     blobs.put_verified(&hash, blob).await.unwrap();
-    state
-        .blob_refs
-        .add_refs(&vault.id, "commit-from-db", std::slice::from_ref(&hash))
-        .await
-        .unwrap();
+    add_blob_refs(
+        &state,
+        &vault.id,
+        "commit-from-db",
+        std::slice::from_ref(&hash),
+    )
+    .await;
 
     let cfg = make_config(&state.data_dir);
     let report = verify::run(&cfg).unwrap();

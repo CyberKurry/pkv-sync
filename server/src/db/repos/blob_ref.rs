@@ -3,18 +3,10 @@ use async_trait::async_trait;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::HashSet;
 
-const ADD_REFS_BINDS_PER_ROW: usize = 3;
 const QUERY_REFS_SHARED_BINDS: usize = 1;
 
 #[async_trait]
 pub trait BlobRefRepo: Send + Sync {
-    async fn add_refs(
-        &self,
-        vault_id: &str,
-        commit_hash: &str,
-        hashes: &[String],
-    ) -> Result<(), sqlx::Error>;
-    async fn hashes_for_vault(&self, vault_id: &str) -> Result<HashSet<String>, sqlx::Error>;
     async fn all_hashes(&self) -> Result<HashSet<String>, sqlx::Error>;
     async fn is_referenced_by_vault(&self, vault_id: &str, hash: &str)
         -> Result<bool, sqlx::Error>;
@@ -33,11 +25,9 @@ impl SqliteBlobRefRepo {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
-}
 
-#[async_trait]
-impl BlobRefRepo for SqliteBlobRefRepo {
-    async fn add_refs(
+    #[cfg(test)]
+    pub async fn add_refs(
         &self,
         vault_id: &str,
         commit_hash: &str,
@@ -61,16 +51,10 @@ impl BlobRefRepo for SqliteBlobRefRepo {
         tx.commit().await?;
         Ok(())
     }
+}
 
-    async fn hashes_for_vault(&self, vault_id: &str) -> Result<HashSet<String>, sqlx::Error> {
-        let rows: Vec<(String,)> =
-            sqlx::query_as("SELECT DISTINCT blob_hash FROM blob_refs WHERE vault_id = ?")
-                .bind(vault_id)
-                .fetch_all(&self.pool)
-                .await?;
-        Ok(rows.into_iter().map(|t| t.0).collect())
-    }
-
+#[async_trait]
+impl BlobRefRepo for SqliteBlobRefRepo {
     async fn all_hashes(&self) -> Result<HashSet<String>, sqlx::Error> {
         let rows: Vec<(String,)> = sqlx::query_as("SELECT DISTINCT blob_hash FROM blob_refs")
             .fetch_all(&self.pool)
@@ -121,8 +105,9 @@ impl BlobRefRepo for SqliteBlobRefRepo {
     }
 }
 
+#[cfg(test)]
 fn add_refs_chunk_size() -> usize {
-    SQLITE_SAFE_BIND_LIMIT / ADD_REFS_BINDS_PER_ROW
+    SQLITE_SAFE_BIND_LIMIT / 3
 }
 
 fn query_refs_chunk_size() -> usize {
@@ -165,7 +150,13 @@ mod tests {
             .await
             .unwrap();
         assert!(repo.is_referenced_by_vault(&v.id, "sha:a").await.unwrap());
-        assert_eq!(repo.hashes_for_vault(&v.id).await.unwrap().len(), 2);
+        assert_eq!(
+            repo.referenced_hashes_for_vault(&v.id, &["sha:a".into(), "sha:b".into()])
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
         assert_eq!(repo.all_hashes().await.unwrap().len(), 2);
     }
 
@@ -187,6 +178,36 @@ mod tests {
         assert_eq!(chunks.iter().sum::<usize>(), hashes.len());
         assert!(chunks.iter().all(|len| *len < SQLITE_SAFE_BIND_LIMIT));
         assert!(chunks.len() > 1);
+    }
+
+    #[test]
+    fn blob_ref_repo_does_not_expose_production_dead_apis() {
+        let source = include_str!("blob_ref.rs");
+        let trait_start = source
+            .find("pub trait BlobRefRepo")
+            .expect("BlobRefRepo trait exists");
+        let trait_end = source[trait_start..]
+            .find("\npub struct SqliteBlobRefRepo")
+            .map(|idx| trait_start + idx)
+            .expect("SqliteBlobRefRepo follows BlobRefRepo");
+        let trait_source = &source[trait_start..trait_end];
+
+        assert!(!trait_source.contains("async fn hashes_for_vault("));
+        assert!(!trait_source.contains("async fn add_refs("));
+
+        let inherent_start = source
+            .find("impl SqliteBlobRefRepo")
+            .expect("SqliteBlobRefRepo inherent impl exists");
+        let inherent_end = source[inherent_start..]
+            .find("\n#[async_trait]")
+            .map(|idx| inherent_start + idx)
+            .expect("trait impl follows inherent impl");
+        let inherent_source = &source[inherent_start..inherent_end];
+
+        assert!(
+            inherent_source.contains("#[cfg(test)]\n    pub async fn add_refs("),
+            "add_refs should be limited to crate-local test callers"
+        );
     }
 
     #[tokio::test]

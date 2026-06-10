@@ -1408,7 +1408,7 @@ mod tests {
     use super::*;
     use crate::auth::password;
     use crate::db::pool;
-    use crate::db::repos::{BlobRefRepo, NewUser, RuntimeConfigRepo, UserRepo};
+    use crate::db::repos::{NewUser, RuntimeConfigRepo, UserRepo};
     use crate::service::{vault, vault_settings};
     use crate::storage::blob::{BlobStore, LocalFsBlobStore};
     use crate::storage::git::{FileChange, GitVaultStore};

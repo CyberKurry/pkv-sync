@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use pkv_sync_server::db::repos::{BlobRefRepo, NewUser, UserRepo, VaultRepo};
+use pkv_sync_server::db::repos::{NewUser, UserRepo, VaultRepo};
 use pkv_sync_server::mcp::tools::{
     list_files, read_file, search, ListFilesInput, ReadFileInput, SearchInput,
 };
@@ -30,6 +30,20 @@ async fn create_user(state: &AppState, username: &str) -> String {
         .await
         .unwrap()
         .id
+}
+
+async fn add_blob_refs(state: &AppState, vault_id: &str, commit_hash: &str, hashes: &[String]) {
+    for hash in hashes {
+        sqlx::query(
+            "INSERT OR IGNORE INTO blob_refs (blob_hash, vault_id, commit_hash) VALUES (?, ?, ?)",
+        )
+        .bind(hash)
+        .bind(vault_id)
+        .bind(commit_hash)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    }
 }
 
 #[tokio::test]
@@ -102,11 +116,7 @@ async fn read_file_returns_text_and_expands_text_blob_pointer() {
         )
         .await
         .unwrap();
-    state
-        .blob_refs
-        .add_refs(&vault.id, &commit, std::slice::from_ref(&blob_hash))
-        .await
-        .unwrap();
+    add_blob_refs(&state, &vault.id, &commit, std::slice::from_ref(&blob_hash)).await;
 
     let plain = read_file(
         &state,

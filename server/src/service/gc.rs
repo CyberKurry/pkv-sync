@@ -81,7 +81,7 @@ pub async fn run_blob_gc_with_grace(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::repos::{BlobRefRepo, BlobUploadRepo, NewUser, UserRepo, VaultRepo};
+    use crate::db::repos::{BlobUploadRepo, NewUser, UserRepo, VaultRepo};
     use crate::storage::blob::{BlobStore, LocalFsBlobStore};
     use bytes::Bytes;
 
