@@ -119,6 +119,12 @@ Write tools are rate-limited per `(token, vault)` pair at 60 writes per minute.
 `write_files` spends one rate-limit record for the whole batch. Read tools and
 SSE subscriptions are unaffected by this write quota.
 
+The 1.2.1 hardening keeps write validation fail-closed: duplicate normalized
+paths across `writes[]` and `deletes[]` are rejected, hidden or excluded paths
+do not leak target existence, and invalid `move_file` sources are rejected
+before consuming write quota. MCP auth errors stay generic, and Streamable HTTP
+JSON bodies are capped at 100 MiB.
+
 ### Audit trail
 
 Every successful write, batch write, move, or delete is recorded in the

@@ -261,7 +261,7 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 
 ### 説明
 
-`stdio` モードは標準入力から JSON-RPC を読み取り、標準出力に JSON-RPC を書き込みます。`http` モードはステートレスな Streamable HTTP MCP エンドポイントを `/mcp` で提供します。どちらのモードも同じツールセットを公開します: `list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`。書き込み系ツールは `(token, vault)` ごとに 1 分あたり 60 回までにレート制限されます。検索リクエストは最大 5000 個の表示可能な tree files を走査し、最大 500 件の一致を返し、本番環境では検索済みテキストが 256 MiB に達すると停止します。`link_graph` は同じ本番テキスト予算で最大 5000 個の表示可能なテキストファイルを走査し、`changes_since` は最大 5000 件の表示可能な変更エントリを返します。64 MiB を超える binary/blob 読み取りレスポンスは、base64 で JSON に展開される代わりに拒否されます。
+`stdio` モードは標準入力から JSON-RPC を読み取り、標準出力に JSON-RPC を書き込みます。`http` モードはステートレスな Streamable HTTP MCP エンドポイントを `/mcp` で提供します。どちらのモードも同じツールセットを公開します: `list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files`、`move_file`。`write_files` は複数ページの wiki 編集を原子的にまとめる場合に、`move_file` は履歴を保った名前変更やアーカイブ移動に使います。書き込み系ツールは `(token, vault)` ごとに 1 分あたり 60 回までにレート制限され、`write_files` batch は 1 つの書き込み記録だけを消費します。検索リクエストは最大 5000 個の表示可能な tree files を走査し、最大 500 件の一致を返し、本番環境では検索済みテキストが 256 MiB に達すると停止します。`link_graph` は同じ本番テキスト予算で最大 5000 個の表示可能なテキストファイルを走査し、`changes_since` は最大 5000 件の表示可能な変更エントリを返します。64 MiB を超える binary/blob 読み取りレスポンスは、base64 で JSON に展開される代わりに拒否されます。
 
 `http` モードでは、通常の同期 API と同じく、すべてのリクエストにサーバーのデプロイメントキーヘッダーを付与する必要があります。
 

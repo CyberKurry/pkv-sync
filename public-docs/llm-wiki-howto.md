@@ -96,6 +96,11 @@ captured: 2026-06-08
 4. Lint: run `link_graph` to find orphaned, missing, or ambiguous links; run `changes_since` from the last reviewed commit to summarize what changed.
 5. Review: inspect the proposed commits, resolve conflicts, and keep uncertain claims in sources until a human promotes them into wiki pages.
 
+In v1.2.1, this loop is tuned for larger wiki vaults: batch ingests stay atomic
+with `write_files`, structural page moves retain history with `move_file`,
+link/change tools remain bounded and hide filtered paths, and repeated sync
+cycles reuse cached filters, token checks, and scans where possible.
+
 ## Lint routine
 
 After each maintenance pass, ask the agent to:

@@ -293,8 +293,10 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 mode serves a stateless Streamable HTTP MCP endpoint at `/mcp`. Both modes
 expose the same toolset: `list_vaults`, `list_files`, `read_file`,
 `read_file_at_commit`, `search`, `link_graph`, `changes_since`, `write_file`,
-and `delete_file`. Write tools are rate-limited at 60 writes per minute per
-`(token, vault)`.
+`delete_file`, `write_files`, and `move_file`. Use `write_files` for atomic
+multi-page wiki edits and `move_file` for history-preserving renames or
+archival moves. Write tools are rate-limited at 60 writes per minute per
+`(token, vault)`, and a `write_files` batch spends one write record.
 Search requests scan at most 5000 visible tree files, return at most 500
 matches, and stop after 256 MiB of searched text in production. `link_graph`
 scans at most 5000 visible text files with the same production text budget, and

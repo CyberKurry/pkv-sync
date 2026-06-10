@@ -84,6 +84,10 @@ Keep Obsidian open while large attachments upload. The plugin reads the server
 configuration after connecting and uses the server-provided text extension list
 and maximum file size rules.
 
+Version 1.2.1 reduces redundant plugin work during sync: pull and push phases
+reuse the same scan when possible, conditional pull avoids an extra request,
+and changed-file snapshots are processed with bounded parallelism.
+
 ## Selective `.obsidian` Sync
 
 PKV Sync can sync selected Obsidian configuration files through a per-vault

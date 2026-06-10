@@ -98,6 +98,8 @@ captured: 2026-06-08
 4. Lint: `link_graph`를 실행해 orphaned, missing, ambiguous links를 찾고, 마지막 reviewed commit부터 `changes_since`를 실행해 변경 사항을 summarize합니다.
 5. Review: proposed commits를 inspect하고 conflicts를 resolve하며, 불확실한 claims는 사람이 wiki pages로 promote할 때까지 sources에 남겨 둡니다.
 
+v1.2.1에서는 이 루프가 더 큰 wiki vault에 맞게 조정되었습니다. 일괄 ingest는 `write_files`로 원자적으로 유지되고, 구조적인 페이지 이동은 `move_file`로 기록을 보존하며, link/change tools는 상한을 유지하면서 필터링된 paths를 숨기고, 반복 sync cycles는 가능한 경우 cached filters, token checks, scans를 재사용합니다.
+
 ## Lint 루틴
 
 각 maintenance pass 이후 agent에게 다음을 요청하세요.

@@ -98,6 +98,8 @@ captured: 2026-06-08
 4. Lint: `link_graph` を実行して orphaned、missing、ambiguous links を探し、最後に人間が review した commit から `changes_since` を実行して変更内容を summarize します。
 5. Review: proposed commits を inspect し、conflicts を resolve し、不確かな claims は人間が wiki pages に promote するまで sources に残します。
 
+v1.2.1 では、この loop がより大きな wiki vault 向けに調整されています。一括 ingest は `write_files` で原子的に保たれ、構造的なページ移動は `move_file` で履歴を保持し、link/change tools は上限付きのままフィルター済み path を隠し、繰り返しの sync cycles は可能な限り cached filters、token checks、scans を再利用します。
+
 ## Lint routine
 
 各 maintenance pass の後、agent に次を依頼します。

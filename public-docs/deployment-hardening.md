@@ -25,6 +25,10 @@ depends on layered controls:
 Treat the server administrator and the server filesystem as trusted with the
 plaintext vault contents.
 
+The 1.2.1 patch also tightens exposure edges: Git HTTP Basic failures are
+generic, MCP JSON bodies are capped at 100 MiB, and blob metadata checks refuse
+symlinked blob paths instead of following them.
+
 ## Recommended Topology
 
 ```text

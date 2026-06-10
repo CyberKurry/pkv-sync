@@ -261,7 +261,7 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 
 ### 설명
 
-`stdio` 모드는 stdin에서 JSON-RPC를 읽고 stdout으로 JSON-RPC를 씁니다. `http` 모드는 `/mcp`에서 무상태 Streamable HTTP MCP 엔드포인트를 제공합니다. 두 모드 모두 동일한 툴셋, 즉 `list_vaults`, `list_files`, `read_file`, `read_file_at_commit`, `search`, `link_graph`, `changes_since`, `write_file`, `delete_file`을 노출합니다. 쓰기 툴은 `(token, vault)`마다 분당 60회 쓰기로 속도 제한됩니다. 검색 요청은 최대 5000개의 표시 가능한 tree files를 스캔하고 최대 500 matches를 반환하며, 프로덕션에서는 검색한 text가 256 MiB에 도달하면 중단합니다. `link_graph`는 같은 프로덕션 text 예산으로 최대 5000개의 표시 가능한 text 파일을 스캔하고, `changes_since`는 최대 5000개의 표시 가능한 변경 항목을 반환합니다. 64 MiB를 넘는 binary/blob 읽기 응답은 base64로 JSON에 확장되는 대신 거부됩니다.
+`stdio` 모드는 stdin에서 JSON-RPC를 읽고 stdout으로 JSON-RPC를 씁니다. `http` 모드는 `/mcp`에서 무상태 Streamable HTTP MCP 엔드포인트를 제공합니다. 두 모드 모두 동일한 툴셋, 즉 `list_vaults`, `list_files`, `read_file`, `read_file_at_commit`, `search`, `link_graph`, `changes_since`, `write_file`, `delete_file`, `write_files`, `move_file`을 노출합니다. `write_files`는 여러 wiki 페이지 편집을 원자적으로 묶을 때, `move_file`은 기록을 보존하는 이름 변경이나 보관 이동에 사용합니다. 쓰기 툴은 `(token, vault)`마다 분당 60회 쓰기로 속도 제한되며, `write_files` batch는 쓰기 기록 하나만 사용합니다. 검색 요청은 최대 5000개의 표시 가능한 tree files를 스캔하고 최대 500 matches를 반환하며, 프로덕션에서는 검색한 text가 256 MiB에 도달하면 중단합니다. `link_graph`는 같은 프로덕션 text 예산으로 최대 5000개의 표시 가능한 text 파일을 스캔하고, `changes_since`는 최대 5000개의 표시 가능한 변경 항목을 반환합니다. 64 MiB를 넘는 binary/blob 읽기 응답은 base64로 JSON에 확장되는 대신 거부됩니다.
 
 `http` 모드는 일반 동기화 API와 마찬가지로 모든 요청에 서버 배포 키 헤더를 포함해야 합니다.
 

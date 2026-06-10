@@ -96,6 +96,8 @@ captured: 2026-06-08
 4. Lint：运行 `link_graph` 查找孤立链接、缺失链接或有歧义的链接；从上次 review 过的 commit 开始运行 `changes_since`，总结发生了什么变化。
 5. Review：检查提出的 commit，解决冲突，并把不确定的主张留在 sources 中，直到人类将其提升为 wiki 页面。
 
+在 v1.2.1 中，这个循环更适合大型 wiki 笔记库：批量 ingest 继续通过 `write_files` 保持原子性，结构性的页面移动通过 `move_file` 保留历史，链接和变更工具保持有界并隐藏被过滤路径，重复同步周期会尽可能复用过滤器、token 检查和扫描结果缓存。
+
 ## Lint 例行流程
 
 每次维护完成后，请 agent：

@@ -92,6 +92,8 @@ PKV Sync는 읽기 tools와 함께 네 개의 MCP write tools를 제공합니다
 
 Write tools는 `(token, vault)` 쌍별로 분당 60 writes로 제한됩니다. `write_files`는 batch 전체에 대해 rate-limit record 하나만 사용합니다. Read tools와 SSE subscriptions는 이 write quota의 영향을 받지 않습니다.
 
+1.2.1 강화는 쓰기 검증을 fail-closed로 유지합니다. `writes[]`와 `deletes[]`에서 정규화 후 중복되는 path는 거부되고, hidden 또는 excluded paths는 대상 존재를 노출하지 않으며, 잘못된 `move_file` 원본은 write quota를 소비하기 전에 거부됩니다. MCP 인증 오류는 일반 메시지로 유지되고 Streamable HTTP JSON body 상한은 100 MiB입니다.
+
 ### Audit trail
 
 성공한 모든 write, batch write, move, delete는 activity log에 `mcp_write` 또는 `mcp_delete`로 기록되며, details에는 path summary, commit, size가 포함됩니다. 관리자는 activity page에서 AI-driven changes를 검토할 수 있습니다.

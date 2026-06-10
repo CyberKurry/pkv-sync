@@ -90,6 +90,8 @@ PKV Sync 在讀取工具之外提供四個 MCP 寫入工具：
 
 寫入工具按 `(token, vault)` 組合限流，每分鐘最多 60 次寫入。`write_files` 整個批次只消耗一次限流記錄。讀取工具和 SSE 訂閱不受這個寫入配額影響。
 
+1.2.1 的加固讓寫入驗證保持 fail-closed：`writes[]` 和 `deletes[]` 中正規化後重複的路徑會被拒絕，隱藏或排除路徑不會洩漏目標存在性，無效的 `move_file` 來源會在消耗寫入配額前被拒絕。MCP 驗證錯誤保持泛化，Streamable HTTP JSON request body 上限為 100 MiB。
+
 ### 稽核記錄
 
 每次成功寫入、批量寫入、移動或刪除都會在活動日誌中記錄為 `mcp_write` 或 `mcp_delete`，details 中包含路徑摘要、commit 和 size。管理員可以在活動頁查看 AI 驅動的改動。

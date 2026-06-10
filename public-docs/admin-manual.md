@@ -66,6 +66,11 @@ The web panel includes:
 - Blob garbage collection trigger
 - English, Simplified Chinese, Traditional Chinese, Japanese, and Korean language switch
 
+In 1.2.1, user detail statistics are backed by real vault counts and last-sync
+timestamps, duration labels are localized across all shipped admin languages,
+and reconciliation or metadata repair paths use incremental or batched work
+where available.
+
 Timestamps, durations, byte sizes, uptime, and activity data are rendered in
 human-readable form. The default timezone is `Asia/Shanghai` and can be changed
 from settings.

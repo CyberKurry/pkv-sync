@@ -261,7 +261,7 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 
 ### 说明
 
-`stdio` 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC。`http` 模式在 `/mcp` 上提供一个无状态的 Streamable HTTP MCP 端点。两种模式暴露相同的工具集：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file` 和 `delete_file`。写入类工具按 `(token, vault)` 限流为每分钟 60 次写入。搜索请求最多扫描 5000 个可见 tree 文件、返回 500 条匹配，并在生产环境搜索文本累计达到 256 MiB 后停止。`link_graph` 最多扫描 5000 个可见文本文件，并使用同一个生产文本预算；`changes_since` 最多返回 5000 条可见变更。超过 64 MiB 的二进制/blob 读取响应会被拒绝，而不是被 base64 展开进 JSON。
+`stdio` 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC。`http` 模式在 `/mcp` 上提供一个无状态的 Streamable HTTP MCP 端点。两种模式暴露相同的工具集：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files` 和 `move_file`。`write_files` 适合原子的多页 wiki 编辑，`move_file` 适合保留历史的重命名或归档移动。写入类工具按 `(token, vault)` 限流为每分钟 60 次写入，且一个 `write_files` 批次只消耗一次写入记录。搜索请求最多扫描 5000 个可见 tree 文件、返回 500 条匹配，并在生产环境搜索文本累计达到 256 MiB 后停止。`link_graph` 最多扫描 5000 个可见文本文件，并使用同一个生产文本预算；`changes_since` 最多返回 5000 条可见变更。超过 64 MiB 的二进制/blob 读取响应会被拒绝，而不是被 base64 展开进 JSON。
 
 `http` 模式要求每个请求都携带服务器部署密钥请求头，与常规同步 API 一致。
 
