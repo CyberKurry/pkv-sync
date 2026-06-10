@@ -103,6 +103,12 @@ PKV Sync 1.0 **暫不**提供原生端到端加密——伺服器能讀到筆記
 
 PKV Sync 1.2.1 是目前面向 LLM 維護 Wiki 工作流的穩定修補版本。本版加固 MCP 與 Git 驗證、隱藏路徑、重複寫入和 blob 符號連結等邊界，並讓大型 vault 的 push/pull、MCP 工具路徑、清理工作和外掛掃描更增量化、更善用快取；Agent 循環請看 [LLM Wiki 操作指南](./public-docs/llm-wiki-howto.zh-Hant.md)。
 
+本版亮點：
+
+- MCP 寫入會拒絕正規化後的重複路徑，隱藏／排除目標不會洩漏存在性，無效的移動來源也不會消耗寫入限額。
+- 大型 vault 同步路徑使用增量 Git tree 變更、增量 push 中繼資料更新、vault 篩選器與 token 檢查快取、批次 pull 讀取，以及更快的外掛掃描。
+- Admin 和維運介面會顯示真實的使用者 vault 統計、本地化時長標籤，並讓服務端、外掛、OpenAPI 和公開文件中繼資料保持一致。
+
 PKV Sync 1.0 是第一個穩定版。公開 REST API、CLI、儲存布局、外掛包、Docker 映像作為一組同步發版，遵循 semver：1.X.Y 在公開表面保持向後相容，OpenAPI 規範是這個相容契約的權威來源。0.x 建立的 SQLite 資料庫**不支援**就地升級到 1.0.0——請依[1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md)操作。
 
 每個 GitHub release 會發布 Linux amd64／arm64 二進位、Windows x64 二進位、多架構 GHCR Docker 映像、Obsidian 外掛 zip 包，以及 `SHA256SUMS`。

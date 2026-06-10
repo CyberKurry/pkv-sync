@@ -151,6 +151,12 @@ E2EE 가 도입되기 전에 필요하다면, 볼트에
 
 PKV Sync 1.2.1은 LLM이 유지관리하는 Wiki workflow를 위한 현재 안정 패치 릴리스입니다. MCP와 Git 인증, 숨김 경로, 중복 쓰기, blob 심볼릭 링크 경계를 강화하고, 대형 vault의 push/pull, MCP 도구 경로, 정리 작업, 플러그인 스캔을 더 증분적이고 캐시 친화적으로 개선했습니다. Agent loop는 [LLM Wiki 사용법](./public-docs/llm-wiki-howto.ko.md)을 참고하세요.
 
+이번 릴리스의 주요 내용:
+
+- MCP writes는 정규화 후 중복 path를 거부하고, hidden/excluded target의 존재를 노출하지 않으며, 잘못된 move source에는 write quota를 쓰지 않습니다.
+- 대형 vault sync path는 incremental Git tree mutation, incremental push metadata updates, vault filter와 token check cache, batched pull reads, 더 빠른 plugin scan을 사용합니다.
+- Admin 및 운영 화면은 실제 user vault stats, 현지화된 duration labels, server/plugin/OpenAPI/public docs metadata 정합성을 반영합니다.
+
 PKV Sync 1.0 은 첫 안정 릴리스입니다. 공개 REST API, CLI 표면, 저장소
 레이아웃, 플러그인 패키지, Docker 이미지는 같은 semver 로 관리됩니다.
 1.X.Y 는 공개 표면에서 하위 호환을 유지하고, OpenAPI 명세가 정식 호환성

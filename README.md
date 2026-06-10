@@ -154,6 +154,12 @@ For real deployments, also run behind HTTPS, restrict
 
 PKV Sync 1.2.1 is the current stable patch release for LLM-maintained wiki workflows. It hardens MCP and Git auth, hidden-path, duplicate-write, and blob symlink edge cases while making large-vault push/pull, MCP tool paths, cleanup, and plugin scans more incremental and cache-aware; see the [LLM Wiki how-to](./public-docs/llm-wiki-howto.md) for the agent loop.
 
+Highlights in this release:
+
+- MCP writes now reject duplicate normalized paths, keep hidden/excluded targets from leaking existence, and avoid spending write quota on invalid move sources.
+- Large-vault sync paths use incremental Git tree mutation, incremental push metadata updates, cached vault filters and token checks, batched pull reads, and faster plugin scans.
+- Admin and operations surfaces now show real user vault stats, localized duration labels, and aligned server/plugin/OpenAPI/public docs metadata.
+
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together
 under semver: 1.X.Y stays backwards-compatible on the public surface, and

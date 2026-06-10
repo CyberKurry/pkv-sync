@@ -103,6 +103,12 @@ PKV Sync 1.0 **暂不**提供原生端到端加密——服务端能读到笔记
 
 PKV Sync 1.2.1 是当前面向 LLM 维护 Wiki 工作流的稳定补丁版本。本版加固 MCP 与 Git 鉴权、隐藏路径、重复写入和 blob 符号链接等边界，并让大库 push/pull、MCP 工具路径、清理任务和插件扫描更增量化、更善用缓存；Agent 循环请看 [LLM Wiki 操作指南](./public-docs/llm-wiki-howto.zh-CN.md)。
 
+本版亮点：
+
+- MCP 写入会拒绝归一化后的重复路径，隐藏／排除目标不会泄漏存在性，无效的移动来源也不会消耗写入限额。
+- 大库同步路径使用增量 Git tree 变更、增量 push 元数据更新、vault 过滤器与 token 检查缓存、批量 pull 读取，以及更快的插件扫描。
+- Admin 和运维界面会显示真实的用户 vault 统计、本地化时长标签，并让服务端、插件、OpenAPI 和公开文档元数据保持一致。
+
 PKV Sync 1.0 是第一个稳定版。公开 REST API、CLI、存储布局、插件包、Docker 镜像作为一组同步发版，遵循 semver：1.X.Y 在公开表面保持向后兼容，OpenAPI 规范是这个兼容契约的权威来源。0.x 创建的 SQLite 库**不支持**就地升级到 1.0.0——请按 [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md)操作。
 
 每个 GitHub release 会发布 Linux amd64/arm64 二进制、Windows x64 二进制、多架构 GHCR Docker 镜像、Obsidian 插件 zip 包，以及 `SHA256SUMS`。
