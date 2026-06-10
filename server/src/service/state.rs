@@ -14,11 +14,20 @@ use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Notify, RwLock};
 
 type VaultPushLocks = Arc<DashMap<String, Arc<Mutex<()>>>>;
+type VaultPathFilterCache = Arc<DashMap<String, CachedVaultPathFilter>>;
 const DEFAULT_SSE_PER_USER_LIMIT: usize = 16;
 const DEFAULT_SSE_GLOBAL_CEILING: usize = 1024;
+
+#[derive(Clone)]
+pub(crate) struct CachedVaultPathFilter {
+    pub runtime_exclude_globs: Vec<String>,
+    pub filter: crate::service::exclude::SyncPathFilter,
+    pub loaded_at: Instant,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetupState {
@@ -82,6 +91,7 @@ pub struct AppState {
     sse_per_user_counts: Arc<DashMap<String, AtomicUsize>>,
     sse_global_count: Arc<AtomicUsize>,
     push_locks: VaultPushLocks,
+    vault_path_filter_cache: VaultPathFilterCache,
 }
 
 impl AppState {
@@ -156,6 +166,7 @@ impl AppState {
             sse_per_user_counts: Arc::new(DashMap::new()),
             sse_global_count: Arc::new(AtomicUsize::new(0)),
             push_locks: Arc::new(DashMap::new()),
+            vault_path_filter_cache: Arc::new(DashMap::new()),
         };
         state.spawn_metrics_refresh_task();
         Ok(state)
@@ -216,6 +227,41 @@ impl AppState {
     pub fn remove_vault_push_lock(&self, vault_id: &str) {
         self.push_locks
             .remove_if(vault_id, |_, lock| Arc::strong_count(lock) == 1);
+    }
+
+    pub(crate) fn cached_vault_path_filter(
+        &self,
+        vault_id: &str,
+        runtime_exclude_globs: &[String],
+        ttl: Duration,
+    ) -> Option<crate::service::exclude::SyncPathFilter> {
+        let cached = self.vault_path_filter_cache.get(vault_id)?;
+        if cached.runtime_exclude_globs == runtime_exclude_globs && cached.loaded_at.elapsed() < ttl
+        {
+            Some(cached.filter.clone())
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn cache_vault_path_filter(
+        &self,
+        vault_id: &str,
+        runtime_exclude_globs: &[String],
+        filter: crate::service::exclude::SyncPathFilter,
+    ) {
+        self.vault_path_filter_cache.insert(
+            vault_id.to_string(),
+            CachedVaultPathFilter {
+                runtime_exclude_globs: runtime_exclude_globs.to_vec(),
+                filter,
+                loaded_at: Instant::now(),
+            },
+        );
+    }
+
+    pub(crate) fn invalidate_vault_path_filter_cache(&self, vault_id: &str) {
+        self.vault_path_filter_cache.remove(vault_id);
     }
 
     pub fn notify_update_check_runtime_changed(&self) {

@@ -1,5 +1,5 @@
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 pub const MAX_GLOB_PATTERNS: usize = 500;
 pub const MAX_GLOB_PATTERN_LEN: usize = 1024;
@@ -29,8 +29,9 @@ pub enum ExcludeError {
     Glob(#[from] globset::Error),
 }
 
+#[derive(Clone)]
 pub struct EffectiveExcludes {
-    set: GlobSet,
+    set: Arc<GlobSet>,
     has_patterns: bool,
 }
 
@@ -66,7 +67,7 @@ impl EffectiveExcludes {
             has_patterns = true;
         }
         Ok(Self {
-            set: builder.build()?,
+            set: Arc::new(builder.build()?),
             has_patterns,
         })
     }
@@ -80,6 +81,7 @@ impl EffectiveExcludes {
     }
 }
 
+#[derive(Clone)]
 pub struct SyncPathFilter {
     user_excludes: EffectiveExcludes,
     vault_allowlist: EffectiveExcludes,

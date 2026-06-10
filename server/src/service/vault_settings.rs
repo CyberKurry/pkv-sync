@@ -42,7 +42,9 @@ pub async fn save(
     state
         .vault_settings
         .set(vault_id, EXTRA_SYNC_GLOBS_KEY, &extra_sync_globs)
-        .await
+        .await?;
+    state.invalidate_vault_path_filter_cache(vault_id);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -87,5 +89,29 @@ mod tests {
             load(&state, &vault_id).await.unwrap(),
             VaultSettings::default()
         );
+    }
+
+    #[tokio::test]
+    async fn save_invalidates_cached_vault_path_filter() {
+        let (state, vault_id, _tmp) = state_and_vault().await;
+        let filter = crate::service::exclude::SyncPathFilter::compile(&[], &[]).unwrap();
+        state.cache_vault_path_filter(&vault_id, &[], filter);
+        assert!(state
+            .cached_vault_path_filter(&vault_id, &[], std::time::Duration::from_secs(300))
+            .is_some());
+
+        save(
+            &state,
+            &vault_id,
+            &VaultSettings {
+                extra_sync_globs: vec!["notes/**".into()],
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(state
+            .cached_vault_path_filter(&vault_id, &[], std::time::Duration::from_secs(300))
+            .is_none());
     }
 }

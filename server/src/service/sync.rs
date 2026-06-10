@@ -32,6 +32,7 @@ const MAX_SSE_INLINE_PUSH_BYTES: usize = 64 * 1024;
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
 const MAX_COMMIT_DEVICE_NAME_CHARS: usize = 128;
 const MAX_PULL_TREE_ENTRIES: usize = 50_000;
+const VAULT_PATH_FILTER_CACHE_TTL: Duration = Duration::from_secs(300);
 const BLOB_REF_BINDS_PER_ROW: usize = 3;
 const BLOB_UPLOAD_DELETE_SHARED_BINDS: usize = 1;
 #[cfg(test)]
@@ -318,6 +319,11 @@ async fn sync_path_filter(
     vault_id: &str,
     runtime_exclude_globs: &[String],
 ) -> Result<crate::service::exclude::SyncPathFilter, ApiError> {
+    if let Some(filter) =
+        state.cached_vault_path_filter(vault_id, runtime_exclude_globs, VAULT_PATH_FILTER_CACHE_TTL)
+    {
+        return Ok(filter);
+    }
     let settings = vault_settings::load(state, vault_id).await?;
     let user_excludes =
         match crate::service::exclude::EffectiveExcludes::compile(runtime_exclude_globs) {
@@ -343,10 +349,9 @@ async fn sync_path_filter(
                 crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap()
             }
         };
-    Ok(crate::service::exclude::SyncPathFilter::new(
-        user_excludes,
-        vault_allowlist,
-    ))
+    let filter = crate::service::exclude::SyncPathFilter::new(user_excludes, vault_allowlist);
+    state.cache_vault_path_filter(vault_id, runtime_exclude_globs, filter.clone());
+    Ok(filter)
 }
 
 /// Build the SyncPathFilter for a vault using the current runtime exclude globs.
@@ -2161,6 +2166,20 @@ mod tests {
         assert!(!protect_impl.contains("for hash in blob_hashes"));
         assert!(record_impl.contains("insert_blob_refs_in_tx"));
         assert!(protect_impl.contains("insert_blob_refs_in_tx"));
+    }
+
+    #[test]
+    fn sync_path_filter_uses_vault_filter_cache() {
+        let source = include_str!("sync.rs");
+        let fn_start = source.find("async fn sync_path_filter").unwrap();
+        let next_fn = source[fn_start + 1..]
+            .find("\n/// Build the SyncPathFilter")
+            .map(|idx| fn_start + 1 + idx)
+            .unwrap();
+        let implementation = &source[fn_start..next_fn];
+
+        assert!(implementation.contains("cached_vault_path_filter"));
+        assert!(implementation.contains("cache_vault_path_filter"));
     }
 
     #[test]
