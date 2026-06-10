@@ -104,7 +104,6 @@ pub struct SearchMatch {
     pub path: String,
     pub line: String,
     pub line_number: usize,
-    pub snippet: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -378,7 +377,6 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
                 let line = line.to_string();
                 matches.push(SearchMatch {
                     path: entry.path.clone(),
-                    snippet: line.clone(),
                     line,
                     line_number: idx + 1,
                 });

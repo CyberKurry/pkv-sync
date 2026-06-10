@@ -261,7 +261,11 @@ async fn search_finds_case_insensitive_text_matches_and_skips_binary_and_blob_co
     assert_eq!(output.matches[0].path, "notes/a.md");
     assert_eq!(output.matches[0].line_number, 2);
     assert_eq!(output.matches[0].line, "Find the NEEDLE here");
-    assert_eq!(output.matches[0].snippet, "Find the NEEDLE here");
+    let match_json = serde_json::to_value(&output.matches[0]).unwrap();
+    assert!(
+        match_json.get("snippet").is_none(),
+        "search matches should not duplicate line content as snippet"
+    );
 }
 
 #[tokio::test]
