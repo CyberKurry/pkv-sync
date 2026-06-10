@@ -289,3 +289,75 @@ jobs:
         with:
           files: dist/**/*
           generate_release_notes: true
+
+  plugin-mirror:
+    name: Plugin store mirror
+    runs-on: ubuntu-latest
+    needs: release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download plugin package
+        uses: actions/download-artifact@v4
+        with:
+          name: pkv-sync-plugin
+          path: mirror-input
+
+      - name: Assemble mirror content
+        id: assemble
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          unzip -q mirror-input/pkv-sync-plugin.zip -d mirror-input/unpacked
+          MANIFEST_VERSION="$(jq -r .version mirror-input/unpacked/manifest.json)"
+          if [ "$MANIFEST_VERSION" != "$VERSION" ]; then
+            echo "manifest version $MANIFEST_VERSION does not match tag version $VERSION" >&2
+            exit 1
+          fi
+          mkdir -p mirror-content
+          cp mirror-input/unpacked/main.js mirror-input/unpacked/manifest.json mirror-input/unpacked/styles.css mirror-content/
+          cp plugin/versions.json mirror-content/versions.json
+          cp plugin/store/README.md mirror-content/README.md
+          cp plugin/store/README.zh-CN.md mirror-content/README.zh-CN.md
+          cp LICENSE mirror-content/LICENSE
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to mirror repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PLUGIN_MIRROR_TOKEN }}
+          VERSION: ${{ steps.assemble.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$VERSION" --repo CyberKurry/pkv-sync-plugin >/dev/null 2>&1; then
+            echo "mirror release $VERSION already exists; nothing to do"
+            exit 0
+          fi
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/CyberKurry/pkv-sync-plugin.git" mirror-repo
+          cp mirror-content/* mirror-repo/
+          git -C mirror-repo config user.name "github-actions[bot]"
+          git -C mirror-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C mirror-repo add -A
+          if ! git -C mirror-repo diff --cached --quiet; then
+            git -C mirror-repo commit -m "chore(release): ${VERSION}"
+            git -C mirror-repo push origin HEAD:main
+          fi
+          if ! git -C mirror-repo rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
+            git -C mirror-repo tag "${VERSION}"
+          fi
+          git -C mirror-repo push origin "refs/tags/${VERSION}"
+          HEADING="$(grep -m1 -F "## [${VERSION}]" CHANGELOG.md || true)"
+          if [ -n "$HEADING" ]; then
+            ANCHOR="$(printf '%s' "$HEADING" | sed -e 's/^## //' -e 's/[][.]//g' -e 's/ /-/g' | tr '[:upper:]' '[:lower:]')"
+            NOTES="PKV Sync plugin ${VERSION}. Changelog: https://github.com/CyberKurry/pkv-sync/blob/main/CHANGELOG.md#${ANCHOR}"
+          else
+            NOTES="PKV Sync plugin ${VERSION}. Changelog: https://github.com/CyberKurry/pkv-sync/blob/main/CHANGELOG.md"
+          fi
+          gh release create "$VERSION" \
+            --repo CyberKurry/pkv-sync-plugin \
+            --title "$VERSION" \
+            --notes "$NOTES" \
+            mirror-repo/main.js mirror-repo/manifest.json mirror-repo/styles.css
