@@ -1,6 +1,7 @@
+use crate::admin::password::hash_admin_password;
 use crate::admin::session;
 use crate::api::error::ApiError;
-use crate::auth::{password, AdminUser};
+use crate::auth::AdminUser;
 use crate::db::repos::{NewUser, TokenRepo, TokenRow, User, UserRepo, VaultRepo};
 use crate::service::auth::validate_username;
 use crate::service::AppState;
@@ -96,7 +97,7 @@ async fn create(
     if state.users.find_by_username(&req.username).await?.is_some() {
         return Err(ApiError::conflict("username_taken", "username exists"));
     }
-    let password_hash = hash_admin_password(&req.password)?;
+    let password_hash = hash_admin_password(&req.password).await?;
     let user = state
         .users
         .create(NewUser {
@@ -150,7 +151,7 @@ async fn update(
         }
     }
     if let Some(password) = req.password {
-        let password_hash = hash_admin_password(&password)?;
+        let password_hash = hash_admin_password(&password).await?;
         state.users.update_password(&id, &password_hash).await?;
         state
             .tokens
@@ -187,21 +188,6 @@ async fn list_user_tokens(
 ) -> Result<Json<Vec<AdminTokenView>>, ApiError> {
     let tokens = state.tokens.list_for_user(&id).await?;
     Ok(Json(tokens.into_iter().map(AdminTokenView::from).collect()))
-}
-
-fn hash_admin_password(plaintext: &str) -> Result<String, ApiError> {
-    password::validate_strong(plaintext).map_err(|e| match e {
-        password::PasswordError::TooLong { .. } | password::PasswordError::TooWeak => {
-            ApiError::bad_request("weak_password", e.to_string())
-        }
-        _ => ApiError::internal(e.to_string()),
-    })?;
-    password::hash(plaintext).map_err(|e| match e {
-        password::PasswordError::TooShort { .. }
-        | password::PasswordError::TooLong { .. }
-        | password::PasswordError::TooWeak => ApiError::bad_request("weak_password", e.to_string()),
-        _ => ApiError::internal(e.to_string()),
-    })
 }
 
 async fn revoke_user_token(

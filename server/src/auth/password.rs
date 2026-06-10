@@ -37,6 +37,16 @@ pub fn hash(plaintext: &str) -> Result<String, PasswordError> {
     if char_len < 8 {
         return Err(PasswordError::TooShort { len: char_len });
     }
+    hash_validated(plaintext)
+}
+
+/// Hash a plaintext password after enforcing the stronger setup/admin policy.
+pub fn hash_strong(plaintext: &str) -> Result<String, PasswordError> {
+    validate_strong(plaintext)?;
+    hash_validated(plaintext)
+}
+
+fn hash_validated(plaintext: &str) -> Result<String, PasswordError> {
     let salt = SaltString::generate(&mut OsRng);
     let phc = DEFAULT_ARGON2.hash_password(plaintext.as_bytes(), &salt)?;
     Ok(phc.to_string())
@@ -118,6 +128,16 @@ mod tests {
             validate_strong("PASSWORD1234").unwrap_err(),
             PasswordError::TooWeak
         ));
+    }
+
+    #[test]
+    fn hash_strong_enforces_setup_strength() {
+        assert!(matches!(
+            hash_strong("passw0rd!!").unwrap_err(),
+            PasswordError::TooWeak
+        ));
+        let h = hash_strong("Passw0rdStrong").unwrap();
+        assert!(verify("Passw0rdStrong", &h).unwrap());
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use crate::admin::password::hash_admin_password;
 use crate::admin::session::{self, AdminSession};
 use crate::admin::templates::{
     avatar_label, ActivityFilterUser, ActivityTemplate, ActivityView, DashboardTemplate,
@@ -12,7 +13,8 @@ use crate::auth::LoginRateLimiter;
 use crate::auth::{password, token};
 use crate::db::repos::{
     InviteRepo, NewActivity, NewToken, NewUser, RegistrationMode, RuntimeConfigRepo,
-    SyncActivityRepo, TokenRepo, TokenRow, User, UserOption, UserRepo, Vault, VaultRepo,
+    RuntimeConfigSettingsUpdate, SyncActivityRepo, TokenRepo, TokenRow, User, UserOption, UserRepo,
+    Vault, VaultRepo,
 };
 use crate::middleware::real_ip::{ClientIp, ForwardedFromTrustedProxy};
 use crate::service::auth::validate_username;
@@ -464,7 +466,7 @@ async fn setup_post(
         return Ok(StatusCode::NOT_FOUND.into_response());
     }
 
-    let password_hash = hash_admin_password(&form.password)?;
+    let password_hash = hash_admin_password(&form.password).await?;
     let created = state
         .users
         .create_first_admin(NewUser {
@@ -543,21 +545,6 @@ fn validate_setup_password(
         return Err(SetupPasswordValidationError::TooWeak);
     }
     Ok(())
-}
-
-fn hash_admin_password(plaintext: &str) -> Result<String, ApiError> {
-    password::validate_strong(plaintext).map_err(|e| match e {
-        password::PasswordError::TooLong { .. } | password::PasswordError::TooWeak => {
-            ApiError::bad_request("weak_password", e.to_string())
-        }
-        _ => ApiError::internal(e.to_string()),
-    })?;
-    password::hash(plaintext).map_err(|e| match e {
-        password::PasswordError::TooShort { .. }
-        | password::PasswordError::TooLong { .. }
-        | password::PasswordError::TooWeak => ApiError::bad_request("weak_password", e.to_string()),
-        _ => ApiError::internal(e.to_string()),
-    })
 }
 
 async fn login_post(
@@ -913,7 +900,7 @@ async fn create_user_form(
     {
         return Err(ApiError::conflict("username_taken", "username exists"));
     }
-    let password_hash = hash_admin_password(&form.password)?;
+    let password_hash = hash_admin_password(&form.password).await?;
     state
         .users
         .create(NewUser {
@@ -1034,7 +1021,7 @@ async fn reset_password_form(
     Path(id): Path<String>,
     Form(form): Form<PasswordForm>,
 ) -> Result<Redirect, ApiError> {
-    let password_hash = hash_admin_password(&form.password)?;
+    let password_hash = hash_admin_password(&form.password).await?;
     state.users.update_password(&id, &password_hash).await?;
     state
         .tokens
@@ -2264,6 +2251,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn settings_post_uses_batched_runtime_config_update() {
+        let source = include_str!("handlers.rs");
+        let start = source.find(concat!("async ", "fn settings_post(")).unwrap();
+        let end = source[start..]
+            .find(concat!("async ", "fn activity_page("))
+            .unwrap();
+        let settings_post = &source[start..start + end];
+
+        assert!(settings_post.contains(".set_admin_settings"));
+        for legacy_setter in [
+            ".set_server_name(",
+            ".set_timezone(",
+            ".set_registration_mode(",
+            ".set_login_rate_limit(",
+            ".set_history_flags(",
+            ".set_extra_exclude_globs(",
+            ".set_enable_git_smart_http(",
+            ".set_enable_metrics(",
+            ".set_enable_auto_merge(",
+            ".set_update_check_enabled(",
+            ".set_update_check_interval_seconds(",
+            ".set_sse_heartbeat_seconds(",
+            ".set_push_debounce_ms(",
+            ".set_inline_content_max_bytes(",
+        ] {
+            assert!(
+                !settings_post.contains(legacy_setter),
+                "settings_post should use the batch settings writer instead of {legacy_setter}"
+            );
+        }
+    }
+
     async fn admin_login_test_app(
         active: bool,
     ) -> (axum::Router, AppState, crate::db::repos::User) {
@@ -2823,35 +2843,6 @@ async fn settings_post(
         .ok_or_else(|| ApiError::bad_request("bad_mode", "invalid registration mode"))?;
     let timezone = crate::time::normalize_timezone(&form.timezone)
         .ok_or_else(|| ApiError::bad_request("bad_timezone", "invalid timezone"))?;
-    state
-        .runtime_cfg_repo
-        .set_server_name(server_name, Some(&session.user.id))
-        .await?;
-    state
-        .runtime_cfg_repo
-        .set_timezone(&timezone, Some(&session.user.id))
-        .await?;
-    state
-        .runtime_cfg_repo
-        .set_registration_mode(mode, Some(&session.user.id))
-        .await?;
-    state
-        .runtime_cfg_repo
-        .set_login_rate_limit(
-            form.login_failure_threshold,
-            form.login_window_seconds,
-            form.login_lock_seconds,
-            Some(&session.user.id),
-        )
-        .await?;
-    state
-        .runtime_cfg_repo
-        .set_history_flags(
-            form.enable_history_ui.is_some(),
-            form.enable_diff_endpoint.is_some(),
-            Some(&session.user.id),
-        )
-        .await?;
     let extra_exclude_globs: Vec<String> = form
         .extra_exclude_globs
         .lines()
@@ -2861,22 +2852,6 @@ async fn settings_post(
     crate::service::exclude::EffectiveExcludes::compile(&extra_exclude_globs).map_err(|e| {
         ApiError::bad_request("invalid_glob", format!("invalid glob pattern: {}", e))
     })?;
-    state
-        .runtime_cfg_repo
-        .set_extra_exclude_globs(extra_exclude_globs, Some(&session.user.id))
-        .await?;
-    state
-        .runtime_cfg_repo
-        .set_enable_git_smart_http(form.enable_git_smart_http.is_some(), Some(&session.user.id))
-        .await?;
-    state
-        .runtime_cfg_repo
-        .set_enable_metrics(form.enable_metrics.is_some(), Some(&session.user.id))
-        .await?;
-    state
-        .runtime_cfg_repo
-        .set_enable_auto_merge(form.enable_auto_merge.is_some(), Some(&session.user.id))
-        .await?;
     const UPDATE_CHECK_INTERVAL_MIN: u64 = 60;
     const UPDATE_CHECK_INTERVAL_MAX: u64 = 30 * 24 * 60 * 60;
     if !(UPDATE_CHECK_INTERVAL_MIN..=UPDATE_CHECK_INTERVAL_MAX)
@@ -2890,25 +2865,6 @@ async fn settings_post(
             ),
         ));
     }
-    state
-        .runtime_cfg_repo
-        .set_update_check_enabled(form.update_check_enabled.is_some(), Some(&session.user.id))
-        .await?;
-    state
-        .runtime_cfg_repo
-        .set_update_check_interval_seconds(
-            form.update_check_interval_seconds,
-            Some(&session.user.id),
-        )
-        .await?;
-    state
-        .runtime_cfg_repo
-        .set_sse_heartbeat_seconds(form.sse_heartbeat_seconds, Some(&session.user.id))
-        .await?;
-    state
-        .runtime_cfg_repo
-        .set_push_debounce_ms(form.push_debounce_ms, Some(&session.user.id))
-        .await?;
     // Inline payload is shipped over SSE to every subscribed device; an
     // unbounded value lets one operator misconfiguration explode SSE frames
     // and starve subscribers. 64 KiB is the documented ceiling in Plan J.
@@ -2924,7 +2880,28 @@ async fn settings_post(
     }
     state
         .runtime_cfg_repo
-        .set_inline_content_max_bytes(form.inline_content_max_bytes, Some(&session.user.id))
+        .set_admin_settings(
+            RuntimeConfigSettingsUpdate {
+                server_name: server_name.to_string(),
+                timezone,
+                registration_mode: mode,
+                login_failure_threshold: form.login_failure_threshold,
+                login_window_seconds: form.login_window_seconds,
+                login_lock_seconds: form.login_lock_seconds,
+                enable_history_ui: form.enable_history_ui.is_some(),
+                enable_diff_endpoint: form.enable_diff_endpoint.is_some(),
+                extra_exclude_globs,
+                sse_heartbeat_seconds: form.sse_heartbeat_seconds,
+                push_debounce_ms: form.push_debounce_ms,
+                enable_git_smart_http: form.enable_git_smart_http.is_some(),
+                enable_metrics: form.enable_metrics.is_some(),
+                enable_auto_merge: form.enable_auto_merge.is_some(),
+                update_check_enabled: form.update_check_enabled.is_some(),
+                update_check_interval_seconds: form.update_check_interval_seconds,
+                inline_content_max_bytes: form.inline_content_max_bytes,
+            },
+            Some(&session.user.id),
+        )
         .await?;
     let cfg = state.runtime_cfg_repo.load().await?;
     limiter.update_config(

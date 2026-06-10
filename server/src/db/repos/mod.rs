@@ -15,7 +15,8 @@ pub use blob_upload::{BlobUploadRepo, SqliteBlobUploadRepo};
 pub use idempotency::{IdempotencyRepo, SqliteIdempotencyRepo};
 pub use invite::{Invite, InviteRepo, SqliteInviteRepo};
 pub use runtime_config::{
-    RegistrationMode, RuntimeConfig, RuntimeConfigCache, RuntimeConfigRepo, SqliteRuntimeConfigRepo,
+    RegistrationMode, RuntimeConfig, RuntimeConfigCache, RuntimeConfigRepo,
+    RuntimeConfigSettingsUpdate, SqliteRuntimeConfigRepo,
 };
 pub use token::{NewToken, SqliteTokenRepo, TokenRepo, TokenRow};
 pub use user::{NewUser, SqliteUserRepo, User, UserOption, UserRepo};

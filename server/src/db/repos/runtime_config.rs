@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
@@ -58,6 +58,27 @@ pub struct RuntimeConfig {
     pub update_check_interval_seconds: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct RuntimeConfigSettingsUpdate {
+    pub server_name: String,
+    pub timezone: String,
+    pub registration_mode: RegistrationMode,
+    pub login_failure_threshold: u32,
+    pub login_window_seconds: u64,
+    pub login_lock_seconds: u64,
+    pub enable_history_ui: bool,
+    pub enable_diff_endpoint: bool,
+    pub extra_exclude_globs: Vec<String>,
+    pub inline_content_max_bytes: u32,
+    pub sse_heartbeat_seconds: u64,
+    pub push_debounce_ms: u32,
+    pub enable_git_smart_http: bool,
+    pub enable_metrics: bool,
+    pub enable_auto_merge: bool,
+    pub update_check_enabled: bool,
+    pub update_check_interval_seconds: u64,
+}
+
 impl Default for RuntimeConfig {
     fn default() -> Self {
         let text_extensions = vec![
@@ -98,6 +119,11 @@ impl Default for RuntimeConfig {
 #[async_trait]
 pub trait RuntimeConfigRepo: Send + Sync {
     async fn load(&self) -> Result<RuntimeConfig, sqlx::Error>;
+    async fn set_admin_settings(
+        &self,
+        settings: RuntimeConfigSettingsUpdate,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
     async fn set_registration_mode(
         &self,
         mode: RegistrationMode,
@@ -201,6 +227,29 @@ async fn write_kv(
     Ok(())
 }
 
+async fn write_kv_batch(
+    tx: &mut Transaction<'_, Sqlite>,
+    kvs: &[(&str, String)],
+    by: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    let now = chrono::Utc::now().timestamp();
+    for (key, value) in kvs {
+        sqlx::query(
+            "INSERT INTO runtime_config (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                           updated_at = excluded.updated_at,
+                                           updated_by = excluded.updated_by",
+        )
+        .bind(key)
+        .bind(value)
+        .bind(now)
+        .bind(by)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 fn runtime_config_from_rows(rows: Vec<(String, String)>) -> RuntimeConfig {
     let values: HashMap<String, String> = rows.into_iter().collect();
     let mut cfg = RuntimeConfig::default();
@@ -290,6 +339,90 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
             .fetch_all(&self.pool)
             .await?;
         Ok(runtime_config_from_rows(rows))
+    }
+
+    async fn set_admin_settings(
+        &self,
+        settings: RuntimeConfigSettingsUpdate,
+        by: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let values = vec![
+            (
+                "server_name",
+                serde_json::to_string(&settings.server_name).expect("string serializes"),
+            ),
+            (
+                "timezone",
+                serde_json::to_string(&settings.timezone).expect("string serializes"),
+            ),
+            (
+                "registration_mode",
+                serde_json::to_string(settings.registration_mode.as_str())
+                    .expect("string serializes"),
+            ),
+            (
+                "login_failure_threshold",
+                serde_json::to_string(&settings.login_failure_threshold.max(1)).unwrap(),
+            ),
+            (
+                "login_window_seconds",
+                serde_json::to_string(&settings.login_window_seconds.max(1)).unwrap(),
+            ),
+            (
+                "login_lock_seconds",
+                serde_json::to_string(&settings.login_lock_seconds.max(1)).unwrap(),
+            ),
+            (
+                "enable_history_ui",
+                serde_json::to_string(&settings.enable_history_ui).unwrap(),
+            ),
+            (
+                "enable_diff_endpoint",
+                serde_json::to_string(&settings.enable_diff_endpoint).unwrap(),
+            ),
+            (
+                "extra_exclude_globs",
+                serde_json::to_string(&settings.extra_exclude_globs)
+                    .unwrap_or_else(|_| "[]".into()),
+            ),
+            (
+                "sse_heartbeat_seconds",
+                serde_json::to_string(&settings.sse_heartbeat_seconds.max(10)).unwrap(),
+            ),
+            (
+                "push_debounce_ms",
+                serde_json::to_string(&settings.push_debounce_ms.max(1)).unwrap(),
+            ),
+            (
+                "enable_git_smart_http",
+                serde_json::to_string(&settings.enable_git_smart_http).unwrap(),
+            ),
+            (
+                "enable_metrics",
+                serde_json::to_string(&settings.enable_metrics).unwrap(),
+            ),
+            (
+                "enable_auto_merge",
+                serde_json::to_string(&settings.enable_auto_merge).unwrap(),
+            ),
+            (
+                "update_check.enabled",
+                serde_json::to_string(&settings.update_check_enabled).unwrap(),
+            ),
+            (
+                "update_check.interval_seconds",
+                serde_json::to_string(&settings.update_check_interval_seconds.max(60)).unwrap(),
+            ),
+            (
+                "inline_content_max_bytes",
+                serde_json::to_string(&settings.inline_content_max_bytes.max(1)).unwrap(),
+            ),
+        ];
+
+        let mut tx = self.pool.begin().await?;
+        write_kv_batch(&mut tx, &values, by).await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     async fn set_registration_mode(
@@ -798,6 +931,90 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(r.load().await.unwrap().update_check_interval_seconds, 3600);
+    }
+
+    #[tokio::test]
+    async fn set_admin_settings_updates_runtime_config_in_one_batch() {
+        let r = setup().await;
+        sqlx::query(
+            "INSERT INTO users (id, username, password_hash, is_admin, is_active, created_at)
+             VALUES ('admin', 'admin', 'hash', 1, 1, 1)",
+        )
+        .execute(&r.pool)
+        .await
+        .unwrap();
+
+        r.set_admin_settings(
+            RuntimeConfigSettingsUpdate {
+                server_name: "Team PKV".into(),
+                timezone: "Asia/Shanghai".into(),
+                registration_mode: RegistrationMode::InviteOnly,
+                login_failure_threshold: 3,
+                login_window_seconds: 120,
+                login_lock_seconds: 240,
+                enable_history_ui: false,
+                enable_diff_endpoint: false,
+                extra_exclude_globs: vec![".secret/**".into()],
+                sse_heartbeat_seconds: 45,
+                push_debounce_ms: 500,
+                enable_git_smart_http: true,
+                enable_metrics: true,
+                enable_auto_merge: false,
+                update_check_enabled: false,
+                update_check_interval_seconds: 3600,
+                inline_content_max_bytes: 4096,
+            },
+            Some("admin"),
+        )
+        .await
+        .unwrap();
+
+        let cfg = r.load().await.unwrap();
+        assert_eq!(cfg.server_name, "Team PKV");
+        assert_eq!(cfg.timezone, "Asia/Shanghai");
+        assert_eq!(cfg.registration_mode, RegistrationMode::InviteOnly);
+        assert_eq!(cfg.login_failure_threshold, 3);
+        assert_eq!(cfg.login_window_seconds, 120);
+        assert_eq!(cfg.login_lock_seconds, 240);
+        assert!(!cfg.enable_history_ui);
+        assert!(!cfg.enable_diff_endpoint);
+        assert_eq!(cfg.extra_exclude_globs, vec![".secret/**"]);
+        assert_eq!(cfg.sse_heartbeat_seconds, 45);
+        assert_eq!(cfg.push_debounce_ms, 500);
+        assert!(cfg.enable_git_smart_http);
+        assert!(cfg.enable_metrics);
+        assert!(!cfg.enable_auto_merge);
+        assert!(!cfg.update_check_enabled);
+        assert_eq!(cfg.update_check_interval_seconds, 3600);
+        assert_eq!(cfg.inline_content_max_bytes, 4096);
+
+        let (audited_rows,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM runtime_config
+             WHERE key IN (
+               'server_name',
+               'timezone',
+               'registration_mode',
+               'login_failure_threshold',
+               'login_window_seconds',
+               'login_lock_seconds',
+               'enable_history_ui',
+               'enable_diff_endpoint',
+               'extra_exclude_globs',
+               'sse_heartbeat_seconds',
+               'push_debounce_ms',
+               'enable_git_smart_http',
+               'enable_metrics',
+               'enable_auto_merge',
+               'update_check.enabled',
+               'update_check.interval_seconds',
+               'inline_content_max_bytes'
+             )
+             AND updated_by = 'admin'",
+        )
+        .fetch_one(&r.pool)
+        .await
+        .unwrap();
+        assert_eq!(audited_rows, 17);
     }
 
     #[tokio::test]
