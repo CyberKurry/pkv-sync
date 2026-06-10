@@ -1,5 +1,6 @@
 use crate::auth::{token, AuthenticatedUser};
 use crate::db::repos::{TokenRepo, UserRepo, VaultRepo};
+use crate::mcp::auth::mcp_token_still_valid;
 use crate::mcp::tools;
 use crate::service::AppState;
 use anyhow::{anyhow, Result};
@@ -57,7 +58,7 @@ impl StdioSession {
 
     pub async fn handle_jsonrpc(&self, request: Value) -> Value {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
-        if !stdio_token_still_valid(&self.state, &self.token_hash, &self.user).await {
+        if !mcp_token_still_valid(&self.state, &self.token_hash, &self.user).await {
             return jsonrpc_error(id, -32000, "invalid or revoked token");
         }
         handle_jsonrpc(
@@ -126,23 +127,6 @@ pub(crate) async fn authenticate_token(
 enum AuthErr {
     Credential(anyhow::Error),
     Internal(anyhow::Error),
-}
-
-async fn stdio_token_still_valid(
-    state: &AppState,
-    token_hash: &str,
-    user: &AuthenticatedUser,
-) -> bool {
-    let Ok(Some((row, user_id))) = state.tokens.find_by_hash(token_hash).await else {
-        return false;
-    };
-    if row.id != user.token_id || user_id != user.user_id {
-        return false;
-    }
-    let Ok(Some(db_user)) = state.users.find_by_id(&user.user_id).await else {
-        return false;
-    };
-    db_user.is_active
 }
 
 async fn authenticate_token_inner(
@@ -339,6 +323,41 @@ mod tests {
         state
             .mcp_auth_limiter
             .update_config(1, Duration::from_secs(60), Duration::from_secs(60));
+    }
+
+    fn count_occurrences(haystack: &str, needle: &str) -> usize {
+        haystack.match_indices(needle).count()
+    }
+
+    #[test]
+    fn mcp_transports_share_token_validity_check() {
+        let http_source = include_str!("transport_http.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let stdio_source = include_str!("transport_stdio.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+
+        assert_eq!(
+            count_occurrences(http_source, "mcp_token_still_valid("),
+            3,
+            "HTTP SSE stream must call the shared MCP token validity helper"
+        );
+        assert_eq!(
+            count_occurrences(stdio_source, "mcp_token_still_valid("),
+            1,
+            "stdio sessions must call the shared MCP token validity helper"
+        );
+        assert!(
+            !http_source.contains("find_by_hash(token_hash)"),
+            "HTTP transport must not reimplement token lookup"
+        );
+        assert!(
+            !stdio_source.contains("find_by_hash(token_hash)"),
+            "stdio transport must not reimplement token lookup"
+        );
     }
 
     #[tokio::test]

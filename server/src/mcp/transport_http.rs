@@ -1,5 +1,4 @@
 use crate::auth::AuthenticatedUser;
-use crate::db::repos::{TokenRepo, UserRepo};
 use crate::middleware::deployment_key;
 use crate::middleware::real_ip::TrustedProxies;
 use crate::service::AppState;
@@ -21,6 +20,7 @@ use tokio::time::{Interval, MissedTickBehavior};
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use tokio_stream::StreamExt;
 
+use super::auth::mcp_token_still_valid;
 use super::transport_stdio::{
     authenticate_token, handle_jsonrpc, jsonrpc_error, GENERIC_MCP_AUTH_ERROR,
 };
@@ -338,7 +338,7 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
             break;
         }
         if let Some(item) = sse.replay_items.pop_front() {
-            if !mcp_sse_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
+            if !mcp_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
                 break;
             }
             if tx.send(Ok(item.into_event())).await.is_err() {
@@ -351,7 +351,7 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                 break;
             }
             _ = sse.auth_interval.tick() => {
-                if !mcp_sse_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
+                if !mcp_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
                     break;
                 }
             }
@@ -359,7 +359,7 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                 let Some((_vault_id, Ok(event))) = event else {
                     break;
                 };
-                if !mcp_sse_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
+                if !mcp_token_still_valid(&sse.app, &sse.token_hash, &sse.user).await {
                     break;
                 }
                 let commit = event.commit.clone();
@@ -377,23 +377,6 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
             }
         }
     }
-}
-
-async fn mcp_sse_token_still_valid(
-    state: &AppState,
-    token_hash: &str,
-    user: &AuthenticatedUser,
-) -> bool {
-    let Ok(Some((row, user_id))) = state.tokens.find_by_hash(token_hash).await else {
-        return false;
-    };
-    if row.id != user.token_id || user_id != user.user_id {
-        return false;
-    }
-    let Ok(Some(db_user)) = state.users.find_by_id(&user_id).await else {
-        return false;
-    };
-    db_user.is_active
 }
 
 enum McpReplayEvents {
@@ -450,6 +433,7 @@ mod tests {
     use crate::auth::token;
     use crate::db::pool;
     use crate::db::repos::{NewToken, NewUser};
+    use crate::db::repos::{TokenRepo, UserRepo};
     use axum::body::Body;
     use axum::http::Request as HttpRequest;
     use tower::ServiceExt;

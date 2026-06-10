@@ -1,3 +1,4 @@
+pub(crate) mod auth;
 pub mod notifications;
 pub mod tools;
 pub mod transport_http;
