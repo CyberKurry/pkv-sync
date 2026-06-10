@@ -5,7 +5,7 @@ import { zh } from "./zh";
 import { zhHant } from "./zh-Hant";
 import type { PluginLanguage } from "../settings";
 
-export type Lang = "en" | "zh-CN" | "zh-Hant" | "ja" | "ko";
+export type Lang = Exclude<PluginLanguage, "auto">;
 export type Strings = typeof en;
 export type FormatValue = string | number | boolean | null | undefined;
 

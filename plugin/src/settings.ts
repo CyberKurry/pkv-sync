@@ -1,7 +1,8 @@
 import { generateDeviceId } from "./device-id";
+import type { UpdateSource } from "./services/update-check";
 
 export type PluginLanguage = "auto" | "en" | "zh-CN" | "zh-Hant" | "ja" | "ko";
-export type PluginUpdateSource = "server" | "github";
+export type PluginUpdateSource = UpdateSource;
 export type PluginThemeMode = "auto" | "light" | "dark";
 const PLUGIN_LANGUAGES = new Set<PluginLanguage>([
   "auto",
