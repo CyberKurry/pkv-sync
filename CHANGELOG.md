@@ -7,6 +7,18 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-06-11
+
+### Changed
+
+- Detect the device platform with the Platform API instead of the user agent,
+  and look up folders with APIs available on the declared minimum app version.
+- Drop the redundant plugin-ID prefix from command IDs. Custom hotkeys bound to
+  the old command IDs must be rebound once.
+- Resolve lint warnings flagged by the community directory: floating promises,
+  unused catch bindings, `globalThis` usage, and the `builtin-modules` build
+  dependency.
+
 ## [1.2.2] - 2026-06-11
 
 ### Changed
