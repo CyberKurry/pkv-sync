@@ -8,7 +8,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.2.2.
+Document version: v1.2.3.
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -152,7 +152,7 @@ For real deployments, also run behind HTTPS, restrict
 
 ## Status
 
-PKV Sync 1.2.2 is the current stable patch release. It aligns the plugin's community-directory metadata, ships the plugin source tree in the store mirror repository, and replaces lint-flagged CSS in the plugin.
+PKV Sync 1.2.3 is the current stable patch release. It resolves the community directory's source-lint findings: platform detection now uses the Platform API, folder lookups stay within the declared minimum app version, and command IDs drop the redundant plugin prefix.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together

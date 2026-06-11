@@ -2,7 +2,7 @@
 
 [English](./user-manual.md) | [简体中文](./user-manual.zh-CN.md) | 繁體中文 | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
-文件版本：v1.2.2。
+文件版本：v1.2.3。
 
 本手冊面向連接既有 PKV Sync 伺服器的 Obsidian 使用者。開始之前，請向伺服器管理員取得伺服器分享 URL，以及帳號或邀請碼。
 
