@@ -9,6 +9,12 @@ describe("diff CSS", () => {
     resolve(__dirname, "../../src/ui/conflict-resolve-modal.ts"),
     "utf8"
   );
+  const historyModal = readFileSync(resolve(__dirname, "../../src/ui/history-modal.ts"), "utf8");
+
+  it("caps the history modal width", () => {
+    expect(css).toMatch(/\.modal\.pkvsync-modal-history\s*\{[\s\S]+?max-width:\s*720px/);
+    expect(historyModal).toContain('this.modalEl.addClass("pkvsync-modal-history")');
+  });
 
   it("gives split diff modals a GitHub-like wide viewport", () => {
     expect(css).toMatch(
