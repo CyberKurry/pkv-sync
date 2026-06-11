@@ -12,11 +12,13 @@ describe("diff CSS", () => {
 
   it("gives split diff modals a GitHub-like wide viewport", () => {
     expect(css).toMatch(
-      /\.modal:has\(\.pkvsync-diff-modal\),\s*\.modal:has\(\.pkvsync-conflict-resolve-modal\)\s*\{[\s\S]+?width:\s*min\(98vw,\s*1680px\)/
+      /\.modal\.pkvsync-modal-diff,\s*\.modal\.pkvsync-modal-conflict-resolve\s*\{[\s\S]+?width:\s*min\(98vw,\s*1680px\)/
     );
     expect(css).toMatch(
-      /\.modal:has\(\.pkvsync-diff-modal\),\s*\.modal:has\(\.pkvsync-conflict-resolve-modal\)\s*\{[\s\S]+?max-width:\s*min\(98vw,\s*1680px\)/
+      /\.modal\.pkvsync-modal-diff,\s*\.modal\.pkvsync-modal-conflict-resolve\s*\{[\s\S]+?max-width:\s*min\(98vw,\s*1680px\)/
     );
+    expect(diffModal).toContain('this.modalEl.addClass("pkvsync-modal-diff")');
+    expect(conflictModal).toContain('this.modalEl.addClass("pkvsync-modal-conflict-resolve")');
   });
 
   it("keeps split diff columns readable instead of squeezing text", () => {

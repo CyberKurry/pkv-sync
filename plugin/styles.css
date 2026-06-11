@@ -52,9 +52,14 @@
   color-scheme: light dark;
   min-height: 100%;
   box-sizing: border-box;
-  padding: 0 !important;
   background: var(--pkv-bg-page);
   color: var(--pkv-text);
+}
+
+/* Doubled class outranks Obsidian's own `.vertical-tab-content` padding
+   without raising declaration importance. */
+.pkv-sync-settings-host.pkv-sync-settings-host {
+  padding: 0;
 }
 
 /* Hard light override (user picked "light" in plugin settings) */
@@ -922,12 +927,12 @@ body.theme-dark .pkvsync-restore-modal {
   --pkv-mark-ink: #1a1814;
 }
 
-.modal:has(.pkvsync-history-modal) {
+.modal.pkvsync-modal-history {
   max-width: 720px;
 }
 
-.modal:has(.pkvsync-diff-modal),
-.modal:has(.pkvsync-conflict-resolve-modal) {
+.modal.pkvsync-modal-diff,
+.modal.pkvsync-modal-conflict-resolve {
   width: min(98vw, 1680px);
   max-width: min(98vw, 1680px);
 }
@@ -1467,8 +1472,8 @@ body.theme-dark .pkvsync-restore-modal {
  * =================================================================== */
 
 @media (max-width: 520px) {
-  .pkv-sync-settings-host {
-    padding: 0 !important;
+  .pkv-sync-settings-host.pkv-sync-settings-host {
+    padding: 0;
   }
 
   .pkv-sync-panel {
@@ -1562,7 +1567,7 @@ body.theme-dark .pkvsync-restore-modal {
     width: 100%;
   }
 
-  .modal:has(.pkvsync-conflict-resolve-modal) {
+  .modal.pkvsync-modal-conflict-resolve {
     width: 96vw;
   }
 }

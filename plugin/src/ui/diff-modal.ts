@@ -77,6 +77,7 @@ export class DiffModal extends Modal {
 
   onOpen(): void {
     this.contentEl.empty();
+    this.modalEl.addClass("pkvsync-modal-diff");
     this.contentEl.addClass("pkvsync-diff-modal");
     this.contentEl.createEl("h2", {
       text: diffTitle(this.options.path, this.options.from, this.options.to)

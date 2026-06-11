@@ -77,6 +77,7 @@ export class HistoryModal extends Modal {
 
   onOpen(): void {
     this.contentEl.empty();
+    this.modalEl.addClass("pkvsync-modal-history");
     this.contentEl.addClass("pkvsync-history-modal");
     this.renderShell();
     void this.load();

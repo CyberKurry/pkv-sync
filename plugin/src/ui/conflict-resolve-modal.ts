@@ -69,6 +69,7 @@ export class ConflictResolveModal extends Modal {
 
   onOpen(): void {
     this.contentEl.empty();
+    this.modalEl.addClass("pkvsync-modal-conflict-resolve");
     this.contentEl.addClass("pkvsync-conflict-resolve-modal");
     this.contentEl.createEl("h2", {
       text: this.labels.conflictResolveTitle
