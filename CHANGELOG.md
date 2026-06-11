@@ -7,6 +7,18 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-06-11
+
+### Changed
+
+- Drop the word "Obsidian" from the plugin manifest description to satisfy the
+  community directory's metadata rules.
+- Ship the plugin source tree in the store mirror repository alongside release
+  artifacts, as required by the directory's open-source check, and accept issue
+  reports on the mirror.
+- Size plugin modals with dedicated modal classes instead of `:has()` selectors
+  and replace `!important` paddings with higher-specificity rules.
+
 ## [1.2.1] - 2026-06-10
 
 ### Security
