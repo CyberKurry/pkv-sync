@@ -325,6 +325,9 @@ jobs:
           cp plugin/store/README.md mirror-content/README.md
           cp plugin/store/README.zh-CN.md mirror-content/README.zh-CN.md
           cp LICENSE mirror-content/LICENSE
+          cp -r plugin/src mirror-content/src
+          cp -r plugin/tests mirror-content/tests
+          cp plugin/esbuild.config.mjs plugin/package.json plugin/package-lock.json plugin/release.mjs plugin/tsconfig.json plugin/vitest.config.mts mirror-content/
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Publish to mirror repository
@@ -346,7 +349,7 @@ jobs:
           fi
           git clone "https://x-access-token:${GH_TOKEN}@github.com/${MIRROR_REPO}.git" mirror-repo
           git -C mirror-repo rm -rq --ignore-unmatch -- .
-          cp mirror-content/* mirror-repo/
+          cp -r mirror-content/* mirror-repo/
           git -C mirror-repo config user.name "github-actions[bot]"
           git -C mirror-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C mirror-repo add -A
