@@ -8,7 +8,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.2.1.
+Document version: v1.2.2.
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -152,13 +152,7 @@ For real deployments, also run behind HTTPS, restrict
 
 ## Status
 
-PKV Sync 1.2.1 is the current stable patch release for LLM-maintained wiki workflows. It hardens MCP and Git auth, hidden-path, duplicate-write, and blob symlink edge cases while making large-vault push/pull, MCP tool paths, cleanup, and plugin scans more incremental and cache-aware; see the [LLM Wiki how-to](./public-docs/llm-wiki-howto.md) for the agent loop.
-
-Highlights in this release:
-
-- MCP writes now reject duplicate normalized paths, keep hidden/excluded targets from leaking existence, and avoid spending write quota on invalid move sources.
-- Large-vault sync paths use incremental Git tree mutation, incremental push metadata updates, cached vault filters and token checks, batched pull reads, and faster plugin scans.
-- Admin and operations surfaces now show real user vault stats, localized duration labels, and aligned server/plugin/OpenAPI/public docs metadata.
+PKV Sync 1.2.2 is the current stable patch release. It aligns the plugin's community-directory metadata, ships the plugin source tree in the store mirror repository, and replaces lint-flagged CSS in the plugin.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together
