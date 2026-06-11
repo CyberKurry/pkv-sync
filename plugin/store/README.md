@@ -2,10 +2,11 @@
 
 Self-hosted, Git-backed synchronization for Obsidian.
 
-> This repository is the **release mirror** for the PKV Sync Obsidian plugin. It is
-> generated automatically from the [main repository](https://github.com/CyberKurry/pkv-sync)
-> on every release. Please do not open pull requests here — report issues and
-> contribute in the main repository instead.
+> This repository is the **release mirror** for the PKV Sync Obsidian plugin: the
+> plugin source tree and release artifacts, published automatically from the
+> [main repository](https://github.com/CyberKurry/pkv-sync) on every release.
+> Pull requests are not accepted here — development happens in the main
+> repository. Issues are welcome here or in the main repository.
 
 [简体中文](README.zh-CN.md)
 
@@ -60,8 +61,9 @@ for details.
   (also in 简体中文, 繁體中文, 日本語, 한국어)
 - [Admin manual](https://github.com/CyberKurry/pkv-sync/blob/main/public-docs/admin-manual.md)
 - [Security policy](https://github.com/CyberKurry/pkv-sync/blob/main/SECURITY.md)
-- Bug reports and feature requests:
-  [main repository issues](https://github.com/CyberKurry/pkv-sync/issues)
+- Bug reports and feature requests: open an issue
+  [here](https://github.com/CyberKurry/pkv-sync-plugin/issues) or in the
+  [main repository](https://github.com/CyberKurry/pkv-sync/issues)
 
 ## License
 

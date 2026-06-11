@@ -2,7 +2,7 @@
 
 自托管、以 Git 为底座的 Obsidian 同步插件。
 
-> 本仓库是 PKV Sync Obsidian 插件的**发布镜像**，由[主仓库](https://github.com/CyberKurry/pkv-sync)在每次发版时自动生成。请勿在此仓库提交 PR——问题反馈与贡献请前往主仓库。
+> 本仓库是 PKV Sync Obsidian 插件的**发布镜像**：包含插件源码与发布产物，由[主仓库](https://github.com/CyberKurry/pkv-sync)在每次发版时自动发布。本仓库不接受 PR——开发在主仓库进行；issue 在本仓库或主仓库提交均可。
 
 [English](README.md)
 
@@ -40,7 +40,7 @@ PKV Sync 通过**你自己托管**的服务器在多设备间同步笔记库。G
 - [用户手册](https://github.com/CyberKurry/pkv-sync/blob/main/public-docs/user-manual.zh-CN.md)（另有 English、繁體中文、日本語、한국어 版本）
 - [管理员手册](https://github.com/CyberKurry/pkv-sync/blob/main/public-docs/admin-manual.zh-CN.md)
 - [安全政策](https://github.com/CyberKurry/pkv-sync/blob/main/SECURITY.zh-CN.md)
-- 问题反馈与功能建议：[主仓库 issues](https://github.com/CyberKurry/pkv-sync/issues)
+- 问题反馈与功能建议：在[本仓库 issues](https://github.com/CyberKurry/pkv-sync-plugin/issues)或[主仓库 issues](https://github.com/CyberKurry/pkv-sync/issues)提交均可
 
 ## 许可证
 
