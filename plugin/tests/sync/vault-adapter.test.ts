@@ -40,12 +40,12 @@ class FakeVault {
     return this.files;
   }
 
-  getAbstractFileByPath(path: string): TFile | null {
-    return this.files.find((file) => file.path === path) ?? null;
-  }
-
-  getFolderByPath(path: string): TFolder | null {
-    return this.folders.get(path) ?? null;
+  getAbstractFileByPath(path: string): TFile | TFolder | null {
+    return (
+      this.files.find((file) => file.path === path) ??
+      this.folders.get(path) ??
+      null
+    );
   }
 
   async createFolder(path: string): Promise<TFolder> {

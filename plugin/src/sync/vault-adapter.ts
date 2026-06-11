@@ -1,4 +1,4 @@
-import { TFile, type Vault } from "obsidian";
+import { TFile, TFolder, type Vault } from "obsidian";
 import { isConflictPath } from "./conflict-files";
 import { sha256Bytes, sha256Text } from "./hash";
 import { textByteLength } from "./text-encoding";
@@ -148,7 +148,7 @@ export class ObsidianVaultAdapter implements VaultAdapter {
     let current = "";
     for (const part of parts) {
       current = current ? `${current}/${part}` : part;
-      if (!this.vault.getFolderByPath(current)) {
+      if (!(this.vault.getAbstractFileByPath(current) instanceof TFolder)) {
         await this.vault.createFolder(current);
       }
     }

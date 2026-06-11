@@ -382,11 +382,10 @@ export default class PKVSyncPlugin extends Plugin {
     if (hostname) return hostname;
     const vaultName = this.app.vault.getName?.().trim();
     const prefix = vaultName || "Obsidian";
-    const ua = navigator.userAgent.toLowerCase();
-    if (Platform.isAndroidApp || ua.includes("android")) {
+    if (Platform.isAndroidApp) {
       return `${prefix} - ${t.defaultAndroidDevice}`;
     }
-    if (Platform.isIosApp || ua.includes("iphone") || ua.includes("ipad")) {
+    if (Platform.isIosApp) {
       return `${prefix} - ${t.defaultIosDevice}`;
     }
     return `${prefix} - ${t.defaultDesktopDevice}`;

@@ -25,10 +25,6 @@ class FakeVault {
     return this.files.get(path) ?? null;
   }
 
-  getFolderByPath(path: string): unknown | null {
-    return this.folders.has(path) ? { path } : null;
-  }
-
   async createFolder(path: string): Promise<void> {
     this.folders.add(path);
   }
