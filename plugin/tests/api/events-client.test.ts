@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeVaultEvents, type SubscribeOptions } from "../../src/api/events-client";
 import type { VaultEvent } from "../../src/api/types";
 import type { CommitVaultEvent } from "../../src/api/types";
@@ -40,12 +40,17 @@ describe("subscribeVaultEvents", () => {
   const originalFetch = globalThis.fetch;
   let unsubscribe: (() => void) | null = null;
 
+  beforeEach(() => {
+    vi.stubGlobal("window", globalThis);
+  });
+
   afterEach(() => {
     unsubscribe?.();
     unsubscribe = null;
     vi.useRealTimers();
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   function setFetchResponse(

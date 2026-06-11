@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../src/api/client";
 import { SyncEngine, type IndexPersistence } from "../../src/sync/engine";
 import type { LocalFileSnapshot, LocalIndex } from "../../src/sync/types";
@@ -51,6 +51,10 @@ function deferred(): {
 }
 
 describe("SyncEngine push", () => {
+  beforeEach(() => {
+    vi.stubGlobal("window", globalThis);
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();

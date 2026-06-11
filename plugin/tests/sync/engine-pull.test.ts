@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeVaultEvents, type SubscribeOptions } from "../../src/api/events-client";
 import {
   SyncEngine,
@@ -95,6 +95,11 @@ describe("SyncEngine pull", () => {
   beforeEach(() => {
     notices.length = 0;
     vi.mocked(subscribeVaultEvents).mockReset();
+    vi.stubGlobal("window", globalThis);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("uses conditional pull without a state preflight when the remote head is unchanged", async () => {

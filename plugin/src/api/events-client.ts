@@ -33,7 +33,7 @@ export function subscribeVaultEvents(opts: SubscribeOptions): () => void {
   let lastEmittedCommitId = "";
   let reconnectAttempt = 0;
 
-  (async () => {
+  void (async () => {
     while (!controller.signal.aborted) {
       try {
         const resp = await fetch(url, {
@@ -149,12 +149,12 @@ function reconnectDelayMs(attempt: number): number {
 function waitForReconnect(delayMs: number, signal: AbortSignal): Promise<boolean> {
   if (signal.aborted) return Promise.resolve(false);
   return new Promise((resolve) => {
-    const timer = globalThis.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       signal.removeEventListener("abort", onAbort);
       resolve(true);
     }, delayMs);
     const onAbort = () => {
-      globalThis.clearTimeout(timer);
+      window.clearTimeout(timer);
       resolve(false);
     };
     signal.addEventListener("abort", onAbort, { once: true });

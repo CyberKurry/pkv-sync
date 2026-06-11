@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeVaultEvents, type SubscribeOptions } from "../../src/api/events-client";
 import {
   SyncEngine,
@@ -45,6 +45,14 @@ async function flushMicrotasks(times = 5): Promise<void> {
 
 describe("SyncEngine serialization", () => {
   const subscribeVaultEventsMock = vi.mocked(subscribeVaultEvents);
+
+  beforeEach(() => {
+    vi.stubGlobal("window", globalThis);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   function baseEngineOptions(): SyncEngineOptions {
     return {

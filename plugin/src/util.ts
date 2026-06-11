@@ -9,7 +9,7 @@ export function extensionOf(path: string): string {
 }
 
 export function debugLog(...args: unknown[]): void {
-  const env = (globalThis as { process?: { env?: { NODE_ENV?: string } } })
+  const env = (window as { process?: { env?: { NODE_ENV?: string } } })
     .process?.env?.NODE_ENV;
   if (env === "development") {
     console.debug(...args);

@@ -135,7 +135,7 @@ function parseHunkHeader(
 }
 
 function stripDiffPrefix(line: string): string {
-  return /^[ +\-]/.test(line) ? line.slice(1) : line;
+  return /^[ +-]/.test(line) ? line.slice(1) : line;
 }
 
 const LINE_DIFF_MAX_LINES = 1000;

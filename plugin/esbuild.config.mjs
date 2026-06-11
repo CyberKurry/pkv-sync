@@ -1,6 +1,6 @@
 import esbuild from "esbuild";
 import process from "process";
-import builtins from "builtin-modules";
+import { builtinModules as builtins } from "node:module";
 import { readFileSync } from "fs";
 
 // Read version from package.json so the build artefact (main.js) carries the

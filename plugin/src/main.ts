@@ -222,7 +222,7 @@ export default class PKVSyncPlugin extends Plugin {
     this.scheduleUpdateChecks();
   }
 
-  async onunload(): Promise<void> {
+  onunload(): void {
     const engine = this.engine;
     this.pushDebouncer?.cancel();
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
@@ -232,16 +232,18 @@ export default class PKVSyncPlugin extends Plugin {
       window.clearInterval(this.updateIntervalTimer);
     }
     engine?.stopEventSubscription();
-    if (engine) {
-      try {
-        await engine.flushOnUnload(3000);
-      } catch (error) {
-        debugLog("[pkv-sync] final unload sync failed:", error);
+    void (async () => {
+      if (engine) {
+        try {
+          await engine.flushOnUnload(3000);
+        } catch (error) {
+          debugLog("[pkv-sync] final unload sync failed:", error);
+        }
       }
-    }
-    this.syncGeneration++;
-    this.engine = null;
-    this.statusEl = null;
+      this.syncGeneration++;
+      this.engine = null;
+      this.statusEl = null;
+    })();
   }
 
   api(): ApiClient {

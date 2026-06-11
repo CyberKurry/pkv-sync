@@ -321,7 +321,7 @@ export class ConflictResolveModal extends Modal {
       new Notice(this.labels.conflictAcceptedLocalNotice);
       this.close();
       this.onResolved();
-    } catch (error) {
+    } catch {
       new Notice(this.labels.conflictResolveFailed);
     }
   }
@@ -332,7 +332,7 @@ export class ConflictResolveModal extends Modal {
       new Notice(this.labels.conflictAcceptedRemoteNotice);
       this.close();
       this.onResolved();
-    } catch (error) {
+    } catch {
       new Notice(this.labels.conflictResolveFailed);
     }
   }
@@ -347,7 +347,7 @@ export class ConflictResolveModal extends Modal {
       new Notice(this.labels.conflictAcceptedRemoteNotice);
       this.close();
       this.onResolved();
-    } catch (error) {
+    } catch {
       new Notice(this.labels.conflictResolveFailed);
     }
   }

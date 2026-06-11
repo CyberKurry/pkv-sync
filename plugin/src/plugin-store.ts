@@ -7,7 +7,7 @@ export class SerializedPluginDataStore {
   ) {}
 
   async update(
-    updater: (data: unknown) => unknown | Promise<unknown>
+    updater: (data: unknown) => unknown
   ): Promise<void> {
     const run = this.writeChain.then(async () => {
       const current = await this.load();
