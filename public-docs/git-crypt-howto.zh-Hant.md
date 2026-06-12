@@ -2,7 +2,7 @@
 
 [English](./git-crypt-howto.md) | [简体中文](./git-crypt-howto.zh-CN.md) | 繁體中文 | [日本語](./git-crypt-howto.ja.md) | [한국어](./git-crypt-howto.ko.md)
 
-文件版本：v1.3.0。
+文件版本：v1.3.1。
 
 > **注意：** 這是原生端到端加密（E2EE）發布前的過渡方案。PKV Sync server 仍然可以看到檔名和 commit metadata。
 

@@ -2,7 +2,7 @@
 
 [English](./llm-wiki-howto.md) | [简体中文](./llm-wiki-howto.zh-CN.md) | [繁體中文](./llm-wiki-howto.zh-Hant.md) | [日本語](./llm-wiki-howto.ja.md) | 한국어
 
-문서 버전: v1.3.0.
+문서 버전: v1.3.1.
 
 이 문서는 기계 번역을 바탕으로 다듬은 한국어 문서입니다. 어색한 표현이나 의미가 모호한 부분이 있으면 영어 원문을 함께 확인하세요.
 

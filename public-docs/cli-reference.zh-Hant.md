@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | [简体中文](./cli-reference.zh-CN.md) | 繁體中文 | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
-文件版本：v1.3.0。
+文件版本：v1.3.1。
 
 `pkvsyncd` 是 PKV Sync 的伺服器常駐程式執行檔，提供 HTTP/WebSocket 同步 API、管理介面、MCP 伺服器，以及一小組維運用的子命令。
 
@@ -291,7 +291,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`：只顯示選中的 release、asset 與目標路徑，不實際下載。
 - `--yes`：略過互動確認提示。
-- `--version <VERSION>`：下載指定 release，例如 `1.3.0`，而非最新版本。
+- `--version <VERSION>`：下載指定 release，例如 `1.3.1`，而非最新版本。
 
 ### 說明
 
@@ -309,5 +309,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 下載指定 release
-pkvsyncd upgrade --yes --version 1.3.0
+pkvsyncd upgrade --yes --version 1.3.1
 ```
