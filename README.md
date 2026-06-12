@@ -8,7 +8,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.2.3.
+Document version: v1.3.0.
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -152,7 +152,7 @@ For real deployments, also run behind HTTPS, restrict
 
 ## Status
 
-PKV Sync 1.2.3 is the current stable patch release. It resolves the community directory's source-lint findings: platform detection now uses the Platform API, folder lookups stay within the declared minimum app version, and command IDs drop the redundant plugin prefix.
+PKV Sync 1.3.0 introduces true auto-merge via a push-first sync protocol: concurrent edits to different lines of the same file now merge automatically on both devices with zero conflict files. The client now never advances its head past an unseen merge commit, eliminating the silent data-loss bug. Sync internals have been modularized for maintainability.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together

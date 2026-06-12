@@ -2,7 +2,7 @@
 
 English | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
-Document version: v1.2.3.
+Document version: v1.3.0.
 
 This manual is for Obsidian users who connect to an existing PKV Sync server.
 Ask your server administrator for the server share URL and an account or invite
@@ -154,16 +154,21 @@ diff views require the server to be reachable.
 
 ## Conflict Files
 
-If two devices edit the same file offline, PKV Sync keeps both versions. The
-remote or local alternate version is saved as a generated conflict file:
+PKV Sync uses a push-first sync protocol with auto-merge. How concurrent
+edits are handled depends on the kind of overlap:
 
-```text
-note.md
-note.conflict-2026-04-25-143022-Desktop.md
-```
+- **Different lines, same file** — edits are auto-merged on both devices.
+  No conflict file is generated.
+- **Same line, same file** — one `.conflict-*` file is generated alongside
+  the original, containing the conflicting content with standard merge
+  markers.
+- **Delete vs. modify** — the file survives with the modification. The side
+  that deleted the file receives a conflict notification so it can decide
+  whether to re-delete or keep it.
 
-Generated conflict files are excluded from future sync. Review both files in
-Obsidian, merge the content you want to keep, then delete the conflict file.
+When a `.conflict-*` file is generated it is excluded from future sync.
+Review both files in Obsidian, merge the content you want to keep, then
+delete the conflict file.
 
 You can manage generated conflict files from:
 

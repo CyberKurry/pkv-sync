@@ -2,7 +2,7 @@
 
 [English](./admin-manual.md) | [简体中文](./admin-manual.zh-CN.md) | [繁體中文](./admin-manual.zh-Hant.md) | 日本語 | [한국어](./admin-manual.ko.md)
 
-ドキュメントバージョン: v1.2.3。
+ドキュメントバージョン: v1.3.0。
 
 この文書は機械翻訳による初版です。公開前にネイティブ話者によるレビューを推奨します。
 

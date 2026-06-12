@@ -5,7 +5,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.2.3。
+文档版本：v1.3.0。
 
 [English](./README.md) | 简体中文 | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -101,7 +101,7 @@ PKV Sync 1.0 **暂不**提供原生端到端加密——服务端能读到笔记
 
 ## 状态
 
-PKV Sync 1.2.3 是当前的稳定补丁版本。本版解决了社区目录的源码 lint 发现项：平台检测改用 Platform API，文件夹查找保持在声明的最低应用版本范围内，命令 ID 去掉了多余的插件前缀。
+PKV Sync 1.3.0 通过推优先（push-first）同步协议引入了真正的自动合并：对同一文件不同行的并发编辑现在会在两台设备上自动合并，不产生任何冲突文件。客户端现在不会将自身的 head 推进到尚未见过的合并提交之后，从而消除了静默数据丢失的缺陷。同步内部逻辑已模块化重构，以提升可维护性。
 
 PKV Sync 1.0 是第一个稳定版。公开 REST API、CLI、存储布局、插件包、Docker 镜像作为一组同步发版，遵循 semver：1.X.Y 在公开表面保持向后兼容，OpenAPI 规范是这个兼容契约的权威来源。0.x 创建的 SQLite 库**不支持**就地升级到 1.0.0——请按 [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md)操作。
 

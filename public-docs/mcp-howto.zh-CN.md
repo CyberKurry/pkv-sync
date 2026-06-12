@@ -2,7 +2,7 @@
 
 [English](./mcp-howto.md) | 简体中文 | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
-文档版本：v1.2.3。
+文档版本：v1.3.0。
 
 PKV Sync 可以通过 MCP server 暴露笔记库内容。服务端在返回文件内容前会解析 blob pointer，可以通过显式读写工具写入文件，并且要求使用普通的 PKV Sync bearer 设备 token。
 
