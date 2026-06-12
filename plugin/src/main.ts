@@ -31,9 +31,9 @@ import {
   deleteConflictFiles,
   findConflictPairsForPath,
   findConflictPairsForPathWithKinds,
-  type ConflictPair,
-  listConflictFiles
+  type ConflictPair
 } from "./sync/conflict-files";
+import { registerCommands } from "./commands";
 import type { LocalIndex } from "./sync/types";
 import { ObsidianVaultAdapter, shouldSyncPath } from "./sync/vault-adapter";
 import { restoreFileToCommit } from "./sync/restore";
@@ -62,7 +62,7 @@ import { debugLog, errorToMessage, extensionOf } from "./util";
 export default class PKVSyncPlugin extends Plugin {
   settings: PKVSyncSettings = DEFAULT_SETTINGS;
   availableUpdate: PluginUpdateStatus | null = null;
-  private statusEl: HTMLElement | null = null;
+  statusEl: HTMLElement | null = null;
   private client: ApiClient | null = null;
   private historyClient: HistoryApi | null = null;
   private updateServiceCache: {
@@ -112,111 +112,7 @@ export default class PKVSyncPlugin extends Plugin {
     this.updateStatus();
     this.addSettingTab(new PKVSyncSettingTab(this.app, this));
     this.registerVaultWatchers();
-    this.addCommand({
-      id: "show-status",
-      name: t.showStatusCommand,
-      callback: () =>
-        new Notice(
-          isLoggedIn(this.settings)
-            ? t.noticeConnected
-            : t.noticeNotConfigured
-        )
-    });
-    this.addCommand({
-      id: "refresh-account",
-      name: t.refreshAccountCommand,
-      callback: async () => {
-        try {
-          const me = await this.api().me();
-          this.settings.username = me.username;
-          this.settings.userId = me.user_id;
-          await this.saveSettings();
-          new Notice(format(t.refreshedVaults, { count: me.vaults.length }));
-        } catch (error) {
-          new Notice(errorToMessage(error));
-          this.statusEl?.setText(statusText("error", t.refreshFailed, t));
-        }
-      }
-    });
-    this.addCommand({
-      id: "manual-sync",
-      name: t.manualSyncCommand,
-      callback: () => void this.syncNowManual()
-    });
-    this.addCommand({
-      id: "check-for-updates",
-      name: t.checkForPluginUpdatesCommand,
-      callback: () => void this.checkForPluginUpdates(true)
-    });
-    this.addCommand({
-      id: "migrate-from-obsidian-sync",
-      name: t.migrateCommand,
-      callback: () => void this.openMigrationModal()
-    });
-    this.addCommand({
-      id: "view-status",
-      name: t.viewSyncStatusCommand,
-      callback: () => {
-        const current = this.text();
-        new SyncStatusModal(
-          this.app,
-          current.syncStatusTitle,
-          format(current.syncStatusDetails, {
-            server: this.settings.serverUrl,
-            vault: this.settings.selectedVaultName || current.noneValue,
-            user: this.settings.username || current.notLoggedInValue,
-            lastSync:
-              formatUnixSeconds(
-                this.settings.lastSyncSuccessAt,
-                this.settings.timezone
-              ) || current.neverSynced
-          })
-        ).open();
-      }
-    });
-    this.addCommand({
-      id: "list-conflicts",
-      name: t.listConflictsCommand,
-      callback: () => {
-        const current = this.text();
-        const conflicts = listConflictFiles(this.app.vault);
-        new SyncStatusModal(
-          this.app,
-          current.syncStatusTitle,
-          conflicts.length
-            ? conflicts.map((file) => file.path).join("\n")
-            : current.noConflictFiles
-        ).open();
-      }
-    });
-    this.addCommand({
-      id: "delete-conflicts",
-      name: t.deleteConflictsCommand,
-      callback: () => void this.deleteConflictFiles()
-    });
-    this.addCommand({
-      id: "resolve-conflicts",
-      name: t.resolveConflictsCommand,
-      callback: () => this.openConflictsList()
-    });
-    this.addCommand({
-      id: "show-file-history",
-      name: t.showFileHistoryCommand,
-      checkCallback: (checking) => {
-        if (!this.historyEnabled()) return false;
-        if (!checking) void this.openHistoryForActive();
-        return true;
-      }
-    });
-    this.addCommand({
-      id: "show-vault-history",
-      name: t.showVaultHistoryCommand,
-      checkCallback: (checking) => {
-        if (!this.historyEnabled()) return false;
-        if (!checking) void this.openVaultHistory();
-        return true;
-      }
-    });
+    registerCommands(this, t);
     this.registerHistoryFileMenu();
     this.rebuildSyncEngine();
     this.scheduleUpdateChecks();
@@ -607,7 +503,7 @@ export default class PKVSyncPlugin extends Plugin {
     );
   }
 
-  private openConflictsList(
+  openConflictsList(
     pairsProvider?: () => ConflictPair[] | Promise<ConflictPair[]>
   ): void {
     const openList = (): void => {
@@ -648,7 +544,7 @@ export default class PKVSyncPlugin extends Plugin {
     this.openConflictsList(pairsProvider);
   }
 
-  private historyEnabled(): boolean {
+  historyEnabled(): boolean {
     return historyUiAvailable(this.settings, this.serverCapabilities);
   }
 
@@ -656,7 +552,7 @@ export default class PKVSyncPlugin extends Plugin {
     return this.historyEnabled() && (this.serverCapabilities?.diff ?? true);
   }
 
-  private async openHistoryForActive(): Promise<void> {
+  async openHistoryForActive(): Promise<void> {
     const file = this.app.workspace.getActiveFile();
     if (!(file instanceof TFile)) {
       new Notice(this.text().historyDisabled);
@@ -712,7 +608,7 @@ export default class PKVSyncPlugin extends Plugin {
     }).open();
   }
 
-  private async openVaultHistory(): Promise<void> {
+  async openVaultHistory(): Promise<void> {
     const t = this.text();
     if (!this.historyEnabled()) {
       new Notice(t.historyDisabled);
@@ -952,7 +848,7 @@ export default class PKVSyncPlugin extends Plugin {
     }
   }
 
-  private async openMigrationModal(): Promise<void> {
+  async openMigrationModal(): Promise<void> {
     const t = this.text();
     if (!isLoggedIn(this.settings)) {
       new Notice(t.noticeNotConfigured);
