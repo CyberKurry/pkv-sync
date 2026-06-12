@@ -49,6 +49,7 @@ import { ConflictsListModal } from "./ui/conflicts-list-modal";
 import { ConflictResolveModal } from "./ui/conflict-resolve-modal";
 import { MigrateModal } from "./ui/migrate-modal";
 import { statusText } from "./ui/status";
+import { SyncStatusBar } from "./ui/status-bar";
 import { formatRelativeUnixSeconds, formatUnixSeconds } from "./time";
 import { SerializedPluginDataStore } from "./plugin-store";
 import {
@@ -62,7 +63,7 @@ import { debugLog, errorToMessage, extensionOf } from "./util";
 export default class PKVSyncPlugin extends Plugin {
   settings: PKVSyncSettings = DEFAULT_SETTINGS;
   availableUpdate: PluginUpdateStatus | null = null;
-  statusEl: HTMLElement | null = null;
+  statusEl: SyncStatusBar | null = null;
   private client: ApiClient | null = null;
   private historyClient: HistoryApi | null = null;
   private updateServiceCache: {
@@ -108,7 +109,11 @@ export default class PKVSyncPlugin extends Plugin {
       await this.saveSettings({ rebuild: false });
     }
     void this.refreshServerCapabilities();
-    this.statusEl = this.addStatusBarItem();
+    this.statusEl = new SyncStatusBar(
+      this.addStatusBarItem(),
+      () => this.settings,
+      () => this.text()
+    );
     this.updateStatus();
     this.addSettingTab(new PKVSyncSettingTab(this.app, this));
     this.registerVaultWatchers();
@@ -266,12 +271,7 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   updateStatus(): void {
-    const t = this.text();
-    this.statusEl?.setText(
-      isLoggedIn(this.settings)
-        ? statusText("connected", "", t)
-        : statusText("not_configured", "", t)
-    );
+    this.statusEl?.update();
   }
 
   private defaultDeviceName(): string {
