@@ -7,6 +7,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-06-12
+
+### Changed
+
+- Redesigned diff rendering (GitHub-style split view with word-level
+  highlights) and file history layout (primary action + overflow menu).
+
 ## [1.3.0] - 2026-06-12
 
 ### Added
