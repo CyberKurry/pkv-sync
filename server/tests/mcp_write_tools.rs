@@ -1220,3 +1220,83 @@ async fn write_and_delete_record_mcp_activity_actions() {
     assert_eq!(rows[1].1, delete_commit);
     assert!(rows[1].2.contains("\"path\":\"note.md\""));
 }
+
+// --- Task 5: StrictCas regression guards ---
+
+#[tokio::test]
+async fn write_file_never_auto_merges_even_when_enabled() {
+    // MCP write_file with stale parent_commit must always Conflict (StrictCas),
+    // never trigger auto-merge, regardless of enable_auto_merge setting.
+    let (state, _tmp) = test_state().await;
+    // Explicitly ensure auto-merge is on (default).
+    state
+        .runtime_cfg_repo
+        .set_enable_auto_merge(true, None)
+        .await
+        .unwrap();
+    state
+        .runtime_cfg
+        .replace(state.runtime_cfg_repo.load().await.unwrap())
+        .await;
+    let (user, raw) = create_user_with_token(&state, "mcp-strict-cas").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let first = seed_text(&state, &user, &vault.id, None, "note.md", "one").await;
+    let current = seed_text(&state, &user, &vault.id, Some(&first), "note.md", "two").await;
+
+    let body = post_tool(
+        state,
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "note.md",
+            "content": "stale write",
+            "parent_commit": first
+        }),
+    )
+    .await;
+
+    // Must be Conflict, NOT a successful merge.
+    assert_eq!(structured(&body)["conflict"], true);
+    assert_eq!(structured(&body)["current_head"], current);
+    // Verify no commit was produced.
+    assert!(structured(&body)["commit"].is_null());
+}
+
+#[tokio::test]
+async fn write_files_never_auto_merges_even_when_enabled() {
+    // Same guard for write_files batch.
+    let (state, _tmp) = test_state().await;
+    state
+        .runtime_cfg_repo
+        .set_enable_auto_merge(true, None)
+        .await
+        .unwrap();
+    state
+        .runtime_cfg
+        .replace(state.runtime_cfg_repo.load().await.unwrap())
+        .await;
+    let (user, raw) = create_user_with_token(&state, "mcp-strict-cas-batch").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let first = seed_text(&state, &user, &vault.id, None, "note.md", "one").await;
+    let current = seed_text(&state, &user, &vault.id, Some(&first), "note.md", "two").await;
+
+    let body = post_tool(
+        state,
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": first,
+            "writes": [
+                { "path": "note.md", "content": "stale batch" },
+                { "path": "new.md", "content": "brand new" }
+            ]
+        }),
+    )
+    .await;
+
+    assert_eq!(structured(&body)["conflict"], true);
+    assert_eq!(structured(&body)["current_head"], current);
+    assert!(structured(&body)["commit"].is_null());
+}
