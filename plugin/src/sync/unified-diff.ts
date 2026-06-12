@@ -244,3 +244,145 @@ export function lineDiffSideBySide(
 
   return { rows, truncated };
 }
+
+export interface DiffSegment {
+  text: string;
+  changed: boolean;
+}
+
+const WORD_DIFF_CHANGE_RATIO_GUARD = 0.7;
+
+function tokenizeForWordDiff(line: string): string[] {
+  const tokens: string[] = [];
+  const re =
+    /([A-Za-z0-9_]+)|([\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af])|(\s+)|(.)/gu;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(line)) !== null) {
+    tokens.push(match[0]);
+  }
+  return tokens;
+}
+
+function mergeSegments(parts: DiffSegment[]): DiffSegment[] {
+  const out: DiffSegment[] = [];
+  for (const part of parts) {
+    const last = out[out.length - 1];
+    if (last && last.changed === part.changed) {
+      last.text += part.text;
+    } else {
+      out.push({ ...part });
+    }
+  }
+  return out;
+}
+
+function normalizeWordDiffWhitespace(parts: DiffSegment[]): DiffSegment[] {
+  const normalized = parts.map((part) => ({ ...part }));
+  for (let index = 1; index < normalized.length - 1; index += 1) {
+    const part = normalized[index];
+    if (
+      !part.changed &&
+      part.text.trim().length === 0 &&
+      normalized[index - 1]?.changed &&
+      normalized[index + 1]?.changed
+    ) {
+      part.changed = true;
+    }
+  }
+
+  const merged = mergeSegments(normalized);
+  for (let index = 1; index < merged.length; index += 1) {
+    const part = merged[index];
+    const previous = merged[index - 1];
+    if (!part.changed || !previous || previous.changed) continue;
+    const leadingWhitespace = /^\s+/.exec(part.text)?.[0] ?? "";
+    if (!leadingWhitespace || leadingWhitespace.length === part.text.length) {
+      continue;
+    }
+    previous.text += leadingWhitespace;
+    part.text = part.text.slice(leadingWhitespace.length);
+  }
+  return merged.filter((part) => part.text.length > 0);
+}
+
+export function wordDiff(
+  left: string,
+  right: string
+): { leftSegments: DiffSegment[]; rightSegments: DiffSegment[] } {
+  if (left === right) {
+    const same: DiffSegment[] = left ? [{ text: left, changed: false }] : [];
+    return {
+      leftSegments: same.map((segment) => ({ ...segment })),
+      rightSegments: same.map((segment) => ({ ...segment }))
+    };
+  }
+
+  const a = tokenizeForWordDiff(left);
+  const b = tokenizeForWordDiff(right);
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = [];
+  for (let i = 0; i <= m; i += 1) {
+    dp.push(new Array(n + 1).fill(0));
+  }
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1] + 1
+          : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  const leftRev: DiffSegment[] = [];
+  const rightRev: DiffSegment[] = [];
+  let i = m;
+  let j = n;
+  while (i > 0 && j > 0) {
+    if (a[i - 1] === b[j - 1]) {
+      leftRev.push({ text: a[i - 1], changed: false });
+      rightRev.push({ text: b[j - 1], changed: false });
+      i -= 1;
+      j -= 1;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      leftRev.push({ text: a[i - 1], changed: true });
+      i -= 1;
+    } else {
+      rightRev.push({ text: b[j - 1], changed: true });
+      j -= 1;
+    }
+  }
+  while (i > 0) {
+    leftRev.push({ text: a[i - 1], changed: true });
+    i -= 1;
+  }
+  while (j > 0) {
+    rightRev.push({ text: b[j - 1], changed: true });
+    j -= 1;
+  }
+
+  const leftParts = leftRev.reverse();
+  const rightParts = rightRev.reverse();
+  const changedRatio = (parts: DiffSegment[]): number => {
+    const contentParts = parts.filter((part) => part.text.trim().length > 0);
+    if (contentParts.length === 0) return 0;
+    return (
+      contentParts.filter((part) => part.changed).length / contentParts.length
+    );
+  };
+
+  if (
+    changedRatio(leftParts) > WORD_DIFF_CHANGE_RATIO_GUARD ||
+    changedRatio(rightParts) > WORD_DIFF_CHANGE_RATIO_GUARD
+  ) {
+    return {
+      leftSegments: left ? [{ text: left, changed: true }] : [],
+      rightSegments: right ? [{ text: right, changed: true }] : []
+    };
+  }
+
+  return {
+    leftSegments: normalizeWordDiffWhitespace(leftParts),
+    rightSegments: normalizeWordDiffWhitespace(rightParts)
+  };
+}
