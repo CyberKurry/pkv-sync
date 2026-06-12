@@ -28,9 +28,18 @@ export type PushChange =
   | { kind: "blob"; path: string; blob_hash: string; size: number; mime?: string }
   | { kind: "delete"; path: string };
 
+export type MergeOutcomeKind = "clean" | "merged" | "conflict";
+
+export interface MergeOutcomeEntry {
+  path: string;
+  outcome: MergeOutcomeKind;
+  conflict_path?: string | null;
+}
+
 export interface PushResponse {
   new_commit: string;
   files_changed: number;
+  merge_outcomes?: MergeOutcomeEntry[];
 }
 
 export interface PullFile {
