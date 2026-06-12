@@ -1272,6 +1272,17 @@ body.theme-dark .pkvsync-diff-del .pkvsync-diff-word-changed {
   background: rgba(155, 52, 52, 0.1);
 }
 
+.pkvsync-button.is-primary {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.pkvsync-button.is-primary:hover {
+  background: var(--interactive-accent-hover);
+  border-color: var(--interactive-accent-hover);
+}
+
 .pkvsync-button.is-secondary {
   /* default look */
 }
@@ -1398,7 +1409,8 @@ body.theme-dark .pkvsync-diff-del .pkvsync-diff-word-changed {
   flex: 1;
   font-family: var(--font-monospace);
   font-size: 12px;
-  color: var(--text-normal);
+  color: var(--text-muted);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }

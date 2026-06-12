@@ -75,6 +75,11 @@ export class ConflictResolveModal extends Modal {
     this.contentEl.createEl("h2", {
       text: this.labels.conflictResolveTitle
     });
+    const pathEl = this.contentEl.createDiv({
+      cls: "pkvsync-conflict-path",
+      text: this.pair.originalPath
+    });
+    pathEl.setAttr("title", this.pair.originalPath);
     this.contentEl.createDiv({
       cls: "pkvsync-conflict-resolve-body",
       text: format(this.labels.conflictResolveBody, {
@@ -266,13 +271,13 @@ export class ConflictResolveModal extends Modal {
     });
 
     const localBtn = actions.createEl("button", {
-      cls: "pkvsync-button is-secondary",
+      cls: "pkvsync-button is-primary",
       text: this.labels.acceptLocalButton
     });
     localBtn.addEventListener("click", () => void this.handleAcceptLocal());
 
     const remoteBtn = actions.createEl("button", {
-      cls: "pkvsync-button is-danger",
+      cls: "pkvsync-button is-primary",
       text: this.labels.acceptRemoteButton
     });
     remoteBtn.addEventListener("click", () => void this.handleAcceptRemote());
@@ -290,13 +295,13 @@ export class ConflictResolveModal extends Modal {
     });
 
     const openBtn = actions.createEl("button", {
-      cls: "pkvsync-button is-secondary",
+      cls: "pkvsync-button is-primary",
       text: this.labels.openInEditor
     });
     openBtn.addEventListener("click", () => void this.handleOpenInEditor());
 
     const markResolvedBtn = actions.createEl("button", {
-      cls: "pkvsync-button is-danger",
+      cls: "pkvsync-button is-primary",
       text: this.labels.markResolved
     });
     markResolvedBtn.addEventListener(
