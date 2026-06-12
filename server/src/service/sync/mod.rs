@@ -88,10 +88,28 @@ pub struct PushReq {
     pub device_name: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MergeOutcomeEntry {
+    pub path: String,
+    pub outcome: MergeOutcomeKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflict_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeOutcomeKind {
+    Clean,
+    Merged,
+    Conflict,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PushResp {
     pub new_commit: String,
     pub files_changed: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge_outcomes: Option<Vec<MergeOutcomeEntry>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -129,6 +147,7 @@ struct CommitPushInput<'a> {
     idempotency_key: Option<&'a str>,
     request_hash: Option<&'a str>,
     request_metadata: RequestMetadata<'a>,
+    merge_outcomes: Option<Vec<MergeOutcomeEntry>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -205,8 +224,9 @@ mod surface_guard {
         path_visible_on_read, pull, pull_with_request_metadata, push, push_with_cas,
         push_with_request_metadata, read_file, reconcile_vault_metadata,
         reconcile_vault_metadata_unlocked, record_view, state, upload_blob, upload_check,
-        vault_path_filter, CasConflict, PullFile, PullResp, PushChange, PushReq, PushResp,
-        ReconcileReport, RequestMetadata, StateResp, UploadCheckReq, UploadCheckResp,
+        vault_path_filter, CasConflict, MergeOutcomeEntry, MergeOutcomeKind, PullFile, PullResp,
+        PushChange, PushReq, PushResp, ReconcileReport, RequestMetadata, StateResp, UploadCheckReq,
+        UploadCheckResp,
     };
 
     #[test]

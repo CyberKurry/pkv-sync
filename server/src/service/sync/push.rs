@@ -419,6 +419,7 @@ async fn push_with_request_metadata_internal(
         idempotency_key,
         request_hash: request_hash.as_deref(),
         request_metadata,
+        merge_outcomes: None,
     })
     .await?;
     Ok(PushApplyOutcome::Applied(resp))
@@ -487,6 +488,7 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
     let resp = PushResp {
         new_commit: new_commit.clone(),
         files_changed: prepared.git_changes.len(),
+        merge_outcomes: input.merge_outcomes,
     };
     if let Err(err) = record_push_metadata(PushMetadataInput {
         state,

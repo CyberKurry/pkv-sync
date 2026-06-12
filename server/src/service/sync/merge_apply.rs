@@ -1,5 +1,7 @@
 use crate::api::error::ApiError;
+use crate::db::repos::{BlobRefRepo, BlobUploadRepo};
 use crate::service::merge::MergeOutcome;
+use crate::storage::blob::BlobStore;
 use crate::storage::git::{FileChange, Git2VaultStore, GitStoreError, GitVaultStore, StoredFile};
 use crate::storage::path;
 
@@ -8,7 +10,10 @@ use super::paths::{
     ensure_generated_push_path, generated_push_path_is_valid, reject_filtered_push_path,
 };
 use super::push::commit_prepared_push;
-use super::{AutoMergePushInput, CommitPushInput, PreparedPush, PushChange, PushReq, PushResp};
+use super::{
+    AutoMergePushInput, CommitPushInput, MergeOutcomeEntry, MergeOutcomeKind, PreparedPush,
+    PushChange, PushReq, PushResp,
+};
 
 pub(super) async fn try_auto_merge_push(
     input: AutoMergePushInput<'_>,
@@ -18,6 +23,8 @@ pub(super) async fn try_auto_merge_push(
     let mut inline_budget = SseInlineBudget::new(inline_max);
     let mut git_changes = Vec::new();
     let mut event_changes = Vec::new();
+    let mut merge_outcomes = Vec::new();
+    let mut blob_hashes = Vec::new();
     let mut clean_merges = 0;
     let mut conflict_merges = 0;
     let PushReq {
@@ -27,96 +34,345 @@ pub(super) async fn try_auto_merge_push(
     let conflict_device_name = device_name.as_deref().unwrap_or(&input.user.username);
 
     for change in changes {
-        let PushChange::Text { path, content } = change else {
-            return Ok(None);
-        };
+        match change {
+            PushChange::Text { path, content } => {
+                let normalized = path::normalize(&path)
+                    .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
+                reject_filtered_push_path(input.path_filter, &normalized)?;
+                if content.len() as u64 > input.runtime_cfg.max_file_size {
+                    return Err(ApiError::bad_request(
+                        "file_too_large",
+                        format!(
+                            "file exceeds max_file_size of {} bytes",
+                            input.runtime_cfg.max_file_size
+                        ),
+                    ));
+                }
+                if !input.classifier.is_text_path(&normalized) {
+                    return Err(ApiError::bad_request(
+                        "wrong_file_kind",
+                        "non-text path sent as text",
+                    ));
+                }
 
-        let normalized = path::normalize(&path)
-            .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
-        reject_filtered_push_path(input.path_filter, &normalized)?;
-        if content.len() as u64 > input.runtime_cfg.max_file_size {
-            return Err(ApiError::bad_request(
-                "file_too_large",
-                format!(
-                    "file exceeds max_file_size of {} bytes",
-                    input.runtime_cfg.max_file_size
-                ),
-            ));
-        }
-        if !input.classifier.is_text_path(&normalized) {
-            return Err(ApiError::bad_request(
-                "wrong_file_kind",
-                "non-text path sent as text",
-            ));
-        }
+                let Some(base_bytes) =
+                    read_merge_text(&git, input.vault_id, &normalized, input.base_commit).await?
+                else {
+                    return Ok(None);
+                };
+                let Some(remote_bytes) =
+                    read_merge_text(&git, input.vault_id, &normalized, input.current_head).await?
+                else {
+                    return Ok(None);
+                };
 
-        let Some(base_bytes) =
-            read_merge_text(&git, input.vault_id, &normalized, input.base_commit).await?
-        else {
-            return Ok(None);
-        };
-        let Some(remote_bytes) =
-            read_merge_text(&git, input.vault_id, &normalized, input.current_head).await?
-        else {
-            return Ok(None);
-        };
-
-        match crate::service::merge::three_way_merge_bytes(
-            &base_bytes,
-            content.as_bytes(),
-            &remote_bytes,
-        ) {
-            MergeOutcome::Clean(merged) => {
-                event_changes.push(text_event_with_budget(
-                    &normalized,
-                    &merged,
-                    &mut inline_budget,
-                ));
-                git_changes.push(FileChange::Upsert {
-                    path: normalized,
-                    file: StoredFile::Text {
-                        bytes: merged.into_bytes(),
-                    },
-                });
-                clean_merges += 1;
+                match crate::service::merge::three_way_merge_bytes(
+                    &base_bytes,
+                    content.as_bytes(),
+                    &remote_bytes,
+                ) {
+                    MergeOutcome::Clean(merged) => {
+                        event_changes.push(text_event_with_budget(
+                            &normalized,
+                            &merged,
+                            &mut inline_budget,
+                        ));
+                        git_changes.push(FileChange::Upsert {
+                            path: normalized.clone(),
+                            file: StoredFile::Text {
+                                bytes: merged.into_bytes(),
+                            },
+                        });
+                        merge_outcomes.push(MergeOutcomeEntry {
+                            path: normalized,
+                            outcome: MergeOutcomeKind::Merged,
+                            conflict_path: None,
+                        });
+                        clean_merges += 1;
+                    }
+                    MergeOutcome::Conflicted(marked) => {
+                        let cp = conflict_path_for(&normalized, conflict_device_name);
+                        ensure_generated_push_path(&cp)?;
+                        event_changes.push(text_event_with_budget(
+                            &cp,
+                            &marked,
+                            &mut inline_budget,
+                        ));
+                        git_changes.push(FileChange::Upsert {
+                            path: cp.clone(),
+                            file: StoredFile::Text {
+                                bytes: marked.into_bytes(),
+                            },
+                        });
+                        merge_outcomes.push(MergeOutcomeEntry {
+                            path: normalized,
+                            outcome: MergeOutcomeKind::Conflict,
+                            conflict_path: Some(cp),
+                        });
+                        conflict_merges += 1;
+                    }
+                    MergeOutcome::Binary => {
+                        let cp = conflict_path_for(&normalized, conflict_device_name);
+                        ensure_generated_push_path(&cp)?;
+                        event_changes.push(text_event_with_budget(
+                            &cp,
+                            &content,
+                            &mut inline_budget,
+                        ));
+                        git_changes.push(FileChange::Upsert {
+                            path: cp.clone(),
+                            file: StoredFile::Text {
+                                bytes: content.into_bytes(),
+                            },
+                        });
+                        merge_outcomes.push(MergeOutcomeEntry {
+                            path: normalized,
+                            outcome: MergeOutcomeKind::Conflict,
+                            conflict_path: Some(cp),
+                        });
+                        conflict_merges += 1;
+                    }
+                }
             }
-            MergeOutcome::Conflicted(marked) => {
-                let conflict_path = conflict_path_for(&normalized, conflict_device_name);
-                ensure_generated_push_path(&conflict_path)?;
-                event_changes.push(text_event_with_budget(
-                    &conflict_path,
-                    &marked,
-                    &mut inline_budget,
-                ));
-                git_changes.push(FileChange::Upsert {
-                    path: conflict_path,
-                    file: StoredFile::Text {
-                        bytes: marked.into_bytes(),
-                    },
-                });
-                conflict_merges += 1;
+            PushChange::Delete { path } => {
+                let normalized = path::normalize(&path)
+                    .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
+                reject_filtered_push_path(input.path_filter, &normalized)?;
+
+                // Compare the file at base_commit vs current_head.
+                let base_file = git
+                    .read_file(input.vault_id, &normalized, Some(input.base_commit))
+                    .await
+                    .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?;
+                let head_file = git
+                    .read_file(input.vault_id, &normalized, Some(input.current_head))
+                    .await
+                    .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?;
+
+                match (base_file.as_ref(), head_file.as_ref()) {
+                    // Both absent or same content at base and head → delete is clean.
+                    (None, None) => {
+                        merge_outcomes.push(MergeOutcomeEntry {
+                            path: normalized,
+                            outcome: MergeOutcomeKind::Clean,
+                            conflict_path: None,
+                        });
+                        clean_merges += 1;
+                    }
+                    // File existed at base but gone at head: remote already deleted it.
+                    (Some(_), None) => {
+                        merge_outcomes.push(MergeOutcomeEntry {
+                            path: normalized,
+                            outcome: MergeOutcomeKind::Clean,
+                            conflict_path: None,
+                        });
+                        clean_merges += 1;
+                    }
+                    // File absent at base but present at head: the file was added by
+                    // remote. Report conflict because the user's intent to ensure the
+                    // file is gone cannot be honored.
+                    (None, Some(_)) => {
+                        merge_outcomes.push(MergeOutcomeEntry {
+                            path: normalized,
+                            outcome: MergeOutcomeKind::Conflict,
+                            conflict_path: None,
+                        });
+                        conflict_merges += 1;
+                    }
+                    // Both present: check if remote modified it.
+                    (Some(base_stored), Some(head_stored)) => {
+                        let base_bytes = stored_to_bytes(base_stored);
+                        let head_bytes = stored_to_bytes(head_stored);
+                        if base_bytes == head_bytes {
+                            // Remote didn't change it → emit the delete.
+                            event_changes.push(crate::service::events::EventChange::Delete {
+                                path: normalized.clone(),
+                            });
+                            git_changes.push(FileChange::Delete {
+                                path: normalized.clone(),
+                            });
+                            merge_outcomes.push(MergeOutcomeEntry {
+                                path: normalized,
+                                outcome: MergeOutcomeKind::Clean,
+                                conflict_path: None,
+                            });
+                            clean_merges += 1;
+                        } else {
+                            // Remote modified it → drop the delete, report conflict.
+                            merge_outcomes.push(MergeOutcomeEntry {
+                                path: normalized,
+                                outcome: MergeOutcomeKind::Conflict,
+                                conflict_path: None,
+                            });
+                            conflict_merges += 1;
+                        }
+                    }
+                }
             }
-            MergeOutcome::Binary => {
-                let conflict_path = conflict_path_for(&normalized, conflict_device_name);
-                ensure_generated_push_path(&conflict_path)?;
-                event_changes.push(text_event_with_budget(
-                    &conflict_path,
-                    &content,
-                    &mut inline_budget,
-                ));
-                git_changes.push(FileChange::Upsert {
-                    path: conflict_path,
-                    file: StoredFile::Text {
-                        bytes: content.into_bytes(),
-                    },
-                });
-                conflict_merges += 1;
+            PushChange::Blob {
+                path,
+                blob_hash,
+                size,
+                mime,
+            } => {
+                let normalized = path::normalize(&path)
+                    .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
+                reject_filtered_push_path(input.path_filter, &normalized)?;
+                if size > input.runtime_cfg.max_file_size {
+                    return Err(ApiError::bad_request(
+                        "file_too_large",
+                        format!(
+                            "file exceeds max_file_size of {} bytes",
+                            input.runtime_cfg.max_file_size
+                        ),
+                    ));
+                }
+                if !crate::storage::blob::is_sha256_hex(&blob_hash) {
+                    return Err(ApiError::bad_request("invalid_hash", "invalid hash"));
+                }
+
+                // Check blob availability — same logic as fast path.
+                let referenced = input
+                    .state
+                    .blob_refs
+                    .referenced_hashes_for_vault(input.vault_id, std::slice::from_ref(&blob_hash))
+                    .await
+                    .map_err(|e| ApiError::internal(e.to_string()))?;
+                let uploaded = input
+                    .state
+                    .blob_uploads
+                    .uploaded_hashes_for_vault(input.vault_id, std::slice::from_ref(&blob_hash))
+                    .await
+                    .map_err(|e| ApiError::internal(e.to_string()))?;
+                if !referenced.contains(&blob_hash) && !uploaded.contains(&blob_hash) {
+                    return Err(ApiError::bad_request(
+                        "missing_blob",
+                        format!("blob {blob_hash} not uploaded for this vault"),
+                    ));
+                }
+                let store = input.state.blob_store();
+                let actual_size = match store
+                    .size_bytes(&blob_hash)
+                    .await
+                    .map_err(|e| ApiError::bad_request("invalid_hash", e.to_string()))?
+                {
+                    Some(s) => s,
+                    None => {
+                        return Err(ApiError::bad_request(
+                            "missing_blob",
+                            format!("blob {blob_hash} not uploaded"),
+                        ))
+                    }
+                };
+                if actual_size != size {
+                    return Err(ApiError::bad_request(
+                        "blob_size_mismatch",
+                        format!(
+                            "declared size {size} does not match uploaded blob size {actual_size}"
+                        ),
+                    ));
+                }
+
+                // Compare base-tree vs head-tree at the blob's path.
+                let base_file = git
+                    .read_file(input.vault_id, &normalized, Some(input.base_commit))
+                    .await
+                    .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?;
+                let head_file = git
+                    .read_file(input.vault_id, &normalized, Some(input.current_head))
+                    .await
+                    .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?;
+
+                let head_changed = match (base_file.as_ref(), head_file.as_ref()) {
+                    // Both absent at this path → remote didn't change it.
+                    (None, None) => false,
+                    // Existed at base but gone at head → remote changed it.
+                    (Some(_), None) => true,
+                    // Added by remote → remote changed it.
+                    (None, Some(_)) => true,
+                    // Both present → compare bytes.
+                    (Some(base_stored), Some(head_stored)) => {
+                        stored_to_bytes(base_stored) != stored_to_bytes(head_stored)
+                    }
+                };
+
+                if !head_changed {
+                    // Remote didn't touch this path → adopt the blob.
+                    blob_hashes.push(blob_hash.clone());
+                    event_changes.push(crate::service::events::EventChange::Blob {
+                        path: normalized.clone(),
+                        blob_hash: blob_hash.clone(),
+                        size,
+                    });
+                    git_changes.push(FileChange::Upsert {
+                        path: normalized.clone(),
+                        file: StoredFile::BlobPointer {
+                            hash: blob_hash,
+                            size,
+                            mime,
+                        },
+                    });
+                    merge_outcomes.push(MergeOutcomeEntry {
+                        path: normalized,
+                        outcome: MergeOutcomeKind::Clean,
+                        conflict_path: None,
+                    });
+                    clean_merges += 1;
+                } else {
+                    // Remote modified this path → keep remote at original path;
+                    // write local blob to a conflict sidecar path.
+                    let cp = conflict_path_for(&normalized, conflict_device_name);
+                    ensure_generated_push_path(&cp)?;
+                    blob_hashes.push(blob_hash.clone());
+                    event_changes.push(crate::service::events::EventChange::Blob {
+                        path: cp.clone(),
+                        blob_hash: blob_hash.clone(),
+                        size,
+                    });
+                    git_changes.push(FileChange::Upsert {
+                        path: cp.clone(),
+                        file: StoredFile::BlobPointer {
+                            hash: blob_hash,
+                            size,
+                            mime,
+                        },
+                    });
+                    merge_outcomes.push(MergeOutcomeEntry {
+                        path: normalized,
+                        outcome: MergeOutcomeKind::Conflict,
+                        conflict_path: Some(cp),
+                    });
+                    conflict_merges += 1;
+                }
             }
         }
     }
 
+    // If no git changes were produced (e.g., all deletes were no-ops or
+    // conflicts), return the current head with the merge outcomes.
     if git_changes.is_empty() {
-        return Ok(None);
+        if merge_outcomes.is_empty() {
+            return Ok(None);
+        }
+        return Ok(Some(PushResp {
+            new_commit: input.current_head.to_string(),
+            files_changed: 0,
+            merge_outcomes: Some(merge_outcomes),
+        }));
+    }
+
+    let mut text_count = 0u64;
+    let mut blob_count = 0u64;
+    let mut delete_count = 0u64;
+    for ch in &git_changes {
+        match ch {
+            FileChange::Upsert {
+                file: StoredFile::BlobPointer { .. },
+                ..
+            } => blob_count += 1,
+            FileChange::Upsert { .. } => text_count += 1,
+            FileChange::Delete { .. } => delete_count += 1,
+        }
     }
 
     let resp = commit_prepared_push(CommitPushInput {
@@ -126,16 +382,17 @@ pub(super) async fn try_auto_merge_push(
         parent: Some(input.current_head.to_string()),
         device_name,
         prepared: PreparedPush {
-            text_changes: git_changes.len() as u64,
-            blob_changes: 0,
-            delete_changes: 0,
+            text_changes: text_count,
+            blob_changes: blob_count,
+            delete_changes: delete_count,
             git_changes,
-            blob_hashes: Vec::new(),
+            blob_hashes,
             event_changes,
         },
         idempotency_key: input.idempotency_key,
         request_hash: input.request_hash,
         request_metadata: input.request_metadata,
+        merge_outcomes: Some(merge_outcomes),
     })
     .await?;
 
@@ -162,6 +419,13 @@ pub(super) async fn try_auto_merge_push(
         "stale push handled by auto-merge"
     );
     Ok(Some(resp))
+}
+
+fn stored_to_bytes(file: &StoredFile) -> Vec<u8> {
+    match file {
+        StoredFile::Text { bytes } => bytes.clone(),
+        StoredFile::BlobPointer { .. } => Vec::new(),
+    }
 }
 
 async fn read_merge_text(
