@@ -13,7 +13,10 @@ mod tests {
                 "db/repos/blob_upload.rs",
                 include_str!("repos/blob_upload.rs"),
             ),
-            ("service/sync.rs", include_str!("../service/sync.rs")),
+            (
+                "service/sync/push.rs",
+                include_str!("../service/sync/push.rs"),
+            ),
         ] {
             assert!(
                 !source.contains("const SQLITE_SAFE_BIND_LIMIT: usize = 900;"),
