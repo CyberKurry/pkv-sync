@@ -191,6 +191,28 @@ pub(crate) fn blob_store(state: &AppState) -> LocalFsBlobStore {
     state.blob_store()
 }
 
+/// Compile-time assertion that the `service::sync` public surface survives
+/// refactors. The X2 plan depends on every path below; if a future change
+/// removes or renames one of them, this module fails to compile.
+///
+/// Lives in-crate (instead of `tests/`) because the crate has no lib target,
+/// and this also lets us pin `pub(crate)` re-exports.
+#[cfg(test)]
+mod surface_guard {
+    #[allow(unused_imports)]
+    use crate::service::sync::{
+        blob_store, download_blob, ensure_path_visible_for_sync_api, is_generated_conflict_sidecar,
+        path_visible_on_read, pull, pull_with_request_metadata, push, push_with_cas,
+        push_with_request_metadata, read_file, reconcile_vault_metadata,
+        reconcile_vault_metadata_unlocked, record_view, state, upload_blob, upload_check,
+        vault_path_filter, CasConflict, PullFile, PullResp, PushChange, PushReq, PushResp,
+        ReconcileReport, RequestMetadata, StateResp, UploadCheckReq, UploadCheckResp,
+    };
+
+    #[test]
+    fn sync_public_surface_compiles() {}
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
