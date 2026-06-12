@@ -1069,4 +1069,205 @@ describe("SyncEngine pull", () => {
     });
     expect(idx.saved?.lastSyncedCommit).toBe("c2");
   });
+
+  // --- Task 3: SSE inline-apply push-first conflict semantics ---
+
+  it("SSE dirty fallback pushes the dirty file first, then merged content arrives via pull", async () => {
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const cleanHash = await sha256Text("clean");
+    const localEditHash = await sha256Text("local edit");
+    const mergedContent = "merged content";
+    const mergedHash = await sha256Text(mergedContent);
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "note.md": {
+          lastSyncedHash: cleanHash,
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 5
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "note.md",
+        hash: localEditHash,
+        size: 10,
+        kind: "text",
+        content: "local edit"
+      }
+    ]);
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [],
+        modified: [
+          {
+            path: "note.md",
+            file_type: "text",
+            size: mergedContent.length,
+            content_inline: mergedContent
+          }
+        ],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c1",
+        files_changed: 1,
+        merge_outcomes: [{ path: "note.md", outcome: "merged" }]
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const setStatus = vi.fn();
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "Laptop X",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      labels: en,
+      setStatus
+    });
+
+    engine.startEventSubscription();
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+
+    // SSE delivers an inline event for note.md, but local is dirty (localEditHash != cleanHash)
+    // This triggers InlineApplyDirtyError -> fallback syncNow()
+    options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [
+        {
+          kind: "text_inline",
+          path: "note.md",
+          content: "remote edit"
+        }
+      ]
+    });
+
+    await vi.waitFor(() => {
+      expect(api.push).toHaveBeenCalled();
+    });
+
+    // PUSH-FIRST: the dirty local file was pushed to the server
+    expect(api.push).toHaveBeenCalledWith("v", "c0", [
+      { kind: "text", path: "note.md", content: "local edit" }
+    ], "Laptop X");
+
+    // The push returned merge_outcome=merged, so pull was called with OLD head
+    expect(api.pull).toHaveBeenCalledWith("v", "c0");
+
+    // Merged content is now in place
+    expect(vault.writes.get("note.md")).toBe(mergedContent);
+
+    // NO conflict files — push-first resolved it
+    const conflictWrites = [...vault.writes.keys()].filter(k => k.includes(".conflict-"));
+    expect(conflictWrites).toEqual([]);
+
+    // Head advances to the merge commit
+    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+    expect(idx.saved?.files["note.md"]?.lastSyncedHash).toBe(mergedHash);
+  });
+
+  it("SSE inline apply on clean file applies directly without push", async () => {
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const syncedContent = "synced text";
+    const syncedHash = await sha256Text(syncedContent);
+    const remoteContent = "remote update";
+    const remoteHash = await sha256Text(remoteContent);
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "clean.md": {
+          lastSyncedHash: syncedHash,
+          lastSyncedAt: 1,
+          kind: "text",
+          size: syncedContent.length
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "clean.md",
+        hash: syncedHash,
+        size: syncedContent.length,
+        kind: "text",
+        content: syncedContent
+      }
+    ]);
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c0",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      setStatus: vi.fn()
+    });
+
+    engine.startEventSubscription();
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+
+    // SSE delivers an inline event for clean.md — local matches index, so it's clean
+    options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [
+        {
+          kind: "text_inline",
+          path: "clean.md",
+          content: remoteContent
+        }
+      ]
+    });
+
+    await vi.waitFor(() => {
+      expect(vault.writes.get("clean.md")).toBe(remoteContent);
+    });
+
+    // Applied directly — no push, no pull
+    expect(api.push).not.toHaveBeenCalled();
+    expect(api.pull).not.toHaveBeenCalled();
+
+    // Index advanced to c1 with the remote hash
+    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+    expect(idx.saved?.files["clean.md"]?.lastSyncedHash).toBe(remoteHash);
+  });
 });
