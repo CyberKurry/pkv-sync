@@ -16,6 +16,8 @@ RUN mkdir -p plugin
 COPY --from=plugin-builder /app/plugin/main.js ./plugin/main.js
 COPY --from=plugin-builder /app/plugin/manifest.json ./plugin/manifest.json
 COPY --from=plugin-builder /app/plugin/styles.css ./plugin/styles.css
+ENV CARGO_NET_RETRY=10
+ENV CARGO_HTTP_MULTIPLEXING=false
 RUN cargo build --release -p pkv-sync-server
 
 FROM debian:bookworm-slim
