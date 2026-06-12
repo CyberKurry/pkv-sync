@@ -7,6 +7,7 @@ import {
 } from "../sync/unified-diff";
 import { DEFAULT_TIMEZONE, formatUnixSeconds } from "../time";
 import { errorToMessage } from "../util";
+import { fillDiffCell } from "./diff-cells";
 import { shortCommit } from "./history-modal";
 
 export interface DiffModalLabels {
@@ -164,18 +165,18 @@ export class DiffModal extends Modal {
       cls: "pkvsync-diff-line-no",
       text: row.leftLine ? String(row.leftLine) : ""
     });
-    item.createDiv({
+    const leftCell = item.createDiv({
       cls: `pkvsync-diff-cell ${leftCellClass(row.kind)}`,
-      text: row.leftText ?? ""
     });
+    fillDiffCell(leftCell, row, "left");
     item.createDiv({
       cls: "pkvsync-diff-line-no",
       text: row.rightLine ? String(row.rightLine) : ""
     });
-    item.createDiv({
+    const rightCell = item.createDiv({
       cls: `pkvsync-diff-cell ${rightCellClass(row.kind)}`,
-      text: row.rightText ?? ""
     });
+    fillDiffCell(rightCell, row, "right");
   }
 
   private renderRangeControls(diff: UnifiedDiff): void {

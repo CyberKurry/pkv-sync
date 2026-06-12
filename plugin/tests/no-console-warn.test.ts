@@ -8,6 +8,7 @@ describe("production plugin logging", () => {
       "main.ts",
       "commands.ts",
       "sync-orchestrator.ts",
+      "ui/diff-cells.ts",
       "ui/status-bar.ts",
       "sync/engine.ts"
     ]) {

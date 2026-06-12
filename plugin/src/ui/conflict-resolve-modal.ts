@@ -11,6 +11,7 @@ import {
 } from "../sync/unified-diff";
 import type { Strings } from "../i18n";
 import { format } from "../i18n";
+import { fillDiffCell } from "./diff-cells";
 
 const TEXT_DETECT_EXTENSIONS = new Set([
   "md",
@@ -233,18 +234,18 @@ export class ConflictResolveModal extends Modal {
       cls: "pkvsync-diff-line-no",
       text: row.leftLine ? String(row.leftLine) : ""
     });
-    item.createDiv({
+    const leftCell = item.createDiv({
       cls: `pkvsync-diff-cell ${this.leftCellClass(row.kind)}`,
-      text: row.leftText ?? ""
     });
+    fillDiffCell(leftCell, row, "left");
     item.createDiv({
       cls: "pkvsync-diff-line-no",
       text: row.rightLine ? String(row.rightLine) : ""
     });
-    item.createDiv({
+    const rightCell = item.createDiv({
       cls: `pkvsync-diff-cell ${this.rightCellClass(row.kind)}`,
-      text: row.rightText ?? ""
     });
+    fillDiffCell(rightCell, row, "right");
   }
 
   private leftCellClass(kind: SideBySideDiffRow["kind"]): string {
