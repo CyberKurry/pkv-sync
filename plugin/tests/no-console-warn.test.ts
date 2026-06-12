@@ -4,7 +4,13 @@ import { describe, expect, it } from "vitest";
 
 describe("production plugin logging", () => {
   it("does not leave console.warn calls in production sources", () => {
-    for (const path of ["main.ts", "commands.ts", "ui/status-bar.ts", "sync/engine.ts"]) {
+    for (const path of [
+      "main.ts",
+      "commands.ts",
+      "sync-orchestrator.ts",
+      "ui/status-bar.ts",
+      "sync/engine.ts"
+    ]) {
       const source = readFileSync(resolve(__dirname, `../src/${path}`), "utf8");
       expect(source).not.toContain("console.warn");
     }
