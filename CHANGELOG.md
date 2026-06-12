@@ -7,6 +7,40 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-12
+
+### Added
+
+- True auto-merge via push-first sync protocol: concurrent edits to different
+  lines of the same file now merge automatically on both devices with zero
+  conflict files.
+- Per-file `merge_outcomes` field in the push response, reporting `clean`,
+  `merged`, or `conflict` for each file in a stale push.
+- Delete-vs-modify merge: when one device deletes and another modifies the same
+  file, the modification is kept and the delete is dropped (reported as a
+  conflict).
+- Blob merge: concurrent blob upserts follow the same three-way decision table
+  as text files.
+
+### Fixed
+
+- Silent loss of remotely-merged lines after a server-side auto-merge. The
+  client now never advances its head past a merge commit it has not yet pulled,
+  ensuring merged content is always backflowed before the index catches up.
+
+### Changed
+
+- Modularized sync internals: server `service/sync.rs` split into focused
+  modules (`push`, `pull`, `merge_apply`, `events`, `reconcile`, `paths`,
+  `blobs`); plugin `main.ts` extracted into `commands`, `SyncStatusBar`, and
+  `SyncOrchestrator`.
+- Upgraded bundled libgit2 to 1.9.4 via git2 0.20.4, resolving two
+  dependabot security alerts (GHSA for buffer dereference undefined behavior).
+
+### Security
+
+- Upgrade bundled libgit2 to 1.9.4 via git2 0.20.4 (fixes CVE in libgit2 <1.9).
+
 ## [1.2.3] - 2026-06-11
 
 ### Changed
