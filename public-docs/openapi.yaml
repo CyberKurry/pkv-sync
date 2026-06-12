@@ -524,6 +524,35 @@ components:
         files_changed:
           type: integer
           minimum: 0
+        merge_outcomes:
+          type: array
+          description: |
+            Per-file merge results when the server performed a three-way merge
+            during this push. When absent the push was a verbatim commit — no
+            merge occurred.
+          items:
+            $ref: '#/components/schemas/MergeOutcomeEntry'
+          x-absent-means: Verbatim commit; no merge occurred.
+    MergeOutcomeEntry:
+      type: object
+      required: [path, outcome]
+      properties:
+        path:
+          type: string
+          description: Vault-relative path of the merged file.
+        outcome:
+          type: string
+          enum: [clean, merged, conflict]
+          description: |
+            - `clean`: push content applied without conflict.
+            - `merged`: auto-merged with no unresolved conflict markers.
+            - `conflict`: conflict markers inserted; a `.conflict-*` file may exist.
+        conflict_path:
+          type: string
+          nullable: true
+          description: |
+            Path to the conflict marker file when `outcome` is `conflict`;
+            null otherwise.
     RestoreVaultRequest:
       type: object
       required: [commit, confirm_vault_name]
