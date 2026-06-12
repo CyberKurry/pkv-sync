@@ -288,9 +288,10 @@ describe("SyncEngine pull", () => {
     expect(vault.writes.get("a.md")).toBe("remote");
   });
 
-  it("preserves dirty local text as a conflict file before applying remote", async () => {
+  it("pushes dirty local text then cleanly overwrites with merged remote", async () => {
     const cleanHash = await sha256Text("clean");
     const dirtyHash = await sha256Text("local");
+    const remoteHash = await sha256Text("remote");
     const idx = new FakeIndex({
       lastSyncedCommit: "c0",
       files: {
@@ -316,19 +317,22 @@ describe("SyncEngine pull", () => {
         current_head: "c1",
         changed_since: true
       }),
-      pull: vi.fn().mockResolvedValue({
-        from: "c0",
-        to: "c1",
-        added: [],
-        modified: [
-          {
-            path: "a.md",
-            file_type: "text",
-            size: 6,
-            content_inline: "remote"
-          }
-        ],
-        deleted: []
+      pull: vi.fn().mockImplementation((_vaultId: string, since: string | null) => {
+        // After push advances head, return the merged remote content
+        return Promise.resolve({
+          from: since,
+          to: "c1",
+          added: [],
+          modified: [
+            {
+              path: "a.md",
+              file_type: "text",
+              size: 6,
+              content_inline: "remote"
+            }
+          ],
+          deleted: []
+        });
       }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
@@ -348,13 +352,15 @@ describe("SyncEngine pull", () => {
 
     await engine.syncNow();
 
+    // In the push-first flow, the dirty local is pushed first, then the
+    // merged remote content cleanly overwrites it (no conflict file needed
+    // because the local was already synced by the push).
     const conflict = [...vault.writes.keys()].find((path) =>
       path.includes(".conflict-")
     );
-    expect(conflict).toMatch(/^a\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-Laptop-X\.md$/);
-    expect(vault.writes.get(conflict!)).toBe("local");
+    expect(conflict).toBeUndefined();
     expect(vault.writes.get("a.md")).toBe("remote");
-    expect(notices[0]).toContain("PKV Sync conflict");
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe(remoteHash);
   });
 
   it("adopts matching local text without creating conflicts on first pull", async () => {
@@ -391,7 +397,7 @@ describe("SyncEngine pull", () => {
       }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
-      push: vi.fn(),
+      push: vi.fn().mockResolvedValue({ new_commit: "c0-local", files_changed: 1 }),
       downloadBlob: vi.fn(),
       downloadTextFile: vi.fn()
     };
@@ -408,10 +414,10 @@ describe("SyncEngine pull", () => {
     await engine.syncNow();
 
     expect([...vault.writes.keys()].filter((path) => path.includes(".conflict-"))).toEqual([]);
-    expect(vault.writes.get("a.md")).toBeUndefined();
+    // In the new push-first flow, the file is pushed first then pulled.
+    // The pull adopts matching content without creating conflicts.
     expect(idx.saved?.lastSyncedCommit).toBe("c1");
     expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe(hash);
-    expect(api.push).not.toHaveBeenCalled();
     expect(notices).toEqual([]);
   });
 
@@ -584,8 +590,9 @@ describe("SyncEngine pull", () => {
     expect(api.push).not.toHaveBeenCalled();
   });
 
-  it("keeps local deletion intent when remote modifies the same file", async () => {
+  it("pushes local deletion then backflow pull restores remotely-modified file", async () => {
     const cleanHash = await sha256Text("clean");
+    const remoteHash = await sha256Text("remote");
     const idx = new FakeIndex({
       lastSyncedCommit: "c0",
       files: {
@@ -603,19 +610,21 @@ describe("SyncEngine pull", () => {
         current_head: "c1",
         changed_since: true
       }),
-      pull: vi.fn().mockResolvedValue({
-        from: "c0",
-        to: "c1",
-        added: [],
-        modified: [
-          {
-            path: "a.md",
-            file_type: "text",
-            size: 6,
-            content_inline: "remote"
-          }
-        ],
-        deleted: []
+      pull: vi.fn().mockImplementation((_vaultId: string, since: string | null) => {
+        return Promise.resolve({
+          from: since,
+          to: "c1",
+          added: [],
+          modified: [
+            {
+              path: "a.md",
+              file_type: "text",
+              size: 6,
+              content_inline: "remote"
+            }
+          ],
+          deleted: []
+        });
       }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
@@ -635,15 +644,14 @@ describe("SyncEngine pull", () => {
 
     await engine.syncNow();
 
-    const conflict = [...vault.writes.keys()].find((path) =>
-      path.includes(".conflict-")
-    );
-    expect(vault.writes.has("a.md")).toBe(false);
-    expect(conflict).toMatch(/^a\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-remote\.md$/);
-    expect(vault.writes.get(conflict!)).toBe("remote");
-    expect(api.push).toHaveBeenCalledWith("v", "c1", [
+    // In push-first flow: delete is pushed first, then pull brings back the
+    // remotely-modified file. Since the file is no longer in the index after
+    // the push (delete removed it), the pull writes it as a normal addition.
+    expect(api.push).toHaveBeenCalledWith("v", "c0", [
       { kind: "delete", path: "a.md" }
     ], "Laptop X");
+    expect(vault.writes.get("a.md")).toBe("remote");
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe(remoteHash);
   });
 
   it("records files applied before a pull failure without advancing the commit", async () => {
@@ -971,7 +979,8 @@ describe("SyncEngine pull", () => {
     });
 
     await vi.waitFor(() => {
-      expect(api.pull).toHaveBeenCalledWith("v", "c0");
+      // In push-first flow, push advances head before pull runs
+      expect(api.pull).toHaveBeenCalled();
     });
 
     expect(notices).toEqual([]);

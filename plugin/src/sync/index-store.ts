@@ -37,6 +37,49 @@ export function markSynced(
   return next;
 }
 
+/**
+ * Like `markSynced` but does NOT advance `lastSyncedCommit`. Used after a
+ * push that produced non-clean merge outcomes — per-file hashes are recorded
+ * but the head stays at the old commit so the subsequent pull includes the
+ * merge commit in its range.
+ */
+export function markFilesSynced(
+  index: LocalIndex,
+  files: LocalFileSnapshot[]
+): LocalIndex {
+  const next: LocalIndex = {
+    lastSyncedCommit: index.lastSyncedCommit,
+    files: { ...index.files }
+  };
+  const now = Date.now();
+  for (const file of files) {
+    next.files[file.path] = {
+      lastSyncedHash: file.hash,
+      lastSyncedAt: now,
+      lastSyncedMtime: file.mtime,
+      kind: file.kind,
+      size: file.size
+    };
+  }
+  return next;
+}
+
+/**
+ * Like `markDeleted` but does NOT advance `lastSyncedCommit`. Companion to
+ * `markFilesSynced` for the non-clean merge outcome path.
+ */
+export function markFilesDeleted(
+  index: LocalIndex,
+  paths: string[]
+): LocalIndex {
+  const next: LocalIndex = {
+    lastSyncedCommit: index.lastSyncedCommit,
+    files: { ...index.files }
+  };
+  for (const path of paths) delete next.files[path];
+  return next;
+}
+
 export function markDeleted(
   index: LocalIndex,
   commit: string | null,

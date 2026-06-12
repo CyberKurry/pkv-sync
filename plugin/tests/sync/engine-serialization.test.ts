@@ -144,7 +144,7 @@ describe("SyncEngine serialization", () => {
 
     const first = engine.syncNow();
     const second = engine.syncNow();
-    await flushMicrotasks();
+    await flushMicrotasks(10);
 
     expect(api.pull).toHaveBeenCalledTimes(1);
     gate.resolve();

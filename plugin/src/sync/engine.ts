@@ -11,6 +11,8 @@ import { sha256Bytes, sha256Text } from "./hash";
 import { guessMime } from "./mime";
 import {
   markDeleted,
+  markFilesDeleted,
+  markFilesSynced,
   markSynced,
   pendingFiles
 } from "./index-store";
@@ -230,8 +232,16 @@ export class SyncEngine {
     this.opts.setStatus("syncing");
     try {
       await this.refreshVaultSettings();
-      const scan = await this.pullIfChanged();
+
+      // ① scan BEFORE any pull
+      const scan = await this.scanPending();
+
+      // ② push-first: send pending changes before pulling
       await this.pushPendingWithHeadMismatchRetry(scan);
+
+      // ③ pull backflow: merged content arrives as a normal pull
+      await this.pullIfChanged();
+
       this.opts.setStatus("connected");
       await this.opts.onSyncSuccess?.();
     } catch (error) {
@@ -329,9 +339,32 @@ export class SyncEngine {
       changes,
       this.opts.deviceName
     );
-    let next = markSynced(index, response.new_commit, pending);
-    next = markDeleted(next, response.new_commit, deleted);
-    await this.opts.index.saveIndex(next);
+
+    // Check if any merge outcome is non-clean (merged or conflict).
+    // If so, record per-file hashes but do NOT advance lastSyncedCommit
+    // so the subsequent pull includes the merge commit in its range.
+    const hasNonClean = response.merge_outcomes?.some(
+      (o) => o.outcome !== "clean"
+    ) ?? false;
+
+    if (!hasNonClean) {
+      // All-clean (or field absent) — fast path: advance head immediately
+      let next = markSynced(index, response.new_commit, pending);
+      next = markDeleted(next, response.new_commit, deleted);
+      await this.opts.index.saveIndex(next);
+    } else {
+      // Non-clean merge outcome — per-file hashes recorded, HEAD STAYS.
+      // The subsequent pull will bring the merged content and advance head.
+      // Use updateIndex to avoid regressing lastSyncedCommit if a concurrent
+      // SSE event advanced it between our scan and this write.
+      const pendingFiles = pending;
+      const deletedPaths = deleted;
+      await this.opts.index.updateIndex((current) => {
+        let next = markFilesSynced(current, pendingFiles);
+        next = markFilesDeleted(next, deletedPaths);
+        return next;
+      });
+    }
   }
 
   private async pushPendingWithHeadMismatchRetry(

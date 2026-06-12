@@ -1,15 +1,58 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../src/api/client";
 import { SyncEngine, type IndexPersistence } from "../../src/sync/engine";
+import { sha256Text } from "../../src/sync/hash";
 import type { LocalFileSnapshot, LocalIndex } from "../../src/sync/types";
 import type { SyncApi } from "../../src/api/sync-client";
 import type { VaultAdapter } from "../../src/sync/vault-adapter";
 
 class FakeVault {
+  writes = new Map<string, string>();
+  deletions: string[] = [];
+
   constructor(public files: LocalFileSnapshot[]) {}
 
   async scan(): Promise<LocalFileSnapshot[]> {
     return this.files;
+  }
+
+  exists(path: string): boolean {
+    return this.files.some((file) => file.path === path);
+  }
+
+  async readText(path: string): Promise<string> {
+    const file = this.files.find((entry) => entry.path === path);
+    if (!file || file.kind !== "text") throw new Error(`not found: ${path}`);
+    return file.content ?? "";
+  }
+
+  async writeText(path: string, content: string): Promise<void> {
+    this.writes.set(path, content);
+    const next: LocalFileSnapshot = {
+      path,
+      hash: await sha256Text(content),
+      size: new TextEncoder().encode(content).byteLength,
+      kind: "text",
+      content
+    };
+    this.files = this.files.filter((file) => file.path !== path).concat(next);
+  }
+
+  async writeBinary(path: string, bytes: ArrayBuffer): Promise<void> {
+    this.files = this.files
+      .filter((file) => file.path !== path)
+      .concat({
+        path,
+        hash: "blob-hash",
+        size: bytes.byteLength,
+        kind: "blob",
+        bytes
+      });
+  }
+
+  async delete(path: string): Promise<void> {
+    this.deletions.push(path);
+    this.files = this.files.filter((file) => file.path !== path);
   }
 }
 
@@ -145,7 +188,8 @@ describe("SyncEngine push", () => {
 
     await engine.syncNow();
 
-    expect(scan).toHaveBeenCalledTimes(1);
+    // scanPending (step ①) + applyPull inside pullIfChanged (step ③)
+    expect(scan).toHaveBeenCalledTimes(2);
     expect(api.push).toHaveBeenCalledWith("v", "c0", [
       { kind: "text", path: "a.md", content: "hi" }
     ], "d");
@@ -633,6 +677,481 @@ describe("SyncEngine push", () => {
     expect(clearTimeoutSpy).toHaveBeenCalled();
   });
 
+  // --- Task 2: push-first sync with merge outcome backflow ---
+
+  it("does not advance head past an unseen merge commit", async () => {
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: "old",
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: "new",
+        size: 3,
+        kind: "text",
+        content: "new"
+      }
+    ]);
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c0",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c1",
+        files_changed: 1,
+        merge_outcomes: [{ path: "a.md", outcome: "merged" }]
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    // Hard rule: head must NOT advance past an unseen merge commit
+    expect(idx.saved?.lastSyncedCommit).toBe("c0");
+    // But per-file hash must be updated to the pushed content hash
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe("new");
+  });
+
+  it("advances head immediately when all merge outcomes are clean", async () => {
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: "old",
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: "new",
+        size: 3,
+        kind: "text",
+        content: "new"
+      }
+    ]);
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockImplementation((_vaultId: string, since: string | null) => {
+        // When called after push advances head to c1, return "up to date"
+        return Promise.resolve({
+          from: since,
+          to: since,
+          added: [],
+          modified: [],
+          deleted: []
+        });
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c1",
+        files_changed: 1,
+        merge_outcomes: [{ path: "a.md", outcome: "clean" }]
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    // All-clean: head advances immediately (byte-identical to pre-push-first behavior)
+    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe("new");
+  });
+
+  it("advances head immediately when merge_outcomes field is absent", async () => {
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: "old",
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: "new",
+        size: 3,
+        kind: "text",
+        content: "new"
+      }
+    ]);
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockImplementation((_vaultId: string, since: string | null) => {
+        return Promise.resolve({
+          from: since,
+          to: since,
+          added: [],
+          modified: [],
+          deleted: []
+        });
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c1",
+        files_changed: 1
+        // merge_outcomes intentionally absent — old server compatibility
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe("new");
+  });
+
+  it("backflow pull overwrites local and advances head after merged push", async () => {
+    const pushedHash = await sha256Text("new");
+    const mergedContent = "<<<< local\nnew\n====\nremote\n>>>> remote";
+    const mergedHash = await sha256Text(mergedContent);
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: "old",
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: pushedHash,
+        size: 3,
+        kind: "text",
+        content: "new"
+      }
+    ]);
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [],
+        modified: [
+          {
+            path: "a.md",
+            file_type: "text",
+            size: mergedContent.length,
+            content_inline: mergedContent
+          }
+        ],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c1",
+        files_changed: 1,
+        merge_outcomes: [{ path: "a.md", outcome: "merged" }]
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    // Push step: head stays at c0, per-file hash updated to pushed content hash
+    // Then pull step: merged content arrives, local hash == pushed hash => NOT dirty => clean overwrite
+    // After pull, head advances to c1
+    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe(mergedHash);
+    // Verify pull was called with OLD commit as since — the merge commit must be in the pull range
+    expect(api.pull).toHaveBeenCalledWith("v", "c0");
+  });
+
+  it("creates conflict file when local re-edits between push and pull", async () => {
+    const pushedContent = "new";
+    const pushedHash = await sha256Text(pushedContent);
+    const reEditContent = "re-edit";
+    const reEditHash = await sha256Text(reEditContent);
+    const mergedContent = "<<<< local\nnew\n====\nremote\n>>>> remote";
+
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: pushedHash,
+        size: pushedContent.length,
+        kind: "text",
+        content: pushedContent
+      }
+    ]);
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: "old",
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockImplementation(async () => {
+        // Simulate local re-edit between push and pull
+        vault.files = [
+          {
+            path: "a.md",
+            hash: reEditHash,
+            size: reEditContent.length,
+            kind: "text",
+            content: reEditContent
+          }
+        ];
+        return {
+          from: "c0",
+          to: "c1",
+          added: [],
+          modified: [
+            {
+              path: "a.md",
+              file_type: "text",
+              size: mergedContent.length,
+              content_inline: mergedContent
+            }
+          ],
+          deleted: []
+        };
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c1",
+        files_changed: 1,
+        merge_outcomes: [{ path: "a.md", outcome: "merged" }]
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "Laptop X",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    // The re-edit hash != pushed hash => dirty check triggers .conflict-* file
+    const conflict = [...vault.writes.keys()].find(w => w.includes(".conflict-"));
+    expect(conflict).toBeDefined();
+    expect(vault.writes.get(conflict!)).toBe(reEditContent);
+    // Merged content applied to main file
+    expect(vault.writes.get("a.md")).toBe(mergedContent);
+  });
+
+  it("handles conflict outcome and fires conflict notice on pull", async () => {
+    const pushedHash = await sha256Text("new");
+    const conflictContent = "<<<< local\nnew\n====\nremote\n>>>> conflict";
+
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: "old",
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: pushedHash,
+        size: 3,
+        kind: "text",
+        content: "new"
+      }
+    ]);
+
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [],
+        modified: [
+          {
+            path: "a.md",
+            file_type: "text",
+            size: conflictContent.length,
+            content_inline: conflictContent
+          }
+        ],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c1",
+        files_changed: 1,
+        merge_outcomes: [{ path: "a.md", outcome: "conflict", conflict_path: "a.conflict-remote.md" }]
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    // Push step: head stays at c0
+    // Pull step: conflict content arrives, local hash == pushed hash => NOT dirty => clean overwrite
+    // After pull, head advances to c1
+    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+  });
+
+  it("preserves 409 fallback: pull-then-push on head_mismatch", async () => {
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: "old",
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: "new",
+        size: 3,
+        kind: "text",
+        content: "new"
+      }
+    ]);
+    const api = {
+      state: vi.fn(),
+      pull: vi
+        .fn()
+        // Pull #1: inside 409 retry handler — advances head to c1
+        .mockResolvedValueOnce({
+          from: "c0",
+          to: "c1",
+          added: [],
+          modified: [],
+          deleted: []
+        })
+        // Pull #2: step ③ backflow pull — up to date after push to c2
+        .mockResolvedValueOnce({
+          from: "c2",
+          to: "c2",
+          added: [],
+          modified: [],
+          deleted: []
+        }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi
+        .fn()
+        .mockRejectedValueOnce(
+          new ApiError(409, "head_mismatch", "current head is c1")
+        )
+        .mockResolvedValueOnce({ new_commit: "c2", files_changed: 1 }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect(api.push).toHaveBeenCalledTimes(2);
+    expect(idx.saved?.lastSyncedCommit).toBe("c2");
+  });
+
   it("pulls latest head and retries once after head_mismatch", async () => {
     const idx = new FakeIndex({
       lastSyncedCommit: "c0",
@@ -658,16 +1177,18 @@ describe("SyncEngine push", () => {
         }),
       pull: vi
         .fn()
+        // Pull #1: inside 409 retry handler — advances head to c1
         .mockResolvedValueOnce({
           from: "c0",
-          to: "c0",
+          to: "c1",
           added: [],
           modified: [],
           deleted: []
         })
+        // Pull #2: step ③ backflow pull — up to date after push to c2
         .mockResolvedValueOnce({
-          from: "c0",
-          to: "c1",
+          from: "c2",
+          to: "c2",
           added: [],
           modified: [],
           deleted: []
