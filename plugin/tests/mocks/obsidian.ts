@@ -38,6 +38,49 @@ export class Modal {
   onClose(): void {}
 }
 
+export class Menu {
+  items: MenuItem[] = [];
+  separators = 0;
+  shownAt: unknown = null;
+
+  addItem(callback: (item: MenuItem) => void): this {
+    const item = new MenuItem();
+    callback(item);
+    this.items.push(item);
+    return this;
+  }
+
+  addSeparator(): this {
+    this.separators += 1;
+    return this;
+  }
+
+  showAtMouseEvent(event: unknown): void {
+    this.shownAt = event;
+  }
+}
+
+export class MenuItem {
+  title = "";
+  warning = false;
+  callback: (() => void) | null = null;
+
+  setTitle(title: string): this {
+    this.title = title;
+    return this;
+  }
+
+  setWarning(warning: boolean): this {
+    this.warning = warning;
+    return this;
+  }
+
+  onClick(callback: () => void): this {
+    this.callback = callback;
+    return this;
+  }
+}
+
 export class Plugin {
   manifest = { version: "0.0.0" };
 }

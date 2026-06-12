@@ -148,6 +148,7 @@ export const zhHant = {
   historyViewContent: "檢視該版本",
   historyRestoreVersion: "還原此版本",
   historyRollbackToHere: "回滾到這裡",
+  historyMoreActions: "更多操作",
   historyUnknownDevice: "未知裝置",
   historyDisabled: "歷史功能已關閉，或目前伺服器不支援。",
   diffTitle: "差異",

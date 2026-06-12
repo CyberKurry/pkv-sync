@@ -1,4 +1,4 @@
-import { App, Modal } from "obsidian";
+import { App, Menu, Modal, setIcon } from "obsidian";
 import type { HistoryApi } from "../api/history-client";
 import type { CommitSummary } from "../api/types";
 import { formatUnixSeconds } from "../time";
@@ -24,6 +24,7 @@ export interface HistoryModalLabels {
   historyViewContent: string;
   historyRestoreVersion: string;
   historyRollbackToHere?: string;
+  historyMoreActions: string;
   historyUnknownDevice: string;
 }
 
@@ -137,40 +138,74 @@ export class HistoryModal extends Modal {
       });
       const details = meta.createDiv({ cls: "pkvsync-history-details" });
       details.createSpan({ cls: "pkvsync-history-device", text: view.device });
-      details.createSpan({ cls: "pkvsync-history-time", text: view.time });
+      details
+        .createSpan({ cls: "pkvsync-history-time", text: view.time })
+        .setAttr("title", view.time);
       details.createSpan({
         cls: "pkvsync-history-commit",
         text: shortCommit(row.commit)
       });
 
       const actions = item.createDiv({ cls: "pkvsync-history-actions" });
-      if (row.parent && this.options.onDiffPrevious) {
-        this.button(actions, this.options.labels.historyViewDiffPrevious, () =>
-          this.options.onDiffPrevious?.(row)
-        );
+      const primaryLabel = row.parent
+        ? this.options.labels.historyViewDiffPrevious
+        : this.options.labels.historyViewContent;
+      const primaryHandler = row.parent
+        ? () => this.options.onDiffPrevious?.(row)
+        : () => this.options.onViewContent?.(row);
+      if (
+        (row.parent && this.options.onDiffPrevious) ||
+        (!row.parent && this.options.onViewContent)
+      ) {
+        this.button(actions, primaryLabel, primaryHandler);
       }
-      if (this.options.onDiffHead) {
-        this.button(actions, this.options.labels.historyViewDiffHead, () =>
-          this.options.onDiffHead?.(row)
-        );
-      }
-      if (view.canRestore && this.options.onViewContent) {
-        this.button(actions, this.options.labels.historyViewContent, () =>
-          this.options.onViewContent?.(row)
-        );
-      }
-      if (view.canRestore && this.options.onRestore) {
-        this.button(actions, this.options.labels.historyRestoreVersion, () =>
-          this.options.onRestore?.(row)
-        ).addClass("is-danger");
-      }
-      if (view.canRollback && this.options.onRollback) {
-        this.button(
-          actions,
-          this.options.labels.historyRollbackToHere ?? "Rollback to here",
-          () => this.options.onRollback?.(row)
-        ).addClass("is-danger");
-      }
+
+      const moreBtn = actions.createEl("button", {
+        cls: "pkvsync-button is-ghost pkvsync-history-more"
+      });
+      setIcon(moreBtn, "more-horizontal");
+      moreBtn.setAttr("aria-label", this.options.labels.historyMoreActions);
+      moreBtn.addEventListener("click", (evt) => {
+        const menu = new Menu();
+        if (this.options.onDiffHead) {
+          menu.addItem((mi) =>
+            mi.setTitle(this.options.labels.historyViewDiffHead).onClick(() => {
+              void this.options.onDiffHead?.(row);
+            })
+          );
+        }
+        if (row.parent && view.canRestore && this.options.onViewContent) {
+          menu.addItem((mi) =>
+            mi.setTitle(this.options.labels.historyViewContent).onClick(() => {
+              void this.options.onViewContent?.(row);
+            })
+          );
+        }
+        if (view.canRestore && this.options.onRestore) {
+          menu.addSeparator();
+          menu.addItem((mi) =>
+            mi
+              .setTitle(this.options.labels.historyRestoreVersion)
+              .setWarning(true)
+              .onClick(() => {
+                void this.options.onRestore?.(row);
+              })
+          );
+        }
+        if (view.canRollback && this.options.onRollback) {
+          menu.addItem((mi) =>
+            mi
+              .setTitle(
+                this.options.labels.historyRollbackToHere ?? "Rollback to here"
+              )
+              .setWarning(true)
+              .onClick(() => {
+                void this.options.onRollback?.(row);
+              })
+          );
+        }
+        menu.showAtMouseEvent(evt);
+      });
     }
   }
 

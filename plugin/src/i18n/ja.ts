@@ -151,6 +151,7 @@ export const ja = {
   historyViewContent: "このバージョンを表示",
   historyRestoreVersion: "このバージョンを復元",
   historyRollbackToHere: "ここへロールバック",
+  historyMoreActions: "その他の操作",
   historyUnknownDevice: "不明なデバイス",
   historyDisabled: "このサーバーでは履歴が無効か利用できません。",
   diffTitle: "差分",

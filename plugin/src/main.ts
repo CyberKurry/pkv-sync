@@ -480,6 +480,7 @@ export default class PKVSyncPlugin extends Plugin {
         historyViewContent: t.historyViewContent,
         historyRestoreVersion: t.historyRestoreVersion,
         historyRollbackToHere: t.historyRollbackToHere,
+        historyMoreActions: t.historyMoreActions,
         historyUnknownDevice: t.historyUnknownDevice
       },
       onDiffPrevious: diffAvailable

@@ -969,7 +969,6 @@ body.theme-dark .pkvsync-restore-modal {
 .pkvsync-history-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   max-height: 60vh;
   overflow-y: auto;
 }
@@ -979,15 +978,12 @@ body.theme-dark .pkvsync-restore-modal {
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-secondary);
-  transition: border-color 80ms ease, background 80ms ease;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  transition: background 80ms ease;
 }
 
 .pkvsync-history-row:hover {
-  border-color: var(--pkv-mark-soft);
   background: var(--pkv-mark-faint);
 }
 
@@ -1036,6 +1032,11 @@ body.theme-dark .pkvsync-restore-modal {
   color: var(--color-green, #3f6b3f);
 }
 
+.pkvsync-history-change.is-modified {
+  background: rgba(168, 122, 31, 0.14);
+  color: var(--color-orange, #a87a1f);
+}
+
 .pkvsync-history-change.is-deleted {
   background: rgba(155, 52, 52, 0.15);
   color: var(--color-red, #9b3434);
@@ -1058,6 +1059,8 @@ body.theme-dark .pkvsync-restore-modal {
 }
 
 .pkvsync-history-commit {
+  font-family: var(--font-monospace);
+  color: var(--text-faint);
   text-transform: uppercase;
 }
 
@@ -1071,7 +1074,13 @@ body.theme-dark .pkvsync-restore-modal {
 }
 
 .pkvsync-history-actions {
+  align-items: center;
   flex-direction: row;
+}
+
+.pkvsync-history-more {
+  width: 32px;
+  padding: 0;
 }
 
 .pkvsync-diff-range {

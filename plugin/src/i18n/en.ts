@@ -149,6 +149,7 @@ export const en = {
   historyViewContent: "View this version",
   historyRestoreVersion: "Restore this version",
   historyRollbackToHere: "Rollback to here",
+  historyMoreActions: "More actions",
   historyUnknownDevice: "Unknown device",
   historyDisabled: "History is disabled or unavailable on this server.",
   diffTitle: "Diff",

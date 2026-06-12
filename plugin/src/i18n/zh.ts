@@ -146,6 +146,7 @@ export const zh = {
   historyViewContent: "查看该版本",
   historyRestoreVersion: "恢复此版本",
   historyRollbackToHere: "回滚到这里",
+  historyMoreActions: "更多操作",
   historyUnknownDevice: "未知设备",
   historyDisabled: "历史功能已关闭，或当前服务器不支持。",
   diffTitle: "差异",

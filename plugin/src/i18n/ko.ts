@@ -159,6 +159,7 @@ export const ko = {
   historyViewContent: "이 버전 보기",
   historyRestoreVersion: "이 버전으로 복원",
   historyRollbackToHere: "여기로 롤백",
+  historyMoreActions: "추가 작업",
   historyUnknownDevice: "알 수 없는 기기",
   historyDisabled: "이 서버에서는 기록 기능이 비활성화되었거나 사용할 수 없습니다.",
   diffTitle: "차이 비교",
