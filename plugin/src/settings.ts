@@ -29,7 +29,7 @@ export const DEFAULT_TEXT_EXTENSIONS = [
   "css"
 ] as const;
 
-const SAFE_TEXT_EXTENSIONS = new Set<string>(DEFAULT_TEXT_EXTENSIONS);
+const MAX_TEXT_EXTENSION_LENGTH = 32;
 
 export interface PKVSyncSettings {
   language: PluginLanguage;
@@ -173,7 +173,15 @@ export function normalizeTextExtensions(value: unknown): string[] {
     .map((ext) => ext.trim().toLowerCase().replace(/^\./, ""))
     .filter(
       (ext, index, entries) =>
-        SAFE_TEXT_EXTENSIONS.has(ext) && entries.indexOf(ext) === index
+        isValidTextExtension(ext) && entries.indexOf(ext) === index
     );
   return normalized.length > 0 ? normalized : [...DEFAULT_SETTINGS.textExtensions];
+}
+
+function isValidTextExtension(ext: string): boolean {
+  return (
+    ext.length > 0 &&
+    ext.length <= MAX_TEXT_EXTENSION_LENGTH &&
+    /^[a-z0-9][a-z0-9_-]*$/.test(ext)
+  );
 }

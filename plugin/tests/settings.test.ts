@@ -60,11 +60,14 @@ describe("settings", () => {
     expect(normalizeDebounceMs(Number.NaN, 750)).toBe(750);
   });
 
-  it("keeps text extensions within the client safe list", () => {
+  it("preserves normalized server text extensions beyond client defaults", () => {
     expect(
-      normalizeTextExtensions([" .MD ", "json", ".env", "KEY", "sh", "css"])
-    ).toEqual(["md", "json", "css"]);
-    expect(normalizeTextExtensions(["env", "pem"])).toEqual(
+      normalizeTextExtensions([" .MD ", "YAML", ".csv", "toml", "json", "yaml"])
+    ).toEqual(["md", "yaml", "csv", "toml", "json"]);
+  });
+
+  it("rejects malformed text extension settings", () => {
+    expect(normalizeTextExtensions(["", ".", "../md", "a/b", "x".repeat(33)])).toEqual(
       DEFAULT_SETTINGS.textExtensions
     );
   });
