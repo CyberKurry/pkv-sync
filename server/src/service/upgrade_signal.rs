@@ -69,6 +69,25 @@ pub fn resolve_target(current: &str, latest_tag: &str) -> Option<String> {
     }
 }
 
+/// One-click entry point used by the admin endpoint: if `latest_tag` is strictly
+/// newer than `current`, write an upgrade-request marker into `data_dir` and
+/// return the target version; otherwise leave the data dir untouched and return
+/// `None`. The privileged updater watches for that marker.
+pub fn request_upgrade(
+    data_dir: &Path,
+    current: &str,
+    latest_tag: &str,
+    now_unix: u64,
+) -> std::io::Result<Option<String>> {
+    let Some(target) = resolve_target(current, latest_tag) else {
+        return Ok(None);
+    };
+    let req = UpgradeRequest::new(&target, now_unix, "admin")
+        .expect("resolve_target only returns stable versions");
+    write_request(data_dir, &req)?;
+    Ok(Some(target))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,5 +140,23 @@ mod tests {
         assert_eq!(resolve_target("1.4.1", "1.4.0"), None);
         assert_eq!(resolve_target("1.3.2", "v1.4.0"), Some("1.4.0".to_string()));
         assert_eq!(resolve_target("1.3.2", "garbage"), None);
+    }
+
+    #[test]
+    fn request_upgrade_writes_marker_when_newer() {
+        let dir = tempfile::tempdir().unwrap();
+        let written = request_upgrade(dir.path(), "1.3.2", "1.4.0", 1_750_000_000).unwrap();
+        assert_eq!(written, Some("1.4.0".to_string()));
+        let marker = read_request(dir.path()).unwrap().unwrap();
+        assert_eq!(marker.target_version, "1.4.0");
+        assert_eq!(marker.requested_by, "admin");
+    }
+
+    #[test]
+    fn request_upgrade_noop_when_up_to_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let written = request_upgrade(dir.path(), "1.4.0", "1.4.0", 1).unwrap();
+        assert_eq!(written, None);
+        assert!(read_request(dir.path()).unwrap().is_none());
     }
 }

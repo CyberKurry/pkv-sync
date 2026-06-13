@@ -74,6 +74,7 @@ pub fn router() -> Router<AppState> {
         .route("/setup", get(setup_get).post(setup_post))
         .route("/admin/logout", post(logout))
         .route("/admin", get(dashboard))
+        .route("/admin/upgrade/request", post(request_upgrade_form))
         .route("/admin/users", get(users_page).post(create_user_form))
         .route("/admin/users/:id", get(user_detail))
         .route("/admin/users/:id/password", post(reset_password_form))
@@ -729,6 +730,24 @@ async fn dashboard(
         sync_status_state,
         recent_activities,
     }))
+}
+
+/// One-click "Upgrade now": if update-check has found a newer stable release,
+/// write a device-local upgrade-request marker for the opt-in privileged updater
+/// to apply. The server itself never upgrades; it only records the request.
+async fn request_upgrade_form(State(state): State<AppState>, _session: AdminSession) -> Redirect {
+    if let Some(status) = state.update_status.read().await.as_ref() {
+        let now = chrono::Utc::now().timestamp().max(0) as u64;
+        if let Err(err) = crate::service::upgrade_signal::request_upgrade(
+            &state.data_dir,
+            env!("CARGO_PKG_VERSION"),
+            &status.latest_version,
+            now,
+        ) {
+            tracing::warn!("failed to write upgrade-request marker: {err}");
+        }
+    }
+    Redirect::to("/admin")
 }
 
 #[derive(Debug, PartialEq, Eq)]
