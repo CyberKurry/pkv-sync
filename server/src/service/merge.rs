@@ -595,4 +595,80 @@ mod tests {
         assert!(text.contains("BETA"));
         assert!(text.contains("GAMMA"));
     }
+
+    #[test]
+    fn multi_line_conflict_still_emits_line_markers() {
+        // A genuine multi-line conflict must still produce line markers,
+        // untouched by the single-line char-merge path.
+        let base = "a\nb\nc\n";
+        let local = "a\nX\nY\n";
+        let remote = "a\nP\nQ\n";
+        let MergeOutcome::Conflicted(text) = three_way_merge(base, local, remote) else {
+            panic!("expected conflict");
+        };
+        assert!(text.contains("<<<<<<< local"));
+        assert!(text.contains(">>>>>>> remote"));
+    }
+
+    #[test]
+    fn char_merge_is_deterministic() {
+        let base = "the quick brown fox\n";
+        let local = "the slow brown fox\n";
+        let remote = "the quick red fox\n";
+        let a = three_way_merge(base, local, remote);
+        let b = three_way_merge(base, local, remote);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn random_single_line_merges_total_deterministic_conflict_complete() {
+        // Deterministic LCG (no dependency). A naive "every input char survives"
+        // invariant is FALSE: a side may legitimately delete a char, or
+        // base == remote may short-circuit to the other side. So we pin the
+        // properties that always hold and catch real char-merge regressions:
+        // (1) no panic, (2) determinism, (3) a conflict fallback emits both
+        // sides verbatim (no silent loss on the conflict path).
+        let alphabet = ['a', 'b', 'c', 'd', '数', '据', ' '];
+        let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) as u32
+        };
+        let mut make_line = |next: &mut dyn FnMut() -> u32| -> String {
+            let len = (next() as usize % 6) + 1;
+            let mut s: String = (0..len)
+                .map(|_| alphabet[next() as usize % alphabet.len()])
+                .collect();
+            s.push('\n');
+            s
+        };
+
+        for _ in 0..500 {
+            let base = make_line(&mut next);
+            let local = make_line(&mut next);
+            let remote = make_line(&mut next);
+
+            let first = three_way_merge(&base, &local, &remote);
+            let second = three_way_merge(&base, &local, &remote);
+            assert_eq!(
+                first, second,
+                "non-deterministic: base={base:?} local={local:?} remote={remote:?}"
+            );
+
+            if let MergeOutcome::Conflicted(text) = &first {
+                let local_line = local.trim_end_matches('\n');
+                let remote_line = remote.trim_end_matches('\n');
+                assert!(
+                    text.contains(local_line),
+                    "conflict dropped local {local_line:?}: {text:?}"
+                );
+                assert!(
+                    text.contains(remote_line),
+                    "conflict dropped remote {remote_line:?}: {text:?}"
+                );
+            }
+        }
+    }
 }
