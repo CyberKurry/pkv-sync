@@ -1,5 +1,6 @@
 use serde::Serialize;
 use similar::{DiffTag, TextDiff};
+use std::borrow::Cow;
 
 const MAX_MERGE_LINES: usize = 100_000;
 const NUL: u8 = 0;
@@ -115,7 +116,7 @@ fn merge_hunks<'a>(
     local_hunks: &[Hunk<'a>],
     remote_hunks: &[Hunk<'a>],
 ) -> (String, bool) {
-    let mut merged = Vec::new();
+    let mut merged: Vec<Cow<'a, str>> = Vec::new();
     let mut has_conflict = false;
     let mut base_cursor = 0;
     let mut local_idx = 0;
@@ -154,6 +155,10 @@ fn merge_hunks<'a>(
                     merge_trailing_append(&base_segment, &local_segment, &remote_segment)
                 {
                     append_lines(&mut merged, &segment);
+                } else if let Some(merged_line) =
+                    try_subline_char_merge(&base_segment, &local_segment, &remote_segment)
+                {
+                    merged.extend(merged_line.into_iter().map(Cow::Owned));
                 } else {
                     has_conflict = true;
                     append_conflict(&mut merged, &local_segment, &remote_segment);
@@ -188,7 +193,10 @@ fn merge_hunks<'a>(
     }
 
     append_lines(&mut merged, &base[base_cursor..]);
-    (merged.concat(), has_conflict)
+    (
+        merged.iter().map(|line| line.as_ref()).collect::<String>(),
+        has_conflict,
+    )
 }
 
 fn collect_overlapping_region(
@@ -315,30 +323,30 @@ fn hunk_overlaps_region(hunk: &Hunk<'_>, start: usize, end: usize) -> bool {
     }
 }
 
-fn append_conflict<'a>(merged: &mut Vec<&'a str>, local: &[&'a str], remote: &[&'a str]) {
-    merged.push("<<<<<<< local\n");
+fn append_conflict<'a>(merged: &mut Vec<Cow<'a, str>>, local: &[&'a str], remote: &[&'a str]) {
+    merged.push(Cow::Borrowed("<<<<<<< local\n"));
     append_lines(merged, local);
     ensure_newline(merged);
-    merged.push("=======\n");
+    merged.push(Cow::Borrowed("=======\n"));
     append_lines(merged, remote);
     ensure_newline(merged);
-    merged.push(">>>>>>> remote\n");
+    merged.push(Cow::Borrowed(">>>>>>> remote\n"));
 }
 
-fn append_lines<'a>(merged: &mut Vec<&'a str>, lines: &[&'a str]) {
-    merged.extend_from_slice(lines);
+fn append_lines<'a>(merged: &mut Vec<Cow<'a, str>>, lines: &[&'a str]) {
+    merged.extend(lines.iter().map(|line| Cow::Borrowed(*line)));
 }
 
-fn ensure_newline(merged: &mut Vec<&str>) {
-    if merged.last().is_some_and(|line| !line.ends_with('\n')) {
-        merged.push("\n");
+fn ensure_newline<'a, T: AsRef<str> + From<&'a str>>(merged: &mut Vec<T>) {
+    if merged
+        .last()
+        .is_some_and(|line| !line.as_ref().ends_with('\n'))
+    {
+        merged.push(T::from("\n"));
     }
 }
 
-// Character-level three-way merge primitives (Part A). Used by
-// `try_subline_char_merge` and wired into `merge_hunks` in a later step; the
-// allow is removed once they are reachable from production code.
-#[allow(dead_code)]
+// Character-level three-way merge primitives (Part A), wired into `merge_hunks`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CharHunk {
     base_start: usize, // char index into base
@@ -346,7 +354,6 @@ struct CharHunk {
     replacement: String,
 }
 
-#[allow(dead_code)]
 fn char_diff_hunks(base: &str, changed: &str) -> Vec<CharHunk> {
     let changed_chars: Vec<char> = changed.chars().collect();
     let mut hunks = Vec::new();
@@ -365,7 +372,6 @@ fn char_diff_hunks(base: &str, changed: &str) -> Vec<CharHunk> {
     hunks
 }
 
-#[allow(dead_code)]
 fn char_hunks_overlap(local: &[CharHunk], remote: &[CharHunk]) -> bool {
     for l in local {
         for r in remote {
@@ -388,7 +394,6 @@ fn char_hunks_overlap(local: &[CharHunk], remote: &[CharHunk]) -> bool {
     false
 }
 
-#[allow(dead_code)]
 fn apply_char_hunks(base: &str, local: &[CharHunk], remote: &[CharHunk]) -> String {
     let base_chars: Vec<char> = base.chars().collect();
     let mut all: Vec<&CharHunk> = local.iter().chain(remote.iter()).collect();
@@ -408,7 +413,6 @@ fn apply_char_hunks(base: &str, local: &[CharHunk], remote: &[CharHunk]) -> Stri
     out
 }
 
-#[allow(dead_code)]
 fn try_subline_char_merge(base: &[&str], local: &[&str], remote: &[&str]) -> Option<Vec<String>> {
     // Constraint 1: single line on every side.
     if base.len() != 1 || local.len() != 1 || remote.len() != 1 {
@@ -565,5 +569,30 @@ mod tests {
         let remote = vec!["数据传送物\n"];
         let merged = try_subline_char_merge(&base, &local, &remote);
         assert_eq!(merged, Some(vec!["数据转移物\n".to_string()]));
+    }
+
+    #[test]
+    fn three_way_auto_merges_disjoint_same_line_edits() {
+        let base = "one\nthe quick brown fox\nthree\n";
+        let local = "one\nthe slow brown fox\nthree\n";
+        let remote = "one\nthe quick red fox\nthree\n";
+        let merged = three_way_merge(base, local, remote);
+        assert_eq!(
+            merged,
+            MergeOutcome::Clean("one\nthe slow red fox\nthree\n".to_string())
+        );
+    }
+
+    #[test]
+    fn three_way_conflicts_on_overlapping_same_line_edits() {
+        let base = "one\nalpha\nthree\n";
+        let local = "one\nBETA\nthree\n";
+        let remote = "one\nGAMMA\nthree\n";
+        let MergeOutcome::Conflicted(text) = three_way_merge(base, local, remote) else {
+            panic!("expected conflict on overlapping same-line edits");
+        };
+        assert!(text.contains("<<<<<<< local"));
+        assert!(text.contains("BETA"));
+        assert!(text.contains("GAMMA"));
     }
 }
