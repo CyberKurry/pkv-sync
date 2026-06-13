@@ -15,6 +15,10 @@
   <a href="{{ update.release_url }}" target="_blank" rel="noopener">
     {{ t.update_release_notes }}<svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-right"></use></svg>
   </a>
+  <form method="post" action="/admin/upgrade/request" class="update-upgrade">
+    <button type="submit">{{ t.upgrade_now_button }}</button>
+    <span class="update-upgrade-hint">{{ t.upgrade_updater_hint }}</span>
+  </form>
 </section>
 {% endif %}
 
