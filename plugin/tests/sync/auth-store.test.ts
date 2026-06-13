@@ -143,4 +143,20 @@ describe("migrateAuth", () => {
     expect(result.kind).toBe("write-failed-degraded");
     expect(result.strippedData).toBeNull();
   });
+
+  it("survives a plugin-folder wipe: data.json reset but localStorage intact", () => {
+    const ls = makeLocalStorage();
+    const auth = new AuthStore(ls.load, ls.save);
+    // device had migrated previously
+    auth.save({ deviceId: "dev-keep", token: "tok-keep", serverUrl: "https://s", deploymentKey: "dk", userId: "u" });
+
+    // user deletes plugin folder → data.json is gone (empty object on next load)
+    const result = migrateAuth(auth, {});
+
+    // migration sees localStorage already has auth → already-migrated, no data loss
+    expect(result.kind).toBe("already-migrated");
+    // auth identity intact
+    expect(auth.load()?.deviceId).toBe("dev-keep");
+    expect(auth.load()?.token).toBe("tok-keep");
+  });
 });
