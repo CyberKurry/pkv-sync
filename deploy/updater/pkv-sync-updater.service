@@ -1,0 +1,9 @@
+[Unit]
+Description=PKV Sync updater (applies a requested upgrade)
+After=pkv-sync.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pkv-sync-update.sh
+# Runs as root (no User=): replacing /usr/local/bin/pkvsyncd and restarting the
+# service require privilege the hardened pkv-sync.service deliberately lacks.

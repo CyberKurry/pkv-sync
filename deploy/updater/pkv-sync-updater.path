@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch for a PKV Sync upgrade request
+
+[Path]
+# The unprivileged pkv-sync server writes this marker when an admin clicks
+# "Upgrade now"; its appearance triggers pkv-sync-updater.service.
+PathExists=/var/lib/pkv-sync/upgrade-request.json
+Unit=pkv-sync-updater.service
+
+[Install]
+WantedBy=multi-user.target
