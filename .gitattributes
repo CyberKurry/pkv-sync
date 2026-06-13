@@ -1,0 +1,5 @@
+# Shell scripts and systemd units must stay LF so they work on Linux deployments,
+# even when authored or checked out on Windows.
+*.sh text eol=lf
+*.service text eol=lf
+*.path text eol=lf
