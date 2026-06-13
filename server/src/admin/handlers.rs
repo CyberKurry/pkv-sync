@@ -253,6 +253,7 @@ pub async fn setup_redirect_middleware(
 async fn set_language(
     Extension(cookie_policy): Extension<AdminCookiePolicy>,
     cookies: Cookies,
+    _session: AdminSession,
     Path(lang): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Redirect {
@@ -263,6 +264,7 @@ async fn set_language(
 async fn set_language_query(
     Extension(cookie_policy): Extension<AdminCookiePolicy>,
     cookies: Cookies,
+    _session: AdminSession,
     Query(params): Query<HashMap<String, String>>,
 ) -> Redirect {
     if let Some(lang) = params.get("lang") {

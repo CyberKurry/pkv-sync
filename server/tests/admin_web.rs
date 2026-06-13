@@ -230,15 +230,16 @@ async fn login_page_follows_accept_language() {
 
 #[tokio::test]
 async fn language_switch_sets_cookie() {
-    let resp = app()
-        .await
-        .oneshot(request(
-            Method::GET,
-            "/admin/language/zh-CN?next=/admin/login",
-            Body::empty(),
-        ))
-        .await
-        .unwrap();
+    let app = app().await;
+    let session_cookie = login_cookie(&app).await;
+    let mut req = request(
+        Method::GET,
+        "/admin/language/zh-CN?next=/admin/login",
+        Body::empty(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
     let cookie = resp
         .headers()
@@ -255,17 +256,43 @@ async fn language_switch_sets_cookie() {
 
 #[tokio::test]
 async fn language_switch_rejects_dot_segment_next() {
-    let resp = app()
-        .await
-        .oneshot(request(
-            Method::GET,
-            "/admin/language/zh-CN?next=/admin/../api/config",
-            Body::empty(),
-        ))
-        .await
-        .unwrap();
+    let app = app().await;
+    let session_cookie = login_cookie(&app).await;
+    let mut req = request(
+        Method::GET,
+        "/admin/language/zh-CN?next=/admin/../api/config",
+        Body::empty(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
     assert_eq!(resp.headers().get(header::LOCATION).unwrap(), "/admin");
+}
+
+#[tokio::test]
+async fn language_switch_requires_admin_session() {
+    let app = app().await;
+
+    for uri in [
+        "/admin/language/zh-CN?next=/admin/login",
+        "/admin/language?lang=zh-CN&next=/admin/login",
+    ] {
+        let resp = app
+            .clone()
+            .oneshot(request(Method::GET, uri, Body::empty()))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{uri}");
+        let set_cookie = resp
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!set_cookie.contains("pkv_admin_lang="), "{set_cookie}");
+    }
 }
 
 #[tokio::test]
