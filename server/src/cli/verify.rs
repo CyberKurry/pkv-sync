@@ -221,7 +221,7 @@ fn verify_blob_store(blobs_dir: &Path, report: &mut VerifyReport) -> anyhow::Res
     }
 
     for hash in &report.referenced_blobs {
-        let path = sharded_blob_path(blobs_dir, hash);
+        let path = sharded_blob_path(blobs_dir, hash)?;
         if !path.exists() {
             report.missing_blobs.push(hash.clone());
         }
@@ -238,12 +238,23 @@ fn verify_blob_store(blobs_dir: &Path, report: &mut VerifyReport) -> anyhow::Res
     Ok(())
 }
 
-fn sharded_blob_path(blobs_dir: &Path, hash: &str) -> PathBuf {
-    blobs_dir.join(&hash[0..2]).join(&hash[2..4]).join(hash)
+fn sharded_blob_path(blobs_dir: &Path, hash: &str) -> anyhow::Result<PathBuf> {
+    if !is_sha256_hex(hash) {
+        anyhow::bail!("invalid blob hash: {hash}");
+    }
+    Ok(blobs_dir.join(&hash[0..2]).join(&hash[2..4]).join(hash))
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn sharded_blob_path_rejects_invalid_hash() {
+        let err = sharded_blob_path(Path::new("/data/blobs"), "../not-a-sha").unwrap_err();
+        assert!(err.to_string().contains("invalid blob hash"));
+    }
+
     #[test]
     fn verify_run_does_not_accept_no_fail_flag() {
         let verify_source = include_str!("verify.rs");
