@@ -10,6 +10,7 @@ pub mod metrics;
 pub mod state;
 pub mod sync;
 pub mod update_check;
+pub mod upgrade_signal;
 pub mod vault;
 pub mod vault_settings;
 
