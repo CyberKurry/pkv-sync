@@ -1,6 +1,7 @@
 use pkv_sync_server::cli::upgrade::{
     asset_name_for, container_guidance, new_binary_path_for, parse_sha256sums,
-    prepare_download_target, render_dry_run, target_triple, ContainerProbe, UpgradePlan,
+    prepare_download_target, render_dry_run, target_triple, validate_github_release_asset_url,
+    ContainerProbe, UpgradePlan,
 };
 use std::path::Path;
 
@@ -82,6 +83,53 @@ fn dry_run_renders_target_path_without_download_claim() {
     assert!(rendered.contains("/usr/local/bin/pkvsyncd.new"));
     assert!(rendered.contains("NEXT STEPS"));
     assert!(!rendered.contains("Downloaded"));
+}
+
+#[test]
+fn accepts_expected_github_release_asset_url() {
+    let url = "https://github.com/cyberkurry/pkv-sync/releases/download/v1.2.3/pkvsyncd-x86_64-unknown-linux-gnu";
+
+    assert!(
+        validate_github_release_asset_url(url, "v1.2.3", "pkvsyncd-x86_64-unknown-linux-gnu")
+            .is_ok()
+    );
+}
+
+#[test]
+fn accepts_expected_github_checksum_asset_url() {
+    let url = "https://github.com/cyberkurry/pkv-sync/releases/download/v1.2.3/SHA256SUMS";
+
+    assert!(validate_github_release_asset_url(url, "v1.2.3", "SHA256SUMS").is_ok());
+}
+
+#[test]
+fn rejects_release_asset_url_from_unexpected_host() {
+    let url = "https://example.com/cyberkurry/pkv-sync/releases/download/v1.2.3/pkvsyncd-x86_64-unknown-linux-gnu";
+
+    assert!(
+        validate_github_release_asset_url(url, "v1.2.3", "pkvsyncd-x86_64-unknown-linux-gnu")
+            .is_err()
+    );
+}
+
+#[test]
+fn rejects_release_asset_url_from_unexpected_repo() {
+    let url = "https://github.com/attacker/pkv-sync/releases/download/v1.2.3/pkvsyncd-x86_64-unknown-linux-gnu";
+
+    assert!(
+        validate_github_release_asset_url(url, "v1.2.3", "pkvsyncd-x86_64-unknown-linux-gnu")
+            .is_err()
+    );
+}
+
+#[test]
+fn rejects_release_asset_url_with_unexpected_asset_name() {
+    let url = "https://github.com/cyberkurry/pkv-sync/releases/download/v1.2.3/evil";
+
+    assert!(
+        validate_github_release_asset_url(url, "v1.2.3", "pkvsyncd-x86_64-unknown-linux-gnu")
+            .is_err()
+    );
 }
 
 #[test]

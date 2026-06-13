@@ -87,6 +87,7 @@ async fn try_run(options: RunOptions) -> anyhow::Result<()> {
                 release.html_url
             )
         })?;
+    validate_github_release_asset_url(&asset.browser_download_url, &release.tag_name, &asset.name)?;
     let plan = UpgradePlan {
         version,
         asset_name,
@@ -332,9 +333,39 @@ async fn expected_sha256(
             })
         })
         .ok_or_else(|| anyhow!("release does not include SHA256SUMS for {asset_name}"))?;
+    validate_github_release_asset_url(
+        &checksum_asset.browser_download_url,
+        &release.tag_name,
+        &checksum_asset.name,
+    )?;
     let text = download_text(client, &checksum_asset.browser_download_url).await?;
     parse_sha256sums(&text, asset_name)
         .ok_or_else(|| anyhow!("SHA256SUMS does not include {asset_name}"))
+}
+
+pub fn validate_github_release_asset_url(
+    url: &str,
+    release_tag: &str,
+    asset_name: &str,
+) -> anyhow::Result<()> {
+    let parsed = reqwest::Url::parse(url).context("parsing GitHub asset download URL")?;
+    let expected_path = format!(
+        "/{REPO}/releases/download/{}/{}",
+        release_tag.trim(),
+        asset_name
+    );
+
+    if parsed.scheme() != "https"
+        || !parsed
+            .host_str()
+            .is_some_and(|host| host.eq_ignore_ascii_case("github.com"))
+        || parsed.path() != expected_path
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        bail!("release asset {asset_name} has unexpected download URL");
+    }
+    Ok(())
 }
 
 async fn download_text(client: &reqwest::Client, url: &str) -> anyhow::Result<String> {
