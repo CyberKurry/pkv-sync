@@ -59,6 +59,9 @@ function looksBinary(sample: string): boolean {
 }
 
 export class ConflictResolveModal extends Modal {
+  private isMounted = false;
+  private loadGeneration = 0;
+
   constructor(
     app: App,
     private pair: ConflictPair,
@@ -69,6 +72,7 @@ export class ConflictResolveModal extends Modal {
   }
 
   onOpen(): void {
+    this.isMounted = true;
     this.contentEl.empty();
     this.modalEl.addClass("pkvsync-modal-conflict-resolve");
     this.contentEl.addClass("pkvsync-conflict-resolve-modal");
@@ -91,12 +95,16 @@ export class ConflictResolveModal extends Modal {
   }
 
   onClose(): void {
+    this.isMounted = false;
+    this.loadGeneration += 1;
     this.contentEl.empty();
   }
 
   private async loadContent(): Promise<void> {
+    const generation = this.nextLoadGeneration();
     if (this.pair.kind === "merge_markers") {
-      await this.renderMergeMarkerFlow();
+      const rendered = await this.renderMergeMarkerFlow(generation);
+      if (!rendered || !this.canRender(generation)) return;
       this.renderMergeMarkerActions();
       return;
     }
@@ -106,6 +114,7 @@ export class ConflictResolveModal extends Modal {
       !isLikelyText(this.pair.conflictPath);
 
     if (treatAsBinary) {
+      if (!this.canRender(generation)) return;
       this.renderBinaryNotice();
       this.renderActions();
       return;
@@ -123,19 +132,31 @@ export class ConflictResolveModal extends Modal {
         this.pair.conflictFile
       );
 
+      if (!this.canRender(generation)) return;
       if (looksBinary(originalContent) || looksBinary(conflictContent)) {
         this.renderBinaryNotice();
       } else {
         this.renderDiff(originalContent, conflictContent);
       }
     } catch {
+      if (!this.canRender(generation)) return;
       this.renderBinaryNotice();
     }
 
+    if (!this.canRender(generation)) return;
     this.renderActions();
   }
 
-  private async renderMergeMarkerFlow(): Promise<void> {
+  private nextLoadGeneration(): number {
+    this.loadGeneration += 1;
+    return this.loadGeneration;
+  }
+
+  private canRender(generation: number): boolean {
+    return this.isMounted && this.loadGeneration === generation;
+  }
+
+  private async renderMergeMarkerFlow(generation: number): Promise<boolean> {
     this.contentEl.createDiv({
       cls: "pkvsync-conflict-kind",
       text: this.labels.conflictKindMergeMarkers
@@ -145,14 +166,17 @@ export class ConflictResolveModal extends Modal {
       const conflictContent = await this.app.vault.read(
         this.pair.conflictFile
       );
+      if (!this.canRender(generation)) return false;
       if (looksBinary(conflictContent)) {
         this.renderBinaryNotice();
       } else {
         this.renderMergeMarkerPreview(conflictContent);
       }
     } catch {
+      if (!this.canRender(generation)) return false;
       this.renderBinaryNotice();
     }
+    return true;
   }
 
   private renderMergeMarkerPreview(content: string): void {

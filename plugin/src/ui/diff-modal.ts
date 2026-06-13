@@ -68,6 +68,8 @@ export function commitOptionLabel(
 
 export class DiffModal extends Modal {
   private historyRows: CommitSummary[] = [];
+  private isMounted = false;
+  private loadGeneration = 0;
 
   constructor(
     app: App,
@@ -77,6 +79,7 @@ export class DiffModal extends Modal {
   }
 
   onOpen(): void {
+    this.isMounted = true;
     this.contentEl.empty();
     this.modalEl.addClass("pkvsync-modal-diff");
     this.contentEl.addClass("pkvsync-diff-modal");
@@ -88,10 +91,13 @@ export class DiffModal extends Modal {
   }
 
   onClose(): void {
+    this.isMounted = false;
+    this.loadGeneration += 1;
     this.contentEl.empty();
   }
 
   private async load(): Promise<void> {
+    const generation = this.nextLoadGeneration();
     try {
       const [diff, rows] = await Promise.all([
         this.options.api.diff(this.options.vaultId, {
@@ -103,11 +109,22 @@ export class DiffModal extends Modal {
           .fileHistory(this.options.vaultId, this.options.path, 200)
           .catch(() => this.historyRows)
       ]);
+      if (!this.canRender(generation)) return;
       this.historyRows = rows;
       this.renderDiff(diff);
     } catch (error) {
+      if (!this.canRender(generation)) return;
       this.renderError(errorToMessage(error));
     }
+  }
+
+  private nextLoadGeneration(): number {
+    this.loadGeneration += 1;
+    return this.loadGeneration;
+  }
+
+  private canRender(generation: number): boolean {
+    return this.isMounted && this.loadGeneration === generation;
   }
 
   private renderDiff(diff: UnifiedDiff): void {

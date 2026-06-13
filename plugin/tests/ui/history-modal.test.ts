@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   HistoryModal,
   historyEntryView,
@@ -83,6 +83,36 @@ describe("HistoryModal rows", () => {
     const row = contentEl.querySelector(".pkvsync-history-row");
     const primary = row?.querySelector("button.pkvsync-button");
     expect(primary?.textContent).toBe(labels.historyViewContent);
+  });
+});
+
+describe("HistoryModal async rendering", () => {
+  it("does not render completed history after the modal is closed", async () => {
+    const pendingRows = deferred<CommitSummary[]>();
+    const modal = new HistoryModal({} as never, {
+      api: {
+        fileHistory: vi.fn(() => pendingRows.promise)
+      } as never,
+      vaultId: "vault-1",
+      path: "Notes/example.md",
+      timezone: "Asia/Shanghai",
+      labels
+    });
+    const contentEl = modal.contentEl as unknown as {
+      empty: ReturnType<typeof vi.fn>;
+      createDiv: ReturnType<typeof vi.fn>;
+    };
+
+    modal.open();
+    modal.close();
+    contentEl.empty.mockClear();
+    contentEl.createDiv.mockClear();
+
+    pendingRows.resolve([commit()]);
+    await flushPromises();
+
+    expect(contentEl.empty).not.toHaveBeenCalled();
+    expect(contentEl.createDiv).not.toHaveBeenCalled();
   });
 });
 
@@ -215,4 +245,23 @@ class MockElement {
     }
     return classes.every((cls) => this.classes.has(cls));
   }
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushPromises(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
 }

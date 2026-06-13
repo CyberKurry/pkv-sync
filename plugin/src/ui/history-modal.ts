@@ -69,6 +69,9 @@ export function historyEntryView(
 }
 
 export class HistoryModal extends Modal {
+  private isMounted = false;
+  private loadGeneration = 0;
+
   constructor(
     app: App,
     private options: HistoryModalOptions
@@ -77,6 +80,7 @@ export class HistoryModal extends Modal {
   }
 
   onOpen(): void {
+    this.isMounted = true;
     this.contentEl.empty();
     this.modalEl.addClass("pkvsync-modal-history");
     this.contentEl.addClass("pkvsync-history-modal");
@@ -85,6 +89,8 @@ export class HistoryModal extends Modal {
   }
 
   onClose(): void {
+    this.isMounted = false;
+    this.loadGeneration += 1;
     this.contentEl.empty();
   }
 
@@ -94,16 +100,28 @@ export class HistoryModal extends Modal {
   }
 
   private async load(): Promise<void> {
+    const generation = this.nextLoadGeneration();
     try {
       const rows = await this.options.api.fileHistory(
         this.options.vaultId,
         this.options.path,
         50
       );
+      if (!this.canRender(generation)) return;
       this.renderRows(rows);
     } catch (error) {
+      if (!this.canRender(generation)) return;
       this.renderError(errorToMessage(error));
     }
+  }
+
+  private nextLoadGeneration(): number {
+    this.loadGeneration += 1;
+    return this.loadGeneration;
+  }
+
+  private canRender(generation: number): boolean {
+    return this.isMounted && this.loadGeneration === generation;
   }
 
   private renderRows(rows: CommitSummary[]): void {
