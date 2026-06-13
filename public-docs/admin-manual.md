@@ -330,6 +330,46 @@ container image tag, then restarting the service or rollout. The upgrade CLI
 detects container environments and prints image-based guidance instead of
 writing a side-by-side binary.
 
+### Automatic upgrades (opt-in)
+
+Both paths above are manual. To make upgrades hands-off — notified in the admin
+panel, then applied with one click — enable an **opt-in updater**. The server
+itself stays unprivileged: clicking **Upgrade now** only writes an
+`upgrade-request.json` marker into the data directory; a separate privileged
+updater applies it, restarts the service, and rolls back automatically if the
+new version fails its health check. A fresh install upgrades exactly as above
+until you enable one of these.
+
+**systemd:** install the updater script and units from `deploy/updater/`:
+
+```sh
+sudo install -m 0755 deploy/updater/pkv-sync-update.sh /usr/local/bin/
+sudo cp deploy/updater/pkv-sync-updater.service deploy/updater/pkv-sync-updater.path /etc/systemd/system/
+sudo systemctl enable --now pkv-sync-updater.path
+```
+
+The root `pkv-sync-updater.path` unit watches the marker and runs the oneshot
+`pkv-sync-updater.service`, which stages and SHA-256-verifies the release binary,
+swaps it, restarts `pkv-sync`, and rolls back to the previous binary on a failed
+health check. Disable with `sudo systemctl disable --now pkv-sync-updater.path`.
+
+**Docker:** enable the bundled updater profile. It reaches Docker only through a
+scoped `docker-socket-proxy`; the `pkv-sync` container itself never receives the
+socket:
+
+```sh
+docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+```
+
+The updater pulls the requested `X.Y.Z` image, recreates `pkv-sync`, health-checks
+it, and re-pins the previous tag on failure. As an alternative, point a
+third-party tool such as [Watchtower](https://containrrr.dev/watchtower/) or
+compose-updater at the `pkv-sync` container — note those poll `:latest` on a
+schedule rather than honoring the one-click pinned target.
+
+A brief restart interruption is expected during any upgrade; clients reconnect
+automatically.
+
 ## Maintenance Checklist
 
 - Use `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` for

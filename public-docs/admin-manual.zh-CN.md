@@ -210,6 +210,30 @@ https://sync.example.com/k_xxx/
 
 Docker 和 Kubernetes 部署应通过拉取或修改容器镜像 tag 升级，然后重启服务或 rollout。upgrade CLI 检测到容器环境时，会输出镜像升级指引，不写入旁路二进制。
 
+### 自动升级（opt-in）
+
+上面两种方式都是手动的。要让升级免手动——在管理面板收到通知后一键应用——可启用**可选的升级器**。服务端本身保持非特权：点击 **Upgrade now** 只会向数据目录写入一个 `upgrade-request.json` 标记；由独立的特权升级器应用它、重启服务，并在新版本健康检查失败时自动回滚。在你启用之前，全新安装的升级行为与上文完全一致。
+
+**systemd：** 从 `deploy/updater/` 安装升级脚本与单元：
+
+```sh
+sudo install -m 0755 deploy/updater/pkv-sync-update.sh /usr/local/bin/
+sudo cp deploy/updater/pkv-sync-updater.service deploy/updater/pkv-sync-updater.path /etc/systemd/system/
+sudo systemctl enable --now pkv-sync-updater.path
+```
+
+root 的 `pkv-sync-updater.path` 单元监视该标记并运行一次性的 `pkv-sync-updater.service`：它会暂存并 SHA-256 校验 release 二进制、替换它、重启 `pkv-sync`，健康检查失败时回滚到旧二进制。用 `sudo systemctl disable --now pkv-sync-updater.path` 关闭。
+
+**Docker：** 启用随附的 updater profile。它只通过受限的 `docker-socket-proxy` 访问 Docker；`pkv-sync` 容器本身永远拿不到 socket：
+
+```sh
+docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+```
+
+升级器会拉取所请求的 `X.Y.Z` 镜像、重建 `pkv-sync`、对其做健康检查，失败时重新固定回旧 tag。作为替代，你也可以让 [Watchtower](https://containrrr.dev/watchtower/) 或 compose-updater 等第三方工具盯住 `pkv-sync` 容器——但它们是按计划轮询 `:latest`，而非遵循一键固定的目标版本。
+
+升级期间会有短暂的重启中断；客户端会自动重连。
+
 ## 维护清单
 
 - 使用 `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` 生成运维快照。输出目录必须不存在或为空；命令会用 `VACUUM INTO` 快照 SQLite，复制 `vaults/` 和 `blobs/`，并写入带 pkvsyncd 版本、组件哈希、大小和数量的 `MANIFEST.json`。默认备份会省略 `config.toml`；只有在你明确要保存并保护部署密钥和其他本机秘密时，才添加 `--include-config`。
