@@ -335,6 +335,79 @@ fn ensure_newline(merged: &mut Vec<&str>) {
     }
 }
 
+// Character-level three-way merge primitives (Part A). Used by
+// `try_subline_char_merge` and wired into `merge_hunks` in a later step; the
+// allow is removed once they are reachable from production code.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CharHunk {
+    base_start: usize, // char index into base
+    base_end: usize,   // exclusive
+    replacement: String,
+}
+
+#[allow(dead_code)]
+fn char_diff_hunks(base: &str, changed: &str) -> Vec<CharHunk> {
+    let changed_chars: Vec<char> = changed.chars().collect();
+    let mut hunks = Vec::new();
+    let diff = TextDiff::from_chars(base, changed);
+    for op in diff.ops() {
+        let (tag, base_range, changed_range) = op.as_tag_tuple();
+        if tag == DiffTag::Equal {
+            continue;
+        }
+        hunks.push(CharHunk {
+            base_start: base_range.start,
+            base_end: base_range.end,
+            replacement: changed_chars[changed_range].iter().collect(),
+        });
+    }
+    hunks
+}
+
+#[allow(dead_code)]
+fn char_hunks_overlap(local: &[CharHunk], remote: &[CharHunk]) -> bool {
+    for l in local {
+        for r in remote {
+            let l_ins = l.base_start == l.base_end;
+            let r_ins = r.base_start == r.base_end;
+            let conflict = if l_ins && r_ins {
+                l.base_start == r.base_start
+            } else if l_ins {
+                r.base_start < l.base_start && l.base_start < r.base_end
+            } else if r_ins {
+                l.base_start < r.base_start && r.base_start < l.base_end
+            } else {
+                l.base_start < r.base_end && r.base_start < l.base_end
+            };
+            if conflict {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[allow(dead_code)]
+fn apply_char_hunks(base: &str, local: &[CharHunk], remote: &[CharHunk]) -> String {
+    let base_chars: Vec<char> = base.chars().collect();
+    let mut all: Vec<&CharHunk> = local.iter().chain(remote.iter()).collect();
+    all.sort_by_key(|h| (h.base_start, h.base_end));
+    let mut out = String::new();
+    let mut cursor = 0usize;
+    for h in all {
+        if h.base_start > cursor {
+            out.extend(&base_chars[cursor..h.base_start]);
+        }
+        out.push_str(&h.replacement);
+        cursor = h.base_end.max(cursor);
+    }
+    if cursor < base_chars.len() {
+        out.extend(&base_chars[cursor..]);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,5 +467,43 @@ mod tests {
 
         assert!(implementation.contains("Vec<&str>"));
         assert!(!implementation.contains(".to_string()"));
+    }
+
+    #[test]
+    fn char_hunks_capture_single_word_replacement() {
+        let hunks = char_diff_hunks("the quick fox", "the slow fox");
+        assert_eq!(hunks.len(), 1);
+        let h = &hunks[0];
+        assert_eq!(&"the quick fox"[h.base_start..h.base_end], "quick");
+        assert_eq!(h.replacement, "slow");
+    }
+
+    #[test]
+    fn char_hunks_overlap_detection() {
+        let a = CharHunk {
+            base_start: 4,
+            base_end: 9,
+            replacement: "slow".into(),
+        };
+        let b_overlap = CharHunk {
+            base_start: 6,
+            base_end: 9,
+            replacement: "x".into(),
+        };
+        let b_disjoint = CharHunk {
+            base_start: 10,
+            base_end: 13,
+            replacement: "y".into(),
+        };
+        assert!(char_hunks_overlap(&[a.clone()], &[b_overlap]));
+        assert!(!char_hunks_overlap(&[a], &[b_disjoint]));
+    }
+
+    #[test]
+    fn apply_char_hunks_combines_disjoint_edits() {
+        let local = char_diff_hunks("the quick brown fox", "the slow brown fox");
+        let remote = char_diff_hunks("the quick brown fox", "the quick red fox");
+        let merged = apply_char_hunks("the quick brown fox", &local, &remote);
+        assert_eq!(merged, "the slow red fox");
     }
 }
