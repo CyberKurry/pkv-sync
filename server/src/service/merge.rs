@@ -2,7 +2,9 @@ use serde::Serialize;
 use similar::{DiffTag, TextDiff};
 use std::borrow::Cow;
 
+const MAX_MERGE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_MERGE_LINES: usize = 100_000;
+const MAX_MERGE_LINE_BYTES: usize = 64 * 1024;
 const NUL: u8 = 0;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -46,9 +48,9 @@ pub fn three_way_merge(base: &str, local: &str, remote: &str) -> MergeOutcome {
     let local_lines = split_lines(local);
     let remote_lines = split_lines(remote);
 
-    if [base_lines.len(), local_lines.len(), remote_lines.len()]
-        .iter()
-        .any(|line_count| *line_count > MAX_MERGE_LINES)
+    if merge_input_too_large(base, &base_lines)
+        || merge_input_too_large(local, &local_lines)
+        || merge_input_too_large(remote, &remote_lines)
     {
         return MergeOutcome::Binary;
     }
@@ -71,6 +73,12 @@ pub fn three_way_merge(base: &str, local: &str, remote: &str) -> MergeOutcome {
     } else {
         MergeOutcome::Clean(merged)
     }
+}
+
+fn merge_input_too_large(text: &str, lines: &[&str]) -> bool {
+    text.len() > MAX_MERGE_BYTES
+        || lines.len() > MAX_MERGE_LINES
+        || lines.iter().any(|line| line.len() > MAX_MERGE_LINE_BYTES)
 }
 
 fn split_lines(text: &str) -> Vec<&str> {
@@ -636,7 +644,7 @@ mod tests {
                 .wrapping_add(1442695040888963407);
             (seed >> 33) as u32
         };
-        let mut make_line = |next: &mut dyn FnMut() -> u32| -> String {
+        let make_line = |next: &mut dyn FnMut() -> u32| -> String {
             let len = (next() as usize % 6) + 1;
             let mut s: String = (0..len)
                 .map(|_| alphabet[next() as usize % alphabet.len()])

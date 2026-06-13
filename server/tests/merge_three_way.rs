@@ -90,3 +90,14 @@ fn merge_oversized_file_falls_back_to_binary() {
 
     assert!(matches!(outcome, MergeOutcome::Binary));
 }
+
+#[test]
+fn merge_single_oversized_line_falls_back_to_binary_before_char_diff() {
+    let base = format!("{}base", "x".repeat(70 * 1024));
+    let local = base.replacen("base", "local", 1);
+    let remote = base.replacen("base", "remote", 1);
+
+    let outcome = three_way_merge(&base, &local, &remote);
+
+    assert!(matches!(outcome, MergeOutcome::Binary));
+}
