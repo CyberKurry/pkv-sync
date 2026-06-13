@@ -6,10 +6,12 @@ use crate::service::AppState;
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::borrow::Cow;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 pub(crate) const GENERIC_MCP_AUTH_ERROR: &str = "invalid or revoked token";
+pub(crate) const GENERIC_MCP_INTERNAL_ERROR: &str = "internal server error";
 
 pub struct StdioSession {
     state: AppState,
@@ -218,7 +220,10 @@ pub(crate) async fn handle_jsonrpc(
                         "id": id,
                         "result": result
                     }),
-                    Err(err) => jsonrpc_error(id, -32000, &err.to_string()),
+                    Err(err) => {
+                        let message = mcp_tool_error_public_message(&err);
+                        jsonrpc_error(id, -32000, &message)
+                    }
                 },
                 Err(err) => jsonrpc_error(id, -32602, &format!("invalid params: {err}")),
             }
@@ -297,6 +302,48 @@ async fn call_tool(
     }))
 }
 
+pub(crate) fn mcp_tool_error_public_message(error: &anyhow::Error) -> Cow<'_, str> {
+    let message = error.to_string();
+    if is_public_mcp_tool_error(&message) {
+        Cow::Owned(message)
+    } else {
+        tracing::error!(error = %error, "mcp tool call failed internally");
+        Cow::Borrowed(GENERIC_MCP_INTERNAL_ERROR)
+    }
+}
+
+fn is_public_mcp_tool_error(message: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "batch_too_large:",
+        "conflicting_path:",
+        "duplicate_path:",
+        "empty_batch:",
+        "invalid_commit:",
+        "invalid_path:",
+        "not_found:",
+        "path_excluded:",
+        "rate_limited:",
+        "target_exists:",
+        "unrelated_commit:",
+        "unsupported_binary_move:",
+        "unknown tool:",
+    ];
+    const EXACT: &[&str] = &[
+        "blob not referenced by vault",
+        "file exceeds MCP response limit",
+        "file not found",
+        "search content budget exceeded",
+        "vault not available in this MCP session",
+        "vault not found",
+    ];
+
+    PREFIXES.iter().any(|prefix| message.starts_with(prefix))
+        || EXACT.contains(&message)
+        || message.starts_with("blob not found: ")
+        || message.starts_with("file exceeds max_file_size of ")
+        || message.starts_with("too many files to search: ")
+}
+
 fn scoped_argument_vault(arguments: &Value) -> Option<&str> {
     arguments
         .as_object()
@@ -319,6 +366,7 @@ pub(crate) fn jsonrpc_error(id: Value, code: i64, message: &str) -> Value {
 mod tests {
     use super::*;
     use crate::db::pool;
+    use crate::db::repos::NewUser;
     use std::time::Duration;
 
     async fn test_state() -> AppState {
@@ -405,5 +453,53 @@ mod tests {
             state.mcp_auth_limiter.try_acquire("bad-token-key").is_err(),
             "credential failures must still consume the failure budget"
         );
+    }
+
+    #[tokio::test]
+    async fn tool_internal_errors_use_generic_jsonrpc_message() {
+        let state = test_state().await;
+        let user = state
+            .users
+            .create(NewUser {
+                username: "mcp-internal".into(),
+                password_hash: "hash".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let auth_user = AuthenticatedUser {
+            user_id: user.id,
+            username: user.username,
+            is_admin: user.is_admin,
+            token_id: "token-internal".into(),
+            device_id: "device-internal".into(),
+        };
+        state.pool.close().await;
+
+        let response = handle_jsonrpc(
+            &state,
+            &auth_user,
+            None,
+            json!({
+                "jsonrpc": "2.0",
+                "id": "internal",
+                "method": "tools/call",
+                "params": {
+                    "name": "list_vaults",
+                    "arguments": {}
+                }
+            }),
+        )
+        .await;
+
+        assert_eq!(response["error"]["code"], -32000);
+        assert_eq!(response["error"]["message"], "internal server error");
+        let body = response.to_string();
+        for leaked in ["database", "pool", "closed", "sqlite"] {
+            assert!(
+                !body.to_ascii_lowercase().contains(leaked),
+                "response leaked {leaked}: {body}"
+            );
+        }
     }
 }

@@ -24,6 +24,7 @@ use tokio_stream::StreamExt;
 use super::auth::{mcp_token_still_valid, TokenValidityCache};
 use super::transport_stdio::{
     authenticate_token, handle_jsonrpc, jsonrpc_error, GENERIC_MCP_AUTH_ERROR,
+    GENERIC_MCP_INTERNAL_ERROR,
 };
 
 #[derive(Clone, Debug)]
@@ -47,6 +48,19 @@ fn mcp_auth_error_public_message(message: &str) -> &str {
     } else {
         GENERIC_MCP_AUTH_ERROR
     }
+}
+
+fn mcp_internal_error_response(error: impl std::fmt::Display) -> Response {
+    tracing::error!(error = %error, "mcp http transport failed internally");
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(jsonrpc_error(
+            Value::Null,
+            -32603,
+            GENERIC_MCP_INTERNAL_ERROR,
+        )),
+    )
+        .into_response()
 }
 
 fn is_json_content_type(headers: &HeaderMap) -> bool {
@@ -234,11 +248,7 @@ async fn get_mcp_sse(
         match crate::db::repos::VaultRepo::list_for_user(&*state.vaults, &user.user_id).await {
             Ok(vaults) => vaults,
             Err(err) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(jsonrpc_error(Value::Null, -32603, &err.to_string())),
-                )
-                    .into_response();
+                return mcp_internal_error_response(err);
             }
         };
     let Some(sse_guard) = state.try_acquire_sse_subscriber(&user.user_id) else {
@@ -256,11 +266,7 @@ async fn get_mcp_sse(
         Some(commit) => match mcp_replay_events_after(&state, &vaults, &commit).await {
             Ok(events) => events,
             Err(err) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(jsonrpc_error(Value::Null, -32603, &err.to_string())),
-                )
-                    .into_response();
+                return mcp_internal_error_response(err);
             }
         },
         _ => McpReplayEvents::Events(Vec::new()),
@@ -520,6 +526,14 @@ mod tests {
         body["error"]["message"].as_str().unwrap().to_string()
     }
 
+    async fn jsonrpc_error_message(response: Response) -> String {
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        body["error"]["message"].as_str().unwrap().to_string()
+    }
+
     #[tokio::test]
     async fn mcp_http_auth_failures_use_generic_message_for_disabled_and_bad_tokens() {
         let state = state().await;
@@ -561,6 +575,19 @@ mod tests {
             mcp_auth_error_public_message("database unavailable"),
             GENERIC_MCP_AUTH_ERROR
         );
+    }
+
+    #[tokio::test]
+    async fn mcp_internal_error_response_hides_raw_error() {
+        let response = mcp_internal_error_response(anyhow::anyhow!(
+            "database closed at C:\\secret\\db.sqlite"
+        ));
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let message = jsonrpc_error_message(response).await;
+        assert_eq!(message, "internal server error");
+        assert!(!message.contains("database"));
+        assert!(!message.contains("secret"));
     }
 
     #[test]
