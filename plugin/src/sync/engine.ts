@@ -611,6 +611,14 @@ export class SyncEngine {
 
   private async applyDelete(path: string, commit: string): Promise<void> {
     await this.opts.index.updateIndex(async (index) => {
+      const indexed = index.files[path];
+      if (indexed && this.opts.vault.exists(path)) {
+        const local = await this.opts.vault.snapshot(path, this.opts.textExtensions);
+        if (isLocalDirty(local, indexed.lastSyncedHash)) {
+          await this.writeConflict(path, local);
+          return index;
+        }
+      }
       await this.opts.vault.delete(path);
       return markDeleted(index, commit, [path]);
     });

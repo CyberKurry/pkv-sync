@@ -35,6 +35,36 @@ fn symlink_dir_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
 }
 
+fn compose_service<'a>(compose: &'a str, service: &str) -> &'a str {
+    let needle = format!("  {service}:");
+    let start = compose.find(&needle).expect("service exists");
+    let after_start = &compose[start + needle.len()..];
+    let end = after_start
+        .lines()
+        .scan(start + needle.len(), |offset, line| {
+            let line_start = *offset + 1;
+            *offset += line.len() + 1;
+            Some((line_start, line))
+        })
+        .find_map(|(line_start, line)| {
+            (line.starts_with("  ") && !line.starts_with("    ")).then_some(line_start)
+        })
+        .unwrap_or(compose.len());
+    &compose[start..end]
+}
+
+#[test]
+fn traefik_compose_uses_socket_proxy_instead_of_direct_docker_socket() {
+    let compose = include_str!("../../deploy/traefik/docker-compose.traefik.yml");
+    let traefik = compose_service(compose, "traefik");
+    let socket_proxy = compose_service(compose, "socket-proxy");
+
+    assert!(traefik.contains("--providers.docker.endpoint=tcp://socket-proxy:2375"));
+    assert!(!traefik.contains("/var/run/docker.sock"));
+    assert!(socket_proxy.contains("tecnativa/docker-socket-proxy"));
+    assert!(socket_proxy.contains("/var/run/docker.sock:/var/run/docker.sock:ro"));
+}
+
 async fn setup_state() -> (AppState, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");

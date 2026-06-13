@@ -3,6 +3,7 @@ use crate::auth::{password, token};
 use crate::db::repos::{InviteRepo, NewToken, NewUser, RegistrationMode, User, UserRepo};
 use crate::service::AppState;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterReq {
@@ -37,6 +38,8 @@ pub struct AuthResp {
 
 const USERNAME_MIN: usize = 3;
 const USERNAME_MAX: usize = 32;
+static DUMMY_PASSWORD_HASH: LazyLock<String> =
+    LazyLock::new(|| password::hash("dummy-password").expect("dummy password is valid"));
 
 pub fn validate_username(u: &str) -> Result<(), ApiError> {
     let len = u.chars().count();
@@ -90,7 +93,8 @@ pub async fn verify_credentials(
     let user = match user {
         Some(u) => u,
         None => {
-            let _ = crate::auth::password::hash("dummy-password");
+            let _ = password::verify(password, &DUMMY_PASSWORD_HASH)
+                .map_err(|e| ApiError::internal(e.to_string()))?;
             return Err(ApiError::unauthorized("invalid credentials"));
         }
     };
@@ -1015,5 +1019,22 @@ mod tests {
         let s = make_state(RegistrationMode::Open).await;
         let err = verify_credentials(&s, "ghost", "any").await.unwrap_err();
         assert_eq!(err.status, axum::http::StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn unknown_user_dummy_hash_is_precomputed() {
+        let source = include_str!("auth.rs");
+        let fn_start = source
+            .find("pub async fn verify_credentials")
+            .expect("verify_credentials exists");
+        let next_fn = source[fn_start + 1..]
+            .find("\npub async fn")
+            .map(|idx| fn_start + 1 + idx)
+            .expect("next async function follows verify_credentials");
+        let implementation = &source[fn_start..next_fn];
+
+        assert!(source.contains("static DUMMY_PASSWORD_HASH"));
+        assert!(!implementation.contains("password::hash(\"dummy-password\")"));
+        assert!(implementation.contains("password::verify(password, &DUMMY_PASSWORD_HASH)"));
     }
 }

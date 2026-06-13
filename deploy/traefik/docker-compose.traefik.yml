@@ -1,8 +1,21 @@
 services:
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      NETWORKS: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [traefik-proxy]
+
   traefik:
     image: traefik:v3.0
     command:
       - --providers.docker=true
+      - --providers.docker.endpoint=tcp://socket-proxy:2375
+      - --providers.docker.exposedbydefault=false
       - --entrypoints.websecure.address=:443
       - --certificatesresolvers.le.acme.tlschallenge=true
       - --certificatesresolvers.le.acme.email=admin@example.com
@@ -10,8 +23,9 @@ services:
     ports:
       - "443:443"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./letsencrypt:/letsencrypt
+    depends_on: [socket-proxy]
+    networks: [traefik-proxy]
 
   pkv-sync:
     image: ghcr.io/cyberkurry/pkv-sync:latest
@@ -24,3 +38,7 @@ services:
       - traefik.http.routers.pkv.entrypoints=websecure
       - traefik.http.routers.pkv.tls.certresolver=le
       - traefik.http.services.pkv.loadbalancer.server.port=6710
+    networks: [traefik-proxy]
+
+networks:
+  traefik-proxy:

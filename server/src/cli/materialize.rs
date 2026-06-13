@@ -85,6 +85,7 @@ fn walk_tree(
         let name = entry
             .name()
             .ok_or_else(|| anyhow::anyhow!("non-utf8 entry name"))?;
+        validate_tree_entry_name(name)?;
         let entry_rel = rel.join(name);
         match entry.kind() {
             Some(git2::ObjectType::Tree) => {
@@ -123,6 +124,19 @@ fn sharded_blob_path(blobs_dir: &Path, hash: &str) -> anyhow::Result<PathBuf> {
         anyhow::bail!("invalid blob hash: {hash}");
     }
     Ok(blobs_dir.join(&hash[0..2]).join(&hash[2..4]).join(hash))
+}
+
+fn validate_tree_entry_name(name: &str) -> anyhow::Result<()> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+    {
+        anyhow::bail!("unsafe git tree entry name: {name:?}");
+    }
+    Ok(())
 }
 
 /// Parse a `pkvsync_pointer` JSON blob and extract the SHA-256 hash.
@@ -230,5 +244,15 @@ mod tests {
     fn sharded_blob_path_rejects_invalid_hash() {
         let err = sharded_blob_path(Path::new("/data/blobs"), "abc").unwrap_err();
         assert!(err.to_string().contains("invalid blob hash"));
+    }
+
+    #[test]
+    fn validate_tree_entry_name_rejects_path_traversal_segments() {
+        for name in ["..", ".", "", "nested/file", r"nested\file"] {
+            let err = validate_tree_entry_name(name).unwrap_err();
+            assert!(err.to_string().contains("unsafe git tree entry name"));
+        }
+        assert!(validate_tree_entry_name("note.md").is_ok());
+        assert!(validate_tree_entry_name("PKV Sync.md").is_ok());
     }
 }

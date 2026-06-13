@@ -296,6 +296,50 @@ async fn metrics_endpoint_reports_http_request_counters() {
 }
 
 #[tokio::test]
+async fn metrics_endpoint_uses_bounded_label_for_unmatched_routes() {
+    let (app, state, key) = test_app().await;
+    state
+        .runtime_cfg_repo
+        .set_enable_metrics(true, None)
+        .await
+        .unwrap();
+    let cfg = state.runtime_cfg_repo.load().await.unwrap();
+    state.runtime_cfg.replace(cfg).await;
+    let admin_raw = create_token(&state, "metrics-unmatched-admin", true).await;
+
+    for path in ["/not-found-a", "/not-found-b"] {
+        let resp = app
+            .clone()
+            .oneshot(request(path, Some(&key)))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    let resp = app
+        .oneshot(authenticated_request("/metrics", &key, &admin_raw))
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+
+    assert!(
+        body.contains("pkv_http_requests_total{code=\"404\",method=\"GET\",route=\"unmatched\"} 2"),
+        "expected bounded unmatched route counter, got: {body}"
+    );
+    assert!(
+        !body.contains("route=\"/not-found-a\""),
+        "raw unmatched path leaked: {body}"
+    );
+    assert!(
+        !body.contains("route=\"/not-found-b\""),
+        "raw unmatched path leaked: {body}"
+    );
+}
+
+#[tokio::test]
 async fn metrics_endpoint_reports_nonzero_push_counters() {
     let (app, state, key) = test_app().await;
     state

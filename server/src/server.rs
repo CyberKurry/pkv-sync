@@ -136,7 +136,7 @@ async fn access_log_middleware(
         .extensions()
         .get::<MatchedPath>()
         .map(|matched| matched.as_str().to_string())
-        .unwrap_or_else(|| path.clone());
+        .unwrap_or_else(|| "unmatched".to_string());
     let request_id = req
         .headers()
         .get(request_id::HEADER)

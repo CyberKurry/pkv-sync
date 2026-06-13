@@ -44,6 +44,23 @@ class FakeVault {
     throw new Error("not implemented for these tests");
   }
 
+  async snapshot(path: string): Promise<{
+    path: string;
+    hash: string;
+    size: number;
+    kind: "text";
+    content: string;
+  }> {
+    const content = await this.readText(path);
+    return {
+      path,
+      hash: await sha256Text(content),
+      size: new TextEncoder().encode(content).byteLength,
+      kind: "text",
+      content
+    };
+  }
+
   async delete(path: string): Promise<void> {
     this.deletions.push(path);
     this.store.delete(path);
@@ -205,5 +222,35 @@ describe("SyncEngine inline apply dirty detection", () => {
     expect(vault.writes.size).toBe(0);
     // And index was NOT advanced
     expect(index.saved).toBeNull();
+  });
+
+  it("keeps dirty local content and writes a conflict copy for inline delete", async () => {
+    const vault = new FakeVault();
+    vault.store.set("note.md", "user-edited-locally");
+    const indexedHash = await sha256Text("original synced content");
+    const index = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "note.md": {
+          lastSyncedHash: indexedHash,
+          lastSyncedAt: 1,
+          size: 23,
+          kind: "text"
+        }
+      }
+    });
+    const engine = buildEngine({ vault, index });
+
+    await (engine as never as { applyDelete: (p: string, sha: string) => Promise<void> })
+      .applyDelete("note.md", "c1");
+
+    expect(vault.store.get("note.md")).toBe("user-edited-locally");
+    expect(vault.deletions).toEqual([]);
+    const conflictEntry = [...vault.writes.entries()].find(([path]) =>
+      path.startsWith("note.conflict-") && path.endsWith("-test-device.md")
+    );
+    expect(conflictEntry?.[1]).toBe("user-edited-locally");
+    expect(index.saved?.lastSyncedCommit).toBe("c0");
+    expect(index.saved?.files["note.md"]?.lastSyncedHash).toBe(indexedHash);
   });
 });
