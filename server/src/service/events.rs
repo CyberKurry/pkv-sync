@@ -108,8 +108,14 @@ impl VaultEventBus {
     }
 
     pub fn publish(&self, vault_id: &str, event: VaultEvent) {
-        if let Some(tx) = self.inner.get(vault_id) {
-            let _ = tx.send(event);
+        let should_prune = match self.inner.get(vault_id) {
+            Some(tx) if tx.receiver_count() == 0 => true,
+            Some(tx) => tx.send(event).is_err() && tx.receiver_count() == 0,
+            None => false,
+        };
+        if should_prune {
+            self.inner
+                .remove_if(vault_id, |_, tx| tx.receiver_count() == 0);
         }
     }
 
@@ -122,10 +128,24 @@ impl VaultEventBus {
     /// SSE clients rather than a static placeholder. Receivers that have been
     /// dropped are not counted (tokio::broadcast tracks per-`Sender`).
     pub fn total_subscribers(&self) -> usize {
+        self.prune_idle();
         self.inner
             .iter()
             .map(|entry| entry.value().receiver_count())
             .sum()
+    }
+
+    fn prune_idle(&self) {
+        let idle_vaults: Vec<String> = self
+            .inner
+            .iter()
+            .filter(|entry| entry.value().receiver_count() == 0)
+            .map(|entry| entry.key().clone())
+            .collect();
+        for vault_id in idle_vaults {
+            self.inner
+                .remove_if(&vault_id, |_, tx| tx.receiver_count() == 0);
+        }
     }
 
     #[cfg(test)]
@@ -429,6 +449,18 @@ mod tests {
         drop(r2);
         drop(r3);
         assert_eq!(bus.total_subscribers(), 0);
+    }
+
+    #[tokio::test]
+    async fn total_subscribers_prunes_vault_senders_after_last_receiver_drops() {
+        let bus = VaultEventBus::new(16);
+        let rx = bus.subscribe("vault-a");
+        assert_eq!(bus.len_for_tests(), 1);
+
+        drop(rx);
+
+        assert_eq!(bus.total_subscribers(), 0);
+        assert_eq!(bus.len_for_tests(), 0);
     }
 
     #[tokio::test]
