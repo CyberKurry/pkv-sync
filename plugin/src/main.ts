@@ -427,11 +427,16 @@ export default class PKVSyncPlugin extends Plugin {
   openConflictsList(
     pairsProvider?: () => ConflictPair[] | Promise<ConflictPair[]>
   ): void {
-    const openList = (): void => {
+    let openList = (): void => undefined;
+    const onResolved = (): void => {
+      this.pushDebouncer?.trigger();
+      openList();
+    };
+    openList = (): void => {
       new ConflictsListModal(
         this.app,
         this.text(),
-        openList,
+        onResolved,
         pairsProvider
       ).open();
     };
@@ -457,7 +462,9 @@ export default class PKVSyncPlugin extends Plugin {
           this.app,
           pair,
           this.text(),
-          () => undefined
+          () => {
+            this.pushDebouncer?.trigger();
+          }
         ).open();
       });
       return;
