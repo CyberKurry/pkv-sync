@@ -23,6 +23,9 @@ describe("plugin dead export cleanup", () => {
     expect(source("services/update-check.ts")).not.toMatch(
       /export function (resolvePluginAssetPath|extractSha256)\b/
     );
+    expect(source("plugin-data.ts")).not.toMatch(
+      /export function writePluginSettings\b/
+    );
   });
 
   it("keeps internally used helpers private", () => {

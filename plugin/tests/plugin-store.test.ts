@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  writePluginSettings,
+  writePluginSettingsWithoutAuth,
   writePluginSettingsPatch,
   writeSyncIndex
 } from "../src/plugin-data";
 import { SerializedPluginDataStore } from "../src/plugin-store";
-import { DEFAULT_SETTINGS } from "../src/settings";
+import { DEFAULT_SETTINGS, type PKVSyncSettings } from "../src/settings";
 import type { LocalIndex } from "../src/sync/types";
 
 function deferred() {
@@ -39,14 +39,16 @@ describe("SerializedPluginDataStore", () => {
       await gate.promise;
       return writeSyncIndex(raw, "scope-a", index);
     });
-    const second = store.update((raw) => writePluginSettings(raw, nextSettings));
+    const second = store.update((raw) =>
+      writePluginSettingsWithoutAuth(raw, nextSettings)
+    );
 
     await Promise.resolve();
     gate.resolve();
     await Promise.all([first, second]);
 
     expect(stored).toEqual({
-      settings: nextSettings,
+      settings: settingsWithoutAuth(nextSettings),
       syncIndexes: { "scope-a": index }
     });
   });
@@ -69,7 +71,7 @@ describe("SerializedPluginDataStore", () => {
 
     const fullSave = store.update(async (raw) => {
       await gate.promise;
-      return writePluginSettings(raw, nextSettings);
+      return writePluginSettingsWithoutAuth(raw, nextSettings);
     });
     const updateCheckWrite = store.update((raw) =>
       writePluginSettingsPatch(raw, { lastUpdateCheckAt: 1_700_000_000 })
@@ -82,17 +84,9 @@ describe("SerializedPluginDataStore", () => {
     gate.resolve();
     await Promise.all([fullSave, updateCheckWrite, debounceWrite]);
 
-    const {
-      deviceId: _d,
-      token: _t,
-      serverUrl: _s,
-      deploymentKey: _dk,
-      userId: _u,
-      ...nextSettingsWithoutAuth
-    } = nextSettings;
     expect(stored).toEqual({
       settings: {
-        ...nextSettingsWithoutAuth,
+        ...settingsWithoutAuth(nextSettings),
         lastUpdateCheckAt: 1_700_000_000,
         debounceMs: 1_000
       }
@@ -143,3 +137,15 @@ describe("SerializedPluginDataStore", () => {
     expect(stored).toEqual({ settings: DEFAULT_SETTINGS });
   });
 });
+
+function settingsWithoutAuth(settings: PKVSyncSettings): Partial<PKVSyncSettings> {
+  const {
+    deviceId: _deviceId,
+    token: _token,
+    serverUrl: _serverUrl,
+    deploymentKey: _deploymentKey,
+    userId: _userId,
+    ...rest
+  } = settings;
+  return rest;
+}

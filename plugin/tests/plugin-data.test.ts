@@ -3,10 +3,11 @@ import {
   readPluginSettings,
   readSyncIndex,
   syncScopeKey,
-  writePluginSettings,
+  writePluginSettingsWithoutAuth,
   writeSyncIndex
 } from "../src/plugin-data";
 import { DEFAULT_SETTINGS } from "../src/settings";
+import type { PKVSyncSettings } from "../src/settings";
 import type { LocalIndex } from "../src/sync/types";
 
 describe("plugin-data", () => {
@@ -28,10 +29,10 @@ describe("plugin-data", () => {
     const index: LocalIndex = { lastSyncedCommit: "c1", files: {} };
 
     expect(
-      writePluginSettings({ syncIndexes: { a: index } }, DEFAULT_SETTINGS)
+      writePluginSettingsWithoutAuth({ syncIndexes: { a: index } }, DEFAULT_SETTINGS)
     ).toEqual({
       syncIndexes: { a: index },
-      settings: DEFAULT_SETTINGS
+      settings: settingsWithoutAuth(DEFAULT_SETTINGS)
     });
   });
 
@@ -79,3 +80,15 @@ describe("plugin-data", () => {
     });
   });
 });
+
+function settingsWithoutAuth(settings: PKVSyncSettings): Partial<PKVSyncSettings> {
+  const {
+    deviceId: _deviceId,
+    token: _token,
+    serverUrl: _serverUrl,
+    deploymentKey: _deploymentKey,
+    userId: _userId,
+    ...rest
+  } = settings;
+  return rest;
+}
