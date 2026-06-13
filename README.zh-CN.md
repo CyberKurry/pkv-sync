@@ -5,7 +5,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.3.2。
+文档版本：v1.4.0。
 
 [English](./README.md) | 简体中文 | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -101,7 +101,7 @@ PKV Sync 1.0 **暂不**提供原生端到端加密——服务端能读到笔记
 
 ## 状态
 
-PKV Sync 1.3.2 将认证状态移到 Obsidian 的设备本地存储，即使手动替换插件文件夹也不会丢失登录与设备身份，并将最低 Obsidian 版本提升到 1.8.7。
+PKV Sync 1.4.0 能在字符级自动合并不同设备对同一行的不相交编辑，并新增可选的「通知 + 一键」自升级（支持 systemd 与 Docker 部署、健康检查失败自动回滚）——服务端本身保持非特权。
 
 PKV Sync 1.0 是第一个稳定版。公开 REST API、CLI、存储布局、插件包、Docker 镜像作为一组同步发版，遵循 semver：1.X.Y 在公开表面保持向后兼容，OpenAPI 规范是这个兼容契约的权威来源。0.x 创建的 SQLite 库**不支持**就地升级到 1.0.0——请按 [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md)操作。
 

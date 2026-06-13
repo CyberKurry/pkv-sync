@@ -2,7 +2,7 @@
 
 [English](./git-clone-howto.md) | [简体中文](./git-clone-howto.zh-CN.md) | [繁體中文](./git-clone-howto.zh-Hant.md) | [日本語](./git-clone-howto.ja.md) | 한국어
 
-문서 버전: v1.3.2.
+문서 버전: v1.4.0.
 
 PKV Sync는 각 vault를 HTTPS를 통한 read-only Git repository로 노출할 수 있습니다.
 

@@ -8,7 +8,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.3.2.
+Document version: v1.4.0.
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -152,7 +152,7 @@ For real deployments, also run behind HTTPS, restrict
 
 ## Status
 
-PKV Sync 1.3.2 keeps your login and device identity intact when you manually replace the plugin folder by moving auth state into Obsidian's device-local storage, and raises the minimum Obsidian version to 1.8.7.
+PKV Sync 1.4.0 auto-merges non-overlapping edits made to the same line on different devices at the character level, and adds opt-in, notify + one-click self-upgrade for systemd and Docker deployments with automatic health-check rollback — the server itself stays unprivileged.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together

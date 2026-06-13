@@ -2,7 +2,7 @@
 
 English | [简体中文](./deployment-hardening.zh-CN.md) | [繁體中文](./deployment-hardening.zh-Hant.md) | [日本語](./deployment-hardening.ja.md) | [한국어](./deployment-hardening.ko.md)
 
-Document version: v1.3.2.
+Document version: v1.4.0.
 
 This guide assumes a small self-hosted deployment for yourself, family, a team,
 or a trusted group of friends. PKV Sync is operationally simple, but it stores

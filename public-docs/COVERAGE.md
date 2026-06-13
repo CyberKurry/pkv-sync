@@ -2,7 +2,7 @@
 
 English | [简体中文](./COVERAGE.zh-CN.md) | [繁體中文](./COVERAGE.zh-Hant.md) | [日本語](./COVERAGE.ja.md) | [한국어](./COVERAGE.ko.md)
 
-Document version: v1.3.2.
+Document version: v1.4.0.
 
 This page tracks the CI coverage baseline for the Rust server and Obsidian plugin. CI compares fresh coverage reports against this table and fails when any component drops by more than the allowed threshold.
 

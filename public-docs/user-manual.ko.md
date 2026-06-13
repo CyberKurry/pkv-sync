@@ -2,7 +2,7 @@
 
 [English](./user-manual.md) | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | 한국어
 
-문서 버전: v1.3.2.
+문서 버전: v1.4.0.
 
 이 매뉴얼은 기존 PKV Sync 서버에 연결하는 Obsidian 사용자를 위한 것입니다. 시작하기 전에 서버 관리자에게 서버 공유 URL과 계정 또는 초대 코드를 요청하십시오.
 
