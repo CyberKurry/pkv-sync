@@ -8,10 +8,11 @@ import {
   readPluginSettings,
   readSyncIndex,
   syncScopeKey,
-  writePluginSettings,
+  writePluginSettingsWithoutAuth,
   writePluginSettingsPatch,
   writeSyncIndex
 } from "./plugin-data";
+import { AuthStore, migrateAuth } from "./sync/auth-store";
 import {
   DEFAULT_SETTINGS,
   historyUiAvailable,
@@ -86,6 +87,10 @@ export default class PKVSyncPlugin extends Plugin {
     () => this.loadData(),
     (data) => this.saveData(data)
   );
+  private authStore = new AuthStore(
+    (key) => this.app.loadLocalStorage(key),
+    (key, data) => this.app.saveLocalStorage(key, data)
+  );
   private orchestratorInstance: SyncOrchestrator | null = null;
 
   private get orchestrator(): SyncOrchestrator {
@@ -103,7 +108,20 @@ export default class PKVSyncPlugin extends Plugin {
       pluginId: this.manifest.id || "pkv-sync",
       pluginDir: this.manifest.dir
     });
-    this.settings = readPluginSettings(await this.loadData());
+    const rawData = await this.loadData();
+    const migration = migrateAuth(this.authStore, rawData);
+    if (migration.strippedData !== null) {
+      await this.saveData(migration.strippedData);
+    }
+    this.settings = readPluginSettings(migration.strippedData ?? rawData);
+    const auth = this.authStore.load();
+    if (auth) {
+      this.settings.deviceId = auth.deviceId;
+      this.settings.token = auth.token ?? "";
+      this.settings.serverUrl = auth.serverUrl;
+      this.settings.deploymentKey = auth.deploymentKey ?? "";
+      this.settings.userId = auth.userId ?? "";
+    }
     let shouldSaveSettings = false;
     if (!this.settings.deviceId) {
       this.settings.deviceId = generateDeviceId();
@@ -147,11 +165,22 @@ export default class PKVSyncPlugin extends Plugin {
 
   async saveSettings(options: { rebuild?: boolean } = {}): Promise<void> {
     await this.dataStore.update((data) =>
-      writePluginSettings(data, this.settings)
+      writePluginSettingsWithoutAuth(data, this.settings)
     );
+    this.persistAuth();
     void this.refreshServerCapabilities();
     this.updateStatus();
     if (options.rebuild !== false) this.rebuildSyncEngine();
+  }
+
+  private persistAuth(): void {
+    this.authStore.save({
+      deviceId: this.settings.deviceId,
+      token: this.settings.token || null,
+      serverUrl: this.settings.serverUrl,
+      deploymentKey: this.settings.deploymentKey || null,
+      userId: this.settings.userId || null
+    });
   }
 
   private async saveSettingsPatch(
@@ -220,7 +249,7 @@ export default class PKVSyncPlugin extends Plugin {
     scopeKey = syncScopeKey(this.settings)
   ): Promise<void> {
     await this.dataStore.update((data) =>
-      writePluginSettings(writeSyncIndex(data, scopeKey, index), this.settings)
+      writePluginSettingsWithoutAuth(writeSyncIndex(data, scopeKey, index), this.settings)
     );
   }
 
@@ -236,7 +265,7 @@ export default class PKVSyncPlugin extends Plugin {
     await this.dataStore.update(async (data) => {
       const current = readSyncIndex(data, scopeKey);
       const next = await updater(current);
-      return writePluginSettings(writeSyncIndex(data, scopeKey, next), this.settings);
+      return writePluginSettingsWithoutAuth(writeSyncIndex(data, scopeKey, next), this.settings);
     });
   }
 

@@ -82,9 +82,17 @@ describe("SerializedPluginDataStore", () => {
     gate.resolve();
     await Promise.all([fullSave, updateCheckWrite, debounceWrite]);
 
+    const {
+      deviceId: _d,
+      token: _t,
+      serverUrl: _s,
+      deploymentKey: _dk,
+      userId: _u,
+      ...nextSettingsWithoutAuth
+    } = nextSettings;
     expect(stored).toEqual({
       settings: {
-        ...nextSettings,
+        ...nextSettingsWithoutAuth,
         lastUpdateCheckAt: 1_700_000_000,
         debounceMs: 1_000
       }

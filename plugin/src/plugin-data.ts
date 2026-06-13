@@ -30,11 +30,22 @@ export function readSyncIndex(raw: unknown, scopeKey: string): LocalIndex {
   return normalizeIndex(asPluginData(raw)?.syncIndexes?.[scopeKey]);
 }
 
+const AUTH_KEYS_FOR_WRITE = ["deviceId", "token", "serverUrl", "deploymentKey", "userId"] as const;
+
 export function writePluginSettings(
   raw: unknown,
   settings: PKVSyncSettings
 ): PluginData {
   return { ...(asPluginData(raw) ?? {}), settings };
+}
+
+export function writePluginSettingsWithoutAuth(
+  raw: unknown,
+  settings: PKVSyncSettings
+): PluginData {
+  const stripped = { ...settings } as Record<string, unknown>;
+  for (const k of AUTH_KEYS_FOR_WRITE) delete stripped[k];
+  return { ...(asPluginData(raw) ?? {}), settings: stripped as Partial<PKVSyncSettings> };
 }
 
 export function writePluginSettingsPatch(
@@ -46,6 +57,7 @@ export function writePluginSettingsPatch(
     data.settings && typeof data.settings === "object"
       ? { ...data.settings, ...patch }
       : { ...readPluginSettings(raw), ...patch };
+  for (const k of AUTH_KEYS_FOR_WRITE) delete (settings as Record<string, unknown>)[k];
   return { ...data, settings };
 }
 
