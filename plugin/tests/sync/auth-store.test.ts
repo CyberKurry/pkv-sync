@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AuthStore, type AuthData } from "../../src/sync/auth-store";
+import { AuthStore, migrateAuth, type AuthData, type MigrationResult } from "../../src/sync/auth-store";
 
 function makeLocalStorage() {
   const store = new Map<string, unknown>();
@@ -50,5 +50,78 @@ describe("AuthStore", () => {
     ls.store.set("pkv-sync-auth", { token: "x" }); // no deviceId
     const auth = new AuthStore(ls.load, ls.save);
     expect(auth.load()).toBeNull();
+  });
+});
+
+describe("migrateAuth", () => {
+  const legacySettings = {
+    deviceId: "dev-1",
+    token: "tok-1",
+    serverUrl: "https://s",
+    deploymentKey: "dk",
+    userId: "u",
+    username: "alice",
+    deviceName: "Laptop"
+  };
+
+  it("fresh install (no legacy auth) → fresh-install, no writes", () => {
+    const ls = makeLocalStorage();
+    const auth = new AuthStore(ls.load, ls.save);
+    const result = migrateAuth(auth, { settings: { deviceName: "Laptop" } });
+    expect(result.kind).toBe("fresh-install");
+    expect(ls.store.has("pkv-sync-auth")).toBe(false);
+    expect(result.strippedData).toBeNull();
+  });
+
+  it("legacy auth present → migrated, localStorage filled, returns stripped data.json", () => {
+    const ls = makeLocalStorage();
+    const auth = new AuthStore(ls.load, ls.save);
+    const data = { settings: { ...legacySettings }, syncIndexes: { a: { lastSyncedCommit: "c", files: {} } } };
+    const result = migrateAuth(auth, data);
+
+    expect(result.kind).toBe("migrated");
+    expect(auth.load()).toEqual({
+      deviceId: "dev-1", token: "tok-1", serverUrl: "https://s", deploymentKey: "dk", userId: "u"
+    });
+    const s = (result.strippedData as any).settings;
+    expect(s.deviceId).toBeUndefined();
+    expect(s.token).toBeUndefined();
+    expect(s.serverUrl).toBeUndefined();
+    expect(s.deploymentKey).toBeUndefined();
+    expect(s.userId).toBeUndefined();
+    expect(s.username).toBe("alice");
+    expect(s.deviceName).toBe("Laptop");
+    expect((result.strippedData as any).syncIndexes).toEqual({ a: { lastSyncedCommit: "c", files: {} } });
+  });
+
+  it("already migrated (localStorage has auth) but data.json still has residue → cleanup, strips residue", () => {
+    const ls = makeLocalStorage();
+    const auth = new AuthStore(ls.load, ls.save);
+    auth.save({ deviceId: "dev-1", token: "tok-1", serverUrl: "https://s", deploymentKey: "dk", userId: "u" });
+    const data = { settings: { ...legacySettings } };
+    const result = migrateAuth(auth, data);
+    expect(result.kind).toBe("already-migrated");
+    expect((result.strippedData as any).settings.token).toBeUndefined();
+    expect((result.strippedData as any).settings.username).toBe("alice");
+  });
+
+  it("already migrated, no residue → already-migrated, no strip needed", () => {
+    const ls = makeLocalStorage();
+    const auth = new AuthStore(ls.load, ls.save);
+    auth.save({ deviceId: "dev-1", token: "tok-1", serverUrl: "https://s", deploymentKey: "dk", userId: "u" });
+    const data = { settings: { username: "alice" } };
+    const result = migrateAuth(auth, data);
+    expect(result.kind).toBe("already-migrated");
+    expect(result.strippedData).toBeNull();
+  });
+
+  it("write-failed (verify read-back mismatch) → degraded, no data.json strip", () => {
+    const ls = makeLocalStorage();
+    ls.save.mockImplementation(() => {});
+    const auth = new AuthStore(ls.load, ls.save);
+    const data = { settings: { ...legacySettings } };
+    const result = migrateAuth(auth, data);
+    expect(result.kind).toBe("write-failed-degraded");
+    expect(result.strippedData).toBeNull();
   });
 });
