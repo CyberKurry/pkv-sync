@@ -65,6 +65,33 @@ fn traefik_compose_uses_socket_proxy_instead_of_direct_docker_socket() {
     assert!(socket_proxy.contains("/var/run/docker.sock:/var/run/docker.sock:ro"));
 }
 
+#[test]
+fn high_audit_updater_systemd_unit_has_root_service_hardening() {
+    let unit = include_str!("../../deploy/updater/pkv-sync-updater.service");
+
+    for directive in [
+        "NoNewPrivileges=true",
+        "PrivateTmp=true",
+        "ProtectHome=true",
+        "ProtectSystem=full",
+        "ReadWritePaths=/usr/local/bin /var/lib/pkv-sync",
+    ] {
+        assert!(unit.contains(directive), "missing {directive}");
+    }
+}
+
+#[test]
+fn high_audit_docker_updater_invokes_compose_without_shell_word_splitting() {
+    let script = include_str!("../../deploy/updater/docker-updater.sh");
+
+    assert!(script.contains("compose() {"));
+    assert!(
+        script.contains("docker compose -f \"$COMPOSE_FILE\" -f \"$COMPOSE_UPDATER_FILE\" \"$@\"")
+    );
+    assert!(!script.contains("$COMPOSE pull"));
+    assert!(!script.contains("$COMPOSE up"));
+}
+
 async fn setup_state() -> (AppState, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");

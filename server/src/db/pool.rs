@@ -8,6 +8,9 @@ use std::path::Path;
 use std::path::PathBuf;
 #[cfg(test)]
 use std::str::FromStr;
+use std::time::Duration;
+
+const DB_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Connect to (and create if needed) the SQLite database at the given path.
 ///
@@ -27,6 +30,7 @@ pub async fn connect(db_path: &Path) -> Result<SqlitePool> {
 
     let pool = SqlitePoolOptions::new()
         .max_connections(8)
+        .acquire_timeout(DB_ACQUIRE_TIMEOUT)
         .connect_with(opts)
         .await?;
     restrict_sqlite_file_permissions(db_path)?;
@@ -119,6 +123,20 @@ mod tests {
                 PathBuf::from("metadata.db-shm"),
             ]
         );
+    }
+
+    #[test]
+    fn high_audit_production_pool_has_bounded_acquire_timeout() {
+        let source = include_str!("pool.rs");
+        let fn_start = source.find("pub async fn connect").expect("connect exists");
+        let fn_end = source[fn_start + 1..]
+            .find("\n#[cfg")
+            .map(|idx| fn_start + 1 + idx)
+            .expect("cfg section follows connect");
+        let implementation = &source[fn_start..fn_end];
+
+        assert!(source.contains("DB_ACQUIRE_TIMEOUT"));
+        assert!(implementation.contains(".acquire_timeout(DB_ACQUIRE_TIMEOUT)"));
     }
 
     #[cfg(unix)]

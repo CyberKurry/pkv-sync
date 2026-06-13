@@ -17,6 +17,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::{Interval, MissedTickBehavior};
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use tokio_stream::StreamExt;
 
@@ -370,8 +371,22 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                 }
             }
             event = sse.streams.next() => {
-                let Some((_vault_id, Ok(event))) = event else {
-                    break;
+                let item = match event {
+                    Some((_vault_id, Ok(event))) => {
+                        let commit = event.commit.clone();
+                        let notification = crate::mcp::notifications::vault_changed(
+                            commit.clone(),
+                            event,
+                        );
+                        let Ok(data) = serde_json::to_string(&notification) else {
+                            continue;
+                        };
+                        McpSseItem::VaultChanged { commit, data }
+                    }
+                    Some((_vault_id, Err(BroadcastStreamRecvError::Lagged(_)))) => {
+                        McpSseItem::Lagged
+                    }
+                    None => break,
                 };
                 if !mcp_token_still_valid(
                     &sse.app,
@@ -381,13 +396,8 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                 ).await {
                     break;
                 }
-                let commit = event.commit.clone();
-                let notification = crate::mcp::notifications::vault_changed(commit.clone(), event);
-                let Ok(data) = serde_json::to_string(&notification) else {
-                    continue;
-                };
                 if tx
-                    .send(Ok(McpSseItem::VaultChanged { commit, data }.into_event()))
+                    .send(Ok(item.into_event()))
                     .await
                     .is_err()
                 {
@@ -557,6 +567,23 @@ mod tests {
     fn mcp_json_body_limit_clamps_huge_max_file_size() {
         assert_ne!(mcp_json_body_limit_bytes(u64::MAX), usize::MAX);
         assert_eq!(mcp_json_body_limit_bytes(u64::MAX), 100 * 1024 * 1024);
+    }
+
+    #[test]
+    fn high_audit_mcp_live_sse_lagged_broadcast_errors_emit_lagged_event() {
+        let source = include_str!("transport_http.rs");
+        let branch_start = source
+            .find("event = sse.streams.next()")
+            .expect("live event branch exists");
+        let branch_end = source[branch_start..]
+            .find("if !mcp_token_still_valid")
+            .map(|idx| branch_start + idx)
+            .expect("live event branch checks token validity after lagged handling");
+        let branch = &source[branch_start..branch_end];
+
+        assert!(branch.contains("BroadcastStreamRecvError::Lagged"));
+        assert!(branch.contains("McpSseItem::Lagged"));
+        assert!(!branch.contains("let Some((_vault_id, Ok(event))) = event else"));
     }
 
     #[tokio::test]

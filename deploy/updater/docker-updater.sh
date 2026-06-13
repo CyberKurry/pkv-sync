@@ -18,7 +18,12 @@ PREV_TAG_FILE="$DATA_DIR/upgrade-previous-tag"
 HEALTH_URL="${PKV_HEALTH_URL:-http://pkv-sync:6710/api/health}"
 SERVICE="${PKV_TARGET_SERVICE:-pkv-sync}"
 # Compose files (mounted read-only into the updater) used to recreate the service.
-COMPOSE="docker compose -f ${PKV_COMPOSE_FILE:-/compose/docker-compose.yml} -f ${PKV_COMPOSE_UPDATER_FILE:-/compose/deploy/updater/compose.updater.yml}"
+COMPOSE_FILE="${PKV_COMPOSE_FILE:-/compose/docker-compose.yml}"
+COMPOSE_UPDATER_FILE="${PKV_COMPOSE_UPDATER_FILE:-/compose/deploy/updater/compose.updater.yml}"
+
+compose() {
+  docker compose -f "$COMPOSE_FILE" -f "$COMPOSE_UPDATER_FILE" "$@"
+}
 
 [ -f "$MARKER" ] || exit 0
 
@@ -35,8 +40,8 @@ echo "$PREV_TAG" >"$PREV_TAG_FILE"
 
 # Pull the requested pinned image and recreate just the pkv-sync service.
 export PKV_SYNC_TAG="$TARGET"
-$COMPOSE pull "$SERVICE"
-$COMPOSE up -d --no-deps "$SERVICE"
+compose pull "$SERVICE"
+compose up -d --no-deps "$SERVICE"
 
 # Health window: poll up to ~60s for the recreated service to report ready.
 ok=0
@@ -53,7 +58,7 @@ done
 if [ "$ok" -ne 1 ]; then
   echo "docker-updater: health check failed; rolling back to $PREV_TAG"
   export PKV_SYNC_TAG="$PREV_TAG"
-  $COMPOSE up -d --no-deps "$SERVICE"
+  compose up -d --no-deps "$SERVICE"
   rm -f "$MARKER"
   exit 1
 fi
