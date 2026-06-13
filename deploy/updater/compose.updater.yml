@@ -1,0 +1,43 @@
+# Opt-in Docker self-upgrade overlay for PKV Sync. Default-off: nothing here runs
+# unless you start the `updater` profile explicitly, e.g.
+#   docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+#
+# The pkv-sync server stays unprivileged and never gets the Docker socket. Only
+# the socket-proxy touches /var/run/docker.sock, scoped to the minimum verbs
+# needed to pull an image and recreate the pkv-sync service.
+services:
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    restart: unless-stopped
+    profiles: ["updater"]
+    environment:
+      IMAGES: 1
+      CONTAINERS: 1
+      POST: 1
+      INFO: 1
+      VERSION: 1
+      NETWORKS: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [updater]
+
+  updater:
+    image: docker:27-cli
+    restart: "no"
+    profiles: ["updater"]
+    depends_on: [socket-proxy]
+    entrypoint: ["/bin/sh", "/compose/deploy/updater/docker-updater.sh"]
+    environment:
+      DOCKER_HOST: tcp://socket-proxy:2375
+      PKV_DATA_DIR: /var/lib/pkv-sync
+      PKV_HEALTH_URL: http://pkv-sync:6710/api/health
+      PKV_TARGET_SERVICE: pkv-sync
+      PKV_COMPOSE_FILE: /compose/docker-compose.yml
+      PKV_COMPOSE_UPDATER_FILE: /compose/deploy/updater/compose.updater.yml
+    volumes:
+      - ./data:/var/lib/pkv-sync:ro
+      - ./:/compose:ro
+    networks: [updater, default]
+
+networks:
+  updater:

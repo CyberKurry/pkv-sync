@@ -1,7 +1,7 @@
 services:
   pkv-sync:
     build: .
-    image: ghcr.io/cyberkurry/pkv-sync:latest
+    image: ghcr.io/cyberkurry/pkv-sync:${PKV_SYNC_TAG:-latest}
     restart: unless-stopped
     volumes:
       - ./data:/var/lib/pkv-sync
