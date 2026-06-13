@@ -7,7 +7,7 @@
 # needed to pull an image and recreate the pkv-sync service.
 services:
   socket-proxy:
-    image: tecnativa/docker-socket-proxy:latest
+    image: tecnativa/docker-socket-proxy:0.4.2
     restart: unless-stopped
     profiles: ["updater"]
     environment:
@@ -22,7 +22,7 @@ services:
     networks: [updater]
 
   updater:
-    image: docker:27-cli
+    image: docker:27.5.1-cli
     restart: "no"
     profiles: ["updater"]
     depends_on: [socket-proxy]

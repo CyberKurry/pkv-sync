@@ -1,3 +1,16 @@
 sync.example.com {
+  request_body {
+    max_size 110MB
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "same-origin"
+    Permissions-Policy "geolocation=(), microphone=(), camera=()"
+  }
+
   reverse_proxy {$PKV_SYNC_UPSTREAM:127.0.0.1:6710}
 }

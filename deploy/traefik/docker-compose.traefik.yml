@@ -1,6 +1,6 @@
 services:
   socket-proxy:
-    image: tecnativa/docker-socket-proxy:latest
+    image: tecnativa/docker-socket-proxy:0.4.2
     restart: unless-stopped
     environment:
       CONTAINERS: 1
@@ -11,7 +11,7 @@ services:
     networks: [traefik-proxy]
 
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.0.4
     command:
       - --providers.docker=true
       - --providers.docker.endpoint=tcp://socket-proxy:2375
@@ -28,7 +28,7 @@ services:
     networks: [traefik-proxy]
 
   pkv-sync:
-    image: ghcr.io/cyberkurry/pkv-sync:latest
+    image: ghcr.io/cyberkurry/pkv-sync:${PKV_SYNC_TAG:-1.4.0}
     volumes:
       - ./data:/var/lib/pkv-sync
       - ./config.toml:/etc/pkv-sync/config.toml:ro

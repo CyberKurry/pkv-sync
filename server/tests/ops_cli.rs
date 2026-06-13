@@ -66,6 +66,77 @@ fn traefik_compose_uses_socket_proxy_instead_of_direct_docker_socket() {
 }
 
 #[test]
+fn docker_images_have_runtime_healthchecks() {
+    for (name, dockerfile) in [
+        ("Dockerfile", include_str!("../../Dockerfile")),
+        (
+            "Dockerfile.release",
+            include_str!("../../Dockerfile.release"),
+        ),
+    ] {
+        assert!(
+            dockerfile.contains("HEALTHCHECK"),
+            "{name} missing HEALTHCHECK"
+        );
+        assert!(
+            dockerfile.contains("http://127.0.0.1:6710/api/health"),
+            "{name} healthcheck should hit the local health endpoint"
+        );
+    }
+}
+
+#[test]
+fn caddy_proxy_sets_security_headers_and_body_limit() {
+    let caddyfile = include_str!("../../deploy/caddy/Caddyfile");
+
+    for directive in [
+        "request_body",
+        "max_size 110MB",
+        "Strict-Transport-Security",
+        "Content-Security-Policy",
+        "X-Content-Type-Options",
+        "X-Frame-Options",
+        "Referrer-Policy",
+        "Permissions-Policy",
+    ] {
+        assert!(caddyfile.contains(directive), "missing {directive}");
+    }
+}
+
+#[test]
+fn compose_examples_avoid_latest_and_floating_proxy_tags() {
+    for (name, compose) in [
+        (
+            "docker-compose.yml",
+            include_str!("../../docker-compose.yml"),
+        ),
+        (
+            "compose.updater.yml",
+            include_str!("../../deploy/updater/compose.updater.yml"),
+        ),
+        (
+            "docker-compose.traefik.yml",
+            include_str!("../../deploy/traefik/docker-compose.traefik.yml"),
+        ),
+    ] {
+        assert!(!compose.contains(":latest"), "{name} uses :latest");
+    }
+
+    let root_compose = include_str!("../../docker-compose.yml");
+    assert!(root_compose.contains("ghcr.io/cyberkurry/pkv-sync:${PKV_SYNC_TAG:-1.4.0}"));
+    assert!(root_compose.contains("caddy:2.10.2"));
+
+    let updater = include_str!("../../deploy/updater/compose.updater.yml");
+    assert!(updater.contains("tecnativa/docker-socket-proxy:0.4.2"));
+    assert!(updater.contains("docker:27.5.1-cli"));
+
+    let traefik = include_str!("../../deploy/traefik/docker-compose.traefik.yml");
+    assert!(traefik.contains("tecnativa/docker-socket-proxy:0.4.2"));
+    assert!(traefik.contains("traefik:v3.0.4"));
+    assert!(traefik.contains("ghcr.io/cyberkurry/pkv-sync:${PKV_SYNC_TAG:-1.4.0}"));
+}
+
+#[test]
 fn high_audit_updater_systemd_unit_has_root_service_hardening() {
     let unit = include_str!("../../deploy/updater/pkv-sync-updater.service");
 

@@ -20,7 +20,7 @@ RUN CARGO_NET_RETRY=10 CARGO_HTTP_MULTIPLEXING=false cargo build --release -p pk
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=server-builder /app/target/release/pkvsyncd /usr/local/bin/pkvsyncd
@@ -29,5 +29,6 @@ COPY --from=plugin-builder /app/plugin/manifest.json /plugin/manifest.json
 COPY --from=plugin-builder /app/plugin/styles.css /plugin/styles.css
 EXPOSE 6710
 USER 65532:65532
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:6710/api/health || exit 1
 ENTRYPOINT ["/usr/local/bin/pkvsyncd"]
 CMD ["-c", "/etc/pkv-sync/config.toml", "serve"]

@@ -1,7 +1,7 @@
 services:
   pkv-sync:
     build: .
-    image: ghcr.io/cyberkurry/pkv-sync:${PKV_SYNC_TAG:-latest}
+    image: ghcr.io/cyberkurry/pkv-sync:${PKV_SYNC_TAG:-1.4.0}
     restart: unless-stopped
     volumes:
       - ./data:/var/lib/pkv-sync
@@ -11,7 +11,7 @@ services:
       - "127.0.0.1:6710:6710"
 
   caddy:
-    image: caddy:2
+    image: caddy:2.10.2
     restart: unless-stopped
     environment:
       PKV_SYNC_UPSTREAM: pkv-sync:6710
