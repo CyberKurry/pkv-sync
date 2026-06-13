@@ -3,7 +3,7 @@ use crate::db::repos::{NewActivity, SyncActivityRepo};
 use crate::service::vault;
 use crate::service::AppState;
 use crate::storage::git::{
-    GitStoreError, GitVaultStore, StoredFile, POINTER_MAGIC_KEY, POINTER_VERSION,
+    GitStoreError, GitVaultStore, StoredFile, TreeEntry, POINTER_MAGIC_KEY, POINTER_VERSION,
 };
 use crate::storage::path;
 use crate::storage::text_kind::TextClassifier;
@@ -14,6 +14,11 @@ use super::paths::{path_visible_on_read, sync_path_filter};
 use super::{PullFile, PullResp, RequestMetadata, StateResp};
 
 const MAX_PULL_TREE_ENTRIES: usize = 50_000;
+const PULL_TEXT_INLINE_BYTES: u64 = 64 * 1024;
+#[cfg(test)]
+const MAX_PULL_INLINE_RESPONSE_BYTES: u64 = 64 * 1024;
+#[cfg(not(test))]
+const MAX_PULL_INLINE_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
 
 pub async fn state(
     state: &AppState,
@@ -124,8 +129,7 @@ async fn pull_for_user(
     }
     let rc = state.runtime_cfg.snapshot().await;
     let path_filter = sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await?;
-    let mut added_paths = Vec::new();
-    let mut modified_paths = Vec::new();
+    let mut pull_paths = Vec::new();
     let mut deleted = Vec::new();
 
     for (path, cur) in &current {
@@ -133,9 +137,9 @@ async fn pull_for_user(
             continue;
         }
         match base.get(path) {
-            None => added_paths.push(path.clone()),
+            None => pull_paths.push(PullFileRequest::from_entry(PullFileBucket::Added, cur)),
             Some(old) if old.git_oid != cur.git_oid => {
-                modified_paths.push(path.clone());
+                pull_paths.push(PullFileRequest::from_entry(PullFileBucket::Modified, cur));
             }
             Some(_) => {}
         }
@@ -145,17 +149,6 @@ async fn pull_for_user(
             deleted.push(path.clone());
         }
     }
-    let mut pull_paths = Vec::with_capacity(added_paths.len() + modified_paths.len());
-    pull_paths.extend(
-        added_paths
-            .into_iter()
-            .map(|path| (PullFileBucket::Added, path)),
-    );
-    pull_paths.extend(
-        modified_paths
-            .into_iter()
-            .map(|path| (PullFileBucket::Modified, path)),
-    );
     let pulled = files_to_pull(state.vault_root(), vault_id, &h, pull_paths).await?;
     let mut added = Vec::new();
     let mut modified = Vec::new();
@@ -230,13 +223,33 @@ enum PullFileBucket {
     Modified,
 }
 
+struct PullFileRequest {
+    bucket: PullFileBucket,
+    path: String,
+    size: u64,
+    is_blob_pointer: bool,
+    blob_hash: Option<String>,
+}
+
+impl PullFileRequest {
+    fn from_entry(bucket: PullFileBucket, entry: &TreeEntry) -> Self {
+        Self {
+            bucket,
+            path: entry.path.clone(),
+            size: entry.size,
+            is_blob_pointer: entry.is_blob_pointer,
+            blob_hash: entry.blob_hash.clone(),
+        }
+    }
+}
+
 async fn files_to_pull(
     vault_root: &Path,
     vault_id: &str,
     head: &str,
-    paths: Vec<(PullFileBucket, String)>,
+    requests: Vec<PullFileRequest>,
 ) -> Result<Vec<(PullFileBucket, PullFile)>, ApiError> {
-    if paths.is_empty() {
+    if requests.is_empty() {
         return Ok(Vec::new());
     }
     let repo_path = vault_root.join(vault_id);
@@ -247,18 +260,39 @@ async fn files_to_pull(
             let oid = Oid::from_str(&head)?;
             let commit = repo.find_commit(oid)?;
             let tree = commit.tree()?;
-            let mut files = Vec::with_capacity(paths.len());
-            for (bucket, path) in paths {
+            let mut files = Vec::with_capacity(requests.len());
+            let mut inline_budget_remaining = MAX_PULL_INLINE_RESPONSE_BYTES;
+            for request in requests {
+                if request.is_blob_pointer {
+                    let hash = request
+                        .blob_hash
+                        .ok_or_else(|| git2::Error::from_str("blob pointer missing hash"))?;
+                    files.push((
+                        request.bucket,
+                        blob_pull_file(&request.path, hash, request.size),
+                    ));
+                    continue;
+                }
+                if request.size > PULL_TEXT_INLINE_BYTES || request.size > inline_budget_remaining {
+                    files.push((
+                        request.bucket,
+                        text_pull_file_metadata(&request.path, request.size),
+                    ));
+                    continue;
+                }
+                inline_budget_remaining -= request.size;
                 let entry = tree
-                    .get_path(Path::new(&path))
+                    .get_path(Path::new(&request.path))
                     .map_err(|_| GitStoreError::NotFound)?;
                 let blob = repo.find_blob(entry.id())?;
-                let file = decode_pull_file(&path, blob.content().to_vec());
+                let file = decode_pull_file(&request.path, blob.content().to_vec());
                 let file = match file {
-                    StoredFile::Text { bytes } => text_pull_file(&path, bytes),
-                    StoredFile::BlobPointer { hash, size, .. } => blob_pull_file(&path, hash, size),
+                    StoredFile::Text { bytes } => text_pull_file(&request.path, bytes),
+                    StoredFile::BlobPointer { hash, size, .. } => {
+                        blob_pull_file(&request.path, hash, size)
+                    }
                 };
-                files.push((bucket, file));
+                files.push((request.bucket, file));
             }
             Ok(files)
         },
@@ -275,16 +309,27 @@ async fn files_to_pull(
 }
 
 fn text_pull_file(path: &str, bytes: Vec<u8>) -> PullFile {
-    let content = if bytes.len() <= 64 * 1024 {
-        Some(String::from_utf8_lossy(&bytes).to_string())
+    let size = bytes.len() as u64;
+    let content = if size <= PULL_TEXT_INLINE_BYTES {
+        String::from_utf8(bytes).ok()
     } else {
         None
     };
     PullFile {
         path: path.into(),
         file_type: "text",
-        size: bytes.len() as u64,
+        size,
         content_inline: content,
+        blob_hash: None,
+    }
+}
+
+fn text_pull_file_metadata(path: &str, size: u64) -> PullFile {
+    PullFile {
+        path: path.into(),
+        file_type: "text",
+        size,
+        content_inline: None,
         blob_hash: None,
     }
 }
@@ -402,6 +447,15 @@ mod tests {
         );
     }
 
+    #[test]
+    fn text_pull_file_omits_invalid_utf8_from_inline_content() {
+        let file = text_pull_file("note.md", vec![0xff; 8]);
+
+        assert_eq!(file.file_type, "text");
+        assert_eq!(file.size, 8);
+        assert!(file.content_inline.is_none());
+    }
+
     #[tokio::test]
     async fn pull_rejects_vaults_over_tree_entry_budget() {
         let (state, user, vid, _tmp) = state_user_vault().await;
@@ -432,6 +486,51 @@ mod tests {
 
         assert_eq!(err.status, axum::http::StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(err.code, "pull_too_large");
+    }
+
+    #[tokio::test]
+    async fn pull_caps_inline_payload_over_response_byte_budget() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let git = state.git_store();
+        let changes = (0..3)
+            .map(|idx| crate::storage::git::FileChange::Upsert {
+                path: format!("note-{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: vec![b'x'; 32 * 1024],
+                },
+            })
+            .collect::<Vec<_>>();
+        git.commit_changes(&vid, None, &changes, "seed")
+            .await
+            .unwrap();
+
+        let pulled = pull_for_user(
+            &state,
+            &user.user_id,
+            None,
+            &vid,
+            None,
+            RequestMetadata::default(),
+            MAX_PULL_TREE_ENTRIES,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(pulled.added.len(), 3);
+        let inline_bytes: usize = pulled
+            .added
+            .iter()
+            .filter_map(|file| file.content_inline.as_ref())
+            .map(|content| content.len())
+            .sum();
+        assert!(inline_bytes <= MAX_PULL_INLINE_RESPONSE_BYTES as usize);
+        assert!(
+            pulled
+                .added
+                .iter()
+                .any(|file| file.content_inline.is_none()),
+            "expected at least one text file to be returned as metadata-only"
+        );
     }
 
     #[tokio::test]
