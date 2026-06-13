@@ -266,11 +266,14 @@ pub async fn change_password(
     current_token_id: &str,
     req: ChangePasswordReq,
 ) -> Result<(), ApiError> {
-    let user = state
-        .users
-        .find_by_id(user_id)
-        .await?
-        .ok_or_else(|| ApiError::unauthorized("user not found"))?;
+    let user = match state.users.find_by_id(user_id).await? {
+        Some(user) => user,
+        None => {
+            let _ = password::verify(&req.current_password, &DUMMY_PASSWORD_HASH)
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            return Err(ApiError::unauthorized("current password incorrect"));
+        }
+    };
     let ok = password::verify(&req.current_password, &user.password_hash)
         .map_err(|e| ApiError::internal(e.to_string()))?;
     if !ok {
@@ -904,6 +907,60 @@ mod tests {
         assert!(verify_credentials(&s, "userx", "Passw0rdStrong")
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn change_password_uses_same_error_for_missing_user_and_wrong_password() {
+        let s = make_state(RegistrationMode::Open).await;
+        let resp = register(
+            &s,
+            RegisterReq {
+                username: "userx".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "device-change-enum".into(),
+                device_name: "d1".into(),
+                invite_code: None,
+            },
+        )
+        .await
+        .unwrap();
+        let token_id = s
+            .tokens
+            .list_for_user(&resp.user_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|t| t.device_id == "device-change-enum")
+            .unwrap()
+            .id;
+
+        let wrong_password = change_password(
+            &s,
+            &resp.user_id,
+            &token_id,
+            ChangePasswordReq {
+                current_password: "wrong-password".into(),
+                new_password: "Newpass1234Strong".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+        let missing_user = change_password(
+            &s,
+            "missing-user",
+            &token_id,
+            ChangePasswordReq {
+                current_password: "wrong-password".into(),
+                new_password: "Newpass1234Strong".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(wrong_password.status, axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(missing_user.status, wrong_password.status);
+        assert_eq!(missing_user.code, wrong_password.code);
+        assert_eq!(missing_user.message, wrong_password.message);
     }
 
     #[tokio::test]
