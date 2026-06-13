@@ -1,5 +1,6 @@
-use crate::version::normalize_release_tag;
+use crate::version::{compare_versions, normalize_release_tag};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -57,6 +58,17 @@ pub fn clear_request(data_dir: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Given the running version and the latest stable tag discovered by
+/// update-check, returns the normalized target version when an upgrade is
+/// available (strictly newer), or `None` when up to date / ahead / unparseable.
+pub fn resolve_target(current: &str, latest_tag: &str) -> Option<String> {
+    let latest = normalize_release_tag(latest_tag)?;
+    match compare_versions(&latest, current) {
+        Ordering::Greater => Some(latest),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +112,14 @@ mod tests {
     fn read_missing_marker_is_none_not_error() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(read_request(dir.path()).unwrap(), None);
+    }
+
+    #[test]
+    fn resolve_target_returns_newer_only() {
+        assert_eq!(resolve_target("1.3.2", "1.4.0"), Some("1.4.0".to_string()));
+        assert_eq!(resolve_target("1.4.0", "1.4.0"), None);
+        assert_eq!(resolve_target("1.4.1", "1.4.0"), None);
+        assert_eq!(resolve_target("1.3.2", "v1.4.0"), Some("1.4.0".to_string()));
+        assert_eq!(resolve_target("1.3.2", "garbage"), None);
     }
 }
