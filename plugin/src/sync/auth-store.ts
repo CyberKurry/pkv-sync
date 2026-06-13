@@ -66,6 +66,22 @@ function stripAuthFields(data: Record<string, unknown>): Record<string, unknown>
   return { ...data, settings };
 }
 
+export function authFromSettings(settings: {
+  deviceId: string;
+  token: string;
+  serverUrl: string;
+  deploymentKey: string;
+  userId: string;
+}): AuthData {
+  return {
+    deviceId: settings.deviceId,
+    token: settings.token || null,
+    serverUrl: settings.serverUrl,
+    deploymentKey: settings.deploymentKey || null,
+    userId: settings.userId || null
+  };
+}
+
 export function migrateAuth(
   auth: AuthStore,
   rawData: unknown

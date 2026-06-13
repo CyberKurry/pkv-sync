@@ -12,7 +12,7 @@ import {
   writePluginSettingsPatch,
   writeSyncIndex
 } from "./plugin-data";
-import { AuthStore, migrateAuth } from "./sync/auth-store";
+import { AuthStore, authFromSettings, migrateAuth } from "./sync/auth-store";
 import {
   DEFAULT_SETTINGS,
   historyUiAvailable,
@@ -174,13 +174,7 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   private persistAuth(): void {
-    this.authStore.save({
-      deviceId: this.settings.deviceId,
-      token: this.settings.token || null,
-      serverUrl: this.settings.serverUrl,
-      deploymentKey: this.settings.deploymentKey || null,
-      userId: this.settings.userId || null
-    });
+    this.authStore.save(authFromSettings(this.settings));
   }
 
   private async saveSettingsPatch(

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AuthStore, migrateAuth, type AuthData, type MigrationResult } from "../../src/sync/auth-store";
+import { AuthStore, authFromSettings, migrateAuth, type AuthData, type MigrationResult } from "../../src/sync/auth-store";
 
 function makeLocalStorage() {
   const store = new Map<string, unknown>();
@@ -50,6 +50,25 @@ describe("AuthStore", () => {
     ls.store.set("pkv-sync-auth", { token: "x" }); // no deviceId
     const auth = new AuthStore(ls.load, ls.save);
     expect(auth.load()).toBeNull();
+  });
+});
+
+describe("authFromSettings — logout keeps device identity", () => {
+  it("logged-in settings → full auth blob", () => {
+    expect(authFromSettings({
+      deviceId: "dev-keep", token: "tok", serverUrl: "https://s", deploymentKey: "dk", userId: "u"
+    })).toEqual({ deviceId: "dev-keep", token: "tok", serverUrl: "https://s", deploymentKey: "dk", userId: "u" });
+  });
+
+  it("post-logout settings (token/userId emptied) keep deviceId + server, null the credentials", () => {
+    const auth = authFromSettings({
+      deviceId: "dev-keep", token: "", serverUrl: "https://s", deploymentKey: "dk", userId: ""
+    });
+    expect(auth.deviceId).toBe("dev-keep");
+    expect(auth.serverUrl).toBe("https://s");
+    expect(auth.deploymentKey).toBe("dk");
+    expect(auth.token).toBeNull();
+    expect(auth.userId).toBeNull();
   });
 });
 
