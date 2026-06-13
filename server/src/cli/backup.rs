@@ -8,9 +8,12 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::ConnectOptions;
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 pub const MANIFEST_FILE: &str = "MANIFEST.json";
+const PRIVATE_DIR_MODE: u32 = 0o700;
+const PRIVATE_FILE_MODE: u32 = 0o600;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
@@ -67,10 +70,11 @@ fn run_to_dir(
     output: &Path,
 ) -> anyhow::Result<Manifest> {
     ensure_absent_or_empty(output, "output directory")?;
-    fs::create_dir_all(output)?;
+    create_private_dir_all(output)?;
 
     let metadata_out = output.join("metadata.db");
     vacuum_into(&config.storage.db_path, &metadata_out)?;
+    restrict_private_file(&metadata_out)?;
 
     copy_dir_if_exists(
         &config.storage.data_dir.join("vaults"),
@@ -82,13 +86,13 @@ fn run_to_dir(
     )?;
     if let Some(config_path) = config_path {
         if config_path.exists() {
-            fs::copy(config_path, output.join("config.toml"))?;
+            copy_private_file(config_path, &output.join("config.toml"))?;
         }
     }
 
     let manifest = build_manifest(config, output)?;
     let manifest_path = output.join(MANIFEST_FILE);
-    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
+    write_private_file(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
     println!(
         "backup written to {} ({} components)",
         output.display(),
@@ -115,12 +119,12 @@ pub fn copy_dir_if_exists(src: &Path, dst: &Path) -> anyhow::Result<()> {
         if entry.file_type().is_symlink() {
             continue;
         } else if entry.file_type().is_dir() {
-            fs::create_dir_all(&out)?;
+            create_private_dir_all(&out)?;
         } else if entry.file_type().is_file() {
             if let Some(parent) = out.parent() {
-                fs::create_dir_all(parent)?;
+                create_private_dir_all(parent)?;
             }
-            fs::copy(entry.path(), out)?;
+            copy_private_file(entry.path(), &out)?;
         }
     }
     Ok(())
@@ -244,12 +248,14 @@ fn write_tar_gz(src_dir: &Path, output: &Path) -> anyhow::Result<()> {
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
-    let file = fs::File::create(output)?;
+    let file = create_private_file(output)?;
     let encoder = GzEncoder::new(file, Compression::default());
     let mut builder = tar::Builder::new(encoder);
     builder.append_dir_all(".", src_dir)?;
     let encoder = builder.into_inner()?;
-    encoder.finish()?;
+    let file = encoder.finish()?;
+    drop(file);
+    restrict_private_file(output)?;
     Ok(())
 }
 
@@ -257,8 +263,9 @@ fn vacuum_into(db_path: &Path, output: &Path) -> anyhow::Result<()> {
     let db_path = db_path.to_path_buf();
     let output = output.to_path_buf();
     if let Some(parent) = output.parent() {
-        fs::create_dir_all(parent)?;
+        create_private_dir_all(parent)?;
     }
+    let sqlite_output = output.clone();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async move {
@@ -270,7 +277,7 @@ fn vacuum_into(db_path: &Path, output: &Path) -> anyhow::Result<()> {
                 .max_connections(1)
                 .connect_with(opts)
                 .await?;
-            let output = output.to_string_lossy().into_owned();
+            let output = sqlite_output.to_string_lossy().into_owned();
             sqlx::query("VACUUM INTO ?")
                 .bind(output)
                 .execute(&pool)
@@ -280,5 +287,69 @@ fn vacuum_into(db_path: &Path, output: &Path) -> anyhow::Result<()> {
         })
     })
     .join()
-    .map_err(|_| anyhow::anyhow!("SQLite backup task panicked"))?
+    .map_err(|_| anyhow::anyhow!("SQLite backup task panicked"))??;
+    restrict_private_file(&output)?;
+    Ok(())
+}
+
+fn copy_private_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = dst.parent() {
+        create_private_dir_all(parent)?;
+    }
+    fs::copy(src, dst)?;
+    restrict_private_file(dst)
+}
+
+fn write_private_file(path: &Path, bytes: Vec<u8>) -> anyhow::Result<()> {
+    let mut file = create_private_file(path)?;
+    file.write_all(&bytes)?;
+    file.flush()?;
+    drop(file);
+    restrict_private_file(path)
+}
+
+fn create_private_file(path: &Path) -> anyhow::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(PRIVATE_FILE_MODE);
+    }
+    let file = options.open(path)?;
+    restrict_private_file(path)?;
+    Ok(file)
+}
+
+fn create_private_dir_all(path: &Path) -> anyhow::Result<()> {
+    fs::create_dir_all(path)?;
+    restrict_private_dir(path)
+}
+
+fn restrict_private_dir(path: &Path) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(PRIVATE_DIR_MODE))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = PRIVATE_DIR_MODE;
+        let _ = path;
+    }
+    Ok(())
+}
+
+fn restrict_private_file(path: &Path) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(PRIVATE_FILE_MODE))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = PRIVATE_FILE_MODE;
+        let _ = path;
+    }
+    Ok(())
 }

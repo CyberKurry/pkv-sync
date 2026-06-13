@@ -92,6 +92,48 @@ fn high_audit_docker_updater_invokes_compose_without_shell_word_splitting() {
     assert!(!script.contains("$COMPOSE up"));
 }
 
+#[test]
+fn high_audit_backup_artifacts_are_written_with_owner_only_permissions() {
+    let source = include_str!("../src/cli/backup.rs");
+
+    assert!(source.contains("const PRIVATE_DIR_MODE: u32 = 0o700"));
+    assert!(source.contains("const PRIVATE_FILE_MODE: u32 = 0o600"));
+
+    let run_to_dir = source
+        .split("fn run_to_dir")
+        .nth(1)
+        .and_then(|tail| tail.split("pub fn ensure_absent_or_empty").next())
+        .expect("run_to_dir body exists");
+    assert!(run_to_dir.contains("create_private_dir_all(output)?"));
+    assert!(run_to_dir.contains("restrict_private_file(&metadata_out)?"));
+    assert!(run_to_dir.contains("copy_private_file(config_path, &output.join(\"config.toml\"))?"));
+    assert!(run_to_dir.contains("write_private_file(&manifest_path"));
+
+    let copy_dir = source
+        .split("pub fn copy_dir_if_exists")
+        .nth(1)
+        .and_then(|tail| tail.split("pub fn remove_dir_contents").next())
+        .expect("copy_dir_if_exists body exists");
+    assert!(copy_dir.contains("create_private_dir_all(&out)?"));
+    assert!(copy_dir.contains("copy_private_file(entry.path(), &out)?"));
+
+    let write_tar_gz = source
+        .split("fn write_tar_gz")
+        .nth(1)
+        .and_then(|tail| tail.split("fn vacuum_into").next())
+        .expect("write_tar_gz body exists");
+    assert!(write_tar_gz.contains("fs::create_dir_all(parent)?"));
+    assert!(write_tar_gz.contains("create_private_file(output)?"));
+    assert!(write_tar_gz.contains("restrict_private_file(output)?"));
+
+    let vacuum_into = source
+        .split("fn vacuum_into")
+        .nth(1)
+        .expect("vacuum_into body exists");
+    assert!(vacuum_into.contains("create_private_dir_all(parent)?"));
+    assert!(vacuum_into.contains("restrict_private_file(&output)?"));
+}
+
 async fn setup_state() -> (AppState, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");
