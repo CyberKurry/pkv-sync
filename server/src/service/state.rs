@@ -364,16 +364,23 @@ impl AppState {
 
     fn spawn_metrics_refresh_task(&self) {
         let state = self.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                if let Err(err) = state.refresh_metrics_gauges().await {
-                    tracing::debug!(error = %err, "failed to refresh metrics gauges");
+        crate::service::background::spawn_supervised(
+            "metrics_refresh",
+            Duration::from_secs(5),
+            move || {
+                let state = state.clone();
+                async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    loop {
+                        if let Err(err) = state.refresh_metrics_gauges().await {
+                            tracing::debug!(error = %err, "failed to refresh metrics gauges");
+                        }
+                        interval.tick().await;
+                    }
                 }
-                interval.tick().await;
-            }
-        });
+            },
+        );
     }
 
     #[cfg(test)]
@@ -558,6 +565,19 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_millis(50), notified)
             .await
             .expect("settings changes should wake update-check waiters");
+    }
+
+    #[test]
+    fn metrics_refresh_task_is_supervised() {
+        let source = include_str!("state.rs");
+        let fn_start = source.find("fn spawn_metrics_refresh_task").unwrap();
+        let next_fn = source[fn_start + 1..]
+            .find("\n    #[cfg(test)]")
+            .map(|idx| fn_start + 1 + idx)
+            .unwrap();
+        let implementation = &source[fn_start..next_fn];
+
+        assert!(implementation.contains("spawn_supervised"));
     }
 
     #[tokio::test]

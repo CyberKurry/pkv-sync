@@ -1,4 +1,5 @@
 pub mod auth;
+pub(crate) mod background;
 pub mod cleanup;
 pub mod diff;
 pub mod events;
