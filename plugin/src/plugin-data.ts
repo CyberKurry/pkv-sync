@@ -32,6 +32,11 @@ export function readSyncIndex(raw: unknown, scopeKey: string): LocalIndex {
 
 const AUTH_KEYS_FOR_WRITE = ["deviceId", "token", "serverUrl", "deploymentKey", "userId"] as const;
 
+/**
+ * @deprecated Persists the full settings object, auth fields included. Production
+ * code must use writePluginSettingsWithoutAuth so auth never re-enters data.json
+ * (auth lives in device-local storage). Retained only for raw-merge unit tests.
+ */
 export function writePluginSettings(
   raw: unknown,
   settings: PKVSyncSettings

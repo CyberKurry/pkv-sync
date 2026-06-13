@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { writePluginSettingsWithoutAuth } from "../src/plugin-data";
+import { writePluginSettingsWithoutAuth, writePluginSettingsPatch } from "../src/plugin-data";
 import { DEFAULT_SETTINGS } from "../src/settings";
 
 describe("writePluginSettingsWithoutAuth", () => {
@@ -16,5 +16,18 @@ describe("writePluginSettingsWithoutAuth", () => {
   it("preserves existing top-level keys like syncIndexes", () => {
     const out = writePluginSettingsWithoutAuth({ syncIndexes: { a: { lastSyncedCommit: "c", files: {} } } }, { ...DEFAULT_SETTINGS });
     expect((out as Record<string, unknown>).syncIndexes).toEqual({ a: { lastSyncedCommit: "c", files: {} } });
+  });
+});
+
+describe("writePluginSettingsPatch", () => {
+  it("strips auth keys even when a patch includes them", () => {
+    const out = writePluginSettingsPatch(
+      { settings: { username: "alice" } },
+      { token: "leak", serverUrl: "https://leak", language: "en" }
+    ).settings as Record<string, unknown>;
+    expect(out.token).toBeUndefined();
+    expect(out.serverUrl).toBeUndefined();
+    expect(out.language).toBe("en");
+    expect(out.username).toBe("alice");
   });
 });
