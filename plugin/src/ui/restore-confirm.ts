@@ -1,4 +1,5 @@
 import { App, Modal } from "obsidian";
+import { format } from "../i18n";
 
 export interface RestoreConfirmLabels {
   restoreConfirmTitle: string;
@@ -28,15 +29,17 @@ export class RestoreConfirmModal extends Modal {
     this.contentEl.empty();
     this.contentEl.addClass("pkvsync-restore-modal");
     this.contentEl.createEl("h2", {
-      text: labels.restoreConfirmTitle
-        .replace("{fileName}", this.params.fileName)
-        .replace("{commit}", this.params.atCommitShort)
+      text: format(labels.restoreConfirmTitle, {
+        fileName: this.params.fileName,
+        commit: this.params.atCommitShort
+      })
     });
     this.contentEl.createDiv({
       cls: "pkvsync-restore-body",
-      text: labels.restoreConfirmBody
-        .replace("{time}", this.params.atTimeRelative)
-        .replace("{commit}", this.params.atCommitShort)
+      text: format(labels.restoreConfirmBody, {
+        time: this.params.atTimeRelative,
+        commit: this.params.atCommitShort
+      })
     });
     if (this.params.hasUnsyncedLocalChanges) {
       this.contentEl.createDiv({
