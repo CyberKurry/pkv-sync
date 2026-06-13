@@ -408,6 +408,31 @@ fn apply_char_hunks(base: &str, local: &[CharHunk], remote: &[CharHunk]) -> Stri
     out
 }
 
+#[allow(dead_code)]
+fn try_subline_char_merge(base: &[&str], local: &[&str], remote: &[&str]) -> Option<Vec<String>> {
+    // Constraint 1: single line on every side.
+    if base.len() != 1 || local.len() != 1 || remote.len() != 1 {
+        return None;
+    }
+    let b = base[0];
+    let l = local[0];
+    let r = remote[0];
+
+    let local_hunks = char_diff_hunks(b, l);
+    let remote_hunks = char_diff_hunks(b, r);
+    if local_hunks.is_empty() || remote_hunks.is_empty() {
+        // one side identical to base — the line-level chain already handled this.
+        return None;
+    }
+
+    // Constraint 2: overlapping char edits → fall back to line conflict.
+    if char_hunks_overlap(&local_hunks, &remote_hunks) {
+        return None;
+    }
+
+    Some(vec![apply_char_hunks(b, &local_hunks, &remote_hunks)])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,5 +530,40 @@ mod tests {
         let remote = char_diff_hunks("the quick brown fox", "the quick red fox");
         let merged = apply_char_hunks("the quick brown fox", &local, &remote);
         assert_eq!(merged, "the slow red fox");
+    }
+
+    #[test]
+    fn subline_merges_disjoint_same_line_edits() {
+        let base = vec!["the quick brown fox\n"];
+        let local = vec!["the slow brown fox\n"];
+        let remote = vec!["the quick red fox\n"];
+        let merged = try_subline_char_merge(&base, &local, &remote);
+        assert_eq!(merged, Some(vec!["the slow red fox\n".to_string()]));
+    }
+
+    #[test]
+    fn subline_rejects_overlapping_edits() {
+        let base = vec!["alpha\n"];
+        let local = vec!["BETA\n"];
+        let remote = vec!["gamma\n"];
+        assert_eq!(try_subline_char_merge(&base, &local, &remote), None);
+    }
+
+    #[test]
+    fn subline_rejects_multi_line_segments() {
+        let base = vec!["a\n", "b\n"];
+        let local = vec!["A\n", "b\n"];
+        let remote = vec!["a\n", "B\n"];
+        assert_eq!(try_subline_char_merge(&base, &local, &remote), None);
+    }
+
+    #[test]
+    fn subline_merges_cjk_disjoint_edits() {
+        // base 数据传送类; local edits chars 2-3 (传送→转移), remote edits char 4 (类→物) — disjoint.
+        let base = vec!["数据传送类\n"];
+        let local = vec!["数据转移类\n"];
+        let remote = vec!["数据传送物\n"];
+        let merged = try_subline_char_merge(&base, &local, &remote);
+        assert_eq!(merged, Some(vec!["数据转移物\n".to_string()]));
     }
 }
