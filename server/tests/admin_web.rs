@@ -741,6 +741,52 @@ async fn admin_can_browse_vault_files_history_and_diff_read_only() {
 }
 
 #[tokio::test]
+async fn admin_vault_file_bad_commit_hides_git_error() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin_id = first_admin_user_id(&app, &session_cookie).await;
+    let vault = pkv_sync_server::service::vault::create_vault(&state, &admin_id, "main")
+        .await
+        .unwrap();
+    let store = Git2VaultStore::new(state.default_vault_root());
+    store
+        .commit_changes(
+            &vault.id,
+            None,
+            &[FileChange::Upsert {
+                path: "note.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"hello\n".to_vec(),
+                },
+            }],
+            "sync: laptop",
+        )
+        .await
+        .unwrap();
+    let bad_commit = "0000000000000000000000000000000000000000";
+
+    let mut req = request(
+        Method::GET,
+        &format!("/admin/vaults/{}/files/note.md?at={bad_commit}", vault.id),
+        Body::empty(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = read_body(resp).await;
+    assert!(body.contains("\"code\":\"bad_commit\""), "{body}");
+    assert!(body.contains("invalid commit"), "{body}");
+    assert!(!body.contains(bad_commit), "{body}");
+    assert!(
+        !body.to_ascii_lowercase().contains("object not found"),
+        "{body}"
+    );
+    assert!(!body.contains("\\vaults\\"), "{body}");
+}
+
+#[tokio::test]
 async fn admin_history_and_diff_routes_follow_runtime_flags() {
     let (app, state) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;

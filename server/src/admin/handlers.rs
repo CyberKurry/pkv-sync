@@ -1450,7 +1450,16 @@ async fn vault_file_view_html(
     let file = store
         .read_file(&id, &path, query.at.as_deref())
         .await
-        .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?
+        .map_err(|e| {
+            tracing::warn!(
+                error = %e,
+                vault_id = %id,
+                file_path = %path,
+                commit = query.at.as_deref().unwrap_or("HEAD"),
+                "admin vault file read failed"
+            );
+            ApiError::bad_request("bad_commit", "invalid commit")
+        })?
         .ok_or_else(|| ApiError::not_found("file not found"))?;
     let (binary, content, size_bytes) = file_preview(file);
     let to_commit = query.at.clone().or(store
