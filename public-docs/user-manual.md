@@ -2,7 +2,7 @@
 
 English | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
-Document version: v1.3.1.
+Document version: v1.3.2.
 
 This manual is for Obsidian users who connect to an existing PKV Sync server.
 Ask your server administrator for the server share URL and an account or invite
@@ -22,6 +22,10 @@ code before you start.
 
 The extracted directory should contain `main.js`, `manifest.json`, and
 `styles.css`.
+
+Since 1.3.2, replacing this folder by hand no longer signs you out: your login
+and device identity live in Obsidian's device-local storage, separate from the
+plugin folder's `data.json`.
 
 ## Plugin Updates
 

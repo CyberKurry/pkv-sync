@@ -2,7 +2,7 @@
 
 [English](./user-manual.md) | 简体中文 | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
-文档版本：v1.3.1。
+文档版本：v1.3.2。
 
 本手册面向连接到已有 PKV Sync 服务器的 Obsidian 用户。开始之前，请向服务器管理员索取服务器分享 URL，以及一个账号或邀请码。
 
@@ -19,6 +19,8 @@
 4. 启用 **PKV Sync**。
 
 解压后的目录中应包含 `main.js`、`manifest.json` 与 `styles.css`。
+
+自 1.3.2 起，手动替换该目录不会再让你退出登录：登录与设备身份保存在 Obsidian 的设备本地存储中，与插件目录下的 `data.json` 相互独立。
 
 ## 插件更新
 

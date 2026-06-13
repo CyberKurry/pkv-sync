@@ -2,7 +2,7 @@
 
 [English](./upgrade-notes-v1.0.md) | [简体中文](./upgrade-notes-v1.0.zh-CN.md) | [繁體中文](./upgrade-notes-v1.0.zh-Hant.md) | [日本語](./upgrade-notes-v1.0.ja.md) | 한국어
 
-문서 버전: v1.3.1.
+문서 버전: v1.3.2.
 
 PKV Sync 1.0은 첫 stable release입니다. 또한 향후 1.x maintenance를 위해 SQLite migration
 baseline을 reset합니다.

@@ -2,7 +2,7 @@
 
 [English](./user-manual.md) | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | 한국어
 
-문서 버전: v1.3.1.
+문서 버전: v1.3.2.
 
 이 매뉴얼은 기존 PKV Sync 서버에 연결하는 Obsidian 사용자를 위한 것입니다. 시작하기 전에 서버 관리자에게 서버 공유 URL과 계정 또는 초대 코드를 요청하십시오.
 
@@ -19,6 +19,8 @@
 4. **PKV Sync**를 활성화합니다.
 
 추출한 디렉터리에는 `main.js`, `manifest.json`, `styles.css`가 포함되어 있어야 합니다.
+
+1.3.2부터 이 디렉터리를 직접 교체해도 로그아웃되지 않습니다. 로그인과 기기 ID는 플러그인 디렉터리의 `data.json`이 아니라 Obsidian의 기기 로컬 저장소에 저장됩니다.
 
 ## 플러그인 업데이트
 
