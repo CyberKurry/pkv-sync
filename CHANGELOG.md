@@ -7,6 +7,20 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-13
+
+### Added
+
+- Non-overlapping concurrent edits within the same line now merge automatically
+  at the character level, further reducing conflict files.
+- Opt-in, notify + one-click self-upgrade for systemd and Docker deployments,
+  with automatic rollback if the upgraded server fails its health check. The
+  server itself stays unprivileged — a separate updater (a root systemd path
+  unit, or a default-off Docker `updater` compose profile reaching the daemon
+  only through a scoped socket proxy) applies the change. Clicking **Upgrade
+  now** in the admin panel only records the request; nothing upgrades until an
+  updater is enabled.
+
 ## [1.3.2] - 2026-06-13
 
 ### Fixed
