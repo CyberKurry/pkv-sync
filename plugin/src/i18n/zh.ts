@@ -1,3 +1,5 @@
+import { en } from "./en";
+
 export const zh = {
   settingsTitle: "PKV Sync",
   language: "语言",
@@ -197,4 +199,4 @@ export const zh = {
   conflictAcceptedRemoteNotice: "已采纳远端版本，将在下次同步推送",
   markersStillPresent: "文件中仍有冲突标记。请先在编辑器中解决。",
   conflictResolveFailed: "解决冲突失败"
-};
+} satisfies typeof en;

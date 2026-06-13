@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { en } from "../../src/i18n/en";
 import { ja } from "../../src/i18n/ja";
 import { ko } from "../../src/i18n/ko";
@@ -12,5 +14,15 @@ describe("i18n coverage", () => {
     for (const [name, bundle] of Object.entries(bundles)) {
       expect(Object.keys(bundle).sort(), name).toEqual(expected);
     }
+  });
+
+  it("keeps Simplified Chinese under the same compile-time key contract", () => {
+    const source = readFileSync(
+      resolve(__dirname, "../../src/i18n/zh.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain('import { en } from "./en";');
+    expect(source).toContain("satisfies typeof en");
   });
 });
