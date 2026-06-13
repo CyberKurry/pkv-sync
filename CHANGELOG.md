@@ -7,6 +7,21 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-06-13
+
+### Fixed
+
+- Login and device identity no longer reset when you manually replace the
+  plugin folder — auth state (device ID, token, server URL, deployment key,
+  user ID) now lives in Obsidian's device-local storage instead of
+  `data.json`. A one-time, crash-safe migration moves existing installs over
+  automatically on first load.
+
+### Changed
+
+- Minimum Obsidian version is now 1.8.7 (required for the device-local storage
+  API).
+
 ## [1.3.1] - 2026-06-12
 
 ### Changed
