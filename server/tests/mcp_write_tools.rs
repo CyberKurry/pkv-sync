@@ -1101,6 +1101,97 @@ async fn move_file_invalid_source_does_not_burn_rate_limit() {
 }
 
 #[tokio::test]
+async fn move_file_binary_source_consumes_write_rate_limit() {
+    let (state, _tmp) = test_state().await;
+    state
+        .mcp_write_limiter
+        .update_config(1, std::time::Duration::from_secs(60));
+    let (user, raw) = create_user_with_token(&state, "mcp-move-binary-rate").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let blob = LocalFsBlobStore::new(state.default_blob_root());
+    let data = Bytes::from_static(b"binary payload");
+    let hash = LocalFsBlobStore::sha256(&data);
+    blob.put_verified(&hash, data.clone()).await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let head = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "asset.bin".into(),
+                    file: StoredFile::BlobPointer {
+                        hash: hash.clone(),
+                        size: data.len() as u64,
+                        mime: Some("application/octet-stream".into()),
+                    },
+                },
+                FileChange::Upsert {
+                    path: "source.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"source".to_vec(),
+                    },
+                },
+            ],
+            "seed move binary rate",
+        )
+        .await
+        .unwrap();
+    add_blob_refs(&state, &vault.id, &head, std::slice::from_ref(&hash)).await;
+
+    let first = post_tool(
+        state.clone(),
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "asset.bin",
+            "to": "moved.bin"
+        }),
+    )
+    .await;
+    assert_eq!(first["error"]["code"], -32000);
+    let first_message = first["error"]["message"].as_str().unwrap();
+    assert!(
+        first_message.contains("unsupported_binary_move"),
+        "{first_message}"
+    );
+
+    let second = post_tool(
+        state.clone(),
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "asset.bin",
+            "to": "moved.bin"
+        }),
+    )
+    .await;
+    assert_eq!(second["error"]["code"], -32000);
+    let second_message = second["error"]["message"].as_str().unwrap();
+    assert!(second_message.contains("rate_limited"), "{second_message}");
+
+    let text_move = post_tool(
+        state,
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "source.md",
+            "to": "moved.md"
+        }),
+    )
+    .await;
+    assert_eq!(text_move["error"]["code"], -32000);
+    let text_message = text_move["error"]["message"].as_str().unwrap();
+    assert!(text_message.contains("rate_limited"), "{text_message}");
+}
+
+#[tokio::test]
 async fn move_file_checks_ownership_before_tree_or_content_probe() {
     let (state, _tmp) = test_state().await;
     let (owner, _owner_raw) = create_user_with_token(&state, "mcp-move-owner").await;

@@ -893,16 +893,20 @@ pub async fn move_file(
         bail!("invalid_path: target path is not writable through MCP");
     }
 
-    let content = match git.read_file(&input.vault_id, &from, at).await? {
-        Some(StoredFile::Text { bytes }) => String::from_utf8(bytes)
-            .map_err(|_| anyhow!("unsupported_binary_move: '{from}' is not UTF-8 text"))?,
-        Some(StoredFile::BlobPointer { .. }) => {
-            bail!("unsupported_binary_move: '{from}' is binary; v1 supports text only");
-        }
+    let source = match git.read_file(&input.vault_id, &from, at).await? {
+        Some(file) => file,
         None => bail!("not_found: '{from}' does not exist"),
     };
 
     record_mcp_write_rate_limit(state, user, &input.vault_id)?;
+    let content = match source {
+        StoredFile::Text { bytes } => String::from_utf8(bytes)
+            .map_err(|_| anyhow!("unsupported_binary_move: '{from}' is not UTF-8 text"))?,
+        StoredFile::BlobPointer { .. } => {
+            bail!("unsupported_binary_move: '{from}' is binary; v1 supports text only");
+        }
+    };
+
     if git.read_file(&input.vault_id, &to, at).await?.is_some() {
         bail!("target_exists: '{to}' already exists");
     }
