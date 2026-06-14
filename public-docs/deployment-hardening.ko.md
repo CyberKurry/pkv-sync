@@ -320,7 +320,7 @@ restic -r sftp:user@backup.example.com:/repo backup /var/lib/pkv-sync /etc/pkv-s
 
 장치 bearer token은 인증된 사용 시 갱신되고, 90일 동안 유휴이면 만료되며, 각 token에는 365일의 절대 수명이 있고, 사용자 또는 관리자가 철회할 수 있습니다. 만료되거나 철회될 때까지 활성 token을 자격 증명으로 취급하세요.
 
-Obsidian은 플러그인의 활성 token과 deployment key를 vault-local plugin data file인 `<vault>/.obsidian/plugins/pkv-sync/data.json`에 저장합니다. 사용자에게 이 파일을 공유 아카이브, 신뢰할 수 없는 동기화 대상, 평문 백업에 넣지 말라고 안내하세요. 파일이 유출되었을 수 있으면 영향을 받은 장치 token을 철회하세요.
+Obsidian은 플러그인의 활성 token, deployment key, 로그인 상태, 안정적인 장치 ID를 기기 로컬 저장소에 저장합니다. Vault-local 플러그인 `data.json`은 민감하지 않은 설정과 동기화 인덱스만 보관합니다. 현재 빌드는 동기화 인덱스 key에 deployment key를 포함하지 않으며, 이전 버전의 민감 정보가 포함된 인덱스 항목은 다음 플러그인 데이터 쓰기 때 폐기됩니다. 사용자에게 Obsidian 기기 로컬 저장소, 공유 아카이브, 신뢰할 수 없는 동기화 대상, 평문 백업, 이전 `data.json` 사본을 보호하라고 안내하세요. 이러한 저장소가 유출되었을 수 있으면 영향을 받은 장치 token을 철회하고, deployment key가 노출되었다면 deployment key도 교체하세요.
 
 권장 방식:
 

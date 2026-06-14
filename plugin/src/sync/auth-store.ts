@@ -14,7 +14,14 @@ export type LocalStorageSave = (key: string, data: unknown | null) => void;
 function isAuthData(value: unknown): value is AuthData {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
-  return typeof v.deviceId === "string" && v.deviceId.length > 0;
+  return (
+    typeof v.deviceId === "string" &&
+    v.deviceId.length > 0 &&
+    typeof v.serverUrl === "string" &&
+    isNullableString(v.token) &&
+    isNullableString(v.deploymentKey) &&
+    isNullableString(v.userId)
+  );
 }
 
 export class AuthStore {
@@ -49,21 +56,41 @@ function extractLegacyAuth(settings: Record<string, unknown>): AuthData | null {
   if (typeof deviceId !== "string" || deviceId.length === 0) return null;
   return {
     deviceId,
-    token: (settings.token as string) ?? null,
-    serverUrl: (settings.serverUrl as string) ?? "",
-    deploymentKey: (settings.deploymentKey as string) ?? null,
-    userId: (settings.userId as string) ?? null
+    token: stringOrNull(settings.token),
+    serverUrl: typeof settings.serverUrl === "string" ? settings.serverUrl : "",
+    deploymentKey: stringOrNull(settings.deploymentKey),
+    userId: stringOrNull(settings.userId)
   };
 }
 
-function settingsHasAuthResidue(settings: Record<string, unknown>): boolean {
-  return AUTH_FIELDS.some((f) => f in settings);
+function isNullableString(value: unknown): boolean {
+  return typeof value === "string" || value === null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function hasAuthResidue(data: Record<string, unknown>): boolean {
+  return (
+    AUTH_FIELDS.some((f) => f in data) ||
+    AUTH_FIELDS.some((f) => f in nestedSettings(data))
+  );
+}
+
+function nestedSettings(data: Record<string, unknown>): Record<string, unknown> {
+  return data.settings && typeof data.settings === "object"
+    ? (data.settings as Record<string, unknown>)
+    : {};
 }
 
 function stripAuthFields(data: Record<string, unknown>): Record<string, unknown> {
-  const settings = { ...(data.settings as Record<string, unknown> | undefined) };
+  const stripped = { ...data };
+  for (const f of AUTH_FIELDS) delete stripped[f];
+  if (!data.settings || typeof data.settings !== "object") return stripped;
+  const settings = { ...(data.settings as Record<string, unknown>) };
   for (const f of AUTH_FIELDS) delete settings[f];
-  return { ...data, settings };
+  return { ...stripped, settings };
 }
 
 export function authFromSettings(settings: {
@@ -87,18 +114,16 @@ export function migrateAuth(
   rawData: unknown
 ): MigrationResult {
   const data = (rawData && typeof rawData === "object" ? rawData : {}) as Record<string, unknown>;
-  const settings = (data.settings && typeof data.settings === "object"
-    ? data.settings
-    : {}) as Record<string, unknown>;
+  const settings = nestedSettings(data);
 
   if (auth.load() !== null) {
-    if (settingsHasAuthResidue(settings)) {
+    if (hasAuthResidue(data)) {
       return { kind: "already-migrated", strippedData: stripAuthFields(data) };
     }
     return { kind: "already-migrated", strippedData: null };
   }
 
-  const legacy = extractLegacyAuth(settings);
+  const legacy = extractLegacyAuth(settings) ?? extractLegacyAuth(data);
   if (legacy === null) {
     return { kind: "fresh-install", strippedData: null };
   }

@@ -51,6 +51,19 @@ describe("AuthStore", () => {
     const auth = new AuthStore(ls.load, ls.save);
     expect(auth.load()).toBeNull();
   });
+
+  it("ignores malformed stored auth field types", () => {
+    const ls = makeLocalStorage();
+    ls.store.set("pkv-sync-auth", {
+      deviceId: "dev-1",
+      token: 123,
+      serverUrl: ["https://sync.example.com"],
+      deploymentKey: { value: "dk" },
+      userId: false
+    });
+    const auth = new AuthStore(ls.load, ls.save);
+    expect(auth.load()).toBeNull();
+  });
 });
 
 describe("authFromSettings — logout keeps device identity", () => {
@@ -113,6 +126,25 @@ describe("migrateAuth", () => {
     expect((result.strippedData as any).syncIndexes).toEqual({ a: { lastSyncedCommit: "c", files: {} } });
   });
 
+  it("legacy top-level auth is migrated and stripped from data.json", () => {
+    const ls = makeLocalStorage();
+    const auth = new AuthStore(ls.load, ls.save);
+    const data = { ...legacySettings, settings: { deviceName: "Laptop" } };
+    const result = migrateAuth(auth, data);
+
+    expect(result.kind).toBe("migrated");
+    expect(auth.load()).toEqual({
+      deviceId: "dev-1", token: "tok-1", serverUrl: "https://s", deploymentKey: "dk", userId: "u"
+    });
+    const stripped = result.strippedData as Record<string, unknown>;
+    expect(stripped.deviceId).toBeUndefined();
+    expect(stripped.token).toBeUndefined();
+    expect(stripped.serverUrl).toBeUndefined();
+    expect(stripped.deploymentKey).toBeUndefined();
+    expect(stripped.userId).toBeUndefined();
+    expect((stripped.settings as Record<string, unknown>).deviceName).toBe("Laptop");
+  });
+
   it("already migrated (localStorage has auth) but data.json still has residue → cleanup, strips residue", () => {
     const ls = makeLocalStorage();
     const auth = new AuthStore(ls.load, ls.save);
@@ -122,6 +154,20 @@ describe("migrateAuth", () => {
     expect(result.kind).toBe("already-migrated");
     expect((result.strippedData as any).settings.token).toBeUndefined();
     expect((result.strippedData as any).settings.username).toBe("alice");
+  });
+
+  it("already migrated top-level auth residue is stripped from data.json", () => {
+    const ls = makeLocalStorage();
+    const auth = new AuthStore(ls.load, ls.save);
+    auth.save({ deviceId: "dev-1", token: "tok-1", serverUrl: "https://s", deploymentKey: "dk", userId: "u" });
+    const data = { ...legacySettings, settings: { username: "alice" } };
+    const result = migrateAuth(auth, data);
+
+    expect(result.kind).toBe("already-migrated");
+    const stripped = result.strippedData as Record<string, unknown>;
+    expect(stripped.token).toBeUndefined();
+    expect(stripped.deploymentKey).toBeUndefined();
+    expect((stripped.settings as Record<string, unknown>).username).toBe("alice");
   });
 
   it("already migrated, no residue → already-migrated, no strip needed", () => {

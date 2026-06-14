@@ -103,12 +103,14 @@ independent scaling.
 ## Obsidian plugin
 
 Local files are the source of truth — the plugin reads and writes your
-normal Obsidian vault on disk, no proxy filesystem. Plugin settings and
-the active bearer device token live in
-`<vault>/.obsidian/plugins/pkv-sync/data.json`; treat that file as
-sensitive. Device tokens renew on use, expire after 90 idle days, and have a
-365-day absolute lifetime; logging in again on the same device rotates the
-active token.
+normal Obsidian vault on disk, no proxy filesystem. Non-sensitive plugin
+settings and sync indexes live in
+`<vault>/.obsidian/plugins/pkv-sync/data.json`; login state, the active bearer
+device token, deployment key, and stable device identity live in Obsidian's
+device-local storage instead. Treat Obsidian device-local storage, plaintext
+backups, and legacy plugin `data.json` copies as sensitive. Device tokens renew
+on use, expire after 90 idle days, and have a 365-day absolute lifetime; logging
+in again on the same device rotates the active token.
 
 Day-to-day features — command palette, file history, side-by-side diff,
 conflict resolution, selective `.obsidian` sync, device management, and

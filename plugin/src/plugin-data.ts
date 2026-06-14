@@ -16,9 +16,8 @@ export function readPluginSettings(raw: unknown): PKVSyncSettings {
 
 export function syncScopeKey(settings: PKVSyncSettings): string {
   return [
-    "v1",
+    "v2",
     settings.serverUrl,
-    settings.deploymentKey,
     settings.userId || settings.username,
     settings.selectedVaultId
   ]
@@ -38,14 +37,17 @@ export function writePluginSettingsWithoutAuth(
 ): PluginData {
   const stripped = { ...settings } as Record<string, unknown>;
   for (const k of AUTH_KEYS_FOR_WRITE) delete stripped[k];
-  return { ...(asPluginData(raw) ?? {}), settings: stripped as Partial<PKVSyncSettings> };
+  return {
+    ...stripAuthFromPluginData(raw),
+    settings: stripped as Partial<PKVSyncSettings>
+  };
 }
 
 export function writePluginSettingsPatch(
   raw: unknown,
   patch: Partial<PKVSyncSettings>
 ): PluginData {
-  const data = asPluginData(raw) ?? {};
+  const data = stripAuthFromPluginData(raw);
   const settings =
     data.settings && typeof data.settings === "object"
       ? { ...data.settings, ...patch }
@@ -59,11 +61,11 @@ export function writeSyncIndex(
   scopeKey: string,
   syncIndex: LocalIndex
 ): PluginData {
-  const data = asPluginData(raw) ?? {};
+  const data = stripAuthFromPluginData(raw);
   return {
     ...data,
     syncIndexes: {
-      ...(data.syncIndexes ?? {}),
+      ...sanitizeSyncIndexes(data.syncIndexes),
       [scopeKey]: syncIndex
     }
   };
@@ -72,4 +74,31 @@ export function writeSyncIndex(
 function asPluginData(raw: unknown): PluginData | null {
   if (!raw || typeof raw !== "object") return null;
   return raw as PluginData;
+}
+
+function stripAuthFromPluginData(raw: unknown): PluginData {
+  const data = { ...(asPluginData(raw) ?? {}) } as PluginData;
+  for (const k of AUTH_KEYS_FOR_WRITE) delete data[k];
+  if (data.settings && typeof data.settings === "object") {
+    const settings = { ...data.settings } as Record<string, unknown>;
+    for (const k of AUTH_KEYS_FOR_WRITE) delete settings[k];
+    data.settings = settings as Partial<PKVSyncSettings>;
+  }
+  if (data.syncIndexes) {
+    data.syncIndexes = sanitizeSyncIndexes(data.syncIndexes);
+  }
+  return data;
+}
+
+function sanitizeSyncIndexes(
+  syncIndexes: Record<string, LocalIndex> | undefined
+): Record<string, LocalIndex> {
+  if (!syncIndexes) return {};
+  return Object.fromEntries(
+    Object.entries(syncIndexes).filter(([key]) => !isLegacySecretScopeKey(key))
+  );
+}
+
+function isLegacySecretScopeKey(key: string): boolean {
+  return key.startsWith("v1|");
 }

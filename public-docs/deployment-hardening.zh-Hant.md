@@ -318,7 +318,7 @@ restic -r sftp:user@backup.example.com:/repo backup /var/lib/pkv-sync /etc/pkv-s
 
 裝置 bearer token 會在認證使用時續期，連續 90 天未使用才會過期，單個 token 最長有效 365 天，也可以由使用者或管理員撤銷。在過期或撤銷前，請把活躍 token 當作憑證處理。
 
-Obsidian 會把外掛的活躍 token 和部署金鑰保存於筆記庫本機外掛資料檔案 `<vault>/.obsidian/plugins/pkv-sync/data.json` 中。請提醒使用者不要把該檔案放進分享壓縮包、不可信同步目標或明文備份裡。如果懷疑檔案已經洩露，請撤銷受影響的裝置 token。
+Obsidian 會把外掛的活躍 token、部署金鑰、登入狀態和穩定裝置身分保存在裝置本機儲存中。筆記庫本機外掛 `data.json` 只保留非敏感偏好和同步索引；目前版本的同步索引 key 不再包含部署金鑰，舊版帶敏感資訊的索引項會在下次寫入外掛資料時被丟棄。請提醒使用者保護 Obsidian 裝置本機儲存、分享壓縮包、不可信同步目標、明文備份以及舊版本留下的 `data.json` 副本。如果這些儲存可能外洩，請撤銷受影響的裝置 token；如果部署金鑰曾經暴露，請輪換部署金鑰。
 
 建議：
 

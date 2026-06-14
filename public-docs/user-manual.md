@@ -205,11 +205,14 @@ devices idle for 90 days expire, and each token has a 365-day absolute lifetime.
 The plugin keeps a stable device ID, so logging in again from the same device
 replaces that device's previous active token instead of accumulating duplicates.
 
-The Obsidian plugin stores the active token and deployment key in
-`<vault>/.obsidian/plugins/pkv-sync/data.json`. Treat that file as sensitive:
-protect plaintext backups and cloud-sync targets, and do not share it. If the
-file may have leaked, log out or ask an administrator to revoke the device token,
-then connect again.
+The active token, deployment key, login state, and stable device identity live
+in Obsidian's device-local storage. The vault-local plugin `data.json` keeps
+non-sensitive preferences and sync indexes; current builds no longer include
+the deployment key in sync index keys, and legacy secret-bearing index entries
+are discarded on the next plugin data write. Protect Obsidian device-local
+storage, plaintext backups, cloud-sync targets, and legacy `data.json` copies.
+If any of those may have leaked, log out or ask an administrator to revoke the
+device token, then connect again. Rotate the deployment key if it was exposed.
 
 - Use plugin settings to log out from the current device.
 - Ask an administrator to revoke tokens for lost devices.

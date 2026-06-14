@@ -36,11 +36,11 @@ describe("plugin-data", () => {
     });
   });
 
-  it("scopes sync index by server, deployment, account, and vault", () => {
+  it("scopes sync index without writing deployment key into data.json", () => {
     const a = syncScopeKey({
       ...DEFAULT_SETTINGS,
       serverUrl: "https://one.example.com",
-      deploymentKey: "k_one",
+      deploymentKey: "k_secret_one",
       userId: "u1",
       selectedVaultId: "v1"
     });
@@ -62,6 +62,39 @@ describe("plugin-data", () => {
 
     expect(readSyncIndex(data, a).lastSyncedCommit).toBe("c1");
     expect(readSyncIndex(data, b).lastSyncedCommit).toBe("c2");
+    expect(JSON.stringify(data)).not.toContain("k_secret_one");
+    expect(a).not.toContain("k_secret_one");
+    expect(a).not.toContain(encodeURIComponent("k_secret_one"));
+  });
+
+  it("strips legacy auth residue and secret-bearing sync scopes while writing sync index", () => {
+    const index: LocalIndex = { lastSyncedCommit: "c1", files: {} };
+    const data = writeSyncIndex(
+      {
+        token: "top-token",
+        deploymentKey: "top-secret",
+        settings: {
+          deviceName: "Laptop",
+          deviceId: "dev-1",
+          token: "nested-token",
+          serverUrl: "https://sync.example.com",
+          deploymentKey: "nested-secret",
+          userId: "u1"
+        },
+        syncIndexes: {
+          "v1|https%3A%2F%2Fsync.example.com|nested-secret|u1|v1": index
+        }
+      },
+      "v2|safe",
+      index
+    );
+
+    expect(data.token).toBeUndefined();
+    expect(data.deploymentKey).toBeUndefined();
+    expect(data.syncIndexes).toEqual({ "v2|safe": index });
+    expect(data.settings).toEqual({ deviceName: "Laptop" });
+    expect(JSON.stringify(data)).not.toContain("secret");
+    expect(JSON.stringify(data)).not.toContain("token");
   });
 
   it("does not reuse legacy global sync index for a scoped engine", () => {

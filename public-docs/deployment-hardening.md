@@ -386,10 +386,15 @@ Device bearer tokens renew on authenticated use, expire after 90 idle days, have
 a 365-day absolute lifetime, and can be revoked by users or administrators.
 Treat active tokens as credentials until they expire or are revoked.
 
-Obsidian stores the plugin's active token and deployment key in the vault-local
-plugin data file, `<vault>/.obsidian/plugins/pkv-sync/data.json`. Tell users to
-keep that file out of shared archives, untrusted sync targets, and plaintext
-backups. Revoke the affected device token if the file may have leaked.
+Obsidian stores the plugin's active token, deployment key, login state, and
+stable device identity in device-local storage. The vault-local plugin
+`data.json` keeps non-sensitive preferences and sync indexes; current builds no
+longer include the deployment key in sync index keys, and legacy secret-bearing
+index entries are discarded on the next plugin data write. Tell users to protect
+Obsidian device-local storage, shared archives, untrusted sync targets,
+plaintext backups, and legacy `data.json` copies. Revoke the affected device
+token if those stores may have leaked, and rotate the deployment key if it was
+exposed.
 
 Recommended practice:
 
