@@ -193,7 +193,7 @@ fn replay_events_after_blocking(vault_path: PathBuf, last: Oid) -> anyhow::Resul
         commits.push(oid);
     }
     if !found_last {
-        return Ok(ReplayEvents::Events(Vec::new()));
+        return Ok(ReplayEvents::Lagged);
     }
     commits.reverse();
 
@@ -316,6 +316,7 @@ fn replay_source_device(message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
 
     #[test]
     fn classify_replay_change_detects_blob_pointer() {
@@ -400,6 +401,50 @@ mod tests {
             !implementation.contains(".chars().all"),
             "hash validation should avoid char iteration for known ASCII hex"
         );
+    }
+
+    #[tokio::test]
+    async fn replay_after_unreachable_last_event_id_reports_lagged() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let first = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "a.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"one".to_vec(),
+                    },
+                }],
+                "sync: first-device",
+            )
+            .await
+            .unwrap();
+        let second = store
+            .commit_changes(
+                "v1",
+                Some(&first),
+                &[FileChange::Upsert {
+                    path: "b.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"two".to_vec(),
+                    },
+                }],
+                "sync: second-device",
+            )
+            .await
+            .unwrap();
+        store
+            .set_main_ref("v1", &first, "rewind head for replay test")
+            .await
+            .unwrap();
+
+        let replay = replay_events_after(dir.path(), "v1", &second)
+            .await
+            .unwrap();
+
+        assert!(matches!(replay, ReplayEvents::Lagged));
     }
 
     #[tokio::test]
