@@ -7,6 +7,53 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-06-14
+
+### Security
+
+- Container images (`Dockerfile`, `Dockerfile.release`) now ship a runtime
+  `HEALTHCHECK` against `/api/health`, so orchestrators detect an unhealthy
+  server instead of silently routing to it.
+- The bundled Caddy reverse proxy now sets HSTS, a content-security-policy,
+  `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and
+  `Permissions-Policy`, and caps request bodies at 110 MB (matching the nginx
+  example).
+- Docker Compose and Traefik examples no longer float on `:latest`; the app
+  image defaults to a pinned release tag and `caddy`, `traefik`,
+  `docker-socket-proxy`, and `docker` CLI images are pinned to exact versions.
+- MCP tool and SSE transport errors no longer leak raw internal messages
+  (closed database pool, connection strings); intended public tool errors pass
+  through, everything else returns a generic message.
+- Vault file reads in the admin UI sanitize Git errors before display, and
+  the admin language-switch routes require an authenticated session.
+- `change_password` returns the same error whether the user is missing or the
+  current password is wrong, preventing user enumeration.
+- The `move_file` MCP tool now consumes a write rate-limit token before
+  validating binary/UTF-8 content, so rejected moves cannot bypass the limit.
+- Backup artifacts are written with owner-only permissions, release asset URLs
+  are validated before download, and verify blob hashes are validated before
+  path construction.
+
+### Fixed
+
+- Resolving a conflict from the file menu or the conflicts list now triggers
+  the push debouncer immediately instead of waiting for the next debounce
+  window.
+- Async diff, history, and conflict-resolve modals no longer render into a
+  detached DOM after the modal is closed (race guard via load generation).
+- Restore-confirmation text is now formatted with the shared i18n formatter,
+  so filenames or timestamps containing `$&`, `$'`, or `$$` no longer
+  corrupt the rendered text.
+- The Chinese (`zh`) translation bundle now ends with `satisfies typeof en`,
+  restoring compile-time type checking like the other locales.
+
+### Changed
+
+- Server-side rate limiting, idle event-subscriber pruning, bounded
+  auto-merge diff inputs, bounded inline pull payloads, supervised background
+  loops, and preservation of server-declared text extensions harden the
+  plugin/server against resource exhaustion and config drift.
+
 ## [1.4.0] - 2026-06-13
 
 ### Added
@@ -15,7 +62,7 @@ and this project adheres to semantic versioning starting at v1.0.0.
   at the character level, further reducing conflict files.
 - Opt-in, notify + one-click self-upgrade for systemd and Docker deployments,
   with automatic rollback if the upgraded server fails its health check. The
-  server itself stays unprivileged â€” a separate updater (a root systemd path
+  server itself stays unprivileged â€?a separate updater (a root systemd path
   unit, or a default-off Docker `updater` compose profile reaching the daemon
   only through a scoped socket proxy) applies the change. Clicking **Upgrade
   now** in the admin panel only records the request; nothing upgrades until an
@@ -26,7 +73,7 @@ and this project adheres to semantic versioning starting at v1.0.0.
 ### Fixed
 
 - Login and device identity no longer reset when you manually replace the
-  plugin folder â€” auth state (device ID, token, server URL, deployment key,
+  plugin folder â€?auth state (device ID, token, server URL, deployment key,
   user ID) now lives in Obsidian's device-local storage instead of
   `data.json`. A one-time, crash-safe migration moves existing installs over
   automatically on first load.
@@ -546,7 +593,7 @@ v1 SQLite baseline for fresh 1.x deployments.
 - Relaxed the global `Referrer-Policy` from `no-referrer` to `same-origin`
   so first-run setup and admin form POSTs are no longer blocked by
   browsers serializing `Origin: null` per the Fetch spec under
-  `no-referrer`. CSRF stays strict â€” `Origin: null` is rejected by a
+  `no-referrer`. CSRF stays strict â€?`Origin: null` is rejected by a
   dedicated regression test.
 
 ## [0.8.2] - 2026-05-23
@@ -857,7 +904,7 @@ v1 SQLite baseline for fresh 1.x deployments.
 - SSE subscription `fetch()` now sends `User-Agent: PKVSync-Plugin/X.Y.Z`
   instead of the browser's default UA. Electron 32 (Chromium 128+) supports
   setting `User-Agent` in `fetch()`, so the server-side UA filter validates
-  SSE requests normally â€” no special `/events` bypass needed.
+  SSE requests normally â€?no special `/events` bypass needed.
 - Removed the `/events` path bypass in the UA filter middleware. All
   non-OPTIONS requests must carry a valid plugin User-Agent; the previous
   workaround that let any UA through on SSE GET requests is no longer
@@ -879,7 +926,7 @@ v1 SQLite baseline for fresh 1.x deployments.
 - Both middlewares now pass OPTIONS requests through; the SSE route gets
   a `tower_http::cors::CorsLayer` that whitelists `Authorization`,
   `Accept`, `Cache-Control`, `Last-Event-ID`, and the deployment-key
-  custom header. Authentication for the actual request is unchanged â€”
+  custom header. Authentication for the actual request is unchanged â€?
   bearer token and deployment key are still required for the GET that
   follows the preflight.
 
@@ -912,8 +959,8 @@ v1 SQLite baseline for fresh 1.x deployments.
   signals (invite probing, mode probing, username enumeration via
   CONFLICT) which consume budget, vs. honest validation typos
   (username too short, weak password) which do not. The handler
-  previously consumed budget on UNAUTHORIZED only â€” a status the register
-  flow never returned â€” so abuse was unlimited.
+  previously consumed budget on UNAUTHORIZED only â€?a status the register
+  flow never returned â€?so abuse was unlimited.
 
 ### Fixed
 
@@ -955,7 +1002,7 @@ v1 SQLite baseline for fresh 1.x deployments.
 
 ### Added
 
-- SSE push notifications: the server broadcasts vault change events to connected plugins in real time via `GET /api/vaults/:id/events`. Small text changes (â‰¤ 8 KB) are delivered inline, eliminating the need for a separate pull round-trip.
+- SSE push notifications: the server broadcasts vault change events to connected plugins in real time via `GET /api/vaults/:id/events`. Small text changes (â‰?8 KB) are delivered inline, eliminating the need for a separate pull round-trip.
 - Plugin SSE subscription with inline apply: the Obsidian plugin opens an SSE stream on startup, writes inline text content and deletes directly to disk, and falls back to a full pull for blob or large-text changes. Self-originated events are filtered by device ID.
 - Git smart HTTP (read-only): clone any PKV Sync vault using `git clone` over HTTP. Auth uses the standard `Authorization: Basic` header bridged to the PKV Sync token system. Disabled by default via the `enable_git_smart_http` runtime flag; returns 503 when git is not found on the server PATH.
 - `pkvsyncd materialize` CLI subcommand: walks the bare git tree for a vault and writes a working copy to an output directory, resolving blob pointer JSONs by copying the actual binary data from the sharded blob store.

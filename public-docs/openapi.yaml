@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 1.4.0
+  version: 1.4.1
   license:
     name: AGPL-3.0-only
   contact:
@@ -528,7 +528,7 @@ components:
           type: array
           description: |
             Per-file merge results when the server performed a three-way merge
-            during this push. When absent the push was a verbatim commit â€” no
+            during this push. When absent the push was a verbatim commit â€?no
             merge occurred.
           items:
             $ref: '#/components/schemas/MergeOutcomeEntry'
@@ -1609,7 +1609,7 @@ paths:
         Long-lived Server-Sent Events stream of commit notifications for the
         identified vault. Each `commit` event has a JSON body containing the
         new commit hash, parent hash, the originating device id, and an
-        array of changes. Small text changes (â‰¤ `inline_content_max_bytes`,
+        array of changes. Small text changes (â‰?`inline_content_max_bytes`,
         default 8 KiB) are delivered inline as `text_inline`; larger files
         and binaries are emitted as `text_ref` / `blob` so the client can
         pull them. Plugins should filter out events whose
@@ -1619,7 +1619,7 @@ paths:
         The stream also emits keep-alive comment lines (`: hb`) every
         `sse_heartbeat_seconds` (default 30) so idle reverse proxies do
         not close the connection. If the server's broadcast buffer fills,
-        a `lagged` event is sent â€” clients should respond with a full
+        a `lagged` event is sent â€?clients should respond with a full
         pull to catch up.
 
         The server caps concurrent SSE subscriptions per user (default 16)
@@ -1646,7 +1646,7 @@ paths:
   /git/{vault_id}/info/refs:
     get:
       tags: [Git]
-      summary: Git smart HTTP â€” read-only refs advertisement
+      summary: Git smart HTTP â€?read-only refs advertisement
       description: |
         Standard git smart HTTP refs advertisement for `git-upload-pack`.
         Opt-in via the `enable_git_smart_http` runtime flag and gated on
@@ -1681,7 +1681,7 @@ paths:
   /git/{vault_id}/git-upload-pack:
     post:
       tags: [Git]
-      summary: Git smart HTTP â€” stateless RPC for upload-pack
+      summary: Git smart HTTP â€?stateless RPC for upload-pack
       description: |
         Stateless-RPC body of a `git clone` / `git fetch` request. The
         request body carries the want/have negotiation; the response is

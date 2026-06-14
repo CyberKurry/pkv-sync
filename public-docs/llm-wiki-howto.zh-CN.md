@@ -2,7 +2,7 @@
 
 [English](./llm-wiki-howto.md) | 简体中文 | [繁體中文](./llm-wiki-howto.zh-Hant.md) | [日本語](./llm-wiki-howto.ja.md) | [한국어](./llm-wiki-howto.ko.md)
 
-文档版本：v1.4.0。
+文档版本：v1.4.1。
 
 PKV Sync 为由 LLM 维护的 wiki 提供存储、历史和 MCP 基底。你自己的 MCP-capable agent 负责运行 LLM，通过普通的 PKV Sync 设备 token 读写，并把每个已接受的改动提交到笔记库的 git 历史中。
 

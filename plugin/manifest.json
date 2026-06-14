@@ -1,7 +1,7 @@
 {
   "id": "pkv-sync",
   "name": "PKV Sync",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "minAppVersion": "1.8.7",
   "description": "Self-hosted vault synchronization with versioned backup.",
   "author": "cyberkurry",
