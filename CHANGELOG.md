@@ -7,6 +7,19 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Security
+
+- Obsidian plugin data writes now remove legacy credential residue from both
+  top-level and nested settings, migrate legacy top-level auth into
+  device-local storage, and stop including the deployment key in sync index
+  scope keys. Legacy v1 sync index entries that may contain secrets are
+  discarded on the next plugin data write.
+
+### Fixed
+
+- Plugin package metadata now keeps `package-lock.json` aligned with the
+  package version and pins the Obsidian API package to `1.12.3`.
+
 ## [1.4.1] - 2026-06-14
 
 ### Security
@@ -33,11 +46,6 @@ and this project adheres to semantic versioning starting at v1.0.0.
 - Backup artifacts are written with owner-only permissions, release asset URLs
   are validated before download, and verify blob hashes are validated before
   path construction.
-- Obsidian plugin data writes now remove legacy credential residue from both
-  top-level and nested settings, migrate legacy top-level auth into
-  device-local storage, and stop including the deployment key in sync index
-  scope keys. Legacy v1 sync index entries that may contain secrets are
-  discarded on the next plugin data write.
 
 ### Fixed
 
@@ -51,8 +59,6 @@ and this project adheres to semantic versioning starting at v1.0.0.
   corrupt the rendered text.
 - The Chinese (`zh`) translation bundle now ends with `satisfies typeof en`,
   restoring compile-time type checking like the other locales.
-- Plugin package metadata now keeps `package-lock.json` aligned with the
-  package version and pins the Obsidian API package to `1.12.3`.
 
 ### Changed
 
