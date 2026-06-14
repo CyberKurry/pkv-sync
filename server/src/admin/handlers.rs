@@ -21,7 +21,7 @@ use crate::service::auth::validate_username;
 use crate::service::AppState;
 use crate::storage::git::{GitVaultStore, StoredFile, TreeEntry};
 use axum::extract::{Extension, Form, Path, Query, State};
-use axum::http::{header, HeaderMap, Method, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
@@ -132,6 +132,13 @@ fn render_html_with_status<T: askama::Template>(status: StatusCode, template: T)
     if response.status() == StatusCode::OK {
         *response.status_mut() = status;
     }
+    response
+}
+
+fn no_store(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
 
@@ -1014,14 +1021,14 @@ async fn create_token_form(
         .into_iter()
         .map(|token| token_view(token, &timezone))
         .collect();
-    Ok(render_html(UserDetailTemplate {
+    Ok(no_store(render_html(UserDetailTemplate {
         t: admin_text(&headers, &cookies),
         user: user_view(user, &timezone, stats),
         tokens,
         message: Some("Device token created".into()),
         error: None,
         created_token: Some(raw),
-    }))
+    })))
 }
 
 #[derive(Deserialize)]
@@ -1237,12 +1244,12 @@ async fn create_device_token_form(
         device_name = %device_name,
         "admin created device token from devices page"
     );
-    Ok(render_html(DevicesTemplate {
+    Ok(no_store(render_html(DevicesTemplate {
         t: admin_text(&headers, &cookies),
         users: list_user_options(&state).await?,
         tokens: list_admin_device_tokens(&state).await?,
         created_token: Some(raw),
-    }))
+    })))
 }
 
 async fn revoke_device_token_form(

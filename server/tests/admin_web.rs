@@ -316,6 +316,10 @@ async fn admin_can_create_device_token_and_plaintext_is_one_time() {
     set_form_origin(&mut create_req);
     let create_resp = app.clone().oneshot(create_req).await.unwrap();
     assert_eq!(create_resp.status(), StatusCode::OK);
+    assert_eq!(
+        create_resp.headers().get(header::CACHE_CONTROL).unwrap(),
+        "no-store"
+    );
     let create_body = read_body(create_resp).await;
     assert!(create_body.contains("desktop"));
     assert!(create_body.contains("pks_"));
@@ -410,6 +414,10 @@ async fn admin_can_manage_device_tokens_from_devices_page() {
     set_form_origin(&mut create_req);
     let create_resp = app.clone().oneshot(create_req).await.unwrap();
     assert_eq!(create_resp.status(), StatusCode::OK);
+    assert_eq!(
+        create_resp.headers().get(header::CACHE_CONTROL).unwrap(),
+        "no-store"
+    );
     let create_body = read_body(create_resp).await;
     assert!(create_body.contains("MacBook Pro"));
     assert!(create_body.contains("pks_"));
