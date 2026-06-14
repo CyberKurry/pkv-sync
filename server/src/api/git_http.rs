@@ -17,6 +17,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use std::fmt;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -116,6 +117,7 @@ pub async fn info_refs(
 /// margin; anything over it is almost certainly hostile or malformed and we
 /// reject before allocating it.
 const MAX_UPLOAD_PACK_BODY_BYTES: usize = 10 * 1024 * 1024;
+const UPLOAD_PACK_PROCESS_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 pub async fn upload_pack(
     State(state): State<AppState>,
@@ -158,14 +160,16 @@ pub async fn upload_pack(
         })?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        let write_result = tokio::spawn(async move { stdin.write_all(&body).await }).await;
+        let write_result =
+            tokio::time::timeout(UPLOAD_PACK_PROCESS_TIMEOUT, stdin.write_all(&body)).await;
         match write_result {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
                 tracing::warn!(error = %e, "failed to write to git stdin");
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "stdin write task panicked");
+            Err(_) => {
+                let _ = child.start_kill();
+                return Err(ApiError::internal("git upload-pack timed out"));
             }
         }
     }
@@ -178,6 +182,9 @@ pub async fn upload_pack(
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(8);
     tokio::spawn(async move {
         let mut stdout = stdout;
+        let timeout_at = tokio::time::Instant::now() + UPLOAD_PACK_PROCESS_TIMEOUT;
+        let timeout = tokio::time::sleep_until(timeout_at);
+        tokio::pin!(timeout);
         let stderr_task = tokio::spawn(async move {
             let mut buf = Vec::new();
             if let Some(mut stderr) = stderr {
@@ -206,6 +213,14 @@ pub async fn upload_pack(
                     }
                 }
                 _ = tx.closed() => {
+                    should_kill = true;
+                    break;
+                }
+                _ = &mut timeout => {
+                    let _ = tx.try_send(Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "git upload-pack timed out",
+                    )));
                     should_kill = true;
                     break;
                 }
@@ -565,5 +580,24 @@ mod tests {
 
         assert!(implementation.contains("as_bytes()"));
         assert!(!implementation.contains(".chars()"));
+    }
+
+    #[test]
+    fn upload_pack_has_external_process_timeout() {
+        let source = include_str!("git_http.rs");
+        let fn_start = source
+            .find("pub async fn upload_pack")
+            .expect("upload_pack implementation exists");
+        let next_marker = source[fn_start..]
+            .find(
+                "\n// ---------------------------------------------------------------------------",
+            )
+            .map(|idx| fn_start + idx)
+            .expect("helper marker follows upload_pack");
+        let implementation = &source[fn_start..next_marker];
+
+        assert!(implementation.contains("UPLOAD_PACK_PROCESS_TIMEOUT"));
+        assert!(implementation.contains("tokio::time::sleep_until"));
+        assert!(implementation.contains("child.start_kill()"));
     }
 }
