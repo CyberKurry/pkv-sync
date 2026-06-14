@@ -82,6 +82,8 @@ pub enum GitStoreError {
     NotFound,
     #[error("path conflict between file and directory: {0}")]
     PathConflict(String),
+    #[error("invalid path: {0}")]
+    InvalidPath(String),
     #[error("invalid vault id")]
     InvalidVaultId,
     #[error("blocking task panicked")]
@@ -568,7 +570,19 @@ struct TreeEdit {
     children: BTreeMap<String, TreeEdit>,
 }
 
-fn tree_edits_from_changes(changes: Vec<FileChange>) -> TreeEdit {
+fn validate_tree_path(path: &str) -> Result<Vec<&str>, GitStoreError> {
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.is_empty()
+        || parts
+            .iter()
+            .any(|part| part.is_empty() || *part == "." || *part == "..")
+    {
+        return Err(GitStoreError::InvalidPath(path.to_string()));
+    }
+    Ok(parts)
+}
+
+fn tree_edits_from_changes(changes: Vec<FileChange>) -> Result<TreeEdit, GitStoreError> {
     fn insert_edit(node: &mut TreeEdit, parts: &[&str], op: EditOp) {
         let child = node.children.entry(parts[0].to_string()).or_default();
         if parts.len() == 1 {
@@ -582,16 +596,16 @@ fn tree_edits_from_changes(changes: Vec<FileChange>) -> TreeEdit {
     for change in changes {
         match change {
             FileChange::Upsert { path, file } => {
-                let parts: Vec<&str> = path.split('/').collect();
+                let parts = validate_tree_path(&path)?;
                 insert_edit(&mut root, &parts, EditOp::Upsert(file));
             }
             FileChange::Delete { path } => {
-                let parts: Vec<&str> = path.split('/').collect();
+                let parts = validate_tree_path(&path)?;
                 insert_edit(&mut root, &parts, EditOp::Delete);
             }
         }
     }
-    root
+    Ok(root)
 }
 
 fn write_tree_with_edits(
@@ -599,7 +613,7 @@ fn write_tree_with_edits(
     base_tree: Option<&Tree<'_>>,
     changes: Vec<FileChange>,
 ) -> Result<Oid, GitStoreError> {
-    let edits = tree_edits_from_changes(changes);
+    let edits = tree_edits_from_changes(changes)?;
     match write_tree_contents(repo, base_tree, &edits.children, "")? {
         Some(oid) => Ok(oid),
         None => Ok(repo.treebuilder(None)?.write()?),
@@ -1095,6 +1109,32 @@ mod tests {
             StoredFile::Text {
                 bytes: b"hello".to_vec()
             }
+        );
+    }
+
+    #[tokio::test]
+    async fn commit_changes_rejects_empty_path_segments() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+
+        let err = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "a//b.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"bad path".to_vec(),
+                    },
+                }],
+                "bad path",
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            err.to_string().contains("invalid path"),
+            "unexpected error: {err}"
         );
     }
 

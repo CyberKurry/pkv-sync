@@ -40,6 +40,9 @@ fn git_write_error(e: GitStoreError) -> ApiError {
             "path_conflict",
             format!("path conflicts with an existing file or directory: {path}"),
         ),
+        GitStoreError::InvalidPath(path) => {
+            ApiError::bad_request("invalid_path", format!("invalid path: {path}"))
+        }
         GitStoreError::Git(err) => match err.code() {
             git2::ErrorCode::Locked => {
                 ApiError::conflict("head_mismatch", "concurrent write in progress")
