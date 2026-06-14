@@ -2501,6 +2501,16 @@ mod tests {
         let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
             .await
             .unwrap();
+        let user = state
+            .users
+            .create(NewUser {
+                username: "admin".into(),
+                password_hash: "h".into(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        let session_id = session::create_session(&state, &user.id).await.unwrap();
         let app = router()
             .with_state(state)
             .layer(tower_cookies::CookieManagerLayer::new())
@@ -2514,6 +2524,7 @@ mod tests {
                 Request::builder()
                     .method("GET")
                     .uri("/admin/language/en?next=/admin@attacker.test")
+                    .header("cookie", format!("{}={}", session::COOKIE_NAME, session_id))
                     .body(Body::empty())
                     .unwrap(),
             )
