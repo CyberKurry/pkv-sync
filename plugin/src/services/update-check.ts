@@ -65,6 +65,7 @@ interface GitHubRelease {
 
 const DEFAULT_GITHUB_REPO = "cyberkurry/pkv-sync";
 const UPDATE_REQUEST_TIMEOUT_MS = 30_000;
+const SHA256_HEX_RE = /^[a-f0-9]{64}$/i;
 
 type TimedRequestUrlParam = RequestUrlParam & { requestTimeout: number };
 
@@ -93,6 +94,9 @@ export class UpdateCheckService {
   }
 
   async applyUpdate(update: PluginUpdateStatus): Promise<void> {
+    if (update.source === "server") {
+      this.assertServerUpdateAssetsSameOrigin(update);
+    }
     const mainJs = await this.downloadVerified(
       update.mainJsUrl,
       update.mainJsSha256,
@@ -130,7 +134,7 @@ export class UpdateCheckService {
     if (!version || compareVersions(version, this.options.currentVersion) <= 0) {
       return null;
     }
-    return {
+    const update: PluginUpdateStatus = {
       version,
       source: "server",
       releaseNotesUrl: `https://github.com/${DEFAULT_GITHUB_REPO}/releases/tag/v${version}`,
@@ -141,6 +145,7 @@ export class UpdateCheckService {
       stylesCssUrl: manifest.styles_css_url ?? null,
       stylesCssSha256: manifest.styles_css_sha256 ?? null
     };
+    return this.isTrustedServerUpdate(update) ? update : null;
   }
 
   private async fetchGitHubManifest(): Promise<PluginUpdateStatus | null> {
@@ -192,6 +197,9 @@ export class UpdateCheckService {
     expectedSha256: string | null,
     fileName: string
   ): Promise<string> {
+    if (!isSha256Hex(expectedSha256)) {
+      throw new Error(`${fileName} sha256 is required`);
+    }
     const serverPath = this.serverPath(url);
     const text =
       serverPath === null
@@ -200,13 +208,38 @@ export class UpdateCheckService {
     if (text.length === 0) {
       throw new Error(`Downloaded ${fileName} is empty`);
     }
-    if (expectedSha256) {
-      const actual = await sha256Text(text);
-      if (actual !== expectedSha256.toLowerCase()) {
-        throw new Error(`Downloaded ${fileName} sha256 mismatch`);
-      }
+    const actual = await sha256Text(text);
+    if (actual !== expectedSha256.toLowerCase()) {
+      throw new Error(`Downloaded ${fileName} sha256 mismatch`);
     }
     return text;
+  }
+
+  private isTrustedServerUpdate(update: PluginUpdateStatus): boolean {
+    if (!isSha256Hex(update.mainJsSha256)) return false;
+    if (!isSha256Hex(update.manifestJsonSha256)) return false;
+    if (this.serverPath(update.mainJsUrl) === null) return false;
+    if (this.serverPath(update.manifestJsonUrl) === null) return false;
+    if (update.stylesCssUrl !== null) {
+      if (!isSha256Hex(update.stylesCssSha256)) return false;
+      if (this.serverPath(update.stylesCssUrl) === null) return false;
+    }
+    return true;
+  }
+
+  private assertServerUpdateAssetsSameOrigin(update: PluginUpdateStatus): void {
+    const assets: Array<[string, string | null]> = [
+      ["main.js", update.mainJsUrl],
+      ["manifest.json", update.manifestJsonUrl],
+      ["styles.css", update.stylesCssUrl]
+    ];
+    for (const [fileName, url] of assets) {
+      if (url !== null && this.serverPath(url) === null) {
+        throw new Error(
+          `Server update ${fileName} must be served from the same origin as the configured server`
+        );
+      }
+    }
   }
 
   private async downloadPublicText(url: string, fileName: string): Promise<string> {
@@ -298,6 +331,10 @@ export function compareVersions(left: string, right: string): number {
   if (partsCompare !== 0) return partsCompare;
   if (a.prerelease === b.prerelease) return 0;
   return a.prerelease ? -1 : 1;
+}
+
+function isSha256Hex(value: string | null | undefined): value is string {
+  return typeof value === "string" && SHA256_HEX_RE.test(value);
 }
 
 function resolvePluginAssetPathInDirectory(pluginDir: string, fileName: string): string {

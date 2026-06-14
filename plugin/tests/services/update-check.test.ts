@@ -197,7 +197,7 @@ describe("plugin update check", () => {
     requestUrlMock.mockResolvedValueOnce(responseText("changed main"));
     const update = {
       version: "0.8.1",
-      source: "server" as const,
+      source: "github" as const,
       releaseNotesUrl: "https://example.com/release",
       mainJsUrl: "https://example.com/main.js",
       mainJsSha256: "0".repeat(64),
@@ -214,6 +214,78 @@ describe("plugin update check", () => {
     expect(adapter.writes).toEqual([]);
   });
 
+  it("rejects missing manifest sha256 before writing plugin files", async () => {
+    const adapter = new MemoryAdapter();
+    const main = "console.log('0.8.1')";
+    const manifest = '{"version":"0.8.1"}';
+    requestUrlMock
+      .mockResolvedValueOnce(responseText(main))
+      .mockResolvedValueOnce(responseText(manifest));
+    const update = {
+      version: "0.8.1",
+      source: "github" as const,
+      releaseNotesUrl: "https://example.com/release",
+      mainJsUrl: "https://example.com/main.js",
+      mainJsSha256: await sha256Text(main),
+      manifestJsonUrl: "https://example.com/manifest.json",
+      manifestJsonSha256: null,
+      stylesCssUrl: null,
+      stylesCssSha256: null
+    };
+
+    await expect(service(adapter).applyUpdate(update)).rejects.toThrow(
+      /manifest\.json sha256/i
+    );
+
+    expect(adapter.writes).toEqual([]);
+  });
+
+  it("ignores server manifests that point plugin assets off-origin", async () => {
+    requestUrlMock.mockResolvedValueOnce(
+      responseJson({
+        version: "0.8.1",
+        main_js_url: "https://updates.example.net/main.js",
+        main_js_sha256: "a".repeat(64),
+        manifest_json_url: "https://sync.example.com/api/plugin-assets/manifest.json",
+        manifest_json_sha256: "b".repeat(64),
+        styles_css_url: null,
+        styles_css_sha256: null
+      })
+    );
+
+    const update = await service().checkOnce("server");
+
+    expect(update).toBeNull();
+    expect(requestUrlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects server-source updates with off-origin plugin asset urls", async () => {
+    const adapter = new MemoryAdapter();
+    const main = "console.log('0.8.1')";
+    const manifest = '{"version":"0.8.1"}';
+    requestUrlMock
+      .mockResolvedValueOnce(responseText(main))
+      .mockResolvedValueOnce(responseText(manifest));
+    const update = {
+      version: "0.8.1",
+      source: "server" as const,
+      releaseNotesUrl: "https://example.com/release",
+      mainJsUrl: "https://updates.example.net/main.js",
+      mainJsSha256: await sha256Text(main),
+      manifestJsonUrl: "https://sync.example.com/api/plugin-assets/manifest.json",
+      manifestJsonSha256: await sha256Text(manifest),
+      stylesCssUrl: null,
+      stylesCssSha256: null
+    };
+
+    await expect(service(adapter).applyUpdate(update)).rejects.toThrow(
+      /same origin/i
+    );
+
+    expect(requestUrlMock).not.toHaveBeenCalled();
+    expect(adapter.writes).toEqual([]);
+  });
+
   it("writes verified files through temporary and backup paths", async () => {
     const adapter = new MemoryAdapter();
     adapter.files.set(".obsidian/plugins/pkv-sync/main.js", "old");
@@ -225,7 +297,7 @@ describe("plugin update check", () => {
       .mockResolvedValueOnce(responseText(manifest));
     const update = {
       version: "0.8.1",
-      source: "server" as const,
+      source: "github" as const,
       releaseNotesUrl: "https://example.com/release",
       mainJsUrl: "https://example.com/main.js",
       mainJsSha256: await sha256Text(main),
@@ -260,7 +332,7 @@ describe("plugin update check", () => {
       .mockResolvedValueOnce(responseText(manifest));
     const update = {
       version: "0.8.1",
-      source: "server" as const,
+      source: "github" as const,
       releaseNotesUrl: "https://example.com/release",
       mainJsUrl: "https://example.com/main.js",
       mainJsSha256: await sha256Text(main),
@@ -289,7 +361,7 @@ describe("plugin update check", () => {
       .mockResolvedValueOnce(responseText(manifest));
     const update = {
       version: "0.8.1",
-      source: "server" as const,
+      source: "github" as const,
       releaseNotesUrl: "https://example.com/release",
       mainJsUrl: "https://example.com/main.js",
       mainJsSha256: await sha256Text(main),
