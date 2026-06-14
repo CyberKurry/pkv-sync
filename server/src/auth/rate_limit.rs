@@ -128,7 +128,16 @@ impl LoginRateLimiter {
 
     /// Internal: called by AttemptReservation::success to release the slot.
     fn release_success(&self, ip: IpAddr) {
-        self.inner.remove(&ip);
+        let mut entry = match self.inner.get_mut(&ip) {
+            Some(entry) => entry,
+            None => return,
+        };
+        if entry.in_flight > 0 {
+            entry.in_flight -= 1;
+        }
+        entry.failures = 0;
+        entry.first_failure = Instant::now();
+        entry.locked_until = None;
     }
 
     /// Internal: called by AttemptReservation::failure to release the slot
@@ -246,7 +255,16 @@ impl McpAuthRateLimiter {
     }
 
     fn release_success(&self, key: &str) {
-        self.inner.remove(key);
+        let mut entry = match self.inner.get_mut(key) {
+            Some(entry) => entry,
+            None => return,
+        };
+        if entry.in_flight > 0 {
+            entry.in_flight -= 1;
+        }
+        entry.failures = 0;
+        entry.first_failure = Instant::now();
+        entry.locked_until = None;
     }
 
     fn release_failure(&self, key: &str) {
@@ -373,7 +391,7 @@ pub struct AttemptReservation {
 
 impl AttemptReservation {
     /// Resolve as a successful authentication. Resets the IP's failure
-    /// counter (the entry is removed entirely).
+    /// counter and releases this reservation slot.
     pub fn success(mut self) {
         self.resolved = true;
         self.limiter.release_success(self.ip);
@@ -616,6 +634,28 @@ mod tests {
         assert!(l.try_acquire(ip()).is_ok());
     }
 
+    #[test]
+    fn login_success_keeps_concurrent_in_flight_state_for_same_ip() {
+        let l = LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
+        charge_login_failure(&l);
+        let successful = l.try_acquire(ip()).unwrap();
+        let concurrent = l.try_acquire(ip()).unwrap();
+
+        successful.success();
+
+        let entry = l.inner.get(&ip()).expect("entry should remain");
+        assert_eq!(entry.failures, 0);
+        assert_eq!(entry.in_flight, 1);
+        assert!(entry.locked_until.is_none());
+        drop(entry);
+
+        concurrent.failure();
+
+        let entry = l.inner.get(&ip()).expect("entry should remain");
+        assert_eq!(entry.failures, 1);
+        assert_eq!(entry.in_flight, 0);
+    }
+
     /// Reservation::release decrements in_flight without changing failures,
     /// for non-attributable outcomes like internal errors.
     #[test]
@@ -671,6 +711,28 @@ mod tests {
         let l = McpAuthRateLimiter::new(1, Duration::from_secs(60), Duration::from_secs(60));
         charge_mcp_failure(&l, "mcp-key");
         assert_mcp_locked(&l, "mcp-key");
+    }
+
+    #[test]
+    fn mcp_success_keeps_concurrent_in_flight_state_for_same_key() {
+        let l = McpAuthRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
+        charge_mcp_failure(&l, "mcp-key");
+        let successful = l.try_acquire("mcp-key").unwrap();
+        let concurrent = l.try_acquire("mcp-key").unwrap();
+
+        successful.success();
+
+        let entry = l.inner.get("mcp-key").expect("entry should remain");
+        assert_eq!(entry.failures, 0);
+        assert_eq!(entry.in_flight, 1);
+        assert!(entry.locked_until.is_none());
+        drop(entry);
+
+        concurrent.failure();
+
+        let entry = l.inner.get("mcp-key").expect("entry should remain");
+        assert_eq!(entry.failures, 1);
+        assert_eq!(entry.in_flight, 0);
     }
 
     #[test]
