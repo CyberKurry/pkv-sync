@@ -55,7 +55,8 @@ fn git_write_error(e: GitStoreError) -> ApiError {
         GitStoreError::Json(_)
         | GitStoreError::Io(_)
         | GitStoreError::NotFound
-        | GitStoreError::InvalidVaultId => ApiError::internal("storage operation failed"),
+        | GitStoreError::InvalidVaultId
+        | GitStoreError::GitCommand { .. } => ApiError::internal("storage operation failed"),
         GitStoreError::Panic => ApiError::internal("storage worker failed"),
     }
 }

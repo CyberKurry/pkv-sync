@@ -86,6 +86,12 @@ pub enum GitStoreError {
     InvalidPath(String),
     #[error("invalid vault id")]
     InvalidVaultId,
+    #[error("git command failed: {command} ({status}): {stderr}")]
+    GitCommand {
+        command: &'static str,
+        status: String,
+        stderr: String,
+    },
     #[error("blocking task panicked")]
     Panic,
 }
@@ -140,6 +146,27 @@ impl Git2VaultStore {
 
     pub fn from_shared_root(root: Arc<PathBuf>) -> Self {
         Self { root }
+    }
+
+    pub async fn gc_prune_unreachable(&self, vault_id: &str) -> Result<(), GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        tokio::task::spawn_blocking(move || -> Result<(), GitStoreError> {
+            run_git_command(
+                &p,
+                "reflog expire",
+                &[
+                    "reflog",
+                    "expire",
+                    "--expire=now",
+                    "--expire-unreachable=now",
+                    "--all",
+                ],
+            )?;
+            run_git_command(&p, "gc", &["gc", "--prune=now"])?;
+            Ok(())
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
     }
 
     fn repo_path(&self, vault_id: &str) -> Result<PathBuf, GitStoreError> {
@@ -507,6 +534,26 @@ fn main_ref_target(repo: &Repository) -> Result<Option<Oid>, GitStoreError> {
         Err(e) if e.code() == git2::ErrorCode::NotFound => Ok(None),
         Err(e) => Err(e.into()),
     }
+}
+
+fn run_git_command(
+    repo_path: &Path,
+    command_name: &'static str,
+    args: &[&str],
+) -> Result<(), GitStoreError> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(args)
+        .output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(GitStoreError::GitCommand {
+        command: command_name,
+        status: output.status.to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+    })
 }
 
 fn encode_file(f: StoredFile) -> Result<Vec<u8>, serde_json::Error> {

@@ -352,6 +352,8 @@ pub async fn run_with_listener_and_state(
                 activity = report.activity_deleted,
                 idempotency = report.idempotency_deleted,
                 blobs = report.blobs_deleted,
+                git_gc = report.git_gc_pruned,
+                git_gc_failed = report.git_gc_failed,
                 "periodic cleanup completed"
             );
         }

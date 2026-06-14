@@ -17,6 +17,8 @@ pub struct CleanupReport {
     pub vaults_reconciled: usize,
     pub vault_reconcile_failed: usize,
     pub blobs_deleted: usize,
+    pub git_gc_pruned: usize,
+    pub git_gc_failed: usize,
 }
 
 pub async fn run_scheduled_cleanup(state: &AppState) -> CleanupReport {
@@ -57,6 +59,12 @@ pub async fn run_scheduled_cleanup(state: &AppState) -> CleanupReport {
         }
     };
 
+    let (git_gc_pruned, git_gc_failed) = if state.git_available {
+        git_gc_all_vaults(state).await
+    } else {
+        (0, 0)
+    };
+
     CleanupReport {
         sessions_deleted,
         tokens_deleted,
@@ -65,6 +73,8 @@ pub async fn run_scheduled_cleanup(state: &AppState) -> CleanupReport {
         vaults_reconciled,
         vault_reconcile_failed,
         blobs_deleted,
+        git_gc_pruned,
+        git_gc_failed,
     }
 }
 
@@ -120,11 +130,67 @@ async fn reconcile_all_vaults(state: &AppState) -> (usize, usize) {
     (ok, failed)
 }
 
+async fn git_gc_all_vaults(state: &AppState) -> (usize, usize) {
+    let rows: Vec<(String,)> = match sqlx::query_as("SELECT id FROM vaults")
+        .fetch_all(&state.pool)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(error = %e, "vault git gc list failed");
+            return (0, 0);
+        }
+    };
+    let mut ok = 0;
+    let mut failed = 0;
+
+    let limit = Arc::new(Semaphore::new(MAX_CONCURRENT_VAULT_RECONCILES));
+    let mut tasks = JoinSet::new();
+
+    for (vault_id,) in rows {
+        let state = state.clone();
+        let limit = Arc::clone(&limit);
+        tasks.spawn(async move {
+            let _permit = limit
+                .acquire_owned()
+                .await
+                .expect("vault git gc semaphore should remain open");
+            let push_lock = state.vault_push_lock(&vault_id);
+            let _push_guard = push_lock.lock().await;
+            match state.git_store().gc_prune_unreachable(&vault_id).await {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::warn!(
+                        vault_id = %vault_id,
+                        error = %e,
+                        "vault git gc failed"
+                    );
+                    false
+                }
+            }
+        });
+    }
+
+    while let Some(result) = tasks.join_next().await {
+        match result {
+            Ok(true) => ok += 1,
+            Ok(false) => failed += 1,
+            Err(e) => {
+                failed += 1;
+                tracing::warn!(error = %e, "vault git gc task failed");
+            }
+        }
+    }
+    (ok, failed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db::pool;
     use crate::db::repos::{NewActivity, NewUser, UserRepo};
+    use crate::storage::git::{FileChange, GitVaultStore, StoredFile};
+    use git2::{Oid, Repository};
 
     async fn state_for_cleanup() -> (AppState, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
@@ -259,6 +325,70 @@ mod tests {
         let report = cleanup.await.unwrap();
         assert_eq!(report.vaults_reconciled, 1);
         assert_eq!(report.vault_reconcile_failed, 0);
+    }
+
+    #[tokio::test]
+    async fn cleanup_prunes_unreachable_git_commits() {
+        let (state, _tmp) = state_for_cleanup().await;
+        let user = state
+            .users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let vault = crate::service::vault::create_vault(&state, &user.id, "main")
+            .await
+            .unwrap();
+        let git = state.git_store();
+        let base = git
+            .commit_changes(
+                &vault.id,
+                None,
+                &[FileChange::Upsert {
+                    path: "note.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"base".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+        let orphan = git
+            .commit_changes(
+                &vault.id,
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "note.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"orphaned".to_vec(),
+                    },
+                }],
+                "orphan",
+            )
+            .await
+            .unwrap();
+        git.set_main_ref(&vault.id, &base, "test rollback")
+            .await
+            .unwrap();
+
+        let repo_path = state.vault_root().join(&vault.id);
+        let orphan_oid = Oid::from_str(&orphan).unwrap();
+        {
+            let repo = Repository::open_bare(&repo_path).unwrap();
+            assert!(repo.find_commit(orphan_oid).is_ok());
+        }
+
+        let _report = run_scheduled_cleanup(&state).await;
+
+        let repo = Repository::open_bare(&repo_path).unwrap();
+        let err = repo
+            .find_commit(orphan_oid)
+            .expect_err("scheduled cleanup should prune orphan git commits");
+        assert_eq!(err.code(), git2::ErrorCode::NotFound);
     }
 
     #[test]

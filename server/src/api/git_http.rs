@@ -63,9 +63,7 @@ pub async fn info_refs(
         return Err(ApiError::not_found("vault repository not found"));
     }
 
-    let output = tokio::process::Command::new("git")
-        .arg("upload-pack")
-        .arg("--stateless-rpc")
+    let output = git_upload_pack_command()
         .arg("--advertise-refs")
         .arg(&repo_path)
         .output()
@@ -145,9 +143,7 @@ pub async fn upload_pack(
         return Err(ApiError::not_found("vault repository not found"));
     }
 
-    let mut child = tokio::process::Command::new("git")
-        .arg("upload-pack")
-        .arg("--stateless-rpc")
+    let mut child = git_upload_pack_command()
         .arg(&repo_path)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -294,6 +290,18 @@ fn validate_vault_id(vault_id: &str) -> Result<(), ApiError> {
     }
 }
 
+fn git_upload_pack_command() -> tokio::process::Command {
+    let mut command = tokio::process::Command::new("git");
+    command
+        .arg("-c")
+        .arg("uploadpack.hideRefs=refs")
+        .arg("-c")
+        .arg("uploadpack.hideRefs=!refs/heads/main")
+        .arg("upload-pack")
+        .arg("--stateless-rpc");
+    command
+}
+
 /// Authenticate a request using the Basic auth header.
 ///
 /// Unlike the `AuthenticatedUser` extractor (which uses Bearer tokens), Git
@@ -409,7 +417,10 @@ mod tests {
     use super::*;
     use crate::db::pool;
     use crate::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
+    use crate::storage::git::{FileChange, GitVaultStore, StoredFile};
     use base64::Engine;
+    use git2::Oid;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::time::Duration;
 
     const GENERIC_AUTH_ERROR: &str = "invalid or revoked token";
@@ -462,6 +473,12 @@ mod tests {
         authenticate_basic(state, headers, failure_key.to_string())
             .await
             .expect_err("basic auth should fail")
+    }
+
+    async fn enable_git_smart_http(state: &AppState) {
+        let mut cfg = state.runtime_cfg.snapshot().await;
+        cfg.enable_git_smart_http = true;
+        state.runtime_cfg.replace(cfg).await;
     }
 
     #[tokio::test]
@@ -546,6 +563,56 @@ mod tests {
     fn pkt_line_handles_short_data() {
         let encoded = pkt_line(b"A");
         assert_eq!(&encoded, b"0005A");
+    }
+
+    #[tokio::test]
+    async fn info_refs_advertises_only_main_ref() {
+        let state = test_state().await;
+        enable_git_smart_http(&state).await;
+        let (user_id, raw_token) = create_user_token(&state, "git-ref-user").await;
+        let vault = vault::create_vault(&state, &user_id, "main").await.unwrap();
+        let git = state.git_store();
+        let head = git
+            .commit_changes(
+                &vault.id,
+                None,
+                &[FileChange::Upsert {
+                    path: "note.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"hello".to_vec(),
+                    },
+                }],
+                "seed",
+            )
+            .await
+            .unwrap();
+        let repo = git2::Repository::open_bare(state.vault_root().join(&vault.id)).unwrap();
+        repo.reference(
+            "refs/heads/secret",
+            Oid::from_str(&head).unwrap(),
+            true,
+            "test extra ref",
+        )
+        .unwrap();
+
+        let response = info_refs(
+            State(state),
+            Path(vault.id),
+            Query(InfoRefsQuery {
+                service: Some("git-upload-pack".into()),
+            }),
+            Extension(ClientIp(IpAddr::V4(Ipv4Addr::LOCALHOST))),
+            basic_header_for_token(&raw_token),
+        )
+        .await
+        .unwrap();
+
+        let body = axum::body::to_bytes(response.into_body(), 8192)
+            .await
+            .unwrap();
+        let advertised_refs = String::from_utf8_lossy(&body);
+        assert!(advertised_refs.contains("refs/heads/main"));
+        assert!(!advertised_refs.contains("refs/heads/secret"));
     }
 
     #[test]
