@@ -79,6 +79,42 @@ class FakeIndex implements IndexPersistence {
   }
 }
 
+class RacyIndex extends FakeIndex {
+  private injected = false;
+
+  constructor(
+    idx: LocalIndex,
+    private readonly path: string,
+    private readonly entry: LocalIndex["files"][string]
+  ) {
+    super(idx);
+  }
+
+  private injectConcurrentUpdate(): void {
+    if (this.injected) return;
+    this.injected = true;
+    this.idx = {
+      ...this.idx,
+      files: {
+        ...this.idx.files,
+        [this.path]: this.entry
+      }
+    };
+  }
+
+  async saveIndex(index: LocalIndex): Promise<void> {
+    this.injectConcurrentUpdate();
+    await super.saveIndex(index);
+  }
+
+  async updateIndex(
+    updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>
+  ): Promise<void> {
+    this.injectConcurrentUpdate();
+    await super.updateIndex(updater);
+  }
+}
+
 function deferred(): {
   promise: Promise<void>;
   resolve: () => void;
@@ -795,6 +831,74 @@ describe("SyncEngine push", () => {
     // All-clean: head advances immediately (byte-identical to pre-push-first behavior)
     expect(idx.saved?.lastSyncedCommit).toBe("c1");
     expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe("new");
+  });
+
+  it("preserves concurrent index updates when clean push advances the head", async () => {
+    const remoteHash = await sha256Text("remote");
+    const idx = new RacyIndex(
+      {
+        lastSyncedCommit: "c0",
+        files: {
+          "a.md": {
+            lastSyncedHash: "old",
+            lastSyncedAt: 1,
+            kind: "text",
+            size: 3
+          }
+        }
+      },
+      "remote.md",
+      {
+        lastSyncedHash: remoteHash,
+        lastSyncedAt: 2,
+        kind: "text",
+        size: 6
+      }
+    );
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: "new",
+        size: 3,
+        kind: "text",
+        content: "new"
+      }
+    ]);
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockImplementation((_vaultId: string, since: string | null) => {
+        return Promise.resolve({
+          from: since,
+          to: since,
+          added: [],
+          modified: [],
+          deleted: []
+        });
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c1",
+        files_changed: 1,
+        merge_outcomes: [{ path: "a.md", outcome: "clean" }]
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe("new");
+    expect(idx.saved?.files["remote.md"]?.lastSyncedHash).toBe(remoteHash);
   });
 
   it("advances head immediately when merge_outcomes field is absent", async () => {

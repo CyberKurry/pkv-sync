@@ -349,9 +349,13 @@ export class SyncEngine {
 
     if (!hasNonClean) {
       // All-clean (or field absent) — fast path: advance head immediately
-      let next = markSynced(index, response.new_commit, pending);
-      next = markDeleted(next, response.new_commit, deleted);
-      await this.opts.index.saveIndex(next);
+      const pendingFiles = pending;
+      const deletedPaths = deleted;
+      await this.opts.index.updateIndex((current) => {
+        let next = markSynced(current, response.new_commit, pendingFiles);
+        next = markDeleted(next, response.new_commit, deletedPaths);
+        return next;
+      });
     } else {
       // Non-clean merge outcome — per-file hashes recorded, HEAD STAYS.
       // The subsequent pull will bring the merged content and advance head.
@@ -464,21 +468,20 @@ export class SyncEngine {
         deleted.push(path);
       }
     } catch (error) {
-      await this.savePartialPullProgress(index, touched, deleted);
+      await this.savePartialPullProgress(touched, deleted);
       throw error;
     }
 
-    index = markSynced(
-      index,
-      pull.to,
-      touched.filter((file) => shouldSyncPath(file.path))
-    );
-    index = markDeleted(
-      index,
-      pull.to,
-      pull.deleted.filter((path) => shouldSyncPath(path) && pathAccepted(path))
-    );
-    await this.opts.index.saveIndex(index);
+    let appliedIndex: LocalIndex | null = null;
+    const touchedSynced = touched.filter((file) => shouldSyncPath(file.path));
+    const deletedApplied = deleted.filter((path) => shouldSyncPath(path) && pathAccepted(path));
+    await this.opts.index.updateIndex((current) => {
+      let next = markSynced(current, pull.to, touchedSynced);
+      next = markDeleted(next, pull.to, deletedApplied);
+      appliedIndex = next;
+      return next;
+    });
+    index = appliedIndex ?? index;
     for (const file of touched) {
       if (shouldSyncPath(file.path)) {
         nextCurrentByPath.set(file.path, file);
@@ -523,14 +526,17 @@ export class SyncEngine {
   }
 
   private async savePartialPullProgress(
-    index: LocalIndex,
     touched: LocalFileSnapshot[],
     deleted: string[]
   ): Promise<void> {
     if (touched.length === 0 && deleted.length === 0) return;
-    let partial = markSynced(index, index.lastSyncedCommit, touched);
-    partial = markDeleted(partial, index.lastSyncedCommit, deleted);
-    await this.opts.index.saveIndex(partial);
+    const touchedSynced = touched.filter((file) => shouldSyncPath(file.path));
+    const deletedSynced = deleted.filter((path) => shouldSyncPath(path));
+    await this.opts.index.updateIndex((current) => {
+      let partial = markFilesSynced(current, touchedSynced);
+      partial = markFilesDeleted(partial, deletedSynced);
+      return partial;
+    });
   }
 
   private async writeConflict(

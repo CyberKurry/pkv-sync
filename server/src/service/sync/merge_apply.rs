@@ -181,9 +181,9 @@ pub(super) async fn try_auto_merge_push(
                     }
                     // Both present: check if remote modified it.
                     (Some(base_stored), Some(head_stored)) => {
-                        let base_bytes = stored_to_bytes(base_stored);
-                        let head_bytes = stored_to_bytes(head_stored);
-                        if base_bytes == head_bytes {
+                        let base_signature = stored_signature(base_stored);
+                        let head_signature = stored_signature(head_stored);
+                        if base_signature == head_signature {
                             // Remote didn't change it → emit the delete.
                             event_changes.push(crate::service::events::EventChange::Delete {
                                 path: normalized.clone(),
@@ -292,7 +292,7 @@ pub(super) async fn try_auto_merge_push(
                     (None, Some(_)) => true,
                     // Both present → compare bytes.
                     (Some(base_stored), Some(head_stored)) => {
-                        stored_to_bytes(base_stored) != stored_to_bytes(head_stored)
+                        stored_signature(base_stored) != stored_signature(head_stored)
                     }
                 };
 
@@ -421,10 +421,25 @@ pub(super) async fn try_auto_merge_push(
     Ok(Some(resp))
 }
 
-fn stored_to_bytes(file: &StoredFile) -> Vec<u8> {
+fn stored_signature(file: &StoredFile) -> Vec<u8> {
     match file {
-        StoredFile::Text { bytes } => bytes.clone(),
-        StoredFile::BlobPointer { .. } => Vec::new(),
+        StoredFile::Text { bytes } => {
+            let mut out = Vec::with_capacity(bytes.len() + 5);
+            out.extend_from_slice(b"text\0");
+            out.extend_from_slice(bytes);
+            out
+        }
+        StoredFile::BlobPointer { hash, size, mime } => {
+            let mime = mime.as_deref().unwrap_or("");
+            let mut out = Vec::with_capacity(hash.len() + mime.len() + 32);
+            out.extend_from_slice(b"blob\0");
+            out.extend_from_slice(hash.as_bytes());
+            out.push(0);
+            out.extend_from_slice(size.to_string().as_bytes());
+            out.push(0);
+            out.extend_from_slice(mime.as_bytes());
+            out
+        }
     }
 }
 

@@ -91,6 +91,42 @@ class FakeIndex implements IndexPersistence {
   }
 }
 
+class RacyIndex extends FakeIndex {
+  private injected = false;
+
+  constructor(
+    idx: LocalIndex,
+    private readonly path: string,
+    private readonly entry: LocalIndex["files"][string]
+  ) {
+    super(idx);
+  }
+
+  private injectConcurrentUpdate(): void {
+    if (this.injected) return;
+    this.injected = true;
+    this.idx = {
+      ...this.idx,
+      files: {
+        ...this.idx.files,
+        [this.path]: this.entry
+      }
+    };
+  }
+
+  async saveIndex(index: LocalIndex): Promise<void> {
+    this.injectConcurrentUpdate();
+    await super.saveIndex(index);
+  }
+
+  async updateIndex(
+    updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>
+  ): Promise<void> {
+    this.injectConcurrentUpdate();
+    await super.updateIndex(updater);
+  }
+}
+
 describe("SyncEngine pull", () => {
   beforeEach(() => {
     notices.length = 0;
@@ -179,6 +215,60 @@ describe("SyncEngine pull", () => {
     expect(vault.writes.get("a.md")).toBe("hi");
     expect(idx.saved?.lastSyncedCommit).toBe("c1");
     expect(api.push).not.toHaveBeenCalled();
+  });
+
+  it("preserves concurrent index updates before saving a completed pull", async () => {
+    const sseHash = await sha256Text("sse");
+    const idx = new RacyIndex(
+      { lastSyncedCommit: "c0", files: {} },
+      "sse.md",
+      {
+        lastSyncedHash: sseHash,
+        lastSyncedAt: 1,
+        kind: "text",
+        size: 3
+      }
+    );
+    const vault = new FakeVault([]);
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c1",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [
+          {
+            path: "a.md",
+            file_type: "text",
+            size: 2,
+            content_inline: "hi"
+          }
+        ],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect(idx.saved?.files["a.md"]).toBeDefined();
+    expect(idx.saved?.files["sse.md"]?.lastSyncedHash).toBe(sseHash);
   });
 
   it("downloads non-inline text content before writing", async () => {
@@ -729,6 +819,92 @@ describe("SyncEngine pull", () => {
     expect(idx.saved?.lastSyncedCommit).toBe("c0");
     expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe(remoteHash);
     expect(idx.saved?.files["b.md"]).toBeUndefined();
+  });
+
+  it("preserves concurrent index updates before saving partial pull progress", async () => {
+    const oldHash = await sha256Text("old");
+    const remoteHash = await sha256Text("remote");
+    const sseHash = await sha256Text("sse");
+    const idx = new RacyIndex(
+      {
+        lastSyncedCommit: "c0",
+        files: {
+          "a.md": {
+            lastSyncedHash: oldHash,
+            lastSyncedAt: 1,
+            kind: "text",
+            size: 3
+          }
+        }
+      },
+      "sse.md",
+      {
+        lastSyncedHash: sseHash,
+        lastSyncedAt: 2,
+        kind: "text",
+        size: 3
+      }
+    );
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: oldHash,
+        size: 3,
+        kind: "text",
+        content: "old"
+      }
+    ]);
+    const api = {
+      state: vi.fn().mockResolvedValue({
+        current_head: "c1",
+        changed_since: true
+      }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [
+          {
+            path: "a.md",
+            file_type: "text",
+            size: 6,
+            content_inline: "remote"
+          },
+          {
+            path: "b.md",
+            file_type: "text",
+            size: 6,
+            content_inline: "fail"
+          }
+        ],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({ new_commit: "c2", files_changed: 1 }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const originalWriteText = vault.writeText.bind(vault);
+    vi.spyOn(vault, "writeText").mockImplementation(async (path, content) => {
+      if (path === "b.md") throw new Error("disk full");
+      await originalWriteText(path, content);
+    });
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await expect(engine.syncNow()).rejects.toThrow("disk full");
+
+    expect(idx.saved?.lastSyncedCommit).toBe("c0");
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe(remoteHash);
+    expect(idx.saved?.files["sse.md"]?.lastSyncedHash).toBe(sseHash);
   });
 
   it("rejects downloaded blobs whose bytes do not match the advertised hash", async () => {

@@ -626,6 +626,122 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn stale_blob_push_keeps_remote_blob_and_writes_conflict_sidecar() {
+        let (state, user, vid, _tmp) = setup().await;
+        let blob_a = Bytes::from_static(b"image-a");
+        let hash_a = LocalFsBlobStore::sha256(&blob_a);
+        upload_blob(&state, &user.user_id, &vid, &hash_a, blob_a)
+            .await
+            .unwrap();
+        let blob_b = Bytes::from_static(b"image-b");
+        let hash_b = LocalFsBlobStore::sha256(&blob_b);
+        upload_blob(&state, &user.user_id, &vid, &hash_b, blob_b)
+            .await
+            .unwrap();
+
+        let base = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("base".into()),
+                changes: vec![PushChange::Blob {
+                    path: "image.png".into(),
+                    blob_hash: hash_a.clone(),
+                    size: 7,
+                    mime: Some("image/png".into()),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let remote = push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("remote".into()),
+                changes: vec![PushChange::Blob {
+                    path: "image.png".into(),
+                    blob_hash: hash_b.clone(),
+                    size: 7,
+                    mime: Some("image/png".into()),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let stale = push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("stale laptop".into()),
+                changes: vec![PushChange::Blob {
+                    path: "image.png".into(),
+                    blob_hash: hash_a.clone(),
+                    size: 7,
+                    mime: Some("image/png".into()),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let outcome = stale
+            .merge_outcomes
+            .as_ref()
+            .and_then(|entries| entries.first())
+            .expect("stale blob push should produce a merge outcome");
+        assert_eq!(outcome.outcome, MergeOutcomeKind::Conflict);
+        let conflict_path = outcome
+            .conflict_path
+            .as_deref()
+            .expect("local stale blob should be written as a conflict sidecar");
+
+        let git = Git2VaultStore::new(state.default_vault_root());
+        assert_eq!(
+            git.head(&vid).await.unwrap().as_deref(),
+            Some(stale.new_commit.as_str())
+        );
+        let original = git
+            .read_file(&vid, "image.png", Some(&stale.new_commit))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            original,
+            StoredFile::BlobPointer {
+                hash: hash_b,
+                size: 7,
+                mime: Some("image/png".into()),
+            },
+            "the remote blob from {} must remain at the original path",
+            remote.new_commit
+        );
+        let sidecar = git
+            .read_file(&vid, conflict_path, Some(&stale.new_commit))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            sidecar,
+            StoredFile::BlobPointer {
+                hash: hash_a,
+                size: 7,
+                mime: Some("image/png".into()),
+            }
+        );
+    }
+
+    #[tokio::test]
     async fn committed_push_preserves_blob_refs_when_metadata_repair_fails() {
         let (state, user, vid, _tmp) = setup().await;
         let data = Bytes::from_static(b"hello");
