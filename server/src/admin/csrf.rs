@@ -101,7 +101,7 @@ fn trusted_forwarded_proto(
     headers
         .get("x-forwarded-proto")
         .and_then(|h| h.to_str().ok())
-        .and_then(|v| v.split(',').next())
+        .and_then(|v| v.rsplit(',').next())
         .map(str::trim)
         .and_then(|v| match v {
             "http" => Some("http"),
@@ -203,6 +203,14 @@ mod tests {
     #[test]
     fn accepts_forwarded_proto_from_trusted_proxy() {
         let mut req = req_with_forwarded_proto("https://example.test", "https");
+        req.extensions_mut()
+            .insert(crate::middleware::real_ip::ForwardedFromTrustedProxy(true));
+        assert!(same_origin(&req));
+    }
+
+    #[test]
+    fn trusted_forwarded_proto_uses_proxy_appended_value() {
+        let mut req = req_with_forwarded_proto("https://example.test", "http, https");
         req.extensions_mut()
             .insert(crate::middleware::real_ip::ForwardedFromTrustedProxy(true));
         assert!(same_origin(&req));
