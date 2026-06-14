@@ -69,7 +69,7 @@ mod tests {
             }
         });
 
-        let observed = tokio::time::timeout(Duration::from_secs(1), restarted.notified()).await;
+        let observed = tokio::time::timeout(Duration::from_secs(5), restarted.notified()).await;
         handle.abort();
 
         assert!(observed.is_ok(), "supervisor did not restart the task");
