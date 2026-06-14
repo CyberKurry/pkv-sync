@@ -54,11 +54,5 @@ function isLoopbackHost(hostname: string): boolean {
   const mapped = host.match(/^::ffff:(.+)$/);
   if (mapped?.[1] === "7f00:1") return true;
   if (mapped) return isLoopbackHost(mapped[1]);
-  const octets = host.split(".");
-  if (octets.length !== 4 || octets[0] !== "127") return false;
-  return octets.every((part) => {
-    if (!/^\d+$/.test(part)) return false;
-    const value = Number(part);
-    return value >= 0 && value <= 255 && String(value) === part;
-  });
+  return host === "127.0.0.1";
 }

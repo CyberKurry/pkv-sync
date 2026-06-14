@@ -34,6 +34,11 @@ describe("parseServerUrl", () => {
     });
   });
 
+  it("rejects non-localhost 127/8 http URLs", () => {
+    expect(() => parseServerUrl("http://127.0.0.2:6710/k_local/")).toThrow(ServerUrlError);
+    expect(() => parseServerUrl("http://127.1.2.3:6710/k_local/")).toThrow(ServerUrlError);
+  });
+
   it("rejects http URLs on unspecified bind addresses", () => {
     expect(() => parseServerUrl("http://0.0.0.0:6710/k_local/")).toThrow(ServerUrlError);
     expect(() => parseServerUrl("http://[::]:6710/k_local/")).toThrow(ServerUrlError);
