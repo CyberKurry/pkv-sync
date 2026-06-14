@@ -39,6 +39,9 @@ impl BlobUploadRepo for SqliteBlobUploadRepo {
         hash: &str,
         uploaded_at: i64,
     ) -> Result<(), sqlx::Error> {
+        if !crate::storage::blob::is_sha256_hex(hash) {
+            return Err(sqlx::Error::Protocol("invalid blob hash".into()));
+        }
         sqlx::query(
             "INSERT OR REPLACE INTO blob_uploads (blob_hash, vault_id, uploaded_at)
              VALUES (?, ?, ?)",
@@ -104,6 +107,10 @@ mod tests {
     use crate::db::pool;
     use crate::db::repos::{NewUser, SqliteUserRepo, SqliteVaultRepo, UserRepo, VaultRepo};
 
+    fn hash(ch: char) -> String {
+        ch.to_string().repeat(64)
+    }
+
     #[tokio::test]
     async fn tracks_uploads_per_vault() {
         let p = pool::connect_memory().await.unwrap();
@@ -121,20 +128,47 @@ mod tests {
         let first = vaults.create(&user.id, "first").await.unwrap();
         let second = vaults.create(&user.id, "second").await.unwrap();
         let repo = SqliteBlobUploadRepo::new(p);
+        let h = hash('a');
 
-        repo.record_upload(&first.id, "a", 1).await.unwrap();
+        repo.record_upload(&first.id, &h, 1).await.unwrap();
 
         assert_eq!(
-            repo.uploaded_hashes_for_vault(&first.id, &["a".into()])
+            repo.uploaded_hashes_for_vault(&first.id, std::slice::from_ref(&h))
                 .await
                 .unwrap(),
-            HashSet::from(["a".to_string()])
+            HashSet::from([h.clone()])
         );
         assert!(repo
-            .uploaded_hashes_for_vault(&second.id, &["a".into()])
+            .uploaded_hashes_for_vault(&second.id, std::slice::from_ref(&h))
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn record_upload_rejects_non_sha256_hash() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let users = SqliteUserRepo::new(p.clone());
+        let vaults = SqliteVaultRepo::new(p.clone());
+        let user = users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let vault = vaults.create(&user.id, "main").await.unwrap();
+        let repo = SqliteBlobUploadRepo::new(p);
+
+        let err = repo
+            .record_upload(&vault.id, "sha:not-hex", 1)
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("invalid blob hash"));
+        assert!(repo.all_hashes().await.unwrap().is_empty());
     }
 
     #[test]
@@ -182,25 +216,23 @@ mod tests {
         let first = vaults.create(&user.id, "first").await.unwrap();
         let second = vaults.create(&user.id, "second").await.unwrap();
         let repo = SqliteBlobUploadRepo::new(p);
+        let a = hash('a');
+        let b = hash('b');
+        let c = hash('c');
+        let missing = hash('d');
 
-        repo.record_upload(&first.id, "a", 1).await.unwrap();
-        repo.record_upload(&first.id, "b", 1).await.unwrap();
-        repo.record_upload(&second.id, "c", 1).await.unwrap();
-        repo.record_upload(&second.id, "a", 1).await.unwrap();
+        repo.record_upload(&first.id, &a, 1).await.unwrap();
+        repo.record_upload(&first.id, &b, 1).await.unwrap();
+        repo.record_upload(&second.id, &c, 1).await.unwrap();
+        repo.record_upload(&second.id, &a, 1).await.unwrap();
 
         let got = repo
-            .uploaded_hashes_for_vault(
-                &first.id,
-                &["a".into(), "b".into(), "c".into(), "missing".into()],
-            )
+            .uploaded_hashes_for_vault(&first.id, &[a.clone(), b.clone(), c.clone(), missing])
             .await
             .unwrap();
 
-        assert_eq!(got, HashSet::from(["a".to_string(), "b".to_string()]));
-        assert_eq!(
-            repo.all_hashes().await.unwrap(),
-            HashSet::from(["a".to_string(), "b".to_string(), "c".to_string()])
-        );
+        assert_eq!(got, HashSet::from([a.clone(), b.clone()]));
+        assert_eq!(repo.all_hashes().await.unwrap(), HashSet::from([a, b, c]));
         assert!(repo
             .uploaded_hashes_for_vault(&first.id, &[])
             .await

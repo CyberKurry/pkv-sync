@@ -53,6 +53,9 @@ pub async fn upload_blob(
     body: Bytes,
 ) -> Result<(), ApiError> {
     let _vault = vault::ensure_user_vault(state, user_id, vault_id).await?;
+    if !crate::storage::blob::is_sha256_hex(hash) {
+        return Err(ApiError::bad_request("invalid_hash", "invalid hash"));
+    }
     let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
     if body.len() as u64 > max_file_size {
         return Err(ApiError::bad_request(
@@ -217,6 +220,30 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(err.code, "file_too_large");
+    }
+
+    #[tokio::test]
+    async fn upload_blob_rejects_non_sha256_hash_before_recording_upload() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let invalid_hash = "not-a-sha256";
+
+        let err = upload_blob(
+            &state,
+            &user.user_id,
+            &vid,
+            invalid_hash,
+            Bytes::from_static(b"hello"),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.code, "invalid_hash");
+        assert!(state
+            .blob_uploads
+            .uploaded_hashes_for_vault(&vid, &[invalid_hash.to_string()])
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

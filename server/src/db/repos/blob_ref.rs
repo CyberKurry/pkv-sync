@@ -36,6 +36,12 @@ impl SqliteBlobRefRepo {
         if hashes.is_empty() {
             return Ok(());
         }
+        if hashes
+            .iter()
+            .any(|hash| !crate::storage::blob::is_sha256_hex(hash))
+        {
+            return Err(sqlx::Error::Protocol("invalid blob hash".into()));
+        }
         let mut tx = self.pool.begin().await?;
         for chunk in hashes.chunks(add_refs_chunk_size()) {
             let mut query = QueryBuilder::<Sqlite>::new(
@@ -130,6 +136,10 @@ mod tests {
     use crate::db::pool;
     use crate::db::repos::{NewUser, SqliteUserRepo, SqliteVaultRepo, UserRepo, VaultRepo};
 
+    fn hash(ch: char) -> String {
+        ch.to_string().repeat(64)
+    }
+
     #[tokio::test]
     async fn add_and_query_refs() {
         let p = pool::connect_memory().await.unwrap();
@@ -146,18 +156,46 @@ mod tests {
             .unwrap();
         let v = vaults.create(&u.id, "main").await.unwrap();
         let repo = SqliteBlobRefRepo::new(p);
-        repo.add_refs(&v.id, "c1", &["sha:a".into(), "sha:b".into()])
+        let a = hash('a');
+        let b = hash('b');
+        repo.add_refs(&v.id, "c1", &[a.clone(), b.clone()])
             .await
             .unwrap();
-        assert!(repo.is_referenced_by_vault(&v.id, "sha:a").await.unwrap());
+        assert!(repo.is_referenced_by_vault(&v.id, &a).await.unwrap());
         assert_eq!(
-            repo.referenced_hashes_for_vault(&v.id, &["sha:a".into(), "sha:b".into()])
+            repo.referenced_hashes_for_vault(&v.id, &[a.clone(), b.clone()])
                 .await
                 .unwrap()
                 .len(),
             2
         );
         assert_eq!(repo.all_hashes().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn add_refs_rejects_non_sha256_hash() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let users = SqliteUserRepo::new(p.clone());
+        let vaults = SqliteVaultRepo::new(p.clone());
+        let u = users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let v = vaults.create(&u.id, "main").await.unwrap();
+        let repo = SqliteBlobRefRepo::new(p);
+
+        let err = repo
+            .add_refs(&v.id, "c1", &["sha:not-hex".into()])
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("invalid blob hash"));
+        assert!(repo.all_hashes().await.unwrap().is_empty());
     }
 
     #[test]
@@ -227,10 +265,14 @@ mod tests {
         let first = vaults.create(&u.id, "first").await.unwrap();
         let second = vaults.create(&u.id, "second").await.unwrap();
         let repo = SqliteBlobRefRepo::new(p);
-        repo.add_refs(&first.id, "c1", &["sha:first".into(), "sha:shared".into()])
+        let first_hash = hash('a');
+        let shared_hash = hash('b');
+        let second_hash = hash('c');
+        let missing_hash = hash('d');
+        repo.add_refs(&first.id, "c1", &[first_hash.clone(), shared_hash.clone()])
             .await
             .unwrap();
-        repo.add_refs(&second.id, "c2", &["sha:second".into()])
+        repo.add_refs(&second.id, "c2", std::slice::from_ref(&second_hash))
             .await
             .unwrap();
 
@@ -238,19 +280,16 @@ mod tests {
             .referenced_hashes_for_vault(
                 &first.id,
                 &[
-                    "sha:first".into(),
-                    "sha:second".into(),
-                    "sha:missing".into(),
-                    "sha:shared".into(),
+                    first_hash.clone(),
+                    second_hash,
+                    missing_hash,
+                    shared_hash.clone(),
                 ],
             )
             .await
             .unwrap();
 
-        assert_eq!(
-            got,
-            HashSet::from(["sha:first".to_string(), "sha:shared".to_string()])
-        );
+        assert_eq!(got, HashSet::from([first_hash, shared_hash]));
         assert!(repo
             .referenced_hashes_for_vault(&first.id, &[])
             .await

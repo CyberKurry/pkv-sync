@@ -836,6 +836,12 @@ async fn insert_blob_refs_in_tx(
     if hashes.is_empty() {
         return Ok(());
     }
+    if hashes
+        .iter()
+        .any(|hash| !crate::storage::blob::is_sha256_hex(hash))
+    {
+        return Err(sqlx::Error::Protocol("invalid blob hash".into()));
+    }
     let chunk_size = SQLITE_SAFE_BIND_LIMIT / BLOB_REF_BINDS_PER_ROW;
     for chunk in hashes.chunks(chunk_size) {
         let mut query = QueryBuilder::<Sqlite>::new(
@@ -1156,6 +1162,19 @@ mod tests {
         assert!(!protect_impl.contains("for hash in blob_hashes"));
         assert!(record_impl.contains("insert_blob_refs_in_tx"));
         assert!(protect_impl.contains("insert_blob_refs_in_tx"));
+    }
+
+    #[tokio::test]
+    async fn insert_blob_refs_rejects_non_sha256_hashes() {
+        let (state, _user, vid, _tmp) = state_user_vault().await;
+        let mut tx = state.pool.begin().await.unwrap();
+
+        let err = insert_blob_refs_in_tx(&mut tx, &vid, "commit1", &["sha:not-hex".into()])
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("invalid blob hash"));
+        tx.rollback().await.unwrap();
     }
 
     #[test]
