@@ -1,17 +1,47 @@
 import type { LocalFileSnapshot, LocalIndex } from "./types";
 
-export const EMPTY_INDEX: LocalIndex = { lastSyncedCommit: null, files: {} };
+const DANGEROUS_INDEX_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function createFilesMap(): LocalIndex["files"] {
+  return Object.create(null) as LocalIndex["files"];
+}
+
+function copyFiles(files: LocalIndex["files"]): LocalIndex["files"] {
+  const copy = createFilesMap();
+  for (const [path, file] of Object.entries(files)) {
+    copy[path] = file;
+  }
+  return copy;
+}
+
+function normalizeFiles(raw: unknown): LocalIndex["files"] {
+  const files = createFilesMap();
+  if (!raw || typeof raw !== "object") return files;
+  for (const [path, file] of Object.entries(
+    raw as Record<string, LocalIndex["files"][string]>
+  )) {
+    if (DANGEROUS_INDEX_KEYS.has(path)) continue;
+    files[path] = file;
+  }
+  return files;
+}
+
+export const EMPTY_INDEX: LocalIndex = {
+  lastSyncedCommit: null,
+  files: createFilesMap()
+};
 
 export function normalizeIndex(raw: unknown): LocalIndex {
-  if (!raw || typeof raw !== "object") return structuredClone(EMPTY_INDEX);
+  if (!raw || typeof raw !== "object") {
+    return { lastSyncedCommit: null, files: createFilesMap() };
+  }
   const value = raw as Partial<LocalIndex>;
   return {
     lastSyncedCommit:
       typeof value.lastSyncedCommit === "string"
         ? value.lastSyncedCommit
         : null,
-    files:
-      value.files && typeof value.files === "object" ? value.files : {}
+    files: normalizeFiles(value.files)
   };
 }
 
@@ -22,7 +52,7 @@ export function markSynced(
 ): LocalIndex {
   const next: LocalIndex = {
     lastSyncedCommit: commit,
-    files: { ...index.files }
+    files: copyFiles(index.files)
   };
   const now = Date.now();
   for (const file of files) {
@@ -49,7 +79,7 @@ export function markFilesSynced(
 ): LocalIndex {
   const next: LocalIndex = {
     lastSyncedCommit: index.lastSyncedCommit,
-    files: { ...index.files }
+    files: copyFiles(index.files)
   };
   const now = Date.now();
   for (const file of files) {
@@ -74,7 +104,7 @@ export function markFilesDeleted(
 ): LocalIndex {
   const next: LocalIndex = {
     lastSyncedCommit: index.lastSyncedCommit,
-    files: { ...index.files }
+    files: copyFiles(index.files)
   };
   for (const path of paths) delete next.files[path];
   return next;
@@ -87,7 +117,7 @@ export function markDeleted(
 ): LocalIndex {
   const next: LocalIndex = {
     lastSyncedCommit: commit,
-    files: { ...index.files }
+    files: copyFiles(index.files)
   };
   for (const path of paths) delete next.files[path];
   return next;

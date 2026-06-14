@@ -251,6 +251,7 @@ export interface DiffSegment {
 }
 
 const WORD_DIFF_CHANGE_RATIO_GUARD = 0.7;
+const WORD_DIFF_MAX_TOKENS = 4000;
 
 function tokenizeForWordDiff(line: string): string[] {
   const tokens: string[] = [];
@@ -321,6 +322,9 @@ export function wordDiff(
   const b = tokenizeForWordDiff(right);
   const m = a.length;
   const n = b.length;
+  if (m > WORD_DIFF_MAX_TOKENS || n > WORD_DIFF_MAX_TOKENS) {
+    return wholeLineWordDiff(left, right);
+  }
   const dp: number[][] = [];
   for (let i = 0; i <= m; i += 1) {
     dp.push(new Array(n + 1).fill(0));
@@ -375,14 +379,21 @@ export function wordDiff(
     changedRatio(leftParts) > WORD_DIFF_CHANGE_RATIO_GUARD ||
     changedRatio(rightParts) > WORD_DIFF_CHANGE_RATIO_GUARD
   ) {
-    return {
-      leftSegments: left ? [{ text: left, changed: true }] : [],
-      rightSegments: right ? [{ text: right, changed: true }] : []
-    };
+    return wholeLineWordDiff(left, right);
   }
 
   return {
     leftSegments: normalizeWordDiffWhitespace(leftParts),
     rightSegments: normalizeWordDiffWhitespace(rightParts)
+  };
+}
+
+function wholeLineWordDiff(
+  left: string,
+  right: string
+): { leftSegments: DiffSegment[]; rightSegments: DiffSegment[] } {
+  return {
+    leftSegments: left ? [{ text: left, changed: true }] : [],
+    rightSegments: right ? [{ text: right, changed: true }] : []
   };
 }

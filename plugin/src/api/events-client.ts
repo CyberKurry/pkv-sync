@@ -46,6 +46,7 @@ export function subscribeVaultEvents(opts: SubscribeOptions): () => void {
             Accept: "text/event-stream",
             ...(lastCommitId ? { "Last-Event-ID": lastCommitId } : {}),
           },
+          redirect: "error",
           signal: controller.signal,
         });
         if (!resp.ok || !resp.body) {

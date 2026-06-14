@@ -73,4 +73,14 @@ describe("wordDiff", () => {
       { text: " c", changed: false }
     ]);
   });
+
+  it("falls back to whole-line changes above the word diff token limit", () => {
+    const left = `${"\u6570".repeat(2050)}\u636e${"\u6570".repeat(2050)}`;
+    const right = `${"\u6570".repeat(2050)}\u4f20${"\u6570".repeat(2050)}`;
+
+    const { leftSegments, rightSegments } = wordDiff(left, right);
+
+    expect(leftSegments).toEqual([{ text: left, changed: true }]);
+    expect(rightSegments).toEqual([{ text: right, changed: true }]);
+  });
 });

@@ -16,11 +16,30 @@ const f = (path: string, hash: string): LocalFileSnapshot => ({
 });
 
 describe("index-store", () => {
+  const hasOwn = (value: object, key: string): boolean =>
+    Object.prototype.hasOwnProperty.call(value, key);
+
   it("normalizes bad raw data", () => {
     expect(normalizeIndex(null)).toEqual({
       lastSyncedCommit: null,
       files: {}
     });
+  });
+
+  it("normalizes files into a null-prototype map without dangerous keys", () => {
+    const raw = JSON.parse(
+      '{"lastSyncedCommit":"c1","files":{"safe.md":{"lastSyncedHash":"h1","lastSyncedAt":1,"kind":"text","size":1},"__proto__":{"polluted":true},"constructor":{"polluted":true},"prototype":{"polluted":true}}}'
+    );
+
+    const index = normalizeIndex(raw);
+
+    expect(index.lastSyncedCommit).toBe("c1");
+    expect(Object.getPrototypeOf(index.files)).toBeNull();
+    expect(hasOwn(index.files, "safe.md")).toBe(true);
+    expect(hasOwn(index.files, "__proto__")).toBe(false);
+    expect(hasOwn(index.files, "constructor")).toBe(false);
+    expect(hasOwn(index.files, "prototype")).toBe(false);
+    expect("polluted" in index.files).toBe(false);
   });
 
   it("markSynced stores hashes", () => {

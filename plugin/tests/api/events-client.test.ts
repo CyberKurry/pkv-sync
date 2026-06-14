@@ -176,6 +176,20 @@ describe("subscribeVaultEvents", () => {
     );
   });
 
+  it("rejects redirects instead of forwarding SSE credentials", async () => {
+    setFetchResponse(() => null, false, 302);
+
+    subscribe({ ...baseOpts, onEvent: vi.fn(), onError: vi.fn() });
+
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        redirect: "error",
+      })
+    );
+  });
+
   it("rejects non-loopback http URLs before sending SSE credentials", () => {
     const fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
