@@ -198,11 +198,15 @@ impl UserRepo for SqliteUserRepo {
     }
 
     async fn set_admin(&self, id: &str, admin: bool) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE users SET is_admin = ? WHERE id = ?")
+        let affected = sqlx::query("UPDATE users SET is_admin = ? WHERE id = ?")
             .bind(admin)
             .bind(id)
             .execute(&self.pool)
-            .await?;
+            .await?
+            .rows_affected();
+        if affected > 0 {
+            self.bump_auth_epoch();
+        }
         Ok(())
     }
 
@@ -226,6 +230,9 @@ impl UserRepo for SqliteUserRepo {
         .bind(admin)
         .execute(&self.pool)
         .await?;
+        if r.rows_affected() > 0 {
+            self.bump_auth_epoch();
+        }
         Ok(r.rows_affected() == 1)
     }
 
@@ -466,6 +473,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_admin_bumps_auth_epoch_when_user_changes() {
+        let repo = fresh_repo().await;
+        let user = repo
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let before = repo.auth_epoch();
+
+        repo.set_admin(&user.id, true).await.unwrap();
+
+        assert_eq!(repo.auth_epoch(), before + 1);
+    }
+
+    #[tokio::test]
+    async fn set_admin_does_not_bump_auth_epoch_for_missing_user() {
+        let repo = fresh_repo().await;
+        let before = repo.auth_epoch();
+
+        repo.set_admin("missing", true).await.unwrap();
+
+        assert_eq!(repo.auth_epoch(), before);
+    }
+
+    #[tokio::test]
     async fn set_admin_preserving_last_admin_allows_demoting_when_another_admin_remains() {
         let repo = fresh_repo().await;
         let first = repo
@@ -489,6 +524,55 @@ mod tests {
             .await
             .unwrap());
         assert_eq!(repo.count_admins().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn set_admin_preserving_last_admin_bumps_auth_epoch_when_user_changes() {
+        let repo = fresh_repo().await;
+        let first = repo
+            .create(NewUser {
+                username: "admin1".into(),
+                password_hash: "h".into(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        repo.create(NewUser {
+            username: "admin2".into(),
+            password_hash: "h".into(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
+        let before = repo.auth_epoch();
+
+        assert!(repo
+            .set_admin_preserving_last_admin(&first.id, false)
+            .await
+            .unwrap());
+
+        assert_eq!(repo.auth_epoch(), before + 1);
+    }
+
+    #[tokio::test]
+    async fn set_admin_preserving_last_admin_does_not_bump_auth_epoch_when_refused() {
+        let repo = fresh_repo().await;
+        let admin = repo
+            .create(NewUser {
+                username: "admin".into(),
+                password_hash: "h".into(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        let before = repo.auth_epoch();
+
+        assert!(!repo
+            .set_admin_preserving_last_admin(&admin.id, false)
+            .await
+            .unwrap());
+
+        assert_eq!(repo.auth_epoch(), before);
     }
 
     #[tokio::test]
