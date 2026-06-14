@@ -133,6 +133,28 @@ fn extract_setup_csrf(body: &str) -> String {
     body[start..start + end].to_string()
 }
 
+async fn setup_page(app: &Router) -> (String, String, String) {
+    let page = app
+        .clone()
+        .oneshot(request(Method::GET, "/setup", Body::empty()))
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let cookie = page
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("setup csrf cookie")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let body = read_body(page).await;
+    let token = extract_setup_csrf(&body);
+    (body, token, cookie)
+}
+
 async fn login_csrf(app: &Router) -> (String, String) {
     let page = app
         .clone()
@@ -162,23 +184,19 @@ async fn setup_wizard_creates_first_admin_and_seals() {
     let (state, tmp) = fresh_state().await;
     let app = app_with_state(state.clone(), tmp.path().to_path_buf());
 
-    let setup = app
-        .clone()
-        .oneshot(request(Method::GET, "/setup", Body::empty()))
-        .await
-        .unwrap();
-    assert_eq!(setup.status(), StatusCode::OK);
-    let body = read_body(setup).await;
+    let (body, setup_csrf, setup_cookie) = setup_page(&app).await;
     assert!(body.contains("Initial Setup"));
 
-    let create = app
-        .clone()
-        .oneshot(form_request(
-            "/setup",
-            format!("username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}"),
-        ))
-        .await
-        .unwrap();
+    let mut create_req = form_request(
+        "/setup",
+        format!(
+            "username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}&setup_csrf={setup_csrf}"
+        ),
+    );
+    create_req
+        .headers_mut()
+        .insert(header::COOKIE, setup_cookie.parse().unwrap());
+    let create = app.clone().oneshot(create_req).await.unwrap();
     assert_eq!(create.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         create.headers().get(header::LOCATION).unwrap(),
@@ -214,15 +232,18 @@ async fn setup_post_accepts_public_host_configured_as_full_url() {
         tmp.path().to_path_buf(),
         "https://sync.example.com/",
     );
+    let (_body, setup_csrf, setup_cookie) = setup_page(&app).await;
 
-    let create = app
-        .oneshot(form_request_with_origin(
-            "/setup",
-            format!("username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}"),
-            "https://sync.example.com",
-        ))
-        .await
-        .unwrap();
+    let mut req = form_request_with_origin(
+        "/setup",
+        format!(
+            "username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}&setup_csrf={setup_csrf}"
+        ),
+        "https://sync.example.com",
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, setup_cookie.parse().unwrap());
+    let create = app.oneshot(req).await.unwrap();
 
     assert_eq!(create.status(), StatusCode::SEE_OTHER);
     assert_eq!(state.users.count_admins().await.unwrap(), 1);
@@ -232,13 +253,18 @@ async fn setup_post_accepts_public_host_configured_as_full_url() {
 async fn setup_post_accepts_https_origin_when_trusted_proxy_reports_http_proto() {
     let (state, tmp) = fresh_state().await;
     let app = app_with_public_host(state.clone(), tmp.path().to_path_buf(), "sync.example.com");
+    let (_body, setup_csrf, setup_cookie) = setup_page(&app).await;
     let mut req = form_request_with_origin(
         "/setup",
-        format!("username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}"),
+        format!(
+            "username=newadmin&password={STRONG_PASSWORD}&confirm={STRONG_PASSWORD}&setup_csrf={setup_csrf}"
+        ),
         "https://sync.example.com",
     );
     req.headers_mut()
         .insert("x-forwarded-proto", "http".parse().unwrap());
+    req.headers_mut()
+        .insert(header::COOKIE, setup_cookie.parse().unwrap());
 
     let create = app.oneshot(req).await.unwrap();
 
@@ -442,14 +468,15 @@ async fn responses_use_same_origin_referrer_policy() {
 async fn setup_rejects_weak_password_without_creating_admin() {
     let (state, tmp) = fresh_state().await;
     let app = app_with_state(state.clone(), tmp.path().to_path_buf());
+    let (_body, setup_csrf, setup_cookie) = setup_page(&app).await;
 
-    let resp = app
-        .oneshot(form_request(
-            "/setup",
-            "username=newadmin&password=weakpass&confirm=weakpass",
-        ))
-        .await
-        .unwrap();
+    let mut req = form_request(
+        "/setup",
+        format!("username=newadmin&password=weakpass&confirm=weakpass&setup_csrf={setup_csrf}"),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, setup_cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     assert_eq!(state.users.count_admins().await.unwrap(), 0);

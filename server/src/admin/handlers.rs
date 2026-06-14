@@ -291,7 +291,7 @@ fn redirect_to_safe_admin_next(params: &HashMap<String, String>) -> Redirect {
 fn is_safe_admin_next(value: &str) -> bool {
     let decoded = decode_admin_next_path(value);
     let value = decoded.as_str();
-    if value.starts_with("//") || value.contains('\\') {
+    if value.starts_with("//") || value.contains('\\') || value.bytes().any(|b| b < 0x20) {
         return false;
     }
     let path_end = value.find(['?', '#']).unwrap_or(value.len());
@@ -414,7 +414,7 @@ async fn setup_post(
     State(state): State<AppState>,
     Extension(ClientIp(ip)): Extension<ClientIp>,
     Extension(cookie_policy): Extension<AdminCookiePolicy>,
-    forwarded_from_trusted_proxy: Option<Extension<ForwardedFromTrustedProxy>>,
+    _forwarded_from_trusted_proxy: Option<Extension<ForwardedFromTrustedProxy>>,
     headers: HeaderMap,
     cookies: Cookies,
     Form(form): Form<SetupForm>,
@@ -426,14 +426,7 @@ async fn setup_post(
     if state.setup_limiter.check(format!("setup:{ip}")).is_err() {
         return Err(ApiError::too_many("too many setup attempts"));
     }
-    let same_origin = crate::admin::csrf::same_origin_parts(
-        &headers,
-        Some(&cookie_policy),
-        forwarded_from_trusted_proxy
-            .as_ref()
-            .is_some_and(|Extension(trusted)| trusted.0),
-    );
-    if !same_origin && !setup_csrf_matches(&cookies, form.setup_csrf.as_deref().unwrap_or("")) {
+    if !setup_csrf_matches(&cookies, form.setup_csrf.as_deref().unwrap_or("")) {
         return Ok((StatusCode::FORBIDDEN, "csrf validation failed").into_response());
     }
 
@@ -2208,6 +2201,13 @@ mod tests {
         assert!(is_safe_admin_next("/admin/users?q=a%2Eb"));
     }
 
+    #[test]
+    fn admin_next_rejects_percent_decoded_control_characters() {
+        assert!(!is_safe_admin_next("/admin/x%0dy"));
+        assert!(!is_safe_admin_next("/admin/x%250ay"));
+        assert!(!is_safe_admin_next("/admin/users?tab=a%09b"));
+    }
+
     #[tokio::test]
     async fn dashboard_summary_combines_counts_and_last_sync_activity() {
         use crate::db::pool;
@@ -2443,6 +2443,50 @@ mod tests {
                 .unwrap();
         assert_eq!(count, 1);
         assert_eq!(old_count, 0);
+    }
+
+    #[tokio::test]
+    async fn setup_post_requires_csrf_cookie_even_for_same_origin_requests() {
+        use crate::db::pool;
+        use crate::middleware::real_ip::ClientIp;
+        use crate::service::AppState;
+        use axum::body::Body;
+        use axum::extract::Extension;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+        let app = router()
+            .with_state(state)
+            .layer(tower_cookies::CookieManagerLayer::new())
+            .layer(Extension(AdminCookiePolicy {
+                secure: false,
+                public_host: Some("admin.example.test".into()),
+            }))
+            .layer(Extension(ClientIp("127.0.0.1".parse().unwrap())));
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/setup")
+                    .header("host", "admin.example.test")
+                    .header("origin", "http://admin.example.test")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(
+                        "username=admin&password=Passw0rdStrong&confirm=Passw0rdStrong",
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
