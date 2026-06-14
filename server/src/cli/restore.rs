@@ -63,6 +63,8 @@ pub fn run(
         )?;
     }
 
+    migrate_restored_metadata(&target_data_dir.join("metadata.db"))?;
+
     let cfg = verify::config_for_data_dir(target_data_dir);
     let verify = verify::run(&cfg)?;
     verify.print();
@@ -71,6 +73,21 @@ pub fn run(
     }
     println!("restore completed into {}", target_data_dir.display());
     Ok(RestoreReport { verify })
+}
+
+fn migrate_restored_metadata(db_path: &Path) -> anyhow::Result<()> {
+    let db_path = db_path.to_path_buf();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async move {
+            let pool = crate::db::pool::connect(&db_path).await?;
+            crate::db::pool::migrate_up(&pool).await?;
+            pool.close().await;
+            Ok::<_, anyhow::Error>(())
+        })
+    })
+    .join()
+    .map_err(|_| anyhow::anyhow!("SQLite restore migration task panicked"))?
 }
 
 fn verify_manifest_component<F>(
@@ -109,4 +126,51 @@ fn verify_component(
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restore_runs_pending_db_migrations_after_copying_metadata() {
+        let source = tempfile::tempdir().unwrap();
+        let backup = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+
+        runtime.block_on(async {
+            let db_path = source.path().join("metadata.db");
+            let pool = crate::db::pool::connect(&db_path).await.unwrap();
+            crate::db::pool::migrate_up(&pool).await.unwrap();
+            sqlx::query("DELETE FROM runtime_config WHERE key LIKE 'update_check.%'")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("DELETE FROM _sqlx_migrations WHERE version = 2")
+                .execute(&pool)
+                .await
+                .unwrap();
+            pool.close().await;
+        });
+
+        let cfg = verify::config_for_data_dir(source.path());
+        crate::cli::backup::run(&cfg, None, backup.path(), false).unwrap();
+
+        run(backup.path(), target.path(), false).unwrap();
+
+        runtime.block_on(async {
+            let pool = crate::db::pool::connect(&target.path().join("metadata.db"))
+                .await
+                .unwrap();
+            let (enabled,): (String,) = sqlx::query_as(
+                "SELECT value FROM runtime_config WHERE key = 'update_check.enabled'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(enabled, "true");
+            pool.close().await;
+        });
+    }
 }
