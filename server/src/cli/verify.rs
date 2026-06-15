@@ -82,7 +82,11 @@ pub fn run(config: &Config) -> anyhow::Result<VerifyReport> {
 
 pub fn run_data_dir(data_dir: &Path, db_path: &Path) -> anyhow::Result<VerifyReport> {
     let mut report = VerifyReport::default();
-    collect_db_blob_refs(db_path, &mut report)?;
+    if let Err(err) = collect_db_blob_refs(db_path, &mut report) {
+        report
+            .git_errors
+            .push(format!("database blob_refs query failed: {err}"));
+    }
     verify_git_repos(&data_dir.join("vaults"), &mut report)?;
     verify_blob_store(&data_dir.join("blobs"), &mut report)?;
     Ok(report)
@@ -178,16 +182,25 @@ fn inspect_repo(path: PathBuf) -> anyhow::Result<()> {
     };
     let commit = repo.find_commit(oid)?;
     let tree = commit.tree()?;
-    walk_tree_for_integrity(&repo, &tree)?;
+    walk_tree_for_integrity(&repo, &tree, 0)?;
     Ok(())
 }
 
-fn walk_tree_for_integrity(repo: &Repository, tree: &git2::Tree<'_>) -> anyhow::Result<()> {
+const VERIFY_MAX_TREE_DEPTH: usize = 256;
+
+fn walk_tree_for_integrity(
+    repo: &Repository,
+    tree: &git2::Tree<'_>,
+    depth: usize,
+) -> anyhow::Result<()> {
+    if depth > VERIFY_MAX_TREE_DEPTH {
+        anyhow::bail!("tree depth exceeds {VERIFY_MAX_TREE_DEPTH}");
+    }
     for entry in tree.iter() {
         match entry.kind() {
             Some(ObjectType::Tree) => {
                 let sub = repo.find_tree(entry.id())?;
-                walk_tree_for_integrity(repo, &sub)?;
+                walk_tree_for_integrity(repo, &sub, depth + 1)?;
             }
             Some(ObjectType::Blob) => {
                 repo.find_blob(entry.id())?;
