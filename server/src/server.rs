@@ -34,22 +34,6 @@ pub fn uptime_seconds() -> u64 {
     START.elapsed().as_secs()
 }
 
-/// Format the share URL admins distribute to users.
-///
-/// Returns `https://<host>/<key>/` for HTTPS-deployed servers.
-/// For raw HTTP (dev/local), returns `http://<bind>/<key>/`.
-pub fn format_share_url(
-    public_host: Option<&str>,
-    bind: &SocketAddr,
-    deployment_key: &str,
-) -> String {
-    if let Some(host) = public_host {
-        format!("https://{host}/{deployment_key}/")
-    } else {
-        format!("http://{bind}/{deployment_key}/")
-    }
-}
-
 fn format_public_origin(public_host: Option<&str>, bind: &SocketAddr) -> String {
     if let Some(host) = public_host {
         format!("https://{host}")
@@ -600,20 +584,6 @@ mod tests {
 mod url_tests {
     use super::*;
     use std::net::SocketAddr;
-
-    #[test]
-    fn formats_with_public_host() {
-        let bind: SocketAddr = "127.0.0.1:6710".parse().unwrap();
-        let s = format_share_url(Some("sync.example.com"), &bind, "k_abc");
-        assert_eq!(s, "https://sync.example.com/k_abc/");
-    }
-
-    #[test]
-    fn formats_without_public_host() {
-        let bind: SocketAddr = "127.0.0.1:6710".parse().unwrap();
-        let s = format_share_url(None, &bind, "k_xyz");
-        assert_eq!(s, "http://127.0.0.1:6710/k_xyz/");
-    }
 
     #[test]
     fn public_origin_for_logs_omits_deployment_key() {

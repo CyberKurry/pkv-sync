@@ -39,9 +39,6 @@ describe("strings", () => {
     expect(format(t.connectedToServer, { serverName: "PKV" })).toBe(
       "Connected to PKV"
     );
-    expect(format(t.loggedInAs, { username: "alice" })).toBe(
-      "Logged in as alice"
-    );
   });
 
   it("localizes status bar labels", () => {

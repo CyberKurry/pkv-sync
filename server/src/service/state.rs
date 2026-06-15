@@ -67,8 +67,6 @@ pub struct AppState {
     pub activities: Arc<SqliteSyncActivityRepo>,
     pub runtime_cfg_repo: Arc<SqliteRuntimeConfigRepo>,
     pub runtime_cfg: RuntimeConfigCache,
-    /// Default server name override from config.toml, used as fallback.
-    pub default_server_name: String,
     pub events: VaultEventBus,
     pub metrics: Arc<Metrics>,
     pub auth_failure_limiter: crate::auth::AuthFailureRateLimiter,
@@ -135,7 +133,6 @@ impl AppState {
             activities,
             runtime_cfg_repo,
             runtime_cfg,
-            default_server_name,
             events: VaultEventBus::new(64),
             metrics: Metrics::new(),
             auth_failure_limiter: crate::auth::AuthFailureRateLimiter::new(
