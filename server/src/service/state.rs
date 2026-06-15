@@ -263,6 +263,25 @@ impl AppState {
         self.vault_path_filter_cache.remove(vault_id);
     }
 
+    pub(crate) fn prune_stale_maps(&self) -> (usize, usize, usize) {
+        let before_push = self.push_locks.len();
+        self.push_locks
+            .retain(|_, lock| Arc::strong_count(lock) > 1);
+        let push_removed = before_push - self.push_locks.len();
+
+        let before_sse = self.sse_per_user_counts.len();
+        self.sse_per_user_counts
+            .retain(|_, count| count.load(Ordering::Acquire) > 0);
+        let sse_removed = before_sse - self.sse_per_user_counts.len();
+
+        let before_filter = self.vault_path_filter_cache.len();
+        self.vault_path_filter_cache
+            .retain(|_, cached| cached.loaded_at.elapsed() < Duration::from_secs(600));
+        let filter_removed = before_filter - self.vault_path_filter_cache.len();
+
+        (push_removed, sse_removed, filter_removed)
+    }
+
     pub fn notify_update_check_runtime_changed(&self) {
         self.update_check_runtime_changed.notify_one();
     }

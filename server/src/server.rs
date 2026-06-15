@@ -368,34 +368,38 @@ pub async fn run_with_listener_and_state(
         interval.tick().await;
         loop {
             interval.tick().await;
-            let (login_removed, auth_failure_removed, mcp_auth_removed, mcp_write_removed) =
-                prune_stale_limiters_blocking(
-                    cleanup_limiter.clone(),
-                    cleanup_limiter_state.clone(),
-                )
-                .await;
-            if login_removed > 0 {
-                tracing::debug!(
-                    removed = login_removed,
-                    "pruned stale login limiter entries"
-                );
+            let r = prune_stale_blocking(
+                cleanup_limiter.clone(),
+                cleanup_limiter_state.clone(),
+            )
+            .await;
+            if r.login > 0 {
+                tracing::debug!(removed = r.login, "pruned stale login limiter entries");
             }
-            if auth_failure_removed > 0 {
+            if r.auth_failure > 0 {
                 tracing::debug!(
-                    removed = auth_failure_removed,
+                    removed = r.auth_failure,
                     "pruned stale API auth failure limiter entries"
                 );
             }
-            if mcp_auth_removed > 0 {
+            if r.mcp_auth > 0 {
                 tracing::debug!(
-                    removed = mcp_auth_removed,
+                    removed = r.mcp_auth,
                     "pruned stale MCP auth limiter entries"
                 );
             }
-            if mcp_write_removed > 0 {
+            if r.mcp_write > 0 {
                 tracing::debug!(
-                    removed = mcp_write_removed,
+                    removed = r.mcp_write,
                     "pruned stale MCP write limiter entries"
+                );
+            }
+            if r.push_locks + r.sse_per_user + r.path_filter_cache > 0 {
+                tracing::debug!(
+                    push_locks = r.push_locks,
+                    sse_per_user = r.sse_per_user,
+                    path_filter_cache = r.path_filter_cache,
+                    "pruned stale map entries"
                 );
             }
         }
@@ -416,27 +420,43 @@ pub async fn run_with_listener_and_state(
     Ok(())
 }
 
-fn prune_stale_limiters(
-    limiter: &LoginRateLimiter,
-    state: &AppState,
-) -> (usize, usize, usize, usize) {
-    (
-        limiter.prune_stale(),
-        state.auth_failure_limiter.prune_stale(),
-        state.mcp_auth_limiter.prune_stale(),
-        state.mcp_write_limiter.prune_stale(),
-    )
+struct PruneResult {
+    login: usize,
+    auth_failure: usize,
+    mcp_auth: usize,
+    mcp_write: usize,
+    push_locks: usize,
+    sse_per_user: usize,
+    path_filter_cache: usize,
 }
 
-async fn prune_stale_limiters_blocking(
-    limiter: LoginRateLimiter,
-    state: AppState,
-) -> (usize, usize, usize, usize) {
-    tokio::task::spawn_blocking(move || prune_stale_limiters(&limiter, &state))
+fn prune_stale(limiter: &LoginRateLimiter, state: &AppState) -> PruneResult {
+    let (push_locks, sse_per_user, path_filter_cache) = state.prune_stale_maps();
+    PruneResult {
+        login: limiter.prune_stale(),
+        auth_failure: state.auth_failure_limiter.prune_stale(),
+        mcp_auth: state.mcp_auth_limiter.prune_stale(),
+        mcp_write: state.mcp_write_limiter.prune_stale(),
+        push_locks,
+        sse_per_user,
+        path_filter_cache,
+    }
+}
+
+async fn prune_stale_blocking(limiter: LoginRateLimiter, state: AppState) -> PruneResult {
+    tokio::task::spawn_blocking(move || prune_stale(&limiter, &state))
         .await
         .unwrap_or_else(|err| {
-            tracing::warn!(error = %err, "failed to prune stale limiter entries");
-            (0, 0, 0, 0)
+            tracing::warn!(error = %err, "failed to prune stale entries");
+            PruneResult {
+                login: 0,
+                auth_failure: 0,
+                mcp_auth: 0,
+                mcp_write: 0,
+                push_locks: 0,
+                sse_per_user: 0,
+                path_filter_cache: 0,
+            }
         })
 }
 
@@ -536,13 +556,12 @@ mod tests {
             .failure();
         tokio::time::sleep(Duration::from_millis(10)).await;
 
-        let (login_removed, auth_failure_removed, mcp_auth_removed, mcp_write_removed) =
-            prune_stale_limiters_blocking(limiter, state).await;
+        let r = prune_stale_blocking(limiter, state).await;
 
-        assert_eq!(login_removed, 1);
-        assert_eq!(auth_failure_removed, 1);
-        assert_eq!(mcp_auth_removed, 1);
-        assert_eq!(mcp_write_removed, 1);
+        assert_eq!(r.login, 1);
+        assert_eq!(r.auth_failure, 1);
+        assert_eq!(r.mcp_auth, 1);
+        assert_eq!(r.mcp_write, 1);
     }
 
     #[tokio::test]
