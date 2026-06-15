@@ -7,6 +7,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::Config;
 use crate::storage::blob::is_sha256_hex;
@@ -33,7 +34,6 @@ pub fn run(config: &Config, vault_id: &str, output: &Path, at: Option<&str>) -> 
             output.display()
         );
     }
-    fs::create_dir_all(output)?;
 
     let repo_path = config.storage.data_dir.join("vaults").join(vault_id);
     if !repo_path.exists() {
@@ -53,8 +53,45 @@ pub fn run(config: &Config, vault_id: &str, output: &Path, at: Option<&str>) -> 
     let commit = repo.find_commit(commit_oid)?;
     let tree = commit.tree()?;
 
-    walk_tree(&repo, &tree, output, &blobs_dir, Path::new(""))?;
+    let parent = output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let staging = create_staging_dir(parent, output)?;
+    if let Err(err) = walk_tree(&repo, &tree, &staging, &blobs_dir, Path::new("")) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(err);
+    }
+
+    if output.exists() {
+        fs::remove_dir(output)?;
+    }
+    fs::rename(&staging, output)?;
     Ok(())
+}
+
+fn create_staging_dir(parent: &Path, output: &Path) -> anyhow::Result<PathBuf> {
+    let name = output
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("materialize");
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    for attempt in 0..16 {
+        let path = parent.join(format!(
+            ".{name}.pkvsync-materialize-{}-{nanos}-{attempt}",
+            std::process::id()
+        ));
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(err) => return Err(err.into()),
+        }
+    }
+    anyhow::bail!("could not create materialize staging directory")
 }
 
 fn validate_vault_id(vault_id: &str) -> anyhow::Result<()> {

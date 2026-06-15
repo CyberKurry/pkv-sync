@@ -360,3 +360,47 @@ async fn materialize_blob_missing_from_storage() {
         "unexpected error: {err_msg}"
     );
 }
+
+#[tokio::test]
+async fn materialize_removes_output_after_mid_walk_error() {
+    let (state, tmp) = setup_state().await;
+    let store = Git2VaultStore::new(state.default_vault_root());
+
+    store.ensure_repo("v7").await.unwrap();
+
+    let fake_hash = "b".repeat(64);
+    store
+        .commit_changes(
+            "v7",
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "00-written-first.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"partial output".to_vec(),
+                    },
+                },
+                FileChange::Upsert {
+                    path: "missing.png".into(),
+                    file: StoredFile::BlobPointer {
+                        hash: fake_hash,
+                        size: 100,
+                        mime: Some("image/png".into()),
+                    },
+                },
+            ],
+            "broken mixed",
+        )
+        .await
+        .unwrap();
+
+    let cfg = make_config(&state.data_dir);
+    let out_path = tmp.path().join("materialized-output");
+    let result = materialize::run(&cfg, "v7", &out_path, None);
+
+    assert!(result.is_err());
+    assert!(
+        !out_path.exists(),
+        "failed materialize must not leave a half-written output directory"
+    );
+}
