@@ -3,7 +3,9 @@ use axum::http::{Request, StatusCode};
 use pkv_sync_server::api;
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::pool;
-use pkv_sync_server::db::repos::{BlobRefRepo, NewToken, NewUser, TokenRepo, UserRepo, VaultRepo};
+use pkv_sync_server::db::repos::{
+    BlobRefRepo, NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
+};
 use pkv_sync_server::service::events::{EventKind, VaultEvent};
 use pkv_sync_server::service::sync::{push, PushChange, PushReq};
 use pkv_sync_server::service::vault::{self, rollback_to_commit, RollbackError};
@@ -418,6 +420,79 @@ async fn rollback_to_current_head_is_noop_without_event_or_activity() {
     .await
     .unwrap();
     assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn rollback_preserves_previous_head_for_future_rollback_after_gc() {
+    let ctx = setup().await;
+    let first = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, None, "v1").await;
+    let second = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, Some(&first), "v2").await;
+
+    rollback_to_commit(&ctx.state, &ctx.owner, &ctx.vault_id, &first)
+        .await
+        .unwrap();
+    let git = Git2VaultStore::new(ctx.state.default_vault_root());
+    git.gc_prune_unreachable(&ctx.vault_id).await.unwrap();
+
+    let result = rollback_to_commit(&ctx.state, &ctx.owner, &ctx.vault_id, &second)
+        .await
+        .unwrap();
+
+    assert!(result.rolled_back);
+    assert_eq!(result.to_commit, second);
+    assert_eq!(
+        git.head(&ctx.vault_id).await.unwrap().as_deref(),
+        Some(second.as_str())
+    );
+}
+
+#[tokio::test]
+async fn stale_push_after_rollback_rejects_unreachable_if_match() {
+    let ctx = setup().await;
+    ctx.state
+        .runtime_cfg_repo
+        .set_enable_auto_merge(true, None)
+        .await
+        .unwrap();
+    ctx.state
+        .runtime_cfg
+        .replace(ctx.state.runtime_cfg_repo.load().await.unwrap())
+        .await;
+    let first = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, None, "v1").await;
+    let second = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, Some(&first), "v2").await;
+
+    rollback_to_commit(&ctx.state, &ctx.owner, &ctx.vault_id, &first)
+        .await
+        .unwrap();
+    let err = push(
+        &ctx.state,
+        &ctx.owner,
+        &ctx.vault_id,
+        Some(&second),
+        None,
+        PushReq {
+            device_name: Some("stale-device".into()),
+            changes: vec![PushChange::Text {
+                path: "new-after-rollback.md".into(),
+                content: "stale add".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(err.status, StatusCode::CONFLICT);
+    assert_eq!(err.code, "head_mismatch");
+    let git = Git2VaultStore::new(ctx.state.default_vault_root());
+    assert_eq!(
+        git.head(&ctx.vault_id).await.unwrap().as_deref(),
+        Some(first.as_str())
+    );
+    assert!(git
+        .read_file(&ctx.vault_id, "new-after-rollback.md", None)
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]

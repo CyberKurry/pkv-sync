@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const MAIN_REF: &str = "refs/heads/main";
+const ROLLBACK_PROTECTION_REF_PREFIX: &str = "refs/pkvsync/rollback-protected";
 #[cfg(test)]
 const MAX_REACHABLE_WALK: usize = 3;
 #[cfg(not(test))]
@@ -267,6 +268,67 @@ impl Git2VaultStore {
                 }
             }
             Ok(false)
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
+    pub async fn commit_available_for_rollback(
+        &self,
+        vault_id: &str,
+        commit: &str,
+    ) -> Result<bool, GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let commit = commit.to_string();
+        tokio::task::spawn_blocking(move || -> Result<bool, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let Ok(target) = Oid::from_str(&commit) else {
+                return Ok(false);
+            };
+            if repo.find_commit(target).is_err() {
+                return Ok(false);
+            }
+            if let Some(head) = main_ref_target(&repo)? {
+                let mut walk = repo.revwalk()?;
+                walk.push(head)?;
+                for (idx, oid) in walk.enumerate() {
+                    if idx >= MAX_REACHABLE_WALK {
+                        return Ok(false);
+                    }
+                    if oid? == target {
+                        return Ok(true);
+                    }
+                }
+            }
+            let protected = rollback_protection_ref(target);
+            Ok(repo
+                .find_reference(&protected)
+                .ok()
+                .and_then(|reference| reference.target())
+                == Some(target))
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
+    pub async fn protect_rollback_commit(
+        &self,
+        vault_id: &str,
+        commit: &str,
+    ) -> Result<(), GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let commit = commit.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let target = Oid::from_str(&commit)?;
+            repo.find_commit(target)?;
+            repo.reference(
+                &rollback_protection_ref(target),
+                target,
+                true,
+                "protect rollback source commit",
+            )?;
+            Ok(())
         })
         .await
         .map_err(|_| GitStoreError::Panic)?
@@ -1022,6 +1084,10 @@ impl GitVaultStore for Git2VaultStore {
         .await
         .map_err(|_| GitStoreError::Panic)?
     }
+}
+
+fn rollback_protection_ref(commit: Oid) -> String {
+    format!("{ROLLBACK_PROTECTION_REF_PREFIX}/{commit}")
 }
 
 #[cfg(test)]

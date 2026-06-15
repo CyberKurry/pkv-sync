@@ -61,6 +61,19 @@ fn git_write_error(e: GitStoreError) -> ApiError {
     }
 }
 
+async fn stale_base_reachable_from_head(
+    git: &Git2VaultStore,
+    vault_id: &str,
+    base_commit: &str,
+    current_head: &str,
+) -> Result<bool, ApiError> {
+    match git.is_ancestor(vault_id, base_commit, current_head).await {
+        Ok(reachable) => Ok(reachable),
+        Err(GitStoreError::Git(_)) => Ok(false),
+        Err(err) => Err(git_write_error(err)),
+    }
+}
+
 pub async fn push(
     state: &AppState,
     user: &crate::auth::AuthenticatedUser,
@@ -229,23 +242,26 @@ async fn push_with_request_metadata_internal(
     if head.as_deref() != if_match {
         if matches!(stale_mode, StalePushMode::AllowAutoMerge) && runtime_cfg.enable_auto_merge {
             if let (Some(base_commit), Some(current_head)) = (if_match, head.as_deref()) {
-                if let Some(resp) = try_auto_merge_push(AutoMergePushInput {
-                    state,
-                    user,
-                    vault_id,
-                    base_commit,
-                    current_head,
-                    req,
-                    runtime_cfg: &runtime_cfg,
-                    classifier: classifier.as_ref(),
-                    path_filter: &path_filter,
-                    idempotency_key,
-                    request_hash: request_hash.as_deref(),
-                    request_metadata,
-                })
-                .await?
+                if stale_base_reachable_from_head(&git, vault_id, base_commit, current_head).await?
                 {
-                    return Ok(PushApplyOutcome::Applied(resp));
+                    if let Some(resp) = try_auto_merge_push(AutoMergePushInput {
+                        state,
+                        user,
+                        vault_id,
+                        base_commit,
+                        current_head,
+                        req,
+                        runtime_cfg: &runtime_cfg,
+                        classifier: classifier.as_ref(),
+                        path_filter: &path_filter,
+                        idempotency_key,
+                        request_hash: request_hash.as_deref(),
+                        request_metadata,
+                    })
+                    .await?
+                    {
+                        return Ok(PushApplyOutcome::Applied(resp));
+                    }
                 }
             }
         }

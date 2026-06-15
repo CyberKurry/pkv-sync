@@ -81,11 +81,11 @@ pub async fn rollback_to_commit_as(
 
     let git = state.git_store();
     let from_commit = git.head(vault_id).await.map_err(rollback_git_error)?;
-    let reachable = git
-        .commit_reachable_from_head(vault_id, target_commit)
+    let target_available = git
+        .commit_available_for_rollback(vault_id, target_commit)
         .await
         .map_err(rollback_git_error)?;
-    if !reachable {
+    if !target_available {
         return Err(RollbackError::UnknownCommit {
             commit: target_commit.to_string(),
         });
@@ -97,6 +97,12 @@ pub async fn rollback_to_commit_as(
             to_commit: target,
             rolled_back: false,
         });
+    }
+
+    if let Some(from) = &from_commit {
+        git.protect_rollback_commit(vault_id, from)
+            .await
+            .map_err(rollback_git_error)?;
     }
 
     git.set_main_ref(
