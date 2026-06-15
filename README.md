@@ -8,7 +8,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.4.1.
+Document version: v1.4.2.
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -154,7 +154,7 @@ For real deployments, also run behind HTTPS, restrict
 
 ## Status
 
-PKV Sync 1.4.1 hardens deployment and reliability across a deep security audit: container images now ship runtime health checks, pinned image tags, Caddy security headers and a request-body limit; async diff/history/conflict modals no longer write to a detached DOM after close; resolving a conflict now pushes immediately; and restore-confirmation text is safe against filename substitution syntax.
+PKV Sync 1.4.2 is a security patch from the audit: plugin credentials are removed from synced plugin data and sealed with Electron safeStorage when available, legacy secret-bearing sync indexes are discarded, Git smart HTTP exposes only the main ref and prunes unreachable objects, and server vault path/blob hash validation now fails at shared boundaries.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together

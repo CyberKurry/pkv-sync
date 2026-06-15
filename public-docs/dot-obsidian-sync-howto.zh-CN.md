@@ -2,7 +2,7 @@
 
 [English](./dot-obsidian-sync-howto.md) | 简体中文 | [繁體中文](./dot-obsidian-sync-howto.zh-Hant.md) | [日本語](./dot-obsidian-sync-howto.ja.md) | [한국어](./dot-obsidian-sync-howto.ko.md)
 
-文档版本：v1.4.1。
+文档版本：v1.4.2。
 
 PKV Sync 默认避开隐藏路径。它提供按笔记库配置的 allowlist，让你可以选择性同步 `.obsidian` 配置文件，而不是同步整个 Obsidian 内部目录。
 

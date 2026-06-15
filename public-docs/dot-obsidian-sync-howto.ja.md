@@ -2,7 +2,7 @@
 
 [English](./dot-obsidian-sync-howto.md) | [简体中文](./dot-obsidian-sync-howto.zh-CN.md) | [繁體中文](./dot-obsidian-sync-howto.zh-Hant.md) | 日本語 | [한국어](./dot-obsidian-sync-howto.ko.md)
 
-ドキュメントバージョン: v1.4.1。
+ドキュメントバージョン: v1.4.2。
 
 PKV Sync は通常、hidden path を同期しません。vault ごとの allowlist により、Obsidian 内部ディレクトリ全体ではなく、必要な `.obsidian` 設定ファイルだけを opt in できます。
 

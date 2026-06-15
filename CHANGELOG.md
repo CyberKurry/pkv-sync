@@ -7,18 +7,34 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-06-15
+
 ### Security
 
-- Obsidian plugin data writes now remove legacy credential residue from both
-  top-level and nested settings, migrate legacy top-level auth into
-  device-local storage, and stop including the deployment key in sync index
-  scope keys. Legacy v1 sync index entries that may contain secrets are
-  discarded on the next plugin data write.
+- Obsidian plugin credentials are removed from synced plugin data, legacy
+  secret-bearing sync indexes are discarded, and desktop builds seal the
+  local auth envelope with Electron safeStorage when available while migrating
+  older plaintext localStorage entries.
+- Git smart HTTP now advertises only the main vault ref, times out
+  upload-pack processes, expires stale reflogs, and prunes unreachable objects
+  after vault pushes so hidden history is not retained indefinitely.
+- Vault path handling now uses a shared storage guard at service-level sinks,
+  and blob hashes are rejected before reaching storage paths.
+- Admin and auth edges are tightened: setup requires the CSRF cookie, trusted
+  proxy proto parsing is constrained, generated token pages are not cached,
+  limiter state survives successful logins, and admin-role changes invalidate
+  older token epochs.
+- Plugin update assets must remain on the trusted server origin or carry
+  verified GitHub release checksums before the plugin writes them locally.
 
 ### Fixed
 
-- Plugin package metadata now keeps `package-lock.json` aligned with the
-  package version and pins the Obsidian API package to `1.12.3`.
+- Restoring from backup runs pending metadata migrations after copying the
+  database into place.
+- SSE replay now reports unreachable `Last-Event-ID` commits as lagged instead
+  of silently treating the stream as current.
+- Plugin package metadata keeps `package-lock.json` aligned with the package
+  version and pins the Obsidian API package to `1.12.3`.
 
 ## [1.4.1] - 2026-06-14
 
