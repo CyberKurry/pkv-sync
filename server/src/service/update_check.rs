@@ -31,10 +31,7 @@ struct GitHubRelease {
     body: String,
 }
 
-pub fn spawn_update_check(
-    state: AppState,
-    cfg: UpdateCheckConfig,
-) -> tokio::task::JoinHandle<()> {
+pub fn spawn_update_check(state: AppState, cfg: UpdateCheckConfig) -> tokio::task::JoinHandle<()> {
     let current_version = env!("CARGO_PKG_VERSION").to_string();
     let api_url = github_latest_release_url(&cfg.repo);
     let client = reqwest_client(&current_version);

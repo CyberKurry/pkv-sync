@@ -352,11 +352,8 @@ pub async fn run_with_listener_and_state(
         interval.tick().await;
         loop {
             interval.tick().await;
-            let r = prune_stale_blocking(
-                cleanup_limiter.clone(),
-                cleanup_limiter_state.clone(),
-            )
-            .await;
+            let r =
+                prune_stale_blocking(cleanup_limiter.clone(), cleanup_limiter_state.clone()).await;
             if r.login > 0 {
                 tracing::debug!(removed = r.login, "pruned stale login limiter entries");
             }

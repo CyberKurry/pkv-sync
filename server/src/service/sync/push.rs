@@ -561,7 +561,14 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
             if let Some(json) = resp_json {
                 if let Err(idem_err) = state
                     .idempotency
-                    .put(key, &user.user_id, vault_id, IDEMPOTENCY_ROUTE_PUSH, hash, &json)
+                    .put(
+                        key,
+                        &user.user_id,
+                        vault_id,
+                        IDEMPOTENCY_ROUTE_PUSH,
+                        hash,
+                        &json,
+                    )
                     .await
                 {
                     tracing::warn!(
