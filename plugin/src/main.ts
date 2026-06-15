@@ -12,7 +12,12 @@ import {
   writePluginSettingsPatch,
   writeSyncIndex
 } from "./plugin-data";
-import { AuthStore, authFromSettings, migrateAuth } from "./sync/auth-store";
+import {
+  AuthStore,
+  authFromSettings,
+  createElectronSafeStorage,
+  migrateAuth
+} from "./sync/auth-store";
 import {
   DEFAULT_SETTINGS,
   historyUiAvailable,
@@ -89,7 +94,8 @@ export default class PKVSyncPlugin extends Plugin {
   );
   private authStore = new AuthStore(
     (key) => this.app.loadLocalStorage(key),
-    (key, data) => this.app.saveLocalStorage(key, data)
+    (key, data) => this.app.saveLocalStorage(key, data),
+    createElectronSafeStorage()
   );
   private orchestratorInstance: SyncOrchestrator | null = null;
 

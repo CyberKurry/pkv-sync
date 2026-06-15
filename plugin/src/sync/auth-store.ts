@@ -7,9 +7,22 @@ export interface AuthData {
 }
 
 const AUTH_KEY = "pkv-sync-auth";
+const SECURE_AUTH_KIND = "electron-safe-storage";
+const SECURE_AUTH_VERSION = 1;
 
 export type LocalStorageLoad = (key: string) => unknown;
 export type LocalStorageSave = (key: string, data: unknown | null) => void;
+export type SafeStorageLike = {
+  isEncryptionAvailable(): boolean;
+  encryptString(plainText: string): string;
+  decryptString(ciphertext: string): string;
+};
+
+type SecureAuthEnvelope = {
+  version: 1;
+  kind: typeof SECURE_AUTH_KIND;
+  ciphertext: string;
+};
 
 function isAuthData(value: unknown): value is AuthData {
   if (!value || typeof value !== "object") return false;
@@ -24,23 +37,93 @@ function isAuthData(value: unknown): value is AuthData {
   );
 }
 
+function isSecureAuthEnvelope(value: unknown): value is SecureAuthEnvelope {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.version === SECURE_AUTH_VERSION &&
+    v.kind === SECURE_AUTH_KIND &&
+    typeof v.ciphertext === "string" &&
+    v.ciphertext.length > 0
+  );
+}
+
 export class AuthStore {
   constructor(
     private loadLocal: LocalStorageLoad,
-    private saveLocal: LocalStorageSave
+    private saveLocal: LocalStorageSave,
+    private safeStorage: SafeStorageLike | null = null
   ) {}
 
   load(): AuthData | null {
     const raw = this.loadLocal(AUTH_KEY);
-    return isAuthData(raw) ? raw : null;
+    const secure = this.loadSecure(raw);
+    if (secure) return secure;
+    if (!isAuthData(raw)) return null;
+    if (this.activeSafeStorage()) {
+      this.save(raw);
+    }
+    return raw;
   }
 
   save(auth: AuthData): void {
-    this.saveLocal(AUTH_KEY, auth);
+    const safeStorage = this.activeSafeStorage();
+    if (!safeStorage) {
+      this.saveLocal(AUTH_KEY, auth);
+      return;
+    }
+    this.saveLocal(AUTH_KEY, {
+      version: SECURE_AUTH_VERSION,
+      kind: SECURE_AUTH_KIND,
+      ciphertext: safeStorage.encryptString(JSON.stringify(auth))
+    });
   }
 
   clear(): void {
     this.saveLocal(AUTH_KEY, null);
+  }
+
+  private activeSafeStorage(): SafeStorageLike | null {
+    return this.safeStorage?.isEncryptionAvailable() === true ? this.safeStorage : null;
+  }
+
+  private loadSecure(raw: unknown): AuthData | null {
+    const safeStorage = this.activeSafeStorage();
+    if (!isSecureAuthEnvelope(raw) || !safeStorage) return null;
+    try {
+      const plain = safeStorage.decryptString(raw.ciphertext);
+      const parsed = JSON.parse(plain) as unknown;
+      return isAuthData(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+export function createElectronSafeStorage(): SafeStorageLike | null {
+  const requireFn = (globalThis as { window?: { require?: (id: string) => unknown } }).window
+    ?.require;
+  if (!requireFn) return null;
+  try {
+    const electron = requireFn("electron") as {
+      safeStorage?: {
+        isEncryptionAvailable(): boolean;
+        encryptString(plainText: string): Uint8Array;
+        decryptString(ciphertext: Uint8Array): string;
+      };
+    };
+    const safeStorage = electron.safeStorage;
+    const bufferCtor = (globalThis as { Buffer?: typeof Buffer }).Buffer;
+    if (!safeStorage || !bufferCtor) return null;
+    return {
+      isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+      encryptString: (plainText: string) =>
+        bufferCtor.from(safeStorage.encryptString(plainText)).toString("base64"),
+      decryptString: (ciphertext: string) =>
+        safeStorage.decryptString(bufferCtor.from(ciphertext, "base64"))
+    };
+  } catch {
+    return null;
   }
 }
 

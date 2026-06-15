@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { AuthStore, authFromSettings, migrateAuth, type AuthData, type MigrationResult } from "../../src/sync/auth-store";
+import {
+  AuthStore,
+  authFromSettings,
+  migrateAuth,
+  type AuthData,
+  type MigrationResult,
+  type SafeStorageLike
+} from "../../src/sync/auth-store";
 
 function makeLocalStorage() {
   const store = new Map<string, unknown>();
@@ -20,6 +27,28 @@ const SAMPLE: AuthData = {
   deploymentKey: "dk-1",
   userId: "user-1"
 };
+
+function makeSafeStorage(): SafeStorageLike & {
+  encrypted: string[];
+  decrypted: string[];
+} {
+  const safe = {
+    encrypted: [] as string[],
+    decrypted: [] as string[],
+    isEncryptionAvailable: vi.fn(() => true),
+    encryptString: vi.fn((plain: string) => {
+      safe.encrypted.push(plain);
+      return `sealed:${Buffer.from(plain, "utf8").toString("base64")}`;
+    }),
+    decryptString: vi.fn((ciphertext: string) => {
+      const encoded = ciphertext.replace(/^sealed:/, "");
+      const plain = Buffer.from(encoded, "base64").toString("utf8");
+      safe.decrypted.push(plain);
+      return plain;
+    })
+  };
+  return safe;
+}
 
 describe("AuthStore", () => {
   it("returns null when nothing stored", () => {
@@ -63,6 +92,41 @@ describe("AuthStore", () => {
     });
     const auth = new AuthStore(ls.load, ls.save);
     expect(auth.load()).toBeNull();
+  });
+
+  it("stores only an encrypted safeStorage envelope when secure storage is available", () => {
+    const ls = makeLocalStorage();
+    const safe = makeSafeStorage();
+    const auth = new AuthStore(ls.load, ls.save, safe);
+
+    auth.save(SAMPLE);
+
+    const stored = ls.store.get("pkv-sync-auth");
+    expect(stored).toEqual({
+      version: 1,
+      kind: "electron-safe-storage",
+      ciphertext: expect.any(String)
+    });
+    expect(JSON.stringify(stored)).not.toContain("tok-1");
+    expect(JSON.stringify(stored)).not.toContain("dk-1");
+    expect(safe.encrypted[0]).toContain("tok-1");
+    expect(auth.load()).toEqual(SAMPLE);
+  });
+
+  it("migrates legacy plaintext localStorage auth into an encrypted envelope", () => {
+    const ls = makeLocalStorage();
+    ls.store.set("pkv-sync-auth", SAMPLE);
+    const safe = makeSafeStorage();
+    const auth = new AuthStore(ls.load, ls.save, safe);
+
+    expect(auth.load()).toEqual(SAMPLE);
+
+    const stored = ls.store.get("pkv-sync-auth");
+    expect(JSON.stringify(stored)).not.toContain("tok-1");
+    expect(stored).toMatchObject({
+      version: 1,
+      kind: "electron-safe-storage"
+    });
   });
 });
 
