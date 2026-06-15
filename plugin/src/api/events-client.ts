@@ -1,4 +1,4 @@
-import type { VaultEvent } from "./types";
+import type { EventChange, VaultEvent } from "./types";
 import { isLocalHttpAllowed } from "../url";
 
 const RECONNECT_BASE_DELAY_MS = 1_000;
@@ -109,27 +109,82 @@ async function readEventStream(
       const parsed = parseSseBlock(block);
       if (!parsed) continue;
       if (parsed.event === "commit") {
-        try {
-          const ev = JSON.parse(parsed.data) as VaultEvent;
-          if (ev.commit) opts.onCommit(ev.commit);
-          if (ev.source_device_id !== opts.ownDeviceId && opts.shouldEmit(ev.commit)) {
-            opts.onEvent(ev);
-          }
-        } catch {
-          // ignore malformed JSON
+        const ev = parseVaultEvent(parsed.data);
+        if (!ev) {
+          opts.onEvent(fallbackPullEvent());
+          continue;
+        }
+        if (ev.commit) opts.onCommit(ev.commit);
+        if (ev.source_device_id !== opts.ownDeviceId && opts.shouldEmit(ev.commit)) {
+          opts.onEvent(ev);
         }
       }
       if (parsed.event === "lagged") {
-        opts.onEvent({
-          commit: "",
-          parent: null,
-          source_device_id: "",
-          at: Date.now() / 1000,
-          changes: [],
-        });
+        opts.onEvent(fallbackPullEvent());
       }
     }
   }
+}
+
+function parseVaultEvent(data: string): VaultEvent | null {
+  try {
+    const value: unknown = JSON.parse(data);
+    return isVaultEvent(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function fallbackPullEvent(): VaultEvent {
+  return {
+    commit: "",
+    parent: null,
+    source_device_id: "",
+    at: Date.now() / 1000,
+    changes: [],
+  };
+}
+
+function isVaultEvent(value: unknown): value is VaultEvent {
+  if (!isRecord(value)) return false;
+  if (
+    typeof value.commit !== "string" ||
+    !(typeof value.parent === "string" || value.parent === null) ||
+    typeof value.source_device_id !== "string" ||
+    typeof value.at !== "number" ||
+    !Number.isFinite(value.at)
+  ) {
+    return false;
+  }
+  if (value.kind === "rollback") {
+    return typeof value.from_commit === "string" && typeof value.to_commit === "string";
+  }
+  if (value.kind !== undefined && value.kind !== "commit") return false;
+  return Array.isArray(value.changes) && value.changes.every(isEventChange);
+}
+
+function isEventChange(value: unknown): value is EventChange {
+  if (!isRecord(value) || typeof value.path !== "string") return false;
+  switch (value.kind) {
+    case "text_inline":
+      return typeof value.content === "string";
+    case "text_ref":
+      return typeof value.size === "number" && Number.isFinite(value.size);
+    case "blob":
+      return (
+        typeof value.blob_hash === "string" &&
+        typeof value.size === "number" &&
+        Number.isFinite(value.size)
+      );
+    case "delete":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function parseSseBlock(block: string): { event: string; data: string } | null {

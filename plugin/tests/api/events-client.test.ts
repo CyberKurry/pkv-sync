@@ -253,6 +253,24 @@ describe("subscribeVaultEvents", () => {
     }
   });
 
+  it("falls back to full sync when commit event changes are malformed", async () => {
+    const ssePayload =
+      "event: commit\n" +
+      'data: {"commit":"c_bad","parent":"c1","source_device_id":"dev_other","at":1700000001,"changes":{"kind":"delete","path":"a.md"}}\n\n';
+
+    setFetchResponse(() => mockSseStream([ssePayload]), true, 200);
+
+    const onEvent = vi.fn();
+    subscribe({ ...baseOpts, onEvent, onError: vi.fn() });
+
+    await vi.waitFor(() => expect(onEvent).toHaveBeenCalled());
+
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    const ev = expectCommitEvent(onEvent.mock.calls[0][0] as VaultEvent);
+    expect(ev.commit).toBe("");
+    expect(ev.changes).toEqual([]);
+  });
+
   it("filters events where source_device_id matches ownDeviceId", async () => {
     const ssePayload =
       "event: commit\n" +
