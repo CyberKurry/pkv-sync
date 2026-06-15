@@ -742,6 +742,68 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn binary_text_auto_merge_rejects_instead_of_writing_sidecar() {
+        let (state, user, vid, _tmp) = setup().await;
+        let base = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("base".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "base\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let remote = push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("remote".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "remote\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let err = push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("stale laptop".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "local\0binary-ish\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
+        assert_eq!(err.code, "head_mismatch");
+        let git = Git2VaultStore::new(state.default_vault_root());
+        assert_eq!(
+            git.head(&vid).await.unwrap().as_deref(),
+            Some(remote.new_commit.as_str())
+        );
+    }
+
+    #[tokio::test]
     async fn committed_push_preserves_blob_refs_when_metadata_repair_fails() {
         let (state, user, vid, _tmp) = setup().await;
         let data = Bytes::from_static(b"hello");

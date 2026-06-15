@@ -154,16 +154,7 @@ pub(super) async fn try_auto_merge_push(
                                 conflict_merges += 1;
                             }
                             MergeOutcome::Binary => {
-                                write_text_conflict_sidecar(
-                                    &normalized,
-                                    content,
-                                    conflict_device_name,
-                                    &mut event_changes,
-                                    &mut git_changes,
-                                    &mut merge_outcomes,
-                                    &mut inline_budget,
-                                )?;
-                                conflict_merges += 1;
+                                return Ok(None);
                             }
                         }
                     }
