@@ -509,13 +509,37 @@ fn github_get(client: &reqwest::Client, url: &str) -> reqwest::RequestBuilder {
 
 fn normalize_requested_version(version: &str) -> anyhow::Result<String> {
     let version = version.trim().trim_start_matches('v');
-    if version.is_empty()
-        || version.contains('-')
-        || !version.chars().all(|c| c.is_ascii_digit() || c == '.')
-    {
+    if version.is_empty() || version.contains('-') {
         bail!("version must look like 0.9.1");
     }
-    Ok(version.to_string())
+    let mut parts = version.split('.');
+    let major = parse_requested_version_part(
+        parts
+            .next()
+            .ok_or_else(|| anyhow!("version must look like 0.9.1"))?,
+    )?;
+    let minor = parts
+        .next()
+        .map(parse_requested_version_part)
+        .transpose()?
+        .unwrap_or(0);
+    let patch = parts
+        .next()
+        .map(parse_requested_version_part)
+        .transpose()?
+        .unwrap_or(0);
+    if parts.next().is_some() {
+        bail!("version must look like 0.9.1");
+    }
+    Ok(format!("{major}.{minor}.{patch}"))
+}
+
+fn parse_requested_version_part(part: &str) -> anyhow::Result<u32> {
+    if part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()) {
+        bail!("version must look like 0.9.1");
+    }
+    part.parse()
+        .map_err(|_| anyhow!("version must look like 0.9.1"))
 }
 
 fn confirm_download(plan: &UpgradePlan) -> anyhow::Result<bool> {
@@ -544,4 +568,17 @@ fn manual_upgrade_guidance() -> String {
     format!(
         "Manual upgrade: open https://github.com/{REPO}/releases, download the matching pkvsyncd asset and SHA256SUMS, verify the checksum, then replace the binary while pkvsyncd is stopped."
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requested_version_is_normalized_to_stable_patch_tag() {
+        assert_eq!(normalize_requested_version("1.0").unwrap(), "1.0.0");
+        assert_eq!(normalize_requested_version("v1.2.3").unwrap(), "1.2.3");
+        assert!(normalize_requested_version("1.2.3-beta.1").is_err());
+        assert!(normalize_requested_version("1.2.3.4").is_err());
+    }
 }
