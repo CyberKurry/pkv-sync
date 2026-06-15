@@ -554,25 +554,23 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
                 );
             }
         }
+        // Always attempt standalone idempotency write after a failed metadata
+        // tx so retries don't create duplicate commits.
         if let (Some(key), Some(hash)) = (input.idempotency_key, input.request_hash) {
-            if let Err(idem_err) = state
-                .idempotency
-                .put(
-                    key,
-                    &user.user_id,
-                    vault_id,
-                    IDEMPOTENCY_ROUTE_PUSH,
-                    hash,
-                    &serde_json::to_string(&resp).map_err(|e| ApiError::internal(e.to_string()))?,
-                )
-                .await
-            {
-                tracing::warn!(
-                    vault_id = %vault_id,
-                    commit = %new_commit,
-                    error = %idem_err,
-                    "idempotency cache write failed after metadata repair"
-                );
+            let resp_json = serde_json::to_string(&resp).ok();
+            if let Some(json) = resp_json {
+                if let Err(idem_err) = state
+                    .idempotency
+                    .put(key, &user.user_id, vault_id, IDEMPOTENCY_ROUTE_PUSH, hash, &json)
+                    .await
+                {
+                    tracing::warn!(
+                        vault_id = %vault_id,
+                        commit = %new_commit,
+                        error = %idem_err,
+                        "idempotency cache write failed after metadata recovery"
+                    );
+                }
             }
         }
     }
