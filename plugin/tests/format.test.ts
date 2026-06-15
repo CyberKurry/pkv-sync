@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes } from "./format";
+import { formatBytes } from "../src/format";
 
 describe("formatBytes", () => {
   it("uses scaled units for vault sizes", () => {
