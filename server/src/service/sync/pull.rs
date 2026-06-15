@@ -3,7 +3,8 @@ use crate::db::repos::{NewActivity, SyncActivityRepo};
 use crate::service::vault;
 use crate::service::AppState;
 use crate::storage::git::{
-    GitStoreError, GitVaultStore, StoredFile, TreeEntry, POINTER_MAGIC_KEY, POINTER_VERSION,
+    storage_vault_path, GitStoreError, GitVaultStore, StoredFile, TreeEntry, POINTER_MAGIC_KEY,
+    POINTER_VERSION,
 };
 use crate::storage::path;
 use crate::storage::text_kind::TextClassifier;
@@ -252,7 +253,8 @@ async fn files_to_pull(
     if requests.is_empty() {
         return Ok(Vec::new());
     }
-    let repo_path = vault_root.join(vault_id);
+    let repo_path =
+        storage_vault_path(vault_root, vault_id).map_err(|e| ApiError::internal(e.to_string()))?;
     let head = head.to_string();
     tokio::task::spawn_blocking(
         move || -> Result<Vec<(PullFileBucket, PullFile)>, GitStoreError> {
@@ -418,6 +420,28 @@ mod tests {
             implementation.matches("files_to_pull(").count(),
             1,
             "pull_for_user should read added and modified files in one files_to_pull call"
+        );
+    }
+
+    #[test]
+    fn files_to_pull_uses_storage_vault_path_guard() {
+        let source = include_str!("pull.rs");
+        let fn_start = source.find("async fn files_to_pull").unwrap();
+        let next_fn = source[fn_start + 1..]
+            .find("\nfn text_pull_file")
+            .map(|idx| fn_start + 1 + idx)
+            .unwrap();
+        let implementation = &source[fn_start..next_fn];
+        let raw_join = ["vault_root", ".join(vault_id)"].concat();
+        let guarded_join = ["storage_vault", "_path(vault_root, vault_id)"].concat();
+
+        assert!(
+            !implementation.contains(&raw_join),
+            "files_to_pull should not join unvalidated vault ids directly"
+        );
+        assert!(
+            implementation.contains(&guarded_join),
+            "files_to_pull should use the shared storage vault path guard"
         );
     }
 

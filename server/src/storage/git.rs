@@ -170,10 +170,7 @@ impl Git2VaultStore {
     }
 
     fn repo_path(&self, vault_id: &str) -> Result<PathBuf, GitStoreError> {
-        if !is_valid_storage_vault_id(vault_id) {
-            return Err(GitStoreError::InvalidVaultId);
-        }
-        Ok(self.root.join(vault_id))
+        storage_vault_path(&self.root, vault_id)
     }
 
     pub async fn list_tree_map(
@@ -500,6 +497,13 @@ fn is_valid_storage_vault_id(vault_id: &str) -> bool {
         && vault_id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+pub(crate) fn storage_vault_path(root: &Path, vault_id: &str) -> Result<PathBuf, GitStoreError> {
+    if !is_valid_storage_vault_id(vault_id) {
+        return Err(GitStoreError::InvalidVaultId);
+    }
+    Ok(root.join(vault_id))
 }
 
 fn sig() -> Result<Signature<'static>, git2::Error> {

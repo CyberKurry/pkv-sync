@@ -1,7 +1,7 @@
 use crate::api::error::ApiError;
 use crate::service::diff::{ChangeType, CommitChange};
 use crate::service::{vault, AppState};
-use crate::storage::path;
+use crate::storage::{git::storage_vault_path, path};
 use git2::{Oid, Repository};
 use serde::Serialize;
 use std::path::Path;
@@ -43,7 +43,8 @@ pub async fn commits(
         return file_history(state, user_id, vault_id, path, limit).await;
     }
     let _ = vault::ensure_user_vault(state, user_id, vault_id).await?;
-    let root = state.vault_root().join(vault_id);
+    let root = storage_vault_path(state.vault_root(), vault_id)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
     tokio::task::spawn_blocking(move || -> Result<Vec<CommitSummary>, ApiError> {
         let repo = Repository::open_bare(root).map_err(|e| ApiError::internal(e.to_string()))?;
         let mut walk = repo
@@ -72,7 +73,8 @@ pub async fn commit_detail(
     commit: &str,
 ) -> Result<CommitDetail, ApiError> {
     let _ = vault::ensure_user_vault(state, user_id, vault_id).await?;
-    let root = state.vault_root().join(vault_id);
+    let root = storage_vault_path(state.vault_root(), vault_id)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
     let vault_id = vault_id.to_string();
     let commit = commit.to_string();
     let summary = tokio::task::spawn_blocking(move || -> Result<CommitSummary, ApiError> {
@@ -111,7 +113,8 @@ pub async fn file_history(
     let _ = vault::ensure_user_vault(state, user_id, vault_id).await?;
     let file_path = path::normalize(file_path)
         .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
-    let root = state.vault_root().join(vault_id);
+    let root = storage_vault_path(state.vault_root(), vault_id)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
     let limit = limit.min(MAX_FILE_HISTORY_LIMIT);
     let scan_budget = file_history_scan_budget(limit);
     tokio::task::spawn_blocking(move || -> Result<Vec<CommitSummary>, ApiError> {
@@ -230,6 +233,22 @@ mod tests {
     use crate::db::pool;
     use crate::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
     use crate::service::{sync, vault, AppState};
+
+    #[test]
+    fn history_repo_paths_use_storage_vault_path_guard() {
+        let source = include_str!("history.rs");
+        let raw_join = ["state.vault_root()", ".join(vault_id)"].concat();
+        let guarded_join = ["storage_vault", "_path(state.vault_root(), vault_id)"].concat();
+
+        assert!(
+            !source.contains(&raw_join),
+            "history paths should not join unvalidated vault ids directly"
+        );
+        assert!(
+            source.matches(&guarded_join).count() >= 3,
+            "all history repo path sinks should use the shared storage vault path guard"
+        );
+    }
 
     async fn state_user_vault() -> (AppState, AuthenticatedUser, String, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();

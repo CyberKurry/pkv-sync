@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-use crate::storage::git::{POINTER_MAGIC_KEY, POINTER_VERSION};
+use crate::storage::git::{storage_vault_path, POINTER_MAGIC_KEY, POINTER_VERSION};
 
 pub const MAX_SSE_REPLAY_COMMITS: usize = 64;
 
@@ -159,7 +159,10 @@ pub async fn replay_events_after(
     vault_id: &str,
     last_event_id: &str,
 ) -> anyhow::Result<ReplayEvents> {
-    let vault_path = vault_root.join(vault_id);
+    let vault_path = match storage_vault_path(vault_root, vault_id) {
+        Ok(path) => path,
+        Err(_) => return Ok(ReplayEvents::Events(Vec::new())),
+    };
     let last = match Oid::from_str(last_event_id) {
         Ok(oid) => oid,
         Err(_) => return Ok(ReplayEvents::Events(Vec::new())),
@@ -317,6 +320,28 @@ fn replay_source_device(message: &str) -> String {
 mod tests {
     use super::*;
     use crate::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
+
+    #[test]
+    fn replay_events_after_uses_storage_vault_path_guard() {
+        let source = include_str!("events.rs");
+        let fn_start = source.find("pub async fn replay_events_after").unwrap();
+        let next_fn = source[fn_start + 1..]
+            .find("\nfn replay_events_after_blocking")
+            .map(|idx| fn_start + 1 + idx)
+            .unwrap();
+        let implementation = &source[fn_start..next_fn];
+        let raw_join = ["vault_root", ".join(vault_id)"].concat();
+        let guarded_join = ["storage_vault", "_path(vault_root, vault_id)"].concat();
+
+        assert!(
+            !implementation.contains(&raw_join),
+            "event replay should not join unvalidated vault ids directly"
+        );
+        assert!(
+            implementation.contains(&guarded_join),
+            "event replay should use the shared storage vault path guard"
+        );
+    }
 
     #[test]
     fn classify_replay_change_detects_blob_pointer() {

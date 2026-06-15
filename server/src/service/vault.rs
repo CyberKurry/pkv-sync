@@ -2,7 +2,7 @@ use crate::api::error::ApiError;
 use crate::db::repos::{self, NewActivity, SyncActivityRepo, Vault, VaultRepo};
 use crate::service::events::{EventKind, VaultEvent};
 use crate::service::{vault_settings, AppState};
-use crate::storage::git::{GitStoreError, GitVaultStore};
+use crate::storage::git::{storage_vault_path, GitStoreError, GitVaultStore};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RollbackResult {
@@ -296,7 +296,8 @@ pub async fn record_lifecycle_activity(
 }
 
 async fn remove_vault_storage(state: &AppState, vault_id: &str) -> Result<(), ApiError> {
-    let path = state.vault_root().join(vault_id);
+    let path = storage_vault_path(state.vault_root(), vault_id)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
     match tokio::fs::remove_dir_all(&path).await {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -365,6 +366,28 @@ mod tests {
             .await
             .unwrap();
         (state, u.id, tmp)
+    }
+
+    #[test]
+    fn remove_vault_storage_uses_storage_vault_path_guard() {
+        let source = include_str!("vault.rs");
+        let fn_start = source.find("async fn remove_vault_storage").unwrap();
+        let next_fn = source[fn_start + 1..]
+            .find("\npub async fn ensure_user_vault")
+            .map(|idx| fn_start + 1 + idx)
+            .unwrap();
+        let implementation = &source[fn_start..next_fn];
+        let raw_join = ["state.vault_root()", ".join(vault_id)"].concat();
+        let guarded_join = ["storage_vault", "_path(state.vault_root(), vault_id)"].concat();
+
+        assert!(
+            !implementation.contains(&raw_join),
+            "vault deletion should not join unvalidated vault ids directly"
+        );
+        assert!(
+            implementation.contains(&guarded_join),
+            "vault deletion should use the shared storage vault path guard"
+        );
     }
 
     #[derive(Clone, Default)]
