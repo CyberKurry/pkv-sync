@@ -99,30 +99,13 @@ export class ObsidianVaultAdapter implements VaultAdapter {
 
   async scan(
     textExtensions: Set<string>,
-    previousIndex?: LocalIndex
+    _previousIndex?: LocalIndex
   ): Promise<LocalFileSnapshot[]> {
     const files = this.listFiles().filter((file) => shouldSyncPath(file.path));
     const out: LocalFileSnapshot[] = [];
-    const changedFiles: Array<{ index: number; path: string }> = [];
-    for (const [index, file] of files.entries()) {
-      const previous = previousIndex?.files[file.path];
-      if (
-        previous?.lastSyncedMtime === file.stat.mtime &&
-        previous.size === file.stat.size
-      ) {
-        out[index] = {
-          path: file.path,
-          hash: previous.lastSyncedHash,
-          size: file.stat.size,
-          mtime: file.stat.mtime,
-          kind: previous.kind
-        };
-        continue;
-      }
-      changedFiles.push({ index, path: file.path });
-    }
-    for (let i = 0; i < changedFiles.length; i += SCAN_SNAPSHOT_BATCH_SIZE) {
-      const batch = changedFiles.slice(i, i + SCAN_SNAPSHOT_BATCH_SIZE);
+    const scanFiles = files.map((file, index) => ({ index, path: file.path }));
+    for (let i = 0; i < scanFiles.length; i += SCAN_SNAPSHOT_BATCH_SIZE) {
+      const batch = scanFiles.slice(i, i + SCAN_SNAPSHOT_BATCH_SIZE);
       const results = await Promise.allSettled(
         batch.map(({ path }) => this.snapshot(path, textExtensions))
       );

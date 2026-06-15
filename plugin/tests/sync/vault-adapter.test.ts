@@ -97,7 +97,7 @@ describe("ObsidianVaultAdapter", () => {
     expect(vault.createdFiles.get("folder/deeper/remote.md")).toBe("remote");
   });
 
-  it("reuses previous hashes for unchanged files and only reads changed files", async () => {
+  it("snapshots files instead of trusting matching mtime and size", async () => {
     const unchanged = tfile("unchanged.md", {
       mtime: 1_700_000_000_000,
       size: 10
@@ -146,34 +146,70 @@ describe("ObsidianVaultAdapter", () => {
       }
     });
 
-    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenCalledWith(unchanged);
     expect(read).toHaveBeenCalledWith(changed);
-    expect(readBinary).not.toHaveBeenCalled();
-    expect(snapshots).toEqual([
-      {
-        path: "unchanged.md",
-        hash: "hash-from-index",
-        size: 10,
+    expect(readBinary).toHaveBeenCalledWith(unchangedBlob);
+    expect(snapshots[0]).toMatchObject({
+      path: "unchanged.md",
+      size: "would hash differently".length,
+      kind: "text",
+      content: "would hash differently",
+      mtime: 1_700_000_000_000
+    });
+    expect(snapshots[0].hash).not.toBe("hash-from-index");
+    expect(snapshots[1]).toMatchObject({
+      path: "unchanged.png",
+      hash: expect.any(String),
+      size: 4,
+      kind: "blob",
+      bytes: expect.any(ArrayBuffer),
+      mtime: 1_700_000_000_010
+    });
+    expect(snapshots[1].hash).not.toBe("blob-hash-from-index");
+    expect(snapshots[2]).toMatchObject({
+      path: "changed.md",
+      hash: expect.any(String),
+      size: 19,
         kind: "text",
-        mtime: 1_700_000_000_000
-      },
-      {
-        path: "unchanged.png",
-        hash: "blob-hash-from-index",
-        size: 4,
-        kind: "blob",
-        mtime: 1_700_000_000_010
-      },
-      {
-        path: "changed.md",
-        hash: expect.any(String),
-        size: 19,
-        kind: "text",
-        content: "changed.md contents",
-        mtime: 1_700_000_000_100
-      }
-    ]);
+      content: "changed.md contents",
+      mtime: 1_700_000_000_100
+    });
     expect(snapshots[2].hash).not.toBe("old-hash");
+  });
+
+  it("rehashes files even when mtime and size match the previous index", async () => {
+    const file = tfile("note.md", {
+      mtime: 1_700_000_000_000,
+      size: 5
+    });
+    const vault = new FakeVault();
+    vault.files = [file];
+    const read = vi.spyOn(vault, "read").mockResolvedValue("HELLO");
+    const adapter = new ObsidianVaultAdapter(vault as any);
+
+    const snapshots = await adapter.scan(new Set(["md"]), {
+      lastSyncedCommit: "commit-1",
+      files: {
+        "note.md": {
+          lastSyncedHash: "stale-hash",
+          lastSyncedAt: 1_700_000_000_050,
+          lastSyncedMtime: file.stat.mtime,
+          kind: "text",
+          size: file.stat.size
+        }
+      }
+    });
+
+    expect(read).toHaveBeenCalledWith(file);
+    expect(snapshots[0]).toMatchObject({
+      path: "note.md",
+      size: 5,
+      kind: "text",
+      content: "HELLO",
+      mtime: file.stat.mtime
+    });
+    expect(snapshots[0].hash).not.toBe("stale-hash");
   });
 
   it("snapshots changed files with bounded concurrency while preserving scan order", async () => {
@@ -249,7 +285,7 @@ describe("ObsidianVaultAdapter", () => {
     try {
       await Promise.resolve();
 
-      expect(readPaths).not.toContain("unchanged.md");
+      expect(readPaths).toContain("unchanged.md");
       expect(maxActiveReads).toBeGreaterThan(1);
       expect(maxActiveReads).toBeLessThanOrEqual(8);
 
@@ -259,19 +295,24 @@ describe("ObsidianVaultAdapter", () => {
 
       const snapshots = await scanPromise;
 
-      expect(read).toHaveBeenCalledTimes(changedFiles.length);
-      expect(readPaths).toEqual(changedFiles.map((file) => file.path));
+      expect(read).toHaveBeenCalledTimes(changedFiles.length + 1);
+      expect(readPaths).toEqual([
+        "unchanged.md",
+        ...changedFiles.map((file) => file.path)
+      ]);
       expect(snapshots.map((snapshot) => snapshot.path)).toEqual([
         "unchanged.md",
         ...changedFiles.map((file) => file.path)
       ]);
-      expect(snapshots[0]).toEqual({
+      expect(snapshots[0]).toMatchObject({
         path: "unchanged.md",
-        hash: "hash-from-index",
-        size: 10,
+        hash: expect.any(String),
+        size: 0,
         kind: "text",
+        content: "",
         mtime: 1_700_000_000_000
       });
+      expect(snapshots[0].hash).not.toBe("hash-from-index");
       for (const [index, snapshot] of snapshots.slice(1).entries()) {
         expect(snapshot).toMatchObject({
           path: `changed-${index + 1}.md`,
