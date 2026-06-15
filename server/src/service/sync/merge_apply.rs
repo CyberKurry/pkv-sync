@@ -1,5 +1,6 @@
 use crate::api::error::ApiError;
 use crate::db::repos::{BlobRefRepo, BlobUploadRepo};
+use crate::service::events::EventChange;
 use crate::service::merge::MergeOutcome;
 use crate::storage::blob::BlobStore;
 use crate::storage::git::{FileChange, Git2VaultStore, GitStoreError, GitVaultStore, StoredFile};
@@ -55,82 +56,116 @@ pub(super) async fn try_auto_merge_push(
                     ));
                 }
 
-                let Some(base_bytes) =
-                    read_merge_text(&git, input.vault_id, &normalized, input.base_commit).await?
-                else {
-                    return Ok(None);
-                };
-                let Some(remote_bytes) =
-                    read_merge_text(&git, input.vault_id, &normalized, input.current_head).await?
-                else {
-                    return Ok(None);
-                };
+                let base_text =
+                    read_merge_text(&git, input.vault_id, &normalized, input.base_commit).await?;
+                let remote_text =
+                    read_merge_text(&git, input.vault_id, &normalized, input.current_head).await?;
 
-                match crate::service::merge::three_way_merge_bytes(
-                    &base_bytes,
-                    content.as_bytes(),
-                    &remote_bytes,
-                ) {
-                    MergeOutcome::Clean(merged) => {
+                match (base_text, remote_text) {
+                    (MergeTextRead::Unmergeable, _) | (_, MergeTextRead::Unmergeable) => {
+                        return Ok(None);
+                    }
+                    (MergeTextRead::Missing, MergeTextRead::Missing) => {
                         event_changes.push(text_event_with_budget(
                             &normalized,
-                            &merged,
-                            &mut inline_budget,
-                        ));
-                        git_changes.push(FileChange::Upsert {
-                            path: normalized.clone(),
-                            file: StoredFile::Text {
-                                bytes: merged.into_bytes(),
-                            },
-                        });
-                        merge_outcomes.push(MergeOutcomeEntry {
-                            path: normalized,
-                            outcome: MergeOutcomeKind::Merged,
-                            conflict_path: None,
-                        });
-                        clean_merges += 1;
-                    }
-                    MergeOutcome::Conflicted(marked) => {
-                        let cp = conflict_path_for(&normalized, conflict_device_name);
-                        ensure_generated_push_path(&cp)?;
-                        event_changes.push(text_event_with_budget(
-                            &cp,
-                            &marked,
-                            &mut inline_budget,
-                        ));
-                        git_changes.push(FileChange::Upsert {
-                            path: cp.clone(),
-                            file: StoredFile::Text {
-                                bytes: marked.into_bytes(),
-                            },
-                        });
-                        merge_outcomes.push(MergeOutcomeEntry {
-                            path: normalized,
-                            outcome: MergeOutcomeKind::Conflict,
-                            conflict_path: Some(cp),
-                        });
-                        conflict_merges += 1;
-                    }
-                    MergeOutcome::Binary => {
-                        let cp = conflict_path_for(&normalized, conflict_device_name);
-                        ensure_generated_push_path(&cp)?;
-                        event_changes.push(text_event_with_budget(
-                            &cp,
                             &content,
                             &mut inline_budget,
                         ));
                         git_changes.push(FileChange::Upsert {
-                            path: cp.clone(),
+                            path: normalized.clone(),
                             file: StoredFile::Text {
                                 bytes: content.into_bytes(),
                             },
                         });
                         merge_outcomes.push(MergeOutcomeEntry {
                             path: normalized,
-                            outcome: MergeOutcomeKind::Conflict,
-                            conflict_path: Some(cp),
+                            outcome: MergeOutcomeKind::Clean,
+                            conflict_path: None,
                         });
+                        clean_merges += 1;
+                    }
+                    (MergeTextRead::Missing, MergeTextRead::Text(remote_bytes))
+                        if remote_bytes == content.as_bytes() =>
+                    {
+                        merge_outcomes.push(MergeOutcomeEntry {
+                            path: normalized,
+                            outcome: MergeOutcomeKind::Clean,
+                            conflict_path: None,
+                        });
+                        clean_merges += 1;
+                    }
+                    (MergeTextRead::Missing, MergeTextRead::Text(_))
+                    | (MergeTextRead::Text(_), MergeTextRead::Missing) => {
+                        write_text_conflict_sidecar(
+                            &normalized,
+                            content,
+                            conflict_device_name,
+                            &mut event_changes,
+                            &mut git_changes,
+                            &mut merge_outcomes,
+                            &mut inline_budget,
+                        )?;
                         conflict_merges += 1;
+                    }
+                    (MergeTextRead::Text(base_bytes), MergeTextRead::Text(remote_bytes)) => {
+                        match crate::service::merge::three_way_merge_bytes(
+                            &base_bytes,
+                            content.as_bytes(),
+                            &remote_bytes,
+                        ) {
+                            MergeOutcome::Clean(merged) => {
+                                event_changes.push(text_event_with_budget(
+                                    &normalized,
+                                    &merged,
+                                    &mut inline_budget,
+                                ));
+                                git_changes.push(FileChange::Upsert {
+                                    path: normalized.clone(),
+                                    file: StoredFile::Text {
+                                        bytes: merged.into_bytes(),
+                                    },
+                                });
+                                merge_outcomes.push(MergeOutcomeEntry {
+                                    path: normalized,
+                                    outcome: MergeOutcomeKind::Merged,
+                                    conflict_path: None,
+                                });
+                                clean_merges += 1;
+                            }
+                            MergeOutcome::Conflicted(marked) => {
+                                let cp = conflict_path_for(&normalized, conflict_device_name);
+                                ensure_generated_push_path(&cp)?;
+                                event_changes.push(text_event_with_budget(
+                                    &cp,
+                                    &marked,
+                                    &mut inline_budget,
+                                ));
+                                git_changes.push(FileChange::Upsert {
+                                    path: cp.clone(),
+                                    file: StoredFile::Text {
+                                        bytes: marked.into_bytes(),
+                                    },
+                                });
+                                merge_outcomes.push(MergeOutcomeEntry {
+                                    path: normalized,
+                                    outcome: MergeOutcomeKind::Conflict,
+                                    conflict_path: Some(cp),
+                                });
+                                conflict_merges += 1;
+                            }
+                            MergeOutcome::Binary => {
+                                write_text_conflict_sidecar(
+                                    &normalized,
+                                    content,
+                                    conflict_device_name,
+                                    &mut event_changes,
+                                    &mut git_changes,
+                                    &mut merge_outcomes,
+                                    &mut inline_budget,
+                                )?;
+                                conflict_merges += 1;
+                            }
+                        }
                     }
                 }
             }
@@ -443,21 +478,53 @@ fn stored_signature(file: &StoredFile) -> Vec<u8> {
     }
 }
 
+fn write_text_conflict_sidecar(
+    normalized: &str,
+    content: String,
+    conflict_device_name: &str,
+    event_changes: &mut Vec<EventChange>,
+    git_changes: &mut Vec<FileChange>,
+    merge_outcomes: &mut Vec<MergeOutcomeEntry>,
+    inline_budget: &mut SseInlineBudget,
+) -> Result<(), ApiError> {
+    let cp = conflict_path_for(normalized, conflict_device_name);
+    ensure_generated_push_path(&cp)?;
+    event_changes.push(text_event_with_budget(&cp, &content, inline_budget));
+    git_changes.push(FileChange::Upsert {
+        path: cp.clone(),
+        file: StoredFile::Text {
+            bytes: content.into_bytes(),
+        },
+    });
+    merge_outcomes.push(MergeOutcomeEntry {
+        path: normalized.to_string(),
+        outcome: MergeOutcomeKind::Conflict,
+        conflict_path: Some(cp),
+    });
+    Ok(())
+}
+
+enum MergeTextRead {
+    Text(Vec<u8>),
+    Missing,
+    Unmergeable,
+}
+
 async fn read_merge_text(
     git: &Git2VaultStore,
     vault_id: &str,
     path: &str,
     at: &str,
-) -> Result<Option<Vec<u8>>, ApiError> {
+) -> Result<MergeTextRead, ApiError> {
     let file = match git.read_file(vault_id, path, Some(at)).await {
         Ok(file) => file,
-        Err(GitStoreError::Git(_)) => return Ok(None),
+        Err(GitStoreError::Git(_)) => return Ok(MergeTextRead::Unmergeable),
         Err(err) => return Err(ApiError::bad_request("bad_commit", err.to_string())),
     };
     match file {
-        Some(StoredFile::Text { bytes }) => Ok(Some(bytes)),
-        Some(StoredFile::BlobPointer { .. }) => Ok(None),
-        None => Ok(Some(Vec::new())),
+        Some(StoredFile::Text { bytes }) => Ok(MergeTextRead::Text(bytes)),
+        Some(StoredFile::BlobPointer { .. }) => Ok(MergeTextRead::Unmergeable),
+        None => Ok(MergeTextRead::Missing),
     }
 }
 

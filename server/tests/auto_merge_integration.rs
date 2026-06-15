@@ -510,6 +510,84 @@ async fn text_merge_same_line_overlap_reports_conflict_outcome() {
 }
 
 #[tokio::test]
+async fn text_create_against_remote_create_writes_local_conflict_sidecar() {
+    let (state, user, vault_id, _tmp) = setup().await;
+    let base = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        None,
+        None,
+        sync::PushReq {
+            device_name: Some("base".into()),
+            changes: vec![sync::PushChange::Text {
+                path: "anchor.md".into(),
+                content: "base\n".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let _device_a = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-a".into()),
+            changes: vec![sync::PushChange::Text {
+                path: "note.md".into(),
+                content: "remote create\n".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let merged = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-b".into()),
+            changes: vec![sync::PushChange::Text {
+                path: "note.md".into(),
+                content: "local create\n".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(merged.files_changed, 1);
+    let outcomes = merged
+        .merge_outcomes
+        .expect("merge_outcomes should be present");
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].path, "note.md");
+    assert_eq!(outcomes[0].outcome, sync::MergeOutcomeKind::Conflict);
+    let conflict_path = outcomes[0]
+        .conflict_path
+        .as_deref()
+        .expect("conflict should have a sidecar path");
+
+    assert_eq!(
+        read_text(&state, &vault_id, "note.md").await,
+        "remote create\n"
+    );
+    let local_sidecar = read_text(&state, &vault_id, conflict_path).await;
+    assert_eq!(local_sidecar, "local create\n");
+    assert!(
+        !local_sidecar.contains("<<<<<<<"),
+        "missing base should not synthesize merge-marker content"
+    );
+}
+
+#[tokio::test]
 async fn fast_path_push_omits_merge_outcomes_from_json() {
     // Fast path (fresh If-Match) → merge_outcomes ABSENT (None), guarding the
     // verbatim contract.
