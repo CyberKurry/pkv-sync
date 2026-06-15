@@ -78,6 +78,9 @@ pub async fn rollback_to_commit_as(
     if !actor.is_admin && vault.user_id != actor.user_id {
         return Err(RollbackError::Forbidden);
     }
+    let _storage_guard = crate::service::acquire_storage_mutation_guard(state)
+        .await
+        .map_err(|err| RollbackError::Internal(err.message))?;
 
     let git = state.git_store();
     let from_commit = git.head(vault_id).await.map_err(rollback_git_error)?;
@@ -254,14 +257,17 @@ pub async fn delete_vault_for_user(
     }
     let push_lock = state.vault_push_lock(vault_id);
     let push_guard = push_lock.lock().await;
+    let storage_guard = crate::service::acquire_storage_mutation_guard(state).await?;
     let deleted = state.vaults.delete_for_user(user_id, vault_id).await?;
     if !deleted {
+        drop(storage_guard);
         drop(push_guard);
         drop(push_lock);
         state.remove_vault_push_lock(vault_id);
         return Ok(false);
     }
     let storage_result = remove_vault_storage(state, vault_id).await;
+    drop(storage_guard);
     drop(push_guard);
     drop(push_lock);
     state.remove_vault_push_lock(vault_id);

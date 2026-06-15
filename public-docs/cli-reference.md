@@ -195,11 +195,11 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 
 ### Description
 
-Snapshots the SQLite database (via VACUUM INTO so the source is not blocked),
-every vault's bare git repository, and the blob store, into a self-contained
-directory with a `MANIFEST.json`. The HTTP server may continue running during
-backup; vault pushes are momentarily quiesced per-vault while their repos are
-copied.
+Snapshots the SQLite database (via VACUUM INTO), every vault's bare git
+repository, and the blob store into a self-contained directory with a
+`MANIFEST.json`. The HTTP server may continue running during backup, but
+storage writes such as pushes, blob uploads, rollbacks, vault deletion, and GC
+wait behind a data-dir snapshot lock until the backup finishes.
 
 By default, backups omit `config.toml`; add `--include-config` only when you
 intend to store the config and protect its secrets.

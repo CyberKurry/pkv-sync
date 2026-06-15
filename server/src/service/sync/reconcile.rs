@@ -19,5 +19,6 @@ pub async fn reconcile_vault_metadata(
 ) -> Result<ReconcileReport, ApiError> {
     let push_lock = state.vault_push_lock(vault_id);
     let _push_guard = push_lock.lock().await;
+    let _storage_guard = crate::service::acquire_storage_mutation_guard(state).await?;
     reconcile_vault_metadata_unlocked(state, vault_id).await
 }

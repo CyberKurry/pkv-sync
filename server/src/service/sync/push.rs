@@ -194,6 +194,7 @@ async fn push_with_request_metadata_internal(
     // Re-check after acquiring the per-vault lock so a queued push cannot race
     // with vault deletion or ownership changes while it waited.
     let _vault = vault::ensure_user_vault(state, &user.user_id, vault_id).await?;
+    let _storage_guard = crate::service::acquire_storage_mutation_guard(state).await?;
     let request_hash = match idempotency_key {
         Some(_) => Some(push_request_hash(if_match, &req)?),
         None => None,

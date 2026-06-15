@@ -4,9 +4,10 @@ use pkv_sync_server::cli::{backup, restore, verify};
 use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewUser, UserRepo, VaultRepo};
-use pkv_sync_server::service::AppState;
+use pkv_sync_server::service::{sync, AppState};
 use pkv_sync_server::storage::blob::{BlobStore, LocalFsBlobStore};
 use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
+use pkv_sync_server::storage::lock::{acquire_shared_storage_lock, acquire_storage_write_lock};
 
 use bytes::Bytes;
 use ipnet::IpNet;
@@ -363,6 +364,73 @@ async fn backup_gzip_writes_archive() {
 
     assert!(out.exists());
     assert!(std::fs::metadata(&out).unwrap().len() > 0);
+}
+
+#[tokio::test]
+async fn backup_takes_exclusive_storage_lock_across_snapshot() {
+    let (state, tmp) = setup_state().await;
+    let cfg = make_config(&state.data_dir);
+    let writer_lock = acquire_shared_storage_lock(&state.data_dir).unwrap();
+    let backup_cfg = cfg.clone();
+    let output = tmp.path().join("backup");
+
+    let backup =
+        tokio::task::spawn_blocking(move || backup::run(&backup_cfg, None, &output, false));
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(
+        !backup.is_finished(),
+        "backup should wait for active writers"
+    );
+
+    drop(writer_lock);
+    backup.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn storage_writer_waits_while_backup_lock_is_held() {
+    let (state, _tmp) = setup_state().await;
+    let backup_lock = acquire_storage_write_lock(&state.data_dir).unwrap();
+    let writer_data_dir = state.data_dir.clone();
+
+    let writer = tokio::task::spawn_blocking(move || acquire_shared_storage_lock(&writer_data_dir));
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!writer.is_finished(), "writer should wait for backup lock");
+
+    drop(backup_lock);
+    writer.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn blob_upload_waits_while_backup_lock_is_held() {
+    let (state, _tmp) = setup_state().await;
+    let user = state
+        .users
+        .create(NewUser {
+            username: "backup-lock-user".into(),
+            password_hash: "h".into(),
+            is_admin: false,
+        })
+        .await
+        .unwrap();
+    let vault = state.vaults.create(&user.id, "main").await.unwrap();
+    let data = Bytes::from_static(b"blob during backup");
+    let hash = LocalFsBlobStore::sha256(&data);
+    let backup_lock = acquire_storage_write_lock(&state.data_dir).unwrap();
+    let write_state = state.clone();
+    let user_id = user.id.clone();
+    let vault_id = vault.id.clone();
+
+    let writer = tokio::spawn(async move {
+        sync::upload_blob(&write_state, &user_id, &vault_id, &hash, data).await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(
+        !writer.is_finished(),
+        "blob upload should wait for backup lock"
+    );
+
+    drop(backup_lock);
+    writer.await.unwrap().unwrap();
 }
 
 #[test]

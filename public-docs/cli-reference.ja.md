@@ -176,7 +176,7 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 
 ### 説明
 
-SQLite データベース(ソースをブロックしないように VACUUM INTO 経由)、各ボールトの bare Git リポジトリ、および blob ストアを、`MANIFEST.json` を含む自己完結型のディレクトリにスナップショットします。バックアップ中も HTTP サーバーは稼働を続けられます。ボールトのプッシュは、そのリポジトリをコピーしている間だけ、ボールト単位で一時的に静止状態になります。
+SQLite データベース(VACUUM INTO 経由)、各ボールトの bare Git リポジトリ、および blob ストアを、`MANIFEST.json` を含む自己完結型のディレクトリにスナップショットします。バックアップ中も HTTP サーバーは稼働を続けられますが、push、blob アップロード、rollback、vault 削除、GC などのストレージ書き込みは data-dir スナップショットロックの後ろで待機し、バックアップ完了後に進みます。
 
 デフォルトでは、バックアップは `config.toml` を省略します。設定を保存し、その秘密情報を保護するつもりがある場合だけ `--include-config` を追加してください。
 

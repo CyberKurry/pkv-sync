@@ -157,6 +157,18 @@ async fn git_gc_all_vaults(state: &AppState) -> (usize, usize) {
                 .expect("vault git gc semaphore should remain open");
             let push_lock = state.vault_push_lock(&vault_id);
             let _push_guard = push_lock.lock().await;
+            let _storage_guard = match crate::service::acquire_storage_mutation_guard(&state).await
+            {
+                Ok(guard) => guard,
+                Err(e) => {
+                    tracing::warn!(
+                        vault_id = %vault_id,
+                        error = %e.message,
+                        "vault git gc storage lock failed"
+                    );
+                    return false;
+                }
+            };
             match state.git_store().gc_prune_unreachable(&vault_id).await {
                 Ok(_) => true,
                 Err(e) => {

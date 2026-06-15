@@ -176,7 +176,7 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 
 ### 說明
 
-將 SQLite 資料庫（透過 VACUUM INTO 進行，因此不會阻塞來源）、每個 vault 的 bare git repository，以及 blob 儲存區，快照到一個獨立目錄，並寫入 `MANIFEST.json`。備份期間 HTTP 伺服器可繼續運行；複製各個 vault 的 repository 時，會暫時、逐一靜止對應 vault 的推送。
+將 SQLite 資料庫（透過 VACUUM INTO 進行）、每個 vault 的 bare git repository，以及 blob 儲存區，快照到一個獨立目錄，並寫入 `MANIFEST.json`。備份期間 HTTP 伺服器可繼續運行；push、blob 上傳、回滾、vault 刪除和 GC 等儲存寫入會在 data-dir 快照鎖之後排隊，直到備份完成。
 
 預設情況下，備份會省略 `config.toml`；只有在你明確要保存設定並保護其中秘密時，才加入 `--include-config`。
 

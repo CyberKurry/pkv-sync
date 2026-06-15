@@ -176,7 +176,7 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 
 ### 설명
 
-SQLite 데이터베이스(VACUUM INTO를 통해 원본을 차단하지 않음), 모든 볼트의 bare git 저장소, 그리고 blob 저장소를 `MANIFEST.json`이 포함된 자체 완결형 디렉터리로 스냅숏합니다. 백업 중에도 HTTP 서버는 계속 실행될 수 있으며, 볼트 push는 해당 저장소가 복사되는 동안 볼트 단위로 잠시 정지됩니다.
+SQLite 데이터베이스(VACUUM INTO 사용), 모든 볼트의 bare git 저장소, 그리고 blob 저장소를 `MANIFEST.json`이 포함된 자체 완결형 디렉터리로 스냅숏합니다. 백업 중에도 HTTP 서버는 계속 실행될 수 있지만, push, blob upload, rollback, vault deletion, GC 같은 storage write는 data-dir snapshot lock 뒤에서 대기하고 백업이 끝난 뒤 진행됩니다.
 
 기본적으로 백업은 `config.toml`을 생략합니다. 설정을 저장하고 그 안의 비밀을 보호하려는 경우에만 `--include-config`를 추가하세요.
 

@@ -63,6 +63,7 @@ pub async fn upload_blob(
             format!("file exceeds max_file_size of {max_file_size} bytes"),
         ));
     }
+    let _storage_guard = crate::service::acquire_storage_mutation_guard(state).await?;
     let store = blob_store(state);
     store
         .put_verified(hash, body)

@@ -176,7 +176,7 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 
 ### 说明
 
-将 SQLite 数据库（通过 VACUUM INTO，因此源库不会被阻塞）、每个保险库的裸 git 仓库以及 blob 存储，快照到一个带有 `MANIFEST.json` 的自包含目录中。备份期间 HTTP 服务器可以继续运行；在复制各个保险库仓库时，对应保险库的 push 会被短暂静止。
+将 SQLite 数据库（通过 VACUUM INTO）、每个保险库的裸 git 仓库以及 blob 存储，快照到一个带有 `MANIFEST.json` 的自包含目录中。备份期间 HTTP 服务器可以继续运行；push、blob 上传、回滚、保险库删除和 GC 等存储写入会在 data-dir 快照锁之后排队，直到备份完成。
 
 默认情况下，备份会省略 `config.toml`；只有在你明确要保存配置并保护其中秘密时，才添加 `--include-config`。
 

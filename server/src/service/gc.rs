@@ -24,6 +24,7 @@ pub async fn run_blob_gc_with_grace(
     state: &AppState,
     grace_seconds: u64,
 ) -> Result<GcReport, ApiError> {
+    let _storage_guard = crate::service::acquire_storage_mutation_guard(state).await?;
     let store = state.blob_store();
     let on_disk = store
         .list_hashes_with_mtime()

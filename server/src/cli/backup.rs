@@ -69,6 +69,7 @@ fn run_to_dir(
     config_path: Option<&Path>,
     output: &Path,
 ) -> anyhow::Result<Manifest> {
+    let _storage_lock = crate::storage::lock::acquire_storage_write_lock(&config.storage.data_dir)?;
     ensure_absent_or_empty(output, "output directory")?;
     create_private_dir_all(output)?;
 
