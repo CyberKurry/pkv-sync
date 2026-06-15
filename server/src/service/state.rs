@@ -168,7 +168,6 @@ impl AppState {
             push_locks: Arc::new(DashMap::new()),
             vault_path_filter_cache: Arc::new(DashMap::new()),
         };
-        state.spawn_metrics_refresh_task();
         Ok(state)
     }
 
@@ -362,7 +361,7 @@ impl AppState {
         Ok(())
     }
 
-    fn spawn_metrics_refresh_task(&self) {
+    pub(crate) fn spawn_metrics_refresh_task(&self) -> tokio::task::JoinHandle<()> {
         let state = self.clone();
         crate::service::background::spawn_supervised(
             "metrics_refresh",
@@ -380,7 +379,7 @@ impl AppState {
                     }
                 }
             },
-        );
+        )
     }
 
     #[cfg(test)]

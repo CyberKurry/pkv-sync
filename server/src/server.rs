@@ -337,7 +337,9 @@ pub async fn run_with_listener_and_state(
     state: AppState,
     limiter: LoginRateLimiter,
 ) -> crate::Result<()> {
-    crate::service::update_check::spawn_update_check(state.clone(), cfg.update_check.clone());
+    let update_check_handle =
+        crate::service::update_check::spawn_update_check(state.clone(), cfg.update_check.clone());
+    let metrics_handle = state.spawn_metrics_refresh_task();
     let cleanup_state = state.clone();
     let cleanup_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(6 * 60 * 60));
@@ -409,6 +411,8 @@ pub async fn run_with_listener_and_state(
     .map_err(|e| crate::Error::Internal(format!("server error: {e}")))?;
     cleanup_handle.abort();
     limiter_cleanup_handle.abort();
+    update_check_handle.abort();
+    metrics_handle.abort();
     Ok(())
 }
 
