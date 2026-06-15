@@ -2,7 +2,7 @@
 
 [English](./dot-obsidian-sync-howto.md) | [简体中文](./dot-obsidian-sync-howto.zh-CN.md) | 繁體中文 | [日本語](./dot-obsidian-sync-howto.ja.md) | [한국어](./dot-obsidian-sync-howto.ko.md)
 
-文件版本：v1.4.2。
+文件版本：v1.4.3。
 
 PKV Sync 預設避開隱藏路徑。它提供按 vault 設定的 allowlist，讓你可以選擇性同步 `.obsidian` 設定檔，而不是同步整個 Obsidian 內部目錄。
 

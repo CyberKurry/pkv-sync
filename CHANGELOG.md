@@ -7,6 +7,51 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-06-15
+
+### Fixed
+
+- Supervised background tasks (update checker, metrics refresh) are now
+  aborted on graceful shutdown instead of leaking indefinitely.
+- Stale DashMap entries (push locks, SSE counters, vault-path filter
+  cache) are periodically pruned alongside rate-limiter cleanup.
+- Auto-merge correctly distinguishes missing Git objects (unmergeable)
+  from transient Git errors (500) instead of swallowing all failures.
+- `pkv verify` reports corrupt database blob refs as warnings instead of
+  aborting, and caps recursive tree walks at depth 256 to prevent stack
+  overflow on malformed repos.
+- Idempotency cache is now always written after a failed metadata
+  transaction, closing a narrow window where a retry could double-apply
+  a push.
+- MCP token validity cache entries are bounded by expiry so stale tokens
+  cannot persist beyond their lifetime.
+- Backup snapshots are serialized with storage writes to prevent
+  interleaved I/O from producing corrupt snapshot files.
+- SSE event timestamps are aligned to server wall-clock at emit time,
+  fixing drift when events queued behind slow subscribers.
+- Plugin SSE commit events are validated before processing; malformed
+  payloads are dropped instead of crashing the sync loop.
+- Binary files are rejected from text auto-merge instead of producing
+  garbled content.
+- Plugin rehashes scanned files against the local index on startup so
+  edits made while the plugin was unloaded are detected.
+- Requested upgrade versions are normalized before comparison so
+  `v1.4.3` and `1.4.3` are treated identically.
+- Rollback history is protected from concurrent overwrites during rapid
+  push retries.
+- CLI materialize writes through a staging directory and renames
+  atomically, preventing partial file trees on interrupt.
+- Concurrent text file creates on different devices are preserved via
+  conflict-file promotion instead of last-write-wins.
+
+### Removed
+
+- Dead helper `format_share_url` and unused `default_server_name` field
+  removed from server.
+- Eight unused i18n keys removed from all five plugin locales.
+- Unused `export` modifiers removed from internal plugin types.
+- Dead `COPY` layers for plugin assets removed from Dockerfiles.
+
 ## [1.4.2] - 2026-06-15
 
 ### Security

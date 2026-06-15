@@ -2,7 +2,7 @@
 
 [English](./admin-manual.md) | [简体中文](./admin-manual.zh-CN.md) | 繁體中文 | [日本語](./admin-manual.ja.md) | [한국어](./admin-manual.ko.md)
 
-文件版本：v1.4.2。
+文件版本：v1.4.3。
 
 本文涵蓋自託管 PKV Sync 服務端的日常管理。網路與主機加固請同時閱讀部署加固指南。
 

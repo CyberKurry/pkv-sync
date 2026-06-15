@@ -2,7 +2,7 @@
 
 [English](./deployment-hardening.md) | [简体中文](./deployment-hardening.zh-CN.md) | [繁體中文](./deployment-hardening.zh-Hant.md) | 日本語 | [한국어](./deployment-hardening.ko.md)
 
-ドキュメントバージョン: v1.4.2。
+ドキュメントバージョン: v1.4.3。
 
 この文書は機械翻訳による初版です。公開前にネイティブ話者によるレビューを推奨します。
 
