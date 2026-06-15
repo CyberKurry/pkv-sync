@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::AsyncWriteExt;
@@ -47,16 +47,8 @@ impl LocalFsBlobStore {
         Self { root }
     }
 
-    fn validate_hash(hash: &str) -> BlobResult<()> {
-        if !is_sha256_hex(hash) {
-            return Err(BlobError::InvalidHash);
-        }
-        Ok(())
-    }
-
     fn path_for(&self, hash: &str) -> BlobResult<PathBuf> {
-        Self::validate_hash(hash)?;
-        Ok(self.root.join(&hash[0..2]).join(&hash[2..4]).join(hash))
+        sharded_blob_path(&self.root, hash).ok_or(BlobError::InvalidHash)
     }
 
     pub fn sha256(bytes: &[u8]) -> String {
@@ -76,7 +68,7 @@ impl LocalFsBlobStore {
             {
                 if entry.file_type().is_file() {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if Self::validate_hash(&name).is_ok() {
+                    if is_sha256_hex(&name) {
                         let metadata = entry.metadata().map_err(|err| {
                             err.into_io_error()
                                 .unwrap_or_else(|| std::io::Error::other("walkdir metadata error"))
@@ -96,6 +88,13 @@ pub fn is_sha256_hex(s: &str) -> bool {
     s.len() == 64 && s.as_bytes().iter().all(u8::is_ascii_hexdigit)
 }
 
+pub fn sharded_blob_path(root: &Path, hash: &str) -> Option<PathBuf> {
+    if !is_sha256_hex(hash) {
+        return None;
+    }
+    Some(root.join(&hash[0..2]).join(&hash[2..4]).join(hash))
+}
+
 #[async_trait]
 impl BlobStore for LocalFsBlobStore {
     async fn has(&self, hash: &str) -> BlobResult<bool> {
@@ -108,7 +107,9 @@ impl BlobStore for LocalFsBlobStore {
     }
 
     async fn put_verified(&self, expected_hash: &str, bytes: Bytes) -> BlobResult<()> {
-        Self::validate_hash(expected_hash)?;
+        if !is_sha256_hex(expected_hash) {
+            return Err(BlobError::InvalidHash);
+        }
         if bytes.len() as u64 > BLOB_HARD_MAX_BYTES {
             return Err(BlobError::TooLarge {
                 limit: BLOB_HARD_MAX_BYTES,

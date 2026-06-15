@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::Config;
-use crate::storage::blob::is_sha256_hex;
+use crate::storage::blob::{is_sha256_hex, sharded_blob_path};
 use crate::storage::git::{POINTER_MAGIC_KEY, POINTER_VERSION};
 
 /// Expand a vault's git + blob storage into a plain file tree on disk.
@@ -137,7 +137,8 @@ fn walk_tree(
                     fs::create_dir_all(parent)?;
                 }
                 if let Some(hash) = parse_pointer(content)? {
-                    let blob_path = sharded_blob_path(blobs_dir, &hash)?;
+                    let blob_path = sharded_blob_path(blobs_dir, &hash)
+                        .ok_or_else(|| anyhow::anyhow!("invalid blob hash: {hash}"))?;
                     if !blob_path.exists() {
                         anyhow::bail!("blob file missing: {} (for {})", hash, entry_rel.display());
                     }
@@ -150,17 +151,6 @@ fn walk_tree(
         }
     }
     Ok(())
-}
-
-/// Compute the sharded on-disk path for a blob hash.
-///
-/// Matches the layout used by `LocalFsBlobStore::path_for`:
-/// `blobs/<hash[0..2]>/<hash[2..4]>/<hash>`.
-fn sharded_blob_path(blobs_dir: &Path, hash: &str) -> anyhow::Result<PathBuf> {
-    if !is_sha256_hex(hash) {
-        anyhow::bail!("invalid blob hash: {hash}");
-    }
-    Ok(blobs_dir.join(&hash[0..2]).join(&hash[2..4]).join(hash))
 }
 
 fn validate_tree_entry_name(name: &str) -> anyhow::Result<()> {
@@ -279,8 +269,7 @@ mod tests {
 
     #[test]
     fn sharded_blob_path_rejects_invalid_hash() {
-        let err = sharded_blob_path(Path::new("/data/blobs"), "abc").unwrap_err();
-        assert!(err.to_string().contains("invalid blob hash"));
+        assert!(sharded_blob_path(Path::new("/data/blobs"), "abc").is_none());
     }
 
     #[test]

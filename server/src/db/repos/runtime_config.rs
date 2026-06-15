@@ -715,7 +715,7 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
 
 /// Hot-reloadable cache shared by handlers.
 #[derive(Clone)]
-pub struct RuntimeConfigCache(pub Arc<RwLock<RuntimeConfig>>);
+pub struct RuntimeConfigCache(pub(crate) Arc<RwLock<RuntimeConfig>>);
 
 impl RuntimeConfigCache {
     pub fn new(mut cfg: RuntimeConfig) -> Self {

@@ -1,5 +1,5 @@
 use crate::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
-use crate::storage::blob::is_sha256_hex;
+use crate::storage::blob::{is_sha256_hex, sharded_blob_path};
 use git2::{ObjectType, Repository};
 use sha2::{Digest, Sha256};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -234,7 +234,9 @@ fn verify_blob_store(blobs_dir: &Path, report: &mut VerifyReport) -> anyhow::Res
     }
 
     for hash in &report.referenced_blobs {
-        let path = sharded_blob_path(blobs_dir, hash)?;
+        let Some(path) = sharded_blob_path(blobs_dir, hash) else {
+            continue;
+        };
         if !path.exists() {
             report.missing_blobs.push(hash.clone());
         }
@@ -251,21 +253,13 @@ fn verify_blob_store(blobs_dir: &Path, report: &mut VerifyReport) -> anyhow::Res
     Ok(())
 }
 
-fn sharded_blob_path(blobs_dir: &Path, hash: &str) -> anyhow::Result<PathBuf> {
-    if !is_sha256_hex(hash) {
-        anyhow::bail!("invalid blob hash: {hash}");
-    }
-    Ok(blobs_dir.join(&hash[0..2]).join(&hash[2..4]).join(hash))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn sharded_blob_path_rejects_invalid_hash() {
-        let err = sharded_blob_path(Path::new("/data/blobs"), "../not-a-sha").unwrap_err();
-        assert!(err.to_string().contains("invalid blob hash"));
+        assert!(sharded_blob_path(Path::new("/data/blobs"), "../not-a-sha").is_none());
     }
 
     #[test]
