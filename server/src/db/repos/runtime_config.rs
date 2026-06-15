@@ -451,7 +451,7 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         lock_seconds: u64,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let values = [
+        let kvs = [
             (
                 "login_failure_threshold",
                 serde_json::to_string(&threshold.max(1)).unwrap(),
@@ -465,22 +465,8 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
                 serde_json::to_string(&lock_seconds.max(1)).unwrap(),
             ),
         ];
-        let now = chrono::Utc::now().timestamp();
         let mut tx = self.pool.begin().await?;
-        for (key, value) in values {
-            sqlx::query(
-                "INSERT INTO runtime_config (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)
-                 ON CONFLICT(key) DO UPDATE SET value = excluded.value,
-                                               updated_at = excluded.updated_at,
-                                               updated_by = excluded.updated_by",
-            )
-            .bind(key)
-            .bind(value)
-            .bind(now)
-            .bind(by)
-            .execute(&mut *tx)
-            .await?;
-        }
+        write_kv_batch(&mut tx, &kvs, by).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -519,9 +505,7 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         enable_diff_endpoint: bool,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
-        let mut tx = self.pool.begin().await?;
-        for (key, value) in [
+        let kvs = [
             (
                 "enable_history_ui",
                 serde_json::to_string(&enable_history_ui).unwrap(),
@@ -530,20 +514,9 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
                 "enable_diff_endpoint",
                 serde_json::to_string(&enable_diff_endpoint).unwrap(),
             ),
-        ] {
-            sqlx::query(
-                "INSERT INTO runtime_config (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)
-                 ON CONFLICT(key) DO UPDATE SET value = excluded.value,
-                                               updated_at = excluded.updated_at,
-                                               updated_by = excluded.updated_by",
-            )
-            .bind(key)
-            .bind(value)
-            .bind(now)
-            .bind(by)
-            .execute(&mut *tx)
-            .await?;
-        }
+        ];
+        let mut tx = self.pool.begin().await?;
+        write_kv_batch(&mut tx, &kvs, by).await?;
         tx.commit().await?;
         Ok(())
     }
