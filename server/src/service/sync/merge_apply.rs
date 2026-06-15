@@ -509,7 +509,13 @@ async fn read_merge_text(
 ) -> Result<MergeTextRead, ApiError> {
     let file = match git.read_file(vault_id, path, Some(at)).await {
         Ok(file) => file,
-        Err(GitStoreError::Git(_)) => return Ok(MergeTextRead::Unmergeable),
+        Err(GitStoreError::NotFound) => return Ok(MergeTextRead::Unmergeable),
+        Err(GitStoreError::Git(ref e)) if e.code() == git2::ErrorCode::NotFound => {
+            return Ok(MergeTextRead::Unmergeable)
+        }
+        Err(err @ GitStoreError::Git(_)) => {
+            return Err(ApiError::internal(format!("merge git read: {err}")))
+        }
         Err(err) => return Err(ApiError::bad_request("bad_commit", err.to_string())),
     };
     match file {
