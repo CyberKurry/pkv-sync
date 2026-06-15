@@ -8,9 +8,6 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY bin/${TARGETARCH}/pkvsyncd /usr/local/bin/pkvsyncd
-COPY plugin/main.js /plugin/main.js
-COPY plugin/manifest.json /plugin/manifest.json
-COPY plugin/styles.css /plugin/styles.css
 EXPOSE 6710
 USER 65532:65532
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:6710/api/health || exit 1
