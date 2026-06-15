@@ -4,7 +4,7 @@ import { errorToMessage } from "../util";
 import { textByteLength } from "./text-encoding";
 import { ObsidianVaultAdapter } from "./vault-adapter";
 
-export interface RestoreContext {
+interface RestoreContext {
   vault: Vault;
   api: HistoryApi;
   vaultId: string;
@@ -13,7 +13,7 @@ export interface RestoreContext {
   isBinary: boolean;
 }
 
-export type RestoreOutcome =
+type RestoreOutcome =
   | { ok: true; kind: "modified" | "created"; bytes: number }
   | {
       ok: false;

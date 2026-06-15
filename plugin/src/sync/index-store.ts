@@ -26,7 +26,7 @@ function normalizeFiles(raw: unknown): LocalIndex["files"] {
   return files;
 }
 
-export const EMPTY_INDEX: LocalIndex = {
+const EMPTY_INDEX: LocalIndex = {
   lastSyncedCommit: null,
   files: createFilesMap()
 };

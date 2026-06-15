@@ -9,7 +9,7 @@ interface ConflictFileReader {
   read(file: TFile): Promise<string>;
 }
 
-export type ConflictPairKind = "remote_copy" | "merge_markers";
+type ConflictPairKind = "remote_copy" | "merge_markers";
 
 export function isConflictPath(path: string): boolean {
   const name = path.split("/").pop() ?? path;

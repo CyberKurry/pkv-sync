@@ -1,6 +1,6 @@
 type DiffLineKind = "context" | "add" | "del" | "hunk" | "meta";
 
-export type SideBySideDiffRowKind =
+type SideBySideDiffRowKind =
   | "context"
   | "add"
   | "del"
@@ -245,7 +245,7 @@ export function lineDiffSideBySide(
   return { rows, truncated };
 }
 
-export interface DiffSegment {
+interface DiffSegment {
   text: string;
   changed: boolean;
 }

@@ -1,4 +1,4 @@
-export interface ParsedServerUrl {
+interface ParsedServerUrl {
   serverUrl: string;
   deploymentKey: string;
 }

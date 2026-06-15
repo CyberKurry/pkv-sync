@@ -1,13 +1,13 @@
 import type { Strings } from "../i18n";
 
-export type SyncStatus =
+type SyncStatus =
   | "not_configured"
   | "connected"
   | "syncing"
   | "offline"
   | "error";
 
-export type StatusLabels = Pick<
+type StatusLabels = Pick<
   Strings,
   | "statusConnected"
   | "statusNotConfigured"
