@@ -149,6 +149,22 @@ impl Git2VaultStore {
         Self { root }
     }
 
+    pub async fn commit_time_seconds(
+        &self,
+        vault_id: &str,
+        commit: &str,
+    ) -> Result<i64, GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let commit = commit.to_string();
+        tokio::task::spawn_blocking(move || -> Result<i64, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let commit = repo.find_commit(parse_full_oid(&commit)?)?;
+            Ok(commit.time().seconds())
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
     pub async fn gc_prune_unreachable(&self, vault_id: &str) -> Result<(), GitStoreError> {
         let p = self.repo_path(vault_id)?;
         tokio::task::spawn_blocking(move || -> Result<(), GitStoreError> {

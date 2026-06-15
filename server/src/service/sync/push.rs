@@ -467,6 +467,7 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
         )
         .await
         .map_err(git_write_error)?;
+    let event_at = commit_event_time_seconds(&git, vault_id, &new_commit).await;
     if prepared.text_changes > 0 {
         state
             .metrics
@@ -500,7 +501,7 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
             commit: new_commit.clone(),
             parent: input.parent.clone(),
             source_device_id: user.device_id.clone(),
-            at: chrono::Utc::now().timestamp(),
+            at: event_at,
             kind: EventKind::Commit,
             changes: prepared.event_changes,
         },
@@ -582,6 +583,21 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
         "push completed"
     );
     Ok(resp)
+}
+
+async fn commit_event_time_seconds(git: &Git2VaultStore, vault_id: &str, commit: &str) -> i64 {
+    match git.commit_time_seconds(vault_id, commit).await {
+        Ok(ts) => ts,
+        Err(err) => {
+            tracing::warn!(
+                vault_id = %vault_id,
+                commit = %commit,
+                error = %err,
+                "failed to read git commit timestamp for live SSE event"
+            );
+            0
+        }
+    }
 }
 
 pub(super) async fn push_stats_delta(
@@ -1079,6 +1095,28 @@ mod tests {
 
         assert!(blob_branch.contains(".size_bytes(&blob_hash)"));
         assert!(!blob_branch.contains(".get(&blob_hash)"));
+    }
+
+    #[test]
+    fn live_sse_commit_event_uses_git_commit_timestamp() {
+        let source = include_str!("push.rs");
+        let fn_start = source
+            .find("pub(super) async fn commit_prepared_push")
+            .expect("commit_prepared_push implementation exists");
+        let next_fn = source[fn_start + 1..]
+            .find("\npub(super) async fn push_stats_delta")
+            .map(|idx| fn_start + 1 + idx)
+            .expect("push_stats_delta follows commit_prepared_push");
+        let implementation = &source[fn_start..next_fn];
+
+        assert!(
+            implementation.contains(".commit_time_seconds("),
+            "live SSE events should derive `at` from the git commit timestamp"
+        );
+        assert!(
+            !implementation.contains("chrono::Utc::now().timestamp()"),
+            "live SSE events must not use publish-time wall clock for `at`"
+        );
     }
 
     #[test]

@@ -1,7 +1,9 @@
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
-use pkv_sync_server::service::events::{EventChange, EventKind, VaultEvent, VaultEventBus};
+use pkv_sync_server::service::events::{
+    replay_events_after, EventChange, EventKind, ReplayEvents, VaultEvent, VaultEventBus,
+};
 use pkv_sync_server::service::sync::{push, PushChange, PushReq};
 use pkv_sync_server::service::vault;
 use pkv_sync_server::service::AppState;
@@ -251,6 +253,60 @@ async fn push_event_carries_token_device_id_not_token_row_id() {
         event.source_device_id, user.token_id,
         "event must NOT carry the token row id; that was the v0.3.0 echo bug"
     );
+}
+
+#[tokio::test]
+async fn live_and_replayed_sse_events_use_same_commit_timestamp() {
+    let (state, user, vid, _tmp) = setup().await;
+    let first = push(
+        &state,
+        &user,
+        &vid,
+        None,
+        None,
+        PushReq {
+            device_name: Some("first".into()),
+            changes: vec![PushChange::Text {
+                path: "first.md".into(),
+                content: "one".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+    let mut rx = state.events.subscribe(&vid);
+
+    let second = push(
+        &state,
+        &user,
+        &vid,
+        Some(&first.new_commit),
+        None,
+        PushReq {
+            device_name: Some("second".into()),
+            changes: vec![PushChange::Text {
+                path: "second.md".into(),
+                content: "two".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let live_event = rx.try_recv().unwrap();
+    assert_eq!(live_event.commit, second.new_commit);
+    let replayed = replay_events_after(state.vault_root(), &vid, &first.new_commit)
+        .await
+        .unwrap();
+    let ReplayEvents::Events(replayed_events) = replayed else {
+        panic!("expected replay events");
+    };
+    let replay_event = replayed_events
+        .into_iter()
+        .find(|event| event.commit == second.new_commit)
+        .expect("second commit should replay after first commit");
+
+    assert_eq!(live_event.at, replay_event.at);
 }
 
 #[tokio::test]
