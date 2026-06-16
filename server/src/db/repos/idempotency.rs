@@ -80,7 +80,7 @@ impl IdempotencyRepo for SqliteIdempotencyRepo {
         response_json: &str,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "INSERT INTO idempotency_cache
+            "INSERT OR IGNORE INTO idempotency_cache
              (user_id, key, vault_id, route, request_hash, response_json, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
@@ -234,5 +234,27 @@ mod tests {
                 .response_json,
             "{\"route\":\"other\"}"
         );
+    }
+
+    /// Regression BUG-R2-002: a concurrent retry re-entering `put` with the same
+    /// `(user_id, key, vault_id, route)` used to hit the PRIMARY KEY constraint
+    /// (plain `INSERT`) and surface as a 500 instead of a cached 200. The cache
+    /// must treat a duplicate write as a no-op, retaining the first response.
+    #[tokio::test]
+    async fn put_with_duplicate_key_is_noop_not_constraint_error() {
+        let p = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&p).await.unwrap();
+        let repo = SqliteIdempotencyRepo::new(p);
+
+        repo.put("k", "u", "v", "push", "hash1", "{\"first\":true}")
+            .await
+            .unwrap();
+        // Second write with the same key must NOT error (no PK violation).
+        repo.put("k", "u", "v", "push", "hash1", "{\"first\":true}")
+            .await
+            .unwrap();
+
+        let entry = repo.get("k", "u", "v", "push").await.unwrap().unwrap();
+        assert_eq!(entry.response_json, "{\"first\":true}");
     }
 }

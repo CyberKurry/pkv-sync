@@ -30,6 +30,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
   check and `writeText`: a second read+hash re-check refuses the write
   if the local file changed on disk in the gap, preventing a remote
   push from clobbering an in-flight user edit (BUG-2024-003).
+- Idempotency cache writes use `INSERT OR IGNORE`, so a concurrent retry
+  re-entering the push idempotency path with the same key no longer hits a
+  PRIMARY KEY violation that surfaced as a 500 — the duplicate write is a
+  no-op that retains the first response (BUG-R2-002).
 
 ### Performance
 
