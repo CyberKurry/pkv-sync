@@ -2,7 +2,7 @@
 
 [English](./git-clone-howto.md) | [绠€浣撲腑鏂嘳(./git-clone-howto.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./git-clone-howto.ja.md) | [頃滉淡鞏碷(./git-clone-howto.ko.md)
 
-鏂囦欢鐗堟湰锛歷1.4.3銆?
+鏂囦欢鐗堟湰锛歷1.4.5銆?
 
 PKV Sync 鍙互灏囨瘡鍊?vault 閫忛亷 HTTPS 鏆撮湶鐐哄敮璁€ Git repository銆?
 

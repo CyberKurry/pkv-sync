@@ -2,7 +2,7 @@
 
 [English](./git-crypt-howto.md) | [绠€浣撲腑鏂嘳(./git-crypt-howto.zh-CN.md) | [绻侀珨涓枃](./git-crypt-howto.zh-Hant.md) | 鏃ユ湰瑾?| [頃滉淡鞏碷(./git-crypt-howto.ko.md)
 
-銉夈偔銉ャ儭銉炽儓銉愩兗銈搞儳銉? v1.4.3銆?
+銉夈偔銉ャ儭銉炽儓銉愩兗銈搞儳銉? v1.4.5銆?
 
 > **Note:** 銇撱倢銇?native end-to-end encryption锛圗2EE锛夈亴鎻愪緵銇曘倢銈嬨伨銇с伄鏆畾銈偆銉夈仹銇欍€侾KV Sync server 銇?filenames 銇?commit metadata 銈掑紩銇嶇稓銇嶈銈嬨亾銇ㄣ亴銇с亶銇俱仚銆?
 

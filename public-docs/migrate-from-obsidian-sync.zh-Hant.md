@@ -2,7 +2,7 @@
 
 [English](./migrate-from-obsidian-sync.md) | [绠€浣撲腑鏂嘳(./migrate-from-obsidian-sync.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./migrate-from-obsidian-sync.ja.md) | [頃滉淡鞏碷(./migrate-from-obsidian-sync.ko.md)
 
-鏂囦欢鐗堟湰锛歷1.4.3銆?
+鏂囦欢鐗堟湰锛歷1.4.5銆?
 
 鏈枃瑾槑濡備綍鎶婂凡缍撲娇鐢?Obsidian Sync 鐨?Obsidian 绛嗚搴洰鍓嶆獢妗堝尟鍏ュ埌鏂扮殑 PKV Sync 绛嗚搴€?
 

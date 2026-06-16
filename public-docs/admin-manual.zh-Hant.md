@@ -2,7 +2,7 @@
 
 [English](./admin-manual.md) | [绠€浣撲腑鏂嘳(./admin-manual.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./admin-manual.ja.md) | [頃滉淡鞏碷(./admin-manual.ko.md)
 
-鏂囦欢鐗堟湰锛歷1.4.3銆?
+鏂囦欢鐗堟湰锛歷1.4.5銆?
 
 鏈枃娑佃搵鑷绠?PKV Sync 鏈嶅嫏绔殑鏃ュ父绠＄悊銆傜恫璺垏涓绘鍔犲浐璜嬪悓鏅傞柋璁€閮ㄧ讲鍔犲浐鎸囧崡銆?
 

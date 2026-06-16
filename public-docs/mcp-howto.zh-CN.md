@@ -2,7 +2,7 @@
 
 [English](./mcp-howto.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./mcp-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./mcp-howto.ja.md) | [頃滉淡鞏碷(./mcp-howto.ko.md)
 
-鏂囨。鐗堟湰锛歷1.4.3銆?
+鏂囨。鐗堟湰锛歷1.4.5銆?
 
 PKV Sync 鍙互閫氳繃 MCP server 鏆撮湶绗旇搴撳唴瀹广€傛湇鍔＄鍦ㄨ繑鍥炴枃浠跺唴瀹瑰墠浼氳В鏋?blob pointer锛屽彲浠ラ€氳繃鏄惧紡璇诲啓宸ュ叿鍐欏叆鏂囦欢锛屽苟涓旇姹備娇鐢ㄦ櫘閫氱殑 PKV Sync bearer 璁惧 token銆?
 

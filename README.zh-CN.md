@@ -5,7 +5,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.4.4。
+文档版本：v1.4.5。
 
 [English](./README.md) | 简体中文 | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -101,7 +101,7 @@ PKV Sync 1.0 **暂不**提供原生端到端加密——服务端能读到笔记
 
 ## 状态
 
-PKV Sync 1.4.4 完成全面审计驱动的清理：合并重复辅助函数（blob 路径分片、vault-ID 校验、blob-pointer 解析），移除 8 个未使用的运行时配置 setter，并在 push、pull、scan 和 MCP 工具中提供 15 项性能改进——提升正则编译、短路空操作、批量读取树、缓存冲突计数。
+PKV Sync 1.4.5 在全仓库复审后加固安全与可靠性：存储锁与认证限流锁从 poisoning 中恢复而非拖垮进程，vault restore 端点关闭基于时序的 IDOR，push 幂等在重试时不再竞态至 500，实时 SSE 事件时间回退到墙钟而非 epoch 0，内联文本 apply 关闭 TOCTOU 窗口，并在 TLS 部署缺失 `public_host` 时于启动告警。
 
 PKV Sync 1.0 是第一个稳定版。公开 REST API、CLI、存储布局、插件包、Docker 镜像作为一组同步发版，遵循 semver：1.X.Y 在公开表面保持向后兼容，OpenAPI 规范是这个兼容契约的权威来源。0.x 创建的 SQLite 库**不支持**就地升级到 1.0.0——请按 [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md)操作。
 

@@ -2,7 +2,7 @@
 
 [English](./COVERAGE.md) | [绠€浣撲腑鏂嘳(./COVERAGE.zh-CN.md) | [绻侀珨涓枃](./COVERAGE.zh-Hant.md) | [鏃ユ湰瑾瀅(./COVERAGE.ja.md) | 頃滉淡鞏?
 
-氍胳劀 氩勳爠: v1.4.3.
+氍胳劀 氩勳爠: v1.4.5.
 
 鞚?氍胳劀電?Rust server鞕€ Obsidian plugin鞚?CI coverage baseline鞚?旮半頃╇媹雼? CI電?靸?coverage report毳?鞚?響滌檧 牍勱祼頃橂┌, 鞏措枻 component霛茧弰 項堨毄 threshold氤措嫟 雿?霒柎歆€氅?鞁ろ尐頃╇媹雼?
 

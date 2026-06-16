@@ -2,7 +2,7 @@
 
 [English](./llm-wiki-howto.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./llm-wiki-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./llm-wiki-howto.ja.md) | [頃滉淡鞏碷(./llm-wiki-howto.ko.md)
 
-鏂囨。鐗堟湰锛歷1.4.3銆?
+鏂囨。鐗堟湰锛歷1.4.5銆?
 
 PKV Sync 涓虹敱 LLM 缁存姢鐨?wiki 鎻愪緵瀛樺偍銆佸巻鍙插拰 MCP 鍩哄簳銆備綘鑷繁鐨?MCP-capable agent 璐熻矗杩愯 LLM锛岄€氳繃鏅€氱殑 PKV Sync 璁惧 token 璇诲啓锛屽苟鎶婃瘡涓凡鎺ュ彈鐨勬敼鍔ㄦ彁浜ゅ埌绗旇搴撶殑 git 鍘嗗彶涓€?
 

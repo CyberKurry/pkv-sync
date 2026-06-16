@@ -2,7 +2,7 @@
 
 [English](./admin-manual.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./admin-manual.zh-Hant.md) | [鏃ユ湰瑾瀅(./admin-manual.ja.md) | [頃滉淡鞏碷(./admin-manual.ko.md)
 
-鏂囨。鐗堟湰锛歷1.4.3銆?
+鏂囨。鐗堟湰锛歷1.4.5銆?
 
 鏈枃瑕嗙洊鑷墭绠?PKV Sync 鏈嶅姟绔殑鏃ュ父绠＄悊銆傜綉缁滃拰涓绘満鍔犲浐璇峰悓鏃堕槄璇婚儴缃插姞鍥烘寚鍗椼€?
 
@@ -204,7 +204,7 @@ https://sync.example.com/k_xxx/
 
 浜岃繘鍒堕儴缃插彲鍏堣繍琛?`pkvsyncd upgrade --dry-run` 棰勮鏈€鏂?release銆佺洰鏍囪祫浜у拰鏃佽矾鍐欏叆璺緞銆傝繍琛?`pkvsyncd upgrade --yes` 浼氭妸鏍￠獙鍚庣殑 release 浜岃繘鍒朵笅杞藉埌褰撳墠鍙墽琛屾枃浠舵梺杈圭殑 `pkvsyncd.new`锛圵indows 涓?`pkvsyncd.new.exe`锛夈€傚懡浠や細鏍规嵁 `SHA256SUMS` 鏍￠獙 SHA-256锛屽苟鎵撳嵃 systemd锛忔墜鍔ㄦ浛鎹㈡楠わ紱瀹冧笉浼氱儹鏇挎崲姝ｅ湪杩愯鐨勮繘绋嬨€?
 
-浣跨敤 `pkvsyncd upgrade --version 1.4.3` 鍙互鎸囧畾 release銆傝嫢鍛戒护鎵句笉鍒板尮閰嶈祫浜ф垨鏍￠獙鍜岋紝璇锋墜鍔ㄤ粠 GitHub release 涓嬭浇锛屽苟鑷鏍￠獙 `SHA256SUMS`銆?
+浣跨敤 `pkvsyncd upgrade --version 1.4.5` 鍙互鎸囧畾 release銆傝嫢鍛戒护鎵句笉鍒板尮閰嶈祫浜ф垨鏍￠獙鍜岋紝璇锋墜鍔ㄤ粠 GitHub release 涓嬭浇锛屽苟鑷鏍￠獙 `SHA256SUMS`銆?
 
 瀵逛簬 0.x 閮ㄧ讲锛屼笉瑕佹妸 1.0 浜岃繘鍒舵垨闀滃儚鐩存帴鎸囧悜宸叉湁 `metadata.db`銆傝鍏堝浠姐€乵aterialize 鎴栧鍑虹瑪璁板簱鍐呭锛屼娇鐢ㄥ叏鏂扮殑 1.0 鏁版嵁鐩綍鍚姩鏈嶅姟锛屽啀鎶婄瑪璁板簱鍐呭瀵煎叆鎴?push 鍒版柊鏈嶅姟绔€傝瑙?[`upgrade-notes-v1.0.zh-CN.md`](./upgrade-notes-v1.0.zh-CN.md)銆?
 

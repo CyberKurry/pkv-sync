@@ -2,7 +2,7 @@
 
 English | [绠€浣撲腑鏂嘳(./COVERAGE.zh-CN.md) | [绻侀珨涓枃](./COVERAGE.zh-Hant.md) | [鏃ユ湰瑾瀅(./COVERAGE.ja.md) | [頃滉淡鞏碷(./COVERAGE.ko.md)
 
-Document version: v1.4.3.
+Document version: v1.4.5.
 
 This page tracks the CI coverage baseline for the Rust server and Obsidian plugin. CI compares fresh coverage reports against this table and fails when any component drops by more than the allowed threshold.
 

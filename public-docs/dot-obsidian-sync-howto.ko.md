@@ -2,7 +2,7 @@
 
 [English](./dot-obsidian-sync-howto.md) | [绠€浣撲腑鏂嘳(./dot-obsidian-sync-howto.zh-CN.md) | [绻侀珨涓枃](./dot-obsidian-sync-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./dot-obsidian-sync-howto.ja.md) | 頃滉淡鞏?
 
-氍胳劀 氩勳爠: v1.4.3.
+氍胳劀 氩勳爠: v1.4.5.
 
 PKV Sync電?旮半掣鞝侅溂搿?hidden path毳?頂柬暕雼堧嫟. vault氤?allowlist毳?鞝滉车頃橂瘈搿?鞝勳泊 Obsidian 雮措秬 霐旊爥韯半Μ臧€ 鞎勲媹霛?靹犿儩頃?`.obsidian` 靹れ爼 韺岇澕毵?opt in頃?靾?鞛堨姷雼堧嫟.
 

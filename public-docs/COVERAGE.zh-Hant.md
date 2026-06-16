@@ -2,7 +2,7 @@
 
 [English](./COVERAGE.md) | [绠€浣撲腑鏂嘳(./COVERAGE.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./COVERAGE.ja.md) | [頃滉淡鞏碷(./COVERAGE.ko.md)
 
-鏂囦欢鐗堟湰锛歷1.4.3銆?
+鏂囦欢鐗堟湰锛歷1.4.5銆?
 
 鏈爜瑷橀寗 Rust server 鑸?Obsidian 澶栨帥鐨?CI 瑕嗚搵鐜囧熀绶氥€侰I 鏈冨皣鏈€鏂拌钃嬬巼鍫卞憡鑸囨琛ㄦ瘮杓冿紱浠讳竴 component 涓嬮檷瓒呴亷鍏佽ū闁惧€兼檪锛屾鏌ユ渻澶辨晽銆?
 

@@ -2,7 +2,7 @@
 
 [English](./upgrade-notes-v1.0.md) | [绠€浣撲腑鏂嘳(./upgrade-notes-v1.0.zh-CN.md) | [绻侀珨涓枃](./upgrade-notes-v1.0.zh-Hant.md) | [鏃ユ湰瑾瀅(./upgrade-notes-v1.0.ja.md) | 頃滉淡鞏?
 
-氍胳劀 氩勳爠: v1.4.3.
+氍胳劀 氩勳爠: v1.4.5.
 
 PKV Sync 1.0鞚€ 觳?stable release鞛呺媹雼? 霕愴暅 頄ロ泟 1.x maintenance毳?鞙勴暣 SQLite migration
 baseline鞚?reset頃╇媹雼?

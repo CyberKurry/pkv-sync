@@ -2,7 +2,7 @@
 
 [English](./git-crypt-howto.md) | [绠€浣撲腑鏂嘳(./git-crypt-howto.zh-CN.md) | [绻侀珨涓枃](./git-crypt-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./git-crypt-howto.ja.md) | 頃滉淡鞏?
 
-氍胳劀 氩勳爠: v1.4.3.
+氍胳劀 氩勳爠: v1.4.5.
 
 > **Note:** native end-to-end encryption(E2EE)鞚?鞝滉车霅橁赴 鞝勱箤歆€鞚?鞛勳嫓 臧€鞚措摐鞛呺媹雼? PKV Sync server電?鞐爠頌?filenames鞕€ commit metadata毳?氤?靾?鞛堨姷雼堧嫟.
 

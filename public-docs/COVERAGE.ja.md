@@ -2,7 +2,7 @@
 
 [English](./COVERAGE.md) | [绠€浣撲腑鏂嘳(./COVERAGE.zh-CN.md) | [绻侀珨涓枃](./COVERAGE.zh-Hant.md) | 鏃ユ湰瑾?| [頃滉淡鞏碷(./COVERAGE.ko.md)
 
-銉夈偔銉ャ儭銉炽儓銉愩兗銈搞儳銉? v1.4.3銆?
+銉夈偔銉ャ儭銉炽儓銉愩兗銈搞儳銉? v1.4.5銆?
 
 銇撱伄銉氥兗銈搞伅銆丷ust server 銇?Obsidian plugin 銇?CI coverage baseline 銈掕閷层仐銇俱仚銆侰I 銇柊銇椼亜 coverage report 銈掋亾銇〃銇ㄦ瘮杓冦仐銆併亜銇氥倢銇嬨伄 component 銇岃ū瀹广仐銇嶃亜鍊ゃ倰瓒呫亪銇︿綆涓嬨仐銇熷牬鍚堛伀澶辨晽銇椼伨銇欍€?
 

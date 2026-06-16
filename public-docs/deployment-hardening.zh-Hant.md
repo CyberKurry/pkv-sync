@@ -2,7 +2,7 @@
 
 [English](./deployment-hardening.md) | [绠€浣撲腑鏂嘳(./deployment-hardening.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./deployment-hardening.ja.md) | [頃滉淡鞏碷(./deployment-hardening.ko.md)
 
-鏂囦欢鐗堟湰锛歷1.4.3銆?
+鏂囦欢鐗堟湰锛歷1.4.5銆?
 
 鏈枃鍋囪ō閮ㄧ讲灏嶈薄鏄嚜宸便€佸搴€佸湗闅婃垨鍙俊鏈嬪弸浣跨敤鐨勫皬鍨嬭嚜瑷楃鏈嶅嫏銆侾KV Sync 閬嬬董涓婃瘮杓冪啊鍠紝浣嗘湇鍕欑鏈冧繚瀛樺彲璁€鐨勫€夊韩鍏у锛屽洜姝や富姗熷拰鍌欎唤琛涚敓寰堥噸瑕併€?
 

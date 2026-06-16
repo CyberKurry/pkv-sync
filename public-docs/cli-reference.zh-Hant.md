@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | [绠€浣撲腑鏂嘳(./cli-reference.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./cli-reference.ja.md) | [頃滉淡鞏碷(./cli-reference.ko.md)
 
-鏂囦欢鐗堟湰锛歷1.4.3銆?
+鏂囦欢鐗堟湰锛歷1.4.5銆?
 
 `pkvsyncd` 鏄?PKV Sync 鐨勪己鏈嶅櫒甯搁绋嬪紡鍩疯妾旓紝鎻愪緵 HTTP/WebSocket 鍚屾 API銆佺鐞嗕粙闈€丮CP 浼烘湇鍣紝浠ュ強涓€灏忕祫缍亱鐢ㄧ殑瀛愬懡浠ゃ€?
 
@@ -291,7 +291,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`锛氬彧椤ず閬镐腑鐨?release銆乤sset 鑸囩洰妯欒矾寰戯紝涓嶅闅涗笅杓夈€?
 - `--yes`锛氱暐閬庝簰鍕曠⒑瑾嶆彁绀恒€?
-- `--version <VERSION>`锛氫笅杓夋寚瀹?release锛屼緥濡?`1.4.3`锛岃€岄潪鏈€鏂扮増鏈€?
+- `--version <VERSION>`锛氫笅杓夋寚瀹?release锛屼緥濡?`1.4.5`锛岃€岄潪鏈€鏂扮増鏈€?
 
 ### 瑾槑
 
@@ -309,5 +309,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 涓嬭級鎸囧畾 release
-pkvsyncd upgrade --yes --version 1.4.3
+pkvsyncd upgrade --yes --version 1.4.5
 ```

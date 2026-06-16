@@ -9,6 +9,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Security
 
+### Fixed
+
+### Performance
+
+## [1.4.5] - 2026-06-16
+
+### Security
+
 - Vault restore endpoint now scopes the ownership lookup by user for
   non-admin callers (`find_for_user`), so "vault not found" and
   "someone else's vault" are indistinguishable — closing a timing-based

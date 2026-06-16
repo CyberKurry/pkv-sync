@@ -8,7 +8,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.4.4.
+Document version: v1.4.5.
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -154,7 +154,7 @@ For real deployments, also run behind HTTPS, restrict
 
 ## Status
 
-PKV Sync 1.4.4 completes a comprehensive audit-driven cleanup: consolidates duplicate helpers (blob path sharding, vault-ID validation, blob-pointer parsing), removes eight unused runtime-config setters, and delivers 15 performance improvements across push, pull, scan, and MCP tools — hoisting regex compilation, short-circuiting empty operations, batching tree reads, and caching conflict counts.
+PKV Sync 1.4.5 hardens security and reliability after a full repository re-audit: the storage and auth rate-limit locks recover from poisoning instead of crashing the process, the vault restore endpoint closes a timing-based IDOR, push idempotency no longer races to a 500 on retries, live SSE event times fall back to the wall clock instead of epoch 0, inline-text apply closes a TOCTOU window, and startup warns when a TLS deployment is missing `public_host`.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together

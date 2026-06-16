@@ -2,7 +2,7 @@
 
 [English](./dot-obsidian-sync-howto.md) | [绠€浣撲腑鏂嘳(./dot-obsidian-sync-howto.zh-CN.md) | [绻侀珨涓枃](./dot-obsidian-sync-howto.zh-Hant.md) | 鏃ユ湰瑾?| [頃滉淡鞏碷(./dot-obsidian-sync-howto.ko.md)
 
-銉夈偔銉ャ儭銉炽儓銉愩兗銈搞儳銉? v1.4.3銆?
+銉夈偔銉ャ儭銉炽儓銉愩兗銈搞儳銉? v1.4.5銆?
 
 PKV Sync 銇€氬父銆乭idden path 銈掑悓鏈熴仐銇俱仜銈撱€倂ault 銇斻仺銇?allowlist 銇倛銈娿€丱bsidian 鍐呴儴銉囥偅銉偗銉堛儶鍏ㄤ綋銇с伅銇亸銆佸繀瑕併仾 `.obsidian` 瑷畾銉曘偂銈ゃ儷銇犮亼銈?opt in 銇с亶銇俱仚銆?
 

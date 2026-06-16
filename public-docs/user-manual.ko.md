@@ -2,7 +2,7 @@
 
 [English](./user-manual.md) | [绠€浣撲腑鏂嘳(./user-manual.zh-CN.md) | [绻侀珨涓枃](./user-manual.zh-Hant.md) | [鏃ユ湰瑾瀅(./user-manual.ja.md) | 頃滉淡鞏?
 
-氍胳劀 氩勳爠: v1.4.3.
+氍胳劀 氩勳爠: v1.4.5.
 
 鞚?毵る壌鞏检潃 旮办〈 PKV Sync 靹滊矂鞐?鞐瓣舶頃橂姅 Obsidian 靷毄鞛愲ゼ 鞙勴暅 瓴冹瀰雼堧嫟. 鞁滌瀾頃橁赴 鞝勳棎 靹滊矂 甏€毽瀽鞐愱矊 靹滊矂 瓿奠湢 URL瓿?瓿勳爼 霕愲姅 齑堧寑 旖旊摐毳?鞖旍箔頃橃嫮鞁滌槫.
 

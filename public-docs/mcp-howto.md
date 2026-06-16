@@ -2,7 +2,7 @@
 
 English | [绠€浣撲腑鏂嘳(./mcp-howto.zh-CN.md) | [绻侀珨涓枃](./mcp-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./mcp-howto.ja.md) | [頃滉淡鞏碷(./mcp-howto.ko.md)
 
-Document version: v1.4.3.
+Document version: v1.4.5.
 
 PKV Sync can expose vault contents through an MCP server. The server resolves
 blob pointers before returning file content, can write through explicit
