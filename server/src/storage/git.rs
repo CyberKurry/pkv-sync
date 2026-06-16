@@ -972,7 +972,7 @@ impl GitVaultStore for Git2VaultStore {
             };
             let commit = repo.find_commit(oid)?;
             let tree = commit.tree()?;
-            let mut out = Vec::new();
+            let mut out = Vec::with_capacity(tree.len());
             tree_entries_recursive(&repo, &tree, "", 0, &mut out)?;
             Ok(out)
         })

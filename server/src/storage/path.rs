@@ -22,7 +22,11 @@ const MAX_PATH_COMPONENT_LEN: usize = 255;
 /// Normalize a vault-relative path for protocol/Git storage.
 pub fn normalize(input: &str) -> Result<String, PathError> {
     let decoded = percent_decode_str(input).decode_utf8_lossy();
-    let s = decoded.replace('\\', "/");
+    let s = if decoded.contains('\\') {
+        std::borrow::Cow::Owned(decoded.replace('\\', "/"))
+    } else {
+        decoded
+    };
     if s.is_empty() {
         return Err(PathError::Empty);
     }

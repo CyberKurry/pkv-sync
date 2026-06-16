@@ -281,14 +281,21 @@ async fn push_with_request_metadata_internal(
     let blob_store = blob_store(state);
     let mut git_changes = Vec::new();
     let mut blob_hashes = Vec::new();
-    let blob_candidates: Vec<String> = req
+    let has_blob_changes = req
         .changes
         .iter()
-        .filter_map(|change| match change {
-            PushChange::Blob { blob_hash, .. } => Some(blob_hash.clone()),
-            _ => None,
-        })
-        .collect();
+        .any(|change| matches!(change, PushChange::Blob { .. }));
+    let blob_candidates: Vec<String> = if has_blob_changes {
+        req.changes
+            .iter()
+            .filter_map(|change| match change {
+                PushChange::Blob { blob_hash, .. } => Some(blob_hash.clone()),
+                _ => None,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut blob_availability = None;
     let inline_max = runtime_cfg.inline_content_max_bytes as usize;
     let mut inline_budget = SseInlineBudget::new(inline_max);
