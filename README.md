@@ -1,8 +1,8 @@
-﻿# PKV Sync
+# PKV Sync
 
 **Self-host your Obsidian vault.** PKV Sync runs on your own server and keeps
 your Obsidian vaults in sync across phone, tablet, and desktop. One binary,
-one SQLite database, one bare git repo per vault 鈥?no cluster, no S3, no
+one SQLite database, one bare git repo per vault — no cluster, no S3, no
 managed cloud. You install it, point Obsidian at it, and your notes sync.
 
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
@@ -10,7 +10,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 
 Document version: v1.4.4.
 
-English | [绠€浣撲腑鏂嘳(./README.zh-CN.md) | [绻侀珨涓枃](./README.zh-Hant.md) | [鏃ユ湰瑾瀅(./README.ja.md) | [頃滉淡鞏碷(./README.ko.md)
+English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
 ## Features
 
@@ -20,10 +20,10 @@ English | [绠€浣撲腑鏂嘳(./README.zh-CN.md) | [绻侀珨涓枃](./REA
   Events; polling stays as a safety net.
 - **Git is the source of truth.** Every vault is a bare git repo, so
   per-file history, unified diff, and single-file restore work out of
-  the box 鈥?in the plugin and in the admin panel.
+  the box — in the plugin and in the admin panel.
 - **Conflict-safe.** The plugin never silently overwrites local edits;
   conflicts surface as `.conflict-*` files with a one-click resolver.
-- **Admin panel** in five languages (English, 绠€涓? 绻佷腑, 鏃ユ湰瑾? 頃滉淡鞏?
+- **Admin panel** in five languages (English, 简中, 繁中, 日本語, 한국어)
   for users, device tokens, vaults, invites, activity, and blob GC, with
   confirmation dialogs for destructive vault and user actions.
 - **AI-readable vaults.** MCP exposes read/write tools over stdio,
@@ -102,7 +102,7 @@ independent scaling.
 
 ## Obsidian plugin
 
-Local files are the source of truth 鈥?the plugin reads and writes your
+Local files are the source of truth — the plugin reads and writes your
 normal Obsidian vault on disk, no proxy filesystem. Non-sensitive plugin
 settings and sync indexes live in
 `<vault>/.obsidian/plugins/pkv-sync/data.json`; login state, the active bearer
@@ -112,14 +112,14 @@ backups, and legacy plugin `data.json` copies as sensitive. Device tokens renew
 on use, expire after 90 idle days, and have a 365-day absolute lifetime; logging
 in again on the same device rotates the active token.
 
-Day-to-day features 鈥?command palette, file history, side-by-side diff,
+Day-to-day features — command palette, file history, side-by-side diff,
 conflict resolution, selective `.obsidian` sync, device management, and
-self-update 鈥?are walked through in the
+self-update — are walked through in the
 [user manual](./public-docs/user-manual.md).
 
 ## Encryption today
 
-PKV Sync 1.0 does **not** yet ship native end-to-end encryption 鈥?the
+PKV Sync 1.0 does **not** yet ship native end-to-end encryption — the
 server can read vault contents. Native per-vault E2EE is planned for the
 1.x roadmap as an opt-in mode, because encryption trades away the
 server-side features (history diff, three-way auto-merge, inline SSE
@@ -133,10 +133,10 @@ stay plaintext on the server (acceptable for most threat models). Standard
 the key.
 
 For real deployments, also run behind HTTPS, restrict
-`trusted_proxies`, encrypt the data disk, and encrypt backups 鈥?see the
+`trusted_proxies`, encrypt the data disk, and encrypt backups — see the
 [deployment hardening guide](./public-docs/deployment-hardening.md).
 
-## Looking for鈥?
+## Looking for…
 
 | Topic | Doc |
 | --- | --- |
@@ -160,7 +160,7 @@ PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together
 under semver: 1.X.Y stays backwards-compatible on the public surface, and
 the OpenAPI spec is the canonical compatibility contract. SQLite databases
-created by 0.x releases cannot be upgraded in place to 1.0.0 鈥?follow the
+created by 0.x releases cannot be upgraded in place to 1.0.0 — follow the
 [1.0 upgrade notes](./public-docs/upgrade-notes-v1.0.md).
 
 Each GitHub release publishes Linux amd64/arm64 binaries, a Windows x64

@@ -1,113 +1,113 @@
-﻿# PKV Sync
+# PKV Sync
 
-**鑷墭绠′綘鐨?Obsidian 绗旇搴撱€?* PKV Sync 璺戝湪浣犺嚜宸辩殑鏈嶅姟鍣ㄤ笂锛屾妸鎵嬫満銆佸钩鏉裤€佹闈㈢鐨?Obsidian 绗旇搴撲繚鎸佸悓姝ャ€備竴涓簩杩涘埗銆佷竴涓?SQLite 鏁版嵁搴撱€佹瘡涓瑪璁板簱涓€涓?bare git 浠撳簱鈥斺€斾笉闇€瑕侀泦缇わ紝涓嶉渶瑕?S3锛屼笉闇€瑕佷换浣曟墭绠′簯銆傝濂斤紝璁?Obsidian 杩炰笂鍘伙紝绗旇灏卞悓姝ヤ簡銆?
+**自托管你的 Obsidian 笔记库。** PKV Sync 跑在你自己的服务器上，把手机、平板、桌面端的 Obsidian 笔记库保持同步。一个二进制、一个 SQLite 数据库、每个笔记库一个 bare git 仓库——不需要集群，不需要 S3，不需要任何托管云。装好，让 Obsidian 连上去，笔记就同步了。
 
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-鏂囨。鐗堟湰锛歷1.4.4銆?
+文档版本：v1.4.4。
 
-[English](./README.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./README.zh-Hant.md) | [鏃ユ湰瑾瀅(./README.ja.md) | [頃滉淡鞏碷(./README.ko.md)
+[English](./README.md) | 简体中文 | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
-## 鐗规€?
+## 特性
 
-- **澶氱敤鎴枫€佸绗旇搴?*鍚屾锛屾寜璁惧绛惧彂浠ょ墝锛屾瘡涓瑪璁板簱甯?push 閿佷笌骞傜瓑閲嶈瘯銆?
-- **瀹炴椂鎺ㄩ€?*銆傚皬鏀瑰姩閫氳繃 SSE 鍦ㄤ簹绉掔骇钀藉湴锛涜疆璇綔涓哄厹搴曚繚闄┿€?
-- **Git 鍗崇湡鐩?*銆傛瘡涓瑪璁板簱閮芥槸涓€涓?bare git 浠撳簱锛屽崟鏂囦欢鍘嗗彶銆佺粺涓€ diff銆佸崟鏂囦欢鎭㈠寮€绠卞嵆鐢ㄢ€斺€旀彃浠剁鍜岀鐞嗗悗鍙伴兘鑳界敤銆?
-- **鍐茬獊瀹夊叏**銆傛彃浠朵笉浼氶潤榛樿鐩栨湰鍦版敼鍔紝鍐茬獊浼氫互 `.conflict-*` 鏂囦欢鍛堢幇锛屼竴閿€屼繚鐣欐湰鍦般€嶆垨銆岄噰绾宠繙绔€嶃€?
-- **浜旇瑷€绠＄悊鍚庡彴**锛圗nglish銆佺畝涓€佺箒涓€佹棩鏈獮銆來暅甑柎锛夛細鐢ㄦ埛銆佽澶囦护鐗屻€佺瑪璁板簱銆侀個璇风爜銆佹椿鍔ㄦ棩蹇椼€乥lob 鍨冨溇鍥炴敹锛屽苟瀵圭牬鍧忔€х殑绗旇搴撳拰鐢ㄦ埛鎿嶄綔寮瑰嚭纭銆?
-- **AI 鍙**銆侻CP 閫氳繃 stdio銆佺嫭绔?Streamable HTTP锛屾垨 `pkvsyncd serve` 鍐呭祵鐨?`/mcp` 璺敱鏆撮湶璇诲啓宸ュ叿銆?
-- **榛樿鏈夎竟鐣?*銆傜鐞嗗憳鍒涘缓/閲嶇疆瀵嗙爜浣跨敤 setup 鍚岀骇寮哄瘑鐮佺瓥鐣ワ紱token 鏄庢枃鍙睍绀轰竴娆★紱涓婁紶鍜?MCP 鍝嶅簲閮芥湁澶у皬涓婇檺锛涘疄鏃?SSE 娴佷細澶嶆煡宸叉挙閿€ token銆?
-- **鏁呮剰鍋氬緱鏃犺亰**銆傚崟浜岃繘鍒躲€佸崟 SQLite 鍏冩暟鎹簱銆佹瘡搴撲竴涓?bare git 浠撱€佹瘡涓檮浠朵竴涓唴瀹瑰鍧€ blob銆?
+- **多用户、多笔记库**同步，按设备签发令牌，每个笔记库带 push 锁与幂等重试。
+- **实时推送**。小改动通过 SSE 在亚秒级落地；轮询作为兜底保险。
+- **Git 即真相**。每个笔记库都是一个 bare git 仓库，单文件历史、统一 diff、单文件恢复开箱即用——插件端和管理后台都能用。
+- **冲突安全**。插件不会静默覆盖本地改动，冲突会以 `.conflict-*` 文件呈现，一键「保留本地」或「采纳远端」。
+- **五语言管理后台**（English、简中、繁中、日本語、한국어）：用户、设备令牌、笔记库、邀请码、活动日志、blob 垃圾回收，并对破坏性的笔记库和用户操作弹出确认。
+- **AI 可读**。MCP 通过 stdio、独立 Streamable HTTP，或 `pkvsyncd serve` 内嵌的 `/mcp` 路由暴露读写工具。
+- **默认有边界**。管理员创建/重置密码使用 setup 同级强密码策略；token 明文只展示一次；上传和 MCP 响应都有大小上限；实时 SSE 流会复查已撤销 token。
+- **故意做得无聊**。单二进制、单 SQLite 元数据库、每库一个 bare git 仓、每个附件一个内容寻址 blob。
 
-## 鐢?Docker Compose 蹇€熶笂鎵?
+## 用 Docker Compose 快速上手
 
-杩欐槸鎺ㄨ崘璺緞銆俙deploy/caddy/` 閲岀殑 Caddy 閫氳繃 Let's Encrypt 鑷姩绛惧彂 HTTPS锛汸KV Sync 鍦?compose 鍐呯綉鐩戝惉 `127.0.0.1:6710`锛屽叕缃戝畬鍏ㄨ涓嶅埌鏄庢枃 HTTP銆?
+这是推荐路径。`deploy/caddy/` 里的 Caddy 通过 Let's Encrypt 自动签发 HTTPS；PKV Sync 在 compose 内网监听 `127.0.0.1:6710`，公网完全见不到明文 HTTP。
 
-浣犻渶瑕侊細涓€涓煙鍚嶏紙姣斿 `sync.example.com`锛夛紝鍏?A/AAAA 璁板綍鎸囧悜鏈嶅姟鍣紱鍏綉鑳借闂埌 `80` 鍜?`443` 绔彛锛?0 鐢ㄤ簬 ACME HTTP-01 楠岃瘉锛夈€?
+你需要：一个域名（比如 `sync.example.com`），其 A/AAAA 记录指向服务器；公网能访问到 `80` 和 `443` 端口（80 用于 ACME HTTP-01 验证）。
 
-1. 鐢熸垚閮ㄧ讲瀵嗛挜锛?
+1. 生成部署密钥：
 
    ```bash
    docker run --rm ghcr.io/cyberkurry/pkv-sync:latest genkey
    ```
 
-2. 鍦?`docker-compose.yml` 鏃佹斁涓€浠?`config.toml`锛?
+2. 在 `docker-compose.yml` 旁放一份 `config.toml`：
 
    ```toml
    [server]
    bind_addr      = "0.0.0.0:6710"
-   deployment_key = "k_0123456789abcdef0123456789abcdef"  # 鏇挎崲涓?genkey 杈撳嚭
-   public_host    = "sync.example.com"   # 蹇呭～锛岀鐞嗙 POST 鎵嶈兘閫?
+   deployment_key = "k_0123456789abcdef0123456789abcdef"  # 替换为 genkey 输出
+   public_host    = "sync.example.com"   # 必填，管理端 POST 才能通
 
    [storage]
    data_dir = "/var/lib/pkv-sync"
    db_path  = "/var/lib/pkv-sync/metadata.db"
 
    [network]
-   trusted_proxies = ["172.16.0.0/12"]   # Docker bridge 缃戞
+   trusted_proxies = ["172.16.0.0/12"]   # Docker bridge 网段
 
    [mcp]
-   embed_in_serve = false                # true 浼氬湪鏈湇鍔′笂鎸傝浇 /mcp
+   embed_in_serve = false                # true 会在本服务上挂载 /mcp
    ```
 
-3. 缂栬緫 `deploy/caddy/Caddyfile`锛屾妸 `sync.example.com` 鎹㈡垚浣犵殑鐪熷疄鍩熷悕銆?
+3. 编辑 `deploy/caddy/Caddyfile`，把 `sync.example.com` 换成你的真实域名。
 
-4. 鍚姩鏁村鏈嶅姟锛?
+4. 启动整套服务：
 
    ```bash
    docker compose up -d
    ```
 
-   娴忚鍣ㄦ墦寮€ `https://sync.example.com/setup`锛屽缓绗竴涓鐞嗗憳璐﹀彿銆?
+   浏览器打开 `https://sync.example.com/setup`，建第一个管理员账号。
 
-5. 鍦?Obsidian 閲屾妸 `pkv-sync-plugin.zip` 瑙ｅ帇鍒?`<vault>/.obsidian/plugins/pkv-sync/`锛屽惎鐢ㄦ彃浠讹紝浠庣鐞嗗悗鍙板鍒跺垎浜?URL 绮樿繘鍘伙紝鐧诲綍鎴栨敞鍐岋紝閫変竴涓瑪璁板簱銆?
+5. 在 Obsidian 里把 `pkv-sync-plugin.zip` 解压到 `<vault>/.obsidian/plugins/pkv-sync/`，启用插件，从管理后台复制分享 URL 粘进去，登录或注册，选一个笔记库。
 
-鍚庣画鏇存柊灏辨槸 `docker compose pull && docker compose up -d`銆傚鏋滆鍘熺敓瀹夎銆佽皟鍙嶅悜浠ｇ悊锛圕addy锛廚ginx锛廡raefik锛夈€佷簡瑙?`public_host` 鐨勮涔夈€佸仛澶囦唤杩樺師鎴栫鐩樺姞瀵嗭紝璇风湅[閮ㄧ讲鍔犲浐鎸囧崡](./public-docs/deployment-hardening.zh-CN.md)銆?
+后续更新就是 `docker compose pull && docker compose up -d`。如果要原生安装、调反向代理（Caddy／Nginx／Traefik）、了解 `public_host` 的语义、做备份还原或磁盘加密，请看[部署加固指南](./public-docs/deployment-hardening.zh-CN.md)。
 
-## MCP 閮ㄧ讲妯″紡
+## MCP 部署模式
 
-PKV Sync 鎻愪緵涓ょ MCP Streamable HTTP 閮ㄧ讲鏂瑰紡銆傚唴宓屾ā寮忛渶瑕佹樉寮忓紑鍚細璁剧疆 `[mcp].embed_in_serve = true` 鍚庯紝`pkvsyncd serve` 浼氬湪涓绘湇鍔＄鍙ｆ寕杞?`/mcp`锛屽鐢ㄥ悓涓€濂?TLS 缁堟銆佸弽鍚戜唬鐞嗐€侀儴缃插瘑閽ュ拰 bearer 浠ょ墝鏍￠獙銆傜嫭绔嬫ā寮忎繚鐣欏師鏈夊崟鐙繘绋嬶細`pkvsyncd mcp --transport http --bind 127.0.0.1:6711`锛岄€傚悎闅旂 MCP銆佷笓鐢ㄧ洃鍚湴鍧€鎴栫嫭绔嬫墿缂╁銆?
+PKV Sync 提供两种 MCP Streamable HTTP 部署方式。内嵌模式需要显式开启：设置 `[mcp].embed_in_serve = true` 后，`pkvsyncd serve` 会在主服务端口挂载 `/mcp`，复用同一套 TLS 终止、反向代理、部署密钥和 bearer 令牌校验。独立模式保留原有单独进程：`pkvsyncd mcp --transport http --bind 127.0.0.1:6711`，适合隔离 MCP、专用监听地址或独立扩缩容。
 
-## Obsidian 鎻掍欢
+## Obsidian 插件
 
-鏈湴鏂囦欢灏辨槸鐪熺浉鈥斺€旀彃浠剁洿鎺ヨ鍐欎綘纾佺洏涓婄殑 Obsidian 绗旇搴擄紝涓嶅瓨鍦ㄤ唬鐞嗘枃浠剁郴缁熻繖绉嶄笢瑗裤€傞潪鏁忔劅鐨勬彃浠惰缃拰鍚屾绱㈠紩淇濆瓨鍦?`<vault>/.obsidian/plugins/pkv-sync/data.json`锛涚櫥褰曠姸鎬併€佸綋鍓?bearer 璁惧浠ょ墝銆侀儴缃插瘑閽ュ拰绋冲畾璁惧韬唤淇濆瓨鍦?Obsidian 鐨勮澶囨湰鍦板瓨鍌ㄤ腑銆傝鎶?Obsidian 璁惧鏈湴瀛樺偍銆佹槑鏂囧浠戒互鍙婃棫鐗堟湰鐣欎笅鐨勬彃浠?`data.json` 鍓湰褰撴垚鏁忔劅鏁版嵁銆傝澶囦护鐗屽湪浣跨敤鏃朵細鑷姩缁湡锛?0 澶╂棤娲诲姩鍚庡け鏁堬紝涓斿崟涓护鐗屾渶闀挎湁鏁?365 澶╋紱鍦ㄥ悓涓€璁惧閲嶆柊鐧诲綍浼氳疆鎹㈡帀鏃т护鐗屻€?
+本地文件就是真相——插件直接读写你磁盘上的 Obsidian 笔记库，不存在代理文件系统这种东西。非敏感的插件设置和同步索引保存在 `<vault>/.obsidian/plugins/pkv-sync/data.json`；登录状态、当前 bearer 设备令牌、部署密钥和稳定设备身份保存在 Obsidian 的设备本地存储中。请把 Obsidian 设备本地存储、明文备份以及旧版本留下的插件 `data.json` 副本当成敏感数据。设备令牌在使用时会自动续期，90 天无活动后失效，且单个令牌最长有效 365 天；在同一设备重新登录会轮换掉旧令牌。
 
-鏃ュ父浣跨敤鈥斺€斿懡浠ら潰鏉裤€佹枃浠跺巻鍙层€佸苟鎺?diff銆佸啿绐佽В鍐炽€乣.obsidian` 閫夋嫨鎬у悓姝ャ€佽澶囩鐞嗐€佹彃浠惰嚜鏇存柊鈥斺€旈兘鍐欏湪[鐢ㄦ埛鎵嬪唽](./public-docs/user-manual.zh-CN.md)閲屻€?
+日常使用——命令面板、文件历史、并排 diff、冲突解决、`.obsidian` 选择性同步、设备管理、插件自更新——都写在[用户手册](./public-docs/user-manual.zh-CN.md)里。
 
-## 鍏充簬鍔犲瘑
+## 关于加密
 
-PKV Sync 1.0 **鏆備笉**鎻愪緵鍘熺敓绔埌绔姞瀵嗏€斺€旀湇鍔＄鑳借鍒扮瑪璁板唴瀹广€傚師鐢熺殑鎸夊簱 E2EE 鍦?1.x 璺嚎鍥句笂锛屽皢浠ュ彲閫夋ā寮忎笂绾匡紝鍥犱负鍔犲瘑浼氭崲鎺夋湇鍔＄閭ｄ簺璁?Git-native PKV 鐪熸鏈夌敤鐨勫姛鑳斤紙鍘嗗彶 diff銆佷笁鏂硅嚜鍔ㄥ悎骞躲€丼SE 鍐呰仈鎺ㄩ€併€丮CP 璇诲啓锛夈€?
+PKV Sync 1.0 **暂不**提供原生端到端加密——服务端能读到笔记内容。原生的按库 E2EE 在 1.x 路线图上，将以可选模式上线，因为加密会换掉服务端那些让 Git-native PKV 真正有用的功能（历史 diff、三方自动合并、SSE 内联推送、MCP 读写）。
 
-鍦ㄥ師鐢?E2EE 钀藉湴鍓嶏紝濡傛灉浣犻渶瑕佺鍒扮鍔犲瘑锛屽彲浠ュ湪绗旇搴撲笂鍙犱竴灞?[`git-crypt`](https://github.com/AGWA/git-crypt)锛氳鏍囪鐨勮矾寰勪細浠ュ瘑鏂?blob 褰㈠紡鍒拌揪鏈嶅姟绔紝鏈嶅姟绔棤娉曡В瀵嗐€傛枃浠跺悕浠嶄互鏄庢枃褰㈠紡瀛樺湪浜庢湇鍔＄锛堝澶у鏁板▉鑳佹ā鍨嬫潵璇村彲鎺ュ彈锛夈€傛寔鏈夊瘑閽ョ殑瀹㈡埛绔緷鐒跺彲浠ョ敤鏍囧噯 `git clone` 鍜?`pkvsyncd materialize`銆?
+在原生 E2EE 落地前，如果你需要端到端加密，可以在笔记库上叠一层 [`git-crypt`](https://github.com/AGWA/git-crypt)：被标记的路径会以密文 blob 形式到达服务端，服务端无法解密。文件名仍以明文形式存在于服务端（对大多数威胁模型来说可接受）。持有密钥的客户端依然可以用标准 `git clone` 和 `pkvsyncd materialize`。
 
-鐢熶骇閮ㄧ讲杩樺簲璇ヨ窇鍦?HTTPS 鍚庨潰銆佹妸 `trusted_proxies` 鏀剁揣銆佺粰鏁版嵁鐩樺姞瀵嗐€佺粰澶囦唤鍔犲瘑鈥斺€斿叿浣撶湅[閮ㄧ讲鍔犲浐鎸囧崡](./public-docs/deployment-hardening.zh-CN.md)銆?
+生产部署还应该跑在 HTTPS 后面、把 `trusted_proxies` 收紧、给数据盘加密、给备份加密——具体看[部署加固指南](./public-docs/deployment-hardening.zh-CN.md)。
 
-## 浣犲湪鎵锯€︹€?
+## 你在找……
 
-| 涓婚 | 鏂囨。 |
+| 主题 | 文档 |
 | --- | --- |
-| 鎻掍欢鏃ュ父浣跨敤 | [鐢ㄦ埛鎵嬪唽](./public-docs/user-manual.zh-CN.md) |
-| 鏈嶅姟绔鐞嗕笌杩愯鏃惰缃?| [绠＄悊鍛樻墜鍐宂(./public-docs/admin-manual.zh-CN.md) |
-| 鎵€鏈?CLI 鍛戒护鍜屽弬鏁?| [CLI 鍙傝€僝(./public-docs/cli-reference.zh-CN.md) |
-| 浠?0.x 鍗囩骇鍒?1.0 | [1.0 鍗囩骇璇存槑](./public-docs/upgrade-notes-v1.0.zh-CN.md) |
-| 鍙嶅悜浠ｇ悊銆乀LS銆佸浠姐€佸姞鍥?| [閮ㄧ讲鍔犲浐](./public-docs/deployment-hardening.zh-CN.md) |
-| HTTP API 濂戠害 | [OpenAPI 瑙勮寖](./public-docs/openapi.yaml) |
-| MCP 瀹夎涓庡伐鍏峰垪琛?| [MCP 鎿嶄綔鎸囧崡](./public-docs/mcp-howto.zh-CN.md) |
-| LLM 缁存姢鐨?Wiki 宸ヤ綔娴?| [LLM Wiki 鎿嶄綔鎸囧崡](./public-docs/llm-wiki-howto.zh-CN.md) |
-| 浠?Obsidian Sync 杩佺Щ | [杩佺Щ鎸囧崡](./public-docs/migrate-from-obsidian-sync.zh-CN.md) |
-| 瀹夊叏婕忔礊鍙嶉 | [SECURITY.md](./SECURITY.md) |
-| 鍙戝竷璁板綍 | [CHANGELOG.md](./CHANGELOG.md) |
+| 插件日常使用 | [用户手册](./public-docs/user-manual.zh-CN.md) |
+| 服务端管理与运行时设置 | [管理员手册](./public-docs/admin-manual.zh-CN.md) |
+| 所有 CLI 命令和参数 | [CLI 参考](./public-docs/cli-reference.zh-CN.md) |
+| 从 0.x 升级到 1.0 | [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md) |
+| 反向代理、TLS、备份、加固 | [部署加固](./public-docs/deployment-hardening.zh-CN.md) |
+| HTTP API 契约 | [OpenAPI 规范](./public-docs/openapi.yaml) |
+| MCP 安装与工具列表 | [MCP 操作指南](./public-docs/mcp-howto.zh-CN.md) |
+| LLM 维护的 Wiki 工作流 | [LLM Wiki 操作指南](./public-docs/llm-wiki-howto.zh-CN.md) |
+| 从 Obsidian Sync 迁移 | [迁移指南](./public-docs/migrate-from-obsidian-sync.zh-CN.md) |
+| 安全漏洞反馈 | [SECURITY.md](./SECURITY.md) |
+| 发布记录 | [CHANGELOG.md](./CHANGELOG.md) |
 
-## 鐘舵€?
+## 状态
 
-PKV Sync 1.4.4 缁х画瀹¤淇锛屼晶閲嶆纭€э細鍚庡彴鐩戠潱浠诲姟鍦ㄤ紭闆呭叧闂椂涓锛岃繃鏈?DashMap 鏉＄洰瀹氭湡鍥炴敹锛岃嚜鍔ㄥ悎骞舵纭尯鍒嗙己澶卞璞′笌 Git 鐬€侀敊璇紝骞傜瓑缂撳瓨鍦ㄥ厓鏁版嵁浜嬪姟澶辫触鍚庡缁堝啓鍏ワ紝骞跺彂鏂囨湰鍒涘缓閫氳繃鍐茬獊鏂囦欢鎻愬崌淇濈暀銆傚悓鏃舵竻鐞嗕簡鏃犵敤浠ｇ爜锛堝簾寮冭緟鍔╁嚱鏁般€乮18n 閿€丏ocker 灞傦級銆?
+PKV Sync 1.4.4 完成全面审计驱动的清理：合并重复辅助函数（blob 路径分片、vault-ID 校验、blob-pointer 解析），移除 8 个未使用的运行时配置 setter，并在 push、pull、scan 和 MCP 工具中提供 15 项性能改进——提升正则编译、短路空操作、批量读取树、缓存冲突计数。
 
-PKV Sync 1.0 鏄涓€涓ǔ瀹氱増銆傚叕寮€ REST API銆丆LI銆佸瓨鍌ㄥ竷灞€銆佹彃浠跺寘銆丏ocker 闀滃儚浣滀负涓€缁勫悓姝ュ彂鐗堬紝閬靛惊 semver锛?.X.Y 鍦ㄥ叕寮€琛ㄩ潰淇濇寔鍚戝悗鍏煎锛孫penAPI 瑙勮寖鏄繖涓吋瀹瑰绾︾殑鏉冨▉鏉ユ簮銆?.x 鍒涘缓鐨?SQLite 搴?*涓嶆敮鎸?*灏卞湴鍗囩骇鍒?1.0.0鈥斺€旇鎸?[1.0 鍗囩骇璇存槑](./public-docs/upgrade-notes-v1.0.zh-CN.md)鎿嶄綔銆?
+PKV Sync 1.0 是第一个稳定版。公开 REST API、CLI、存储布局、插件包、Docker 镜像作为一组同步发版，遵循 semver：1.X.Y 在公开表面保持向后兼容，OpenAPI 规范是这个兼容契约的权威来源。0.x 创建的 SQLite 库**不支持**就地升级到 1.0.0——请按 [1.0 升级说明](./public-docs/upgrade-notes-v1.0.zh-CN.md)操作。
 
-姣忎釜 GitHub release 浼氬彂甯?Linux amd64/arm64 浜岃繘鍒躲€乄indows x64 浜岃繘鍒躲€佸鏋舵瀯 GHCR Docker 闀滃儚銆丱bsidian 鎻掍欢 zip 鍖咃紝浠ュ強 `SHA256SUMS`銆?
+每个 GitHub release 会发布 Linux amd64/arm64 二进制、Windows x64 二进制、多架构 GHCR Docker 镜像、Obsidian 插件 zip 包，以及 `SHA256SUMS`。
 
-## 寮€鍙戣嚜妫€
+## 开发自检
 
 ```bash
 cargo fmt --all -- --check
@@ -118,8 +118,8 @@ npm --prefix plugin exec vitest run
 npm --prefix plugin run build
 ```
 
-CI 鍦?Linux 鍜?Windows 涓婅窇瀹屾暣 Rust 鐭╅樀锛屽姞涓婃彃浠剁殑 test锛弔ypecheck锛廱uild锛弍ackage銆丏ocker 鏋勫缓锛屼互鍙婂彂甯冧簩杩涘埗鐨勫啋鐑熸祴璇曘€?
+CI 在 Linux 和 Windows 上跑完整 Rust 矩阵，加上插件的 test／typecheck／build／package、Docker 构建，以及发布二进制的冒烟测试。
 
-## 璁稿彲
+## 许可
 
-AGPL-3.0-only銆傝瑙?[LICENSE](./LICENSE)銆?
+AGPL-3.0-only。详见 [LICENSE](./LICENSE)。

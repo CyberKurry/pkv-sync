@@ -1,113 +1,113 @@
-﻿# PKV Sync
+# PKV Sync
 
-**鑷灦浣犵殑 Obsidian 绛嗚搴€?* PKV Sync 璺戝湪浣犺嚜宸辩殑浼烘湇鍣ㄤ笂锛屾妸鎵嬫銆佸钩鏉裤€佹姗熺殑 Obsidian 绛嗚搴繚鎸佸悓姝ャ€備竴浠戒簩閫蹭綅銆佷竴鍊?SQLite 璩囨枡搴€佹瘡鍊嬬瓎瑷樺韩涓€鍊?bare git 鍊夊韩鈥斺€斾笉鐢ㄥ彚闆嗐€佷笉鐢?S3銆佷笉鐢ㄤ换浣曡绠￠洸銆傝濂斤紝鎶?Obsidian 鎸囬亷鍘伙紝绛嗚灏卞悓姝ヤ簡銆?
+**自架你的 Obsidian 筆記庫。** PKV Sync 跑在你自己的伺服器上，把手機、平板、桌機的 Obsidian 筆記庫保持同步。一份二進位、一個 SQLite 資料庫、每個筆記庫一個 bare git 倉庫——不用叢集、不用 S3、不用任何託管雲。裝好，把 Obsidian 指過去，筆記就同步了。
 
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-鏂囦欢鐗堟湰锛歷1.4.4銆?
+文件版本：v1.4.4。
 
-[English](./README.md) | [绠€浣撲腑鏂嘳(./README.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./README.ja.md) | [頃滉淡鞏碷(./README.ko.md)
+[English](./README.md) | [简体中文](./README.zh-CN.md) | 繁體中文 | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
-## 鐗规€?
+## 特性
 
-- **澶氫娇鐢ㄨ€呫€佸绛嗚搴?*鍚屾锛屼緷瑁濈疆绨界櫦 token锛屾瘡鍊嬬瓎瑷樺韩甯?push 閹栬垏鍐瓑閲嶈│銆?
-- **鍗虫檪鎺ㄩ€?*銆傚皬淇敼閫忛亷 SSE 鍦ㄤ簽绉掔礆钀藉湴锛涜吉瑭㈠仛鐐哄厹搴曚繚闅€?
-- **Git 鍗崇湡鐩?*銆傛瘡鍊嬬瓎瑷樺韩閮芥槸涓€鍊?bare git 鍊夊韩锛屽柈妾旀鍙层€乽nified diff銆佸柈妾旈倓鍘熼枊绠卞嵆鐢ㄢ€斺€斿鎺涚鍜岀鐞嗗緦鍙伴兘鑳界敤銆?
-- **琛濈獊瀹夊叏**銆傚鎺涗笉鏈冮粯榛樿钃嬫湰鍦颁慨鏀癸紝琛濈獊鏈冧互 `.conflict-*` 妾旀鍛堢従锛屼竴閸点€屼繚鐣欐湰鍦般€嶆垨銆屾帯绱嶉仩绔€嶃€?
-- **浜旇獮瑷€绠＄悊寰屽彴**锛圗nglish銆佺畝涓€佺箒涓€佹棩鏈獮銆來暅甑柎锛夛細浣跨敤鑰呫€佽缃?token銆佺瓎瑷樺韩銆侀個璜嬬⒓銆佹椿鍕曟棩瑾屻€乥lob 鍨冨溇鍥炴敹锛屼甫灏嶇牬澹炴€х殑绛嗚搴拰浣跨敤鑰呮搷浣滃綀鍑虹⒑瑾嶃€?
-- **AI 鍙畝**銆侻CP 鍙€忛亷 stdio銆佺崹绔?Streamable HTTP锛屾垨 `pkvsyncd serve` 鍏у祵鐨?`/mcp` 璺敱鏆撮湶璁€瀵伐鍏枫€?
-- **闋愯ō鏈夐倞鐣?*銆傜鐞嗗摗寤虹珛锛忛噸瑷瘑纰间娇鐢?setup 鍚岀礆寮峰瘑纰肩瓥鐣ワ紱token 鏄庢枃鍙睍绀轰竴娆★紱涓婂偝鍜?MCP 鍥炴噳閮芥湁澶у皬涓婇檺锛涘嵆鏅?SSE 涓叉祦鏈冭鏌ュ凡鎾ら姺 token銆?
-- **鍒绘剰鍋氬緱鐒¤亰**銆傚柈涓€浜岄€蹭綅銆佸柈涓€ SQLite 涓辜璩囨枡搴€佹瘡搴竴鍊?bare git 鍊夈€佹瘡鍊嬮檮浠朵竴鍊嬪収瀹瑰畾鍧€ blob銆?
+- **多使用者、多筆記庫**同步，依裝置簽發 token，每個筆記庫帶 push 鎖與冪等重試。
+- **即時推送**。小修改透過 SSE 在亞秒級落地；輪詢做為兜底保險。
+- **Git 即真相**。每個筆記庫都是一個 bare git 倉庫，單檔歷史、unified diff、單檔還原開箱即用——外掛端和管理後台都能用。
+- **衝突安全**。外掛不會默默覆蓋本地修改，衝突會以 `.conflict-*` 檔案呈現，一鍵「保留本地」或「採納遠端」。
+- **五語言管理後台**（English、简中、繁中、日本語、한국어）：使用者、裝置 token、筆記庫、邀請碼、活動日誌、blob 垃圾回收，並對破壞性的筆記庫和使用者操作彈出確認。
+- **AI 可讀**。MCP 可透過 stdio、獨立 Streamable HTTP，或 `pkvsyncd serve` 內嵌的 `/mcp` 路由暴露讀寫工具。
+- **預設有邊界**。管理員建立／重設密碼使用 setup 同級強密碼策略；token 明文只展示一次；上傳和 MCP 回應都有大小上限；即時 SSE 串流會複查已撤銷 token。
+- **刻意做得無聊**。單一二進位、單一 SQLite 中繼資料庫、每庫一個 bare git 倉、每個附件一個內容定址 blob。
 
-## 鐢?Docker Compose 蹇€熶笂鎵?
+## 用 Docker Compose 快速上手
 
-閫欐槸鎺ㄨ枽璺緫銆俙deploy/caddy/` 瑁＄殑 Caddy 閫忛亷 Let's Encrypt 鑷嫊绨界櫦 HTTPS锛汸KV Sync 鍦?compose 鍏х恫鐩ｈ伣 `127.0.0.1:6710`锛屽叕缍插畬鍏ㄧ湅涓嶅埌鏄庢枃 HTTP銆?
+這是推薦路徑。`deploy/caddy/` 裡的 Caddy 透過 Let's Encrypt 自動簽發 HTTPS；PKV Sync 在 compose 內網監聽 `127.0.0.1:6710`，公網完全看不到明文 HTTP。
 
-浣犻渶瑕侊細涓€鍊嬬恫鍩燂紙渚嬪 `sync.example.com`锛夛紝A锛廇AAA 瑷橀寗鎸囧悜浼烘湇鍣紱鍏恫鑳介€ｅ埌 `80` 鍜?`443` 閫ｆ帴鍩狅紙80 鐢ㄦ柤 ACME HTTP-01 椹楄瓑锛夈€?
+你需要：一個網域（例如 `sync.example.com`），A／AAAA 記錄指向伺服器；公網能連到 `80` 和 `443` 連接埠（80 用於 ACME HTTP-01 驗證）。
 
-1. 鐢㈢敓閮ㄧ讲閲戦懓锛?
+1. 產生部署金鑰：
 
    ```bash
    docker run --rm ghcr.io/cyberkurry/pkv-sync:latest genkey
    ```
 
-2. 鍦?`docker-compose.yml` 鏃佹斁涓€浠?`config.toml`锛?
+2. 在 `docker-compose.yml` 旁放一份 `config.toml`：
 
    ```toml
    [server]
    bind_addr      = "0.0.0.0:6710"
-   deployment_key = "k_0123456789abcdef0123456789abcdef"  # 鏇挎彌鐐?genkey 杓稿嚭
-   public_host    = "sync.example.com"   # 蹇呭～锛岀鐞嗙 POST 鎵嶈兘閫?
+   deployment_key = "k_0123456789abcdef0123456789abcdef"  # 替換為 genkey 輸出
+   public_host    = "sync.example.com"   # 必填，管理端 POST 才能通
 
    [storage]
    data_dir = "/var/lib/pkv-sync"
    db_path  = "/var/lib/pkv-sync/metadata.db"
 
    [network]
-   trusted_proxies = ["172.16.0.0/12"]   # Docker bridge 缍叉
+   trusted_proxies = ["172.16.0.0/12"]   # Docker bridge 網段
 
    [mcp]
-   embed_in_serve = false                # true 鏈冨湪鏈湇鍕欎笂鎺涜級 /mcp
+   embed_in_serve = false                # true 會在本服務上掛載 /mcp
    ```
 
-3. 绶ㄨ集 `deploy/caddy/Caddyfile`锛屾妸 `sync.example.com` 鎻涙垚浣犵殑鐪熷缍插煙銆?
+3. 編輯 `deploy/caddy/Caddyfile`，把 `sync.example.com` 換成你的真實網域。
 
-4. 鎶婃暣濂楁湇鍕欐媺璧蜂締锛?
+4. 把整套服務拉起來：
 
    ```bash
    docker compose up -d
    ```
 
-   鐎忚鍣ㄦ墦闁?`https://sync.example.com/setup`锛屽缓绔嬬涓€鍊嬬鐞嗗摗甯宠櫉銆?
+   瀏覽器打開 `https://sync.example.com/setup`，建立第一個管理員帳號。
 
-5. 鍦?Obsidian 瑁℃妸 `pkv-sync-plugin.zip` 瑙ｅ鍒?`<vault>/.obsidian/plugins/pkv-sync/`锛屽暉鐢ㄥ鎺涳紝寰炵鐞嗗緦鍙拌瑁藉垎浜?URL 璨奸€插幓锛岀櫥鍏ユ垨瑷诲唺锛岄伕涓€鍊嬬瓎瑷樺韩銆?
+5. 在 Obsidian 裡把 `pkv-sync-plugin.zip` 解壓到 `<vault>/.obsidian/plugins/pkv-sync/`，啟用外掛，從管理後台複製分享 URL 貼進去，登入或註冊，選一個筆記庫。
 
-涔嬪緦鍗囩礆灏辨槸 `docker compose pull && docker compose up -d`銆傚鏋滆鍘熺敓瀹夎銆佽鍙嶅悜浠ｇ悊锛圕addy锛廚ginx锛廡raefik锛夈€佷簡瑙?`public_host` 鐨勮獮缇┿€佸仛鍌欎唤閭勫師鎴栫纰熷姞瀵嗭紝璜嬬湅[閮ㄧ讲鍔犲浐鎸囧崡](./public-docs/deployment-hardening.zh-Hant.md)銆?
+之後升級就是 `docker compose pull && docker compose up -d`。如果要原生安裝、調反向代理（Caddy／Nginx／Traefik）、了解 `public_host` 的語義、做備份還原或磁碟加密，請看[部署加固指南](./public-docs/deployment-hardening.zh-Hant.md)。
 
-## MCP 閮ㄧ讲妯″紡
+## MCP 部署模式
 
-PKV Sync 鎻愪緵鍏╃ó MCP Streamable HTTP 閮ㄧ讲鏂瑰紡銆傚収宓屾ā寮忛渶瑕佹槑纰洪枊鍟燂細瑷畾 `[mcp].embed_in_serve = true` 寰岋紝`pkvsyncd serve` 鏈冨湪涓绘湇鍕欑鍙ｆ帥杓?`/mcp`锛屽京鐢ㄥ悓涓€濂?TLS 绲傛銆佸弽鍚戜唬鐞嗐€侀儴缃查噾閼板拰 bearer 娆婃潠鏍￠銆傜崹绔嬫ā寮忎繚鐣欏師鏈夊柈鐛ㄩ€茬▼锛歚pkvsyncd mcp --transport http --bind 127.0.0.1:6711`锛岄仼鍚堥殧闆?MCP銆佸皥鐢ㄧ洠鑱戒綅鍧€鎴栫崹绔嬫摯绺銆?
+PKV Sync 提供兩種 MCP Streamable HTTP 部署方式。內嵌模式需要明確開啟：設定 `[mcp].embed_in_serve = true` 後，`pkvsyncd serve` 會在主服務端口掛載 `/mcp`，復用同一套 TLS 終止、反向代理、部署金鑰和 bearer 權杖校驗。獨立模式保留原有單獨進程：`pkvsyncd mcp --transport http --bind 127.0.0.1:6711`，適合隔離 MCP、專用監聽位址或獨立擴縮容。
 
-## Obsidian 澶栨帥
+## Obsidian 外掛
 
-鏈湴妾旀灏辨槸鐪熺浉鈥斺€斿鎺涚洿鎺ヨ畝瀵綘纾佺涓婄殑 Obsidian 绛嗚搴紝涓嶅瓨鍦ㄤ唬鐞嗘獢妗堢郴绲遍偅绋澅瑗裤€傞潪鏁忔劅鐨勫鎺涜ō瀹氬拰鍚屾绱㈠紩淇濆瓨鍦?`<vault>/.obsidian/plugins/pkv-sync/data.json`锛涚櫥鍏ョ媭鎱嬨€佺暥鍓?bearer 瑁濈疆娆婃潠銆侀儴缃查噾閼板拰绌╁畾瑁濈疆韬垎淇濆瓨鍦?Obsidian 鐨勮缃湰姗熷劜瀛樹腑銆傝珛鎶?Obsidian 瑁濈疆鏈鍎插瓨銆佹槑鏂囧倷浠戒互鍙婅垔鐗堟湰鐣欎笅鐨勫鎺?`data.json` 鍓湰鐣舵垚鏁忔劅璩囨枡銆傝缃瑠鏉栧湪浣跨敤鏅傛渻鑷嫊绾屾湡锛?0 澶╃劇娲诲嫊寰屽け鏁堬紝涓斿柈鍊嬫瑠鏉栨渶闀锋湁鏁?365 澶╋紱鍦ㄥ悓涓€瑁濈疆閲嶆柊鐧诲叆鏈冩彌鎺夎垔娆婃潠銆?
+本地檔案就是真相——外掛直接讀寫你磁碟上的 Obsidian 筆記庫，不存在代理檔案系統那種東西。非敏感的外掛設定和同步索引保存在 `<vault>/.obsidian/plugins/pkv-sync/data.json`；登入狀態、當前 bearer 裝置權杖、部署金鑰和穩定裝置身分保存在 Obsidian 的裝置本機儲存中。請把 Obsidian 裝置本機儲存、明文備份以及舊版本留下的外掛 `data.json` 副本當成敏感資料。裝置權杖在使用時會自動續期，90 天無活動後失效，且單個權杖最長有效 365 天；在同一裝置重新登入會換掉舊權杖。
 
-鏃ュ父浣跨敤鈥斺€斿懡浠ら潰鏉裤€佹獢妗堟鍙层€佷甫鎺?diff銆佽绐佽В姹恒€乣.obsidian` 閬告搰鎬у悓姝ャ€佽缃鐞嗐€佸鎺涜嚜鏇存柊鈥斺€旈兘瀵湪[浣跨敤鑰呮墜鍐奭(./public-docs/user-manual.zh-Hant.md)瑁°€?
+日常使用——命令面板、檔案歷史、並排 diff、衝突解決、`.obsidian` 選擇性同步、裝置管理、外掛自更新——都寫在[使用者手冊](./public-docs/user-manual.zh-Hant.md)裡。
 
-## 闂滄柤鍔犲瘑
+## 關於加密
 
-PKV Sync 1.0 **鏆笉**鎻愪緵鍘熺敓绔埌绔姞瀵嗏€斺€斾己鏈嶅櫒鑳借畝鍒扮瓎瑷樺収瀹广€傚師鐢熺殑鎸夊韩 E2EE 鍦?1.x 璺窔鍦栦笂锛屾渻浠ュ彲閬告ā寮忎笂绶氾紝鍥犵偤鍔犲瘑鏈冩彌鎺変己鏈嶅櫒閭ｄ簺璁?Git-native PKV 鐪熸鏈夌敤鐨勫姛鑳斤紙姝峰彶 diff銆佷笁鏂硅嚜鍕曞悎浣点€丼SE 鍏у祵鎺ㄩ€併€丮CP 璁€瀵級銆?
+PKV Sync 1.0 **暫不**提供原生端到端加密——伺服器能讀到筆記內容。原生的按庫 E2EE 在 1.x 路線圖上，會以可選模式上線，因為加密會換掉伺服器那些讓 Git-native PKV 真正有用的功能（歷史 diff、三方自動合併、SSE 內嵌推送、MCP 讀寫）。
 
-鍦ㄥ師鐢?E2EE 钀藉湴鍓嶏紝濡傛灉浣犻渶瑕佺鍒扮鍔犲瘑锛屽彲浠ュ湪绛嗚搴笂鐤婁竴灞?[`git-crypt`](https://github.com/AGWA/git-crypt)锛氳妯欒鐨勮矾寰戞渻浠ュ瘑鏂?blob 褰㈠紡鍒伴仈浼烘湇鍣紝浼烘湇鍣ㄧ劇娉曡В瀵嗐€傛獢鍚嶄粛浠ユ槑鏂囧舰寮忓瓨鍦ㄦ柤浼烘湇鍣紙灏嶅ぇ澶氭暩濞佽剠妯″瀷渚嗚鍙帴鍙楋級銆傛寔鏈夐噾閼扮殑瀹㈡埗绔緷鐒跺彲浠ョ敤妯欐簴 `git clone` 鍜?`pkvsyncd materialize`銆?
+在原生 E2EE 落地前，如果你需要端到端加密，可以在筆記庫上疊一層 [`git-crypt`](https://github.com/AGWA/git-crypt)：被標記的路徑會以密文 blob 形式到達伺服器，伺服器無法解密。檔名仍以明文形式存在於伺服器（對大多數威脅模型來說可接受）。持有金鑰的客戶端依然可以用標準 `git clone` 和 `pkvsyncd materialize`。
 
-姝ｅ紡閮ㄧ讲閭勬噳瑭茶窇鍦?HTTPS 寰岄潰銆佹妸 `trusted_proxies` 鏀剁穵銆佺郸璩囨枡纰熷姞瀵嗐€佺郸鍌欎唤鍔犲瘑鈥斺€斿叿楂旂湅[閮ㄧ讲鍔犲浐鎸囧崡](./public-docs/deployment-hardening.zh-Hant.md)銆?
+正式部署還應該跑在 HTTPS 後面、把 `trusted_proxies` 收緊、給資料碟加密、給備份加密——具體看[部署加固指南](./public-docs/deployment-hardening.zh-Hant.md)。
 
-## 浣犲湪鎵锯€︹€?
+## 你在找……
 
-| 涓婚 | 鏂囦欢 |
+| 主題 | 文件 |
 | --- | --- |
-| 澶栨帥鏃ュ父浣跨敤 | [浣跨敤鑰呮墜鍐奭(./public-docs/user-manual.zh-Hant.md) |
-| 浼烘湇鍣ㄧ鐞嗚垏鍩疯鏅傝ō瀹?| [绠＄悊鍝℃墜鍐奭(./public-docs/admin-manual.zh-Hant.md) |
-| 鎵€鏈?CLI 鍛戒护鑸囧弮鏁?| [CLI 鍙冭€僝(./public-docs/cli-reference.zh-Hant.md) |
-| 寰?0.x 鍗囩礆鍒?1.0 | [1.0 鍗囩礆瑾槑](./public-docs/upgrade-notes-v1.0.zh-Hant.md) |
-| 鍙嶅悜浠ｇ悊銆乀LS銆佸倷浠姐€佸姞鍥?| [閮ㄧ讲鍔犲浐](./public-docs/deployment-hardening.zh-Hant.md) |
-| HTTP API 濂戠磩 | [OpenAPI 瑕忕瘎](./public-docs/openapi.yaml) |
-| MCP 瀹夎鑸囧伐鍏峰垪琛?| [MCP 鎿嶄綔鎸囧崡](./public-docs/mcp-howto.zh-Hant.md) |
-| LLM 缍鐨?Wiki 宸ヤ綔娴?| [LLM Wiki 鎿嶄綔鎸囧崡](./public-docs/llm-wiki-howto.zh-Hant.md) |
-| 寰?Obsidian Sync 閬风Щ | [閬风Щ鎸囧崡](./public-docs/migrate-from-obsidian-sync.zh-Hant.md) |
-| 瀹夊叏婕忔礊閫氬牨 | [SECURITY.md](./SECURITY.md) |
-| 鐧煎竷绱€閷?| [CHANGELOG.md](./CHANGELOG.md) |
+| 外掛日常使用 | [使用者手冊](./public-docs/user-manual.zh-Hant.md) |
+| 伺服器管理與執行時設定 | [管理員手冊](./public-docs/admin-manual.zh-Hant.md) |
+| 所有 CLI 命令與參數 | [CLI 參考](./public-docs/cli-reference.zh-Hant.md) |
+| 從 0.x 升級到 1.0 | [1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md) |
+| 反向代理、TLS、備份、加固 | [部署加固](./public-docs/deployment-hardening.zh-Hant.md) |
+| HTTP API 契約 | [OpenAPI 規範](./public-docs/openapi.yaml) |
+| MCP 安裝與工具列表 | [MCP 操作指南](./public-docs/mcp-howto.zh-Hant.md) |
+| LLM 維護的 Wiki 工作流 | [LLM Wiki 操作指南](./public-docs/llm-wiki-howto.zh-Hant.md) |
+| 從 Obsidian Sync 遷移 | [遷移指南](./public-docs/migrate-from-obsidian-sync.zh-Hant.md) |
+| 安全漏洞通報 | [SECURITY.md](./SECURITY.md) |
+| 發布紀錄 | [CHANGELOG.md](./CHANGELOG.md) |
 
-## 鐙€鎱?
+## 狀態
 
-PKV Sync 1.4.4 寤剁簩瀵╄▓淇京锛屽伌閲嶆纰烘€э細寰屽彴鐩ｇ潱浠诲嫏鍦ㄥ劒闆呴棞闁夋檪涓锛岄亷鏈?DashMap 姊濈洰瀹氭湡鍥炴敹锛岃嚜鍕曞悎浣垫纰哄崁鍒嗙己澶辩墿浠惰垏 Git 鏆厠閷锛屽啰绛夊揩鍙栧湪涓辜璩囨枡浜ゆ槗澶辨晽寰屽绲傚鍏ワ紝涓﹁鏂囧瓧寤虹珛閫忛亷琛濈獊妾旀鎻愬崌淇濈暀銆傚悓鏅傛竻鐞嗕簡鐒＄敤绋嬪紡纰硷紙寤㈡杓斿姪鍑藉紡銆乮18n 閸点€丏ocker 灞わ級銆?
+PKV Sync 1.4.4 完成全面審計驅動的清理：合併重複輔助函式（blob 路徑分片、vault-ID 校驗、blob-pointer 解析），移除 8 個未使用的執行時組態 setter，並在 push、pull、scan 和 MCP 工具中提供 15 項效能改進——提升正規表示式編譯、短路空操作、批次讀取樹、快取衝突計數。
 
-PKV Sync 1.0 鏄涓€鍊嬬┅瀹氱増銆傚叕闁?REST API銆丆LI銆佸劜瀛樺竷灞€銆佸鎺涘寘銆丏ocker 鏄犲儚浣滅偤涓€绲勫悓姝ョ櫦鐗堬紝閬靛惊 semver锛?.X.Y 鍦ㄥ叕闁嬭〃闈繚鎸佸悜寰岀浉瀹癸紝OpenAPI 瑕忕瘎鏄€欏€嬬浉瀹瑰绱勭殑娆婂▉渚嗘簮銆?.x 寤虹珛鐨?SQLite 璩囨枡搴?*涓嶆敮鎻?*灏卞湴鍗囩礆鍒?1.0.0鈥斺€旇珛渚漑1.0 鍗囩礆瑾槑](./public-docs/upgrade-notes-v1.0.zh-Hant.md)鎿嶄綔銆?
+PKV Sync 1.0 是第一個穩定版。公開 REST API、CLI、儲存布局、外掛包、Docker 映像作為一組同步發版，遵循 semver：1.X.Y 在公開表面保持向後相容，OpenAPI 規範是這個相容契約的權威來源。0.x 建立的 SQLite 資料庫**不支援**就地升級到 1.0.0——請依[1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md)操作。
 
-姣忓€?GitHub release 鏈冪櫦甯?Linux amd64锛廰rm64 浜岄€蹭綅銆乄indows x64 浜岄€蹭綅銆佸鏋舵 GHCR Docker 鏄犲儚銆丱bsidian 澶栨帥 zip 鍖咃紝浠ュ強 `SHA256SUMS`銆?
+每個 GitHub release 會發布 Linux amd64／arm64 二進位、Windows x64 二進位、多架構 GHCR Docker 映像、Obsidian 外掛 zip 包，以及 `SHA256SUMS`。
 
-## 闁嬬櫦鑷
+## 開發自檢
 
 ```bash
 cargo fmt --all -- --check
@@ -118,8 +118,8 @@ npm --prefix plugin exec vitest run
 npm --prefix plugin run build
 ```
 
-CI 鍦?Linux 鍜?Windows 涓婅窇瀹屾暣 Rust 鐭╅櫍锛屽姞涓婂鎺涚殑 test锛弔ypecheck锛廱uild锛弍ackage銆丏ocker 妲嬪缓锛屼互鍙婄櫦甯冧簩閫蹭綅鐨勫啋鐓欐脯瑭︺€?
+CI 在 Linux 和 Windows 上跑完整 Rust 矩陣，加上外掛的 test／typecheck／build／package、Docker 構建，以及發布二進位的冒煙測試。
 
-## 鎺堟瑠姊濇
+## 授權條款
 
-AGPL-3.0-only銆傝┏瑕?[LICENSE](./LICENSE)銆?
+AGPL-3.0-only。詳見 [LICENSE](./LICENSE)。
