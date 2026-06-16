@@ -1123,9 +1123,15 @@ mod tests {
             implementation.contains(".commit_time_seconds("),
             "live SSE events should derive `at` from the git commit timestamp"
         );
+        // BUG-R2-003: a git timestamp *read failure* now falls back to a named
+        // wall-clock value inside commit_event_time_seconds (better than epoch
+        // 0, and ~equal to the commit time since the broadcast happens right
+        // after git commit). The PRIMARY `at` must still come from git — the
+        // broadcast must never assign publish-time wall clock directly to the
+        // `at` field.
         assert!(
-            !implementation.contains("chrono::Utc::now().timestamp()"),
-            "live SSE events must not use publish-time wall clock for `at`"
+            !implementation.contains("at: chrono::Utc::now().timestamp()"),
+            "live SSE `at` must derive from git commit time, not a direct publish-time wall clock"
         );
     }
 
