@@ -3,11 +3,9 @@ use crate::db::repos::{NewActivity, SyncActivityRepo};
 use crate::service::vault;
 use crate::service::AppState;
 use crate::storage::git::{
-    storage_vault_path, GitStoreError, GitVaultStore, StoredFile, TreeEntry, POINTER_MAGIC_KEY,
-    POINTER_VERSION,
+    parse_blob_pointer, storage_vault_path, GitStoreError, GitVaultStore, StoredFile, TreeEntry,
 };
 use crate::storage::path;
-use crate::storage::text_kind::TextClassifier;
 use git2::{Oid, Repository};
 use std::path::Path;
 
@@ -347,35 +345,10 @@ fn blob_pull_file(path: &str, hash: String, size: u64) -> PullFile {
 }
 
 fn decode_pull_file(path: &str, bytes: Vec<u8>) -> StoredFile {
-    if let Some(pointer) = pointer_bytes(&bytes) {
-        if pointer.has_magic || !TextClassifier::default_ref().is_text_path(path) {
-            return pointer.file;
-        }
+    if let Some(file) = parse_blob_pointer(&bytes).and_then(|p| p.into_file_for_path(path)) {
+        return file;
     }
     StoredFile::Text { bytes }
-}
-
-struct PullPointer {
-    has_magic: bool,
-    file: StoredFile,
-}
-
-fn pointer_bytes(bytes: &[u8]) -> Option<PullPointer> {
-    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    let has_magic = value.get(POINTER_MAGIC_KEY).and_then(|v| v.as_u64()) == Some(POINTER_VERSION);
-    let hash = value.get("blob")?.as_str()?.to_string();
-    if !crate::storage::blob::is_sha256_hex(&hash) {
-        return None;
-    }
-    let size = value.get("size")?.as_u64()?;
-    let mime = value
-        .get("mime")
-        .and_then(|m| m.as_str())
-        .map(str::to_string);
-    Some(PullPointer {
-        has_magic,
-        file: StoredFile::BlobPointer { hash, size, mime },
-    })
 }
 
 /// Read a normalized vault path after the caller has enforced read visibility.
@@ -449,25 +422,17 @@ mod tests {
     fn decode_pull_file_parses_pointer_json_once() {
         let source = include_str!("pull.rs");
         let fn_start = source.find("fn decode_pull_file").unwrap();
-        let pointer_fn_start = source[fn_start + 1..]
-            .find("\nfn pointer_bytes")
+        let next_fn = source[fn_start + 1..]
+            .find("\n/// Read a normalized vault path")
+            .or_else(|| source[fn_start + 1..].find("\nfn "))
             .map(|idx| fn_start + 1 + idx)
             .unwrap();
-        let next_fn = source[pointer_fn_start + 1..]
-            .find("\n/// Read a normalized vault path")
-            .map(|idx| pointer_fn_start + 1 + idx)
-            .unwrap();
-        let decode_impl = &source[fn_start..pointer_fn_start];
-        let pointer_impl = &source[pointer_fn_start..next_fn];
+        let decode_impl = &source[fn_start..next_fn];
 
         assert_eq!(
-            decode_impl.matches("pointer_bytes(&bytes").count(),
+            decode_impl.matches("parse_blob_pointer(").count(),
             1,
-            "decode_pull_file should parse pointer JSON at most once"
-        );
-        assert!(
-            !pointer_impl.contains("require_magic"),
-            "pointer_bytes should parse once and return whether the magic marker was present"
+            "decode_pull_file should parse pointer JSON at most once via shared helper"
         );
     }
 

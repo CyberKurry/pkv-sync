@@ -27,6 +27,61 @@ const POINTER_BLOB_MAX_BYTES: usize = 512;
 const TREE_FILEMODE: i32 = 0o040000;
 const BLOB_FILEMODE: i32 = 0o100644;
 
+/// Typed representation of a blob-pointer JSON object stored in git.
+///
+/// Using `#[derive(Deserialize)]` avoids the extra allocation that
+/// `serde_json::Value` requires and replaces 3+ hand-rolled extraction
+/// sites (DC-10 / PERF-4).
+#[derive(Deserialize)]
+pub(crate) struct BlobPointerJson {
+    /// Present and equal to [`POINTER_VERSION`] for modern pointers.
+    /// Legacy pointers omit this field (deserialized as `None`).
+    #[serde(rename = "pkvsync_pointer")]
+    pub magic: Option<u64>,
+    /// SHA-256 hex hash of the blob content.
+    pub blob: String,
+    /// Size of the original binary file in bytes.
+    pub size: u64,
+    /// Optional MIME type.
+    pub mime: Option<String>,
+}
+
+impl BlobPointerJson {
+    /// Whether this pointer carries the modern magic marker.
+    pub fn has_magic(&self) -> bool {
+        self.magic == Some(POINTER_VERSION)
+    }
+
+    /// Convert to a [`StoredFile::BlobPointer`] if the pointer is modern
+    /// or the path looks like a binary file (legacy heuristic).
+    pub(crate) fn into_file_for_path(self, path: &str) -> Option<StoredFile> {
+        if self.has_magic() || !TextClassifier::default_ref().is_text_path(path) {
+            Some(StoredFile::BlobPointer {
+                hash: self.blob,
+                size: self.size,
+                mime: self.mime,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// Parse bytes as a blob-pointer JSON, returning `None` for non-pointer content.
+///
+/// Performs a fast reject on the first byte and validates the blob hash.
+/// Callers decide whether to require [`BlobPointerJson::has_magic`].
+pub(crate) fn parse_blob_pointer(bytes: &[u8]) -> Option<BlobPointerJson> {
+    if !bytes.starts_with(b"{") {
+        return None;
+    }
+    let ptr: BlobPointerJson = serde_json::from_slice(bytes).ok()?;
+    if !is_sha256_hex(&ptr.blob) {
+        return None;
+    }
+    Some(ptr)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum StoredFile {
     Text {
@@ -516,10 +571,10 @@ fn tree_path_is_pointer(
         Some(probe) => probe,
         None => {
             let blob = repo.find_blob(entry.id())?;
-            let candidate = parse_blob_pointer_if_candidate(&blob);
+            let parsed = parse_blob_pointer_if_candidate(&blob);
             let probe = PointerProbe {
-                modern: candidate.as_ref().is_some_and(|pointer| pointer.has_magic),
-                legacy: candidate.is_some(),
+                modern: parsed.as_ref().is_some_and(|p| p.has_magic()),
+                legacy: parsed.is_some(),
             };
             pointer_cache.insert(entry.id(), probe);
             probe
@@ -528,45 +583,11 @@ fn tree_path_is_pointer(
     Ok(probe.modern || (!TextClassifier::default_ref().is_text_path(path) && probe.legacy))
 }
 
-#[derive(Clone)]
-struct BlobPointerCandidate {
-    has_magic: bool,
-    file: StoredFile,
-}
-
-impl BlobPointerCandidate {
-    fn into_file_for_path(self, path: &str) -> Option<StoredFile> {
-        if self.has_magic || !TextClassifier::default_ref().is_text_path(path) {
-            Some(self.file)
-        } else {
-            None
-        }
-    }
-}
-
-fn parse_blob_pointer_if_candidate(blob: &git2::Blob<'_>) -> Option<BlobPointerCandidate> {
+fn parse_blob_pointer_if_candidate(blob: &git2::Blob<'_>) -> Option<BlobPointerJson> {
     if blob.size() > POINTER_BLOB_MAX_BYTES {
         return None;
     }
-    let bytes = blob.content();
-    if bytes.first() != Some(&b'{') {
-        return None;
-    }
-    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    let has_magic = value.get(POINTER_MAGIC_KEY).and_then(|v| v.as_u64()) == Some(POINTER_VERSION);
-    let hash = value.get("blob")?.as_str()?.to_string();
-    if !is_sha256_hex(&hash) {
-        return None;
-    }
-    let size = value.get("size")?.as_u64()?;
-    let mime = value
-        .get("mime")
-        .and_then(|m| m.as_str())
-        .map(str::to_string);
-    Some(BlobPointerCandidate {
-        has_magic,
-        file: StoredFile::BlobPointer { hash, size, mime },
-    })
+    parse_blob_pointer(blob.content())
 }
 
 fn is_valid_storage_vault_id(vault_id: &str) -> bool {
@@ -650,40 +671,9 @@ fn encode_file(f: StoredFile) -> Result<Vec<u8>, serde_json::Error> {
     }
 }
 
-fn is_pointer_bytes(bytes: &[u8]) -> Option<StoredFile> {
-    let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    if v.get(POINTER_MAGIC_KEY)?.as_u64()? != POINTER_VERSION {
-        return None;
-    }
-    pointer_from_value(&v)
-}
-
-fn is_legacy_pointer_bytes(bytes: &[u8]) -> Option<StoredFile> {
-    let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    pointer_from_value(&v)
-}
-
-fn pointer_from_value(v: &serde_json::Value) -> Option<StoredFile> {
-    let hash = v.get("blob")?.as_str()?.to_string();
-    if !is_sha256_hex(&hash) {
-        return None;
-    }
-    let size = v.get("size")?.as_u64()?;
-    let mime = v
-        .get("mime")
-        .and_then(|m| m.as_str())
-        .map(|s| s.to_string());
-    Some(StoredFile::BlobPointer { hash, size, mime })
-}
-
 fn decode_file(path: &str, bytes: Vec<u8>) -> StoredFile {
-    if let Some(pointer) = is_pointer_bytes(&bytes) {
-        return pointer;
-    }
-    if !TextClassifier::default_ref().is_text_path(path) {
-        if let Some(pointer) = is_legacy_pointer_bytes(&bytes) {
-            return pointer;
-        }
+    if let Some(file) = parse_blob_pointer(&bytes).and_then(|p| p.into_file_for_path(path)) {
+        return file;
     }
     StoredFile::Text { bytes }
 }
@@ -1154,8 +1144,17 @@ mod tests {
             helper_and_tree_entries.contains("POINTER_BLOB_MAX_BYTES"),
             "pointer detection should skip blobs larger than the pointer JSON bound"
         );
+
+        // The fast-reject now lives in the shared `parse_blob_pointer` helper.
+        let shared_start = source.find("pub(crate) fn parse_blob_pointer").unwrap_or(0);
+        let shared_end = source[shared_start + 1..]
+            .find("\npub")
+            .or_else(|| source[shared_start + 1..].find("\nfn "))
+            .map(|idx| shared_start + 1 + idx)
+            .unwrap_or(source.len());
+        let shared_fn = &source[shared_start..shared_end];
         assert!(
-            helper_and_tree_entries.contains("bytes.first() != Some(&b'{')"),
+            shared_fn.contains("!bytes.starts_with(b\"{\")"),
             "pointer detection should reject non-JSON-looking blobs before serde parsing"
         );
     }

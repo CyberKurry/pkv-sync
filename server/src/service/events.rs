@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-use crate::storage::git::{storage_vault_path, POINTER_MAGIC_KEY, POINTER_VERSION};
+use crate::storage::git::{parse_blob_pointer, storage_vault_path};
 
 pub const MAX_SSE_REPLAY_COMMITS: usize = 64;
 
@@ -286,19 +286,11 @@ fn classify_replay_change(path: &str, blob_bytes: &[u8]) -> EventChange {
 }
 
 fn detect_blob_pointer(bytes: &[u8]) -> Option<(String, u64)> {
-    if !bytes.starts_with(b"{") {
+    let ptr = parse_blob_pointer(bytes)?;
+    if !ptr.has_magic() {
         return None;
     }
-    let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    if v.get(POINTER_MAGIC_KEY)?.as_u64()? != POINTER_VERSION {
-        return None;
-    }
-    let hash = v.get("blob")?.as_str()?.to_string();
-    if hash.len() != 64 || !hash.as_bytes().iter().all(u8::is_ascii_hexdigit) {
-        return None;
-    }
-    let size = v.get("size")?.as_u64()?;
-    Some((hash, size))
+    Some((ptr.blob, ptr.size))
 }
 
 fn display_path(path: &Path) -> Option<String> {
@@ -379,13 +371,14 @@ mod tests {
     }
 
     #[test]
-    fn detect_blob_pointer_fast_rejects_non_json_payloads() {
-        let source = include_str!("events.rs");
+    fn parse_blob_pointer_fast_rejects_non_json_payloads() {
+        let source = include_str!("../storage/git.rs");
         let fn_start = source
-            .find("fn detect_blob_pointer")
-            .expect("detect_blob_pointer implementation exists");
+            .find("pub(crate) fn parse_blob_pointer")
+            .expect("parse_blob_pointer implementation exists");
         let next_fn = source[fn_start + 1..]
-            .find("\nfn ")
+            .find("\npub")
+            .or_else(|| source[fn_start + 1..].find("\nfn "))
             .map(|idx| fn_start + 1 + idx)
             .expect("following function exists");
         let implementation = &source[fn_start..next_fn];
@@ -410,22 +403,11 @@ mod tests {
     }
 
     #[test]
-    fn detect_blob_pointer_uses_ascii_bytes_for_hash_validation() {
-        let source = include_str!("events.rs");
-        let fn_start = source
-            .find("fn detect_blob_pointer")
-            .expect("detect_blob_pointer implementation exists");
-        let next_fn = source[fn_start + 1..]
-            .find("\nfn ")
-            .map(|idx| fn_start + 1 + idx)
-            .expect("following function exists");
-        let implementation = &source[fn_start..next_fn];
-
-        assert!(implementation.contains(".as_bytes().iter().all"));
-        assert!(
-            !implementation.contains(".chars().all"),
-            "hash validation should avoid char iteration for known ASCII hex"
-        );
+    fn detect_blob_pointer_rejects_non_json_fast() {
+        // Behavioral: non-JSON bytes must return None without attempting a full parse.
+        assert!(detect_blob_pointer(b"not json at all").is_none());
+        assert!(detect_blob_pointer(b"[1,2,3]").is_none());
+        assert!(detect_blob_pointer(b"").is_none());
     }
 
     #[tokio::test]

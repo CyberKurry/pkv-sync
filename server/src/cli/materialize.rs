@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::Config;
 use crate::storage::blob::{is_sha256_hex, sharded_blob_path};
-use crate::storage::git::{POINTER_MAGIC_KEY, POINTER_VERSION};
+use crate::storage::git::BlobPointerJson;
 
 /// Expand a vault's git + blob storage into a plain file tree on disk.
 ///
@@ -170,20 +170,18 @@ fn validate_tree_entry_name(name: &str) -> anyhow::Result<()> {
 ///
 /// Returns `Some(hash)` if the content is a valid pointer with version 1,
 /// `None` otherwise (including non-JSON content, which is treated as text).
+/// Errors if the pointer carries the magic key but the hash is malformed.
 fn parse_pointer(content: &[u8]) -> anyhow::Result<Option<String>> {
-    let Ok(v) = serde_json::from_slice::<serde_json::Value>(content) else {
+    let Ok(ptr) = serde_json::from_slice::<BlobPointerJson>(content) else {
         return Ok(None);
     };
-    if v.get(POINTER_MAGIC_KEY).and_then(|value| value.as_u64()) != Some(POINTER_VERSION) {
+    if !ptr.has_magic() {
         return Ok(None);
     }
-    let Some(hash) = v.get("blob").and_then(|value| value.as_str()) else {
-        return Ok(None);
-    };
-    if !is_sha256_hex(hash) {
-        anyhow::bail!("invalid blob pointer hash: {hash}");
+    if !is_sha256_hex(&ptr.blob) {
+        anyhow::bail!("invalid blob pointer hash: {}", ptr.blob);
     }
-    Ok(Some(hash.to_string()))
+    Ok(Some(ptr.blob))
 }
 
 #[cfg(test)]
