@@ -7,6 +7,40 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Shared `sharded_blob_path` helper replaces three copy-pasted
+  implementations across blob store, materialize, and verify CLIs.
+- Vault-ID validation consolidated: `is_valid_vault_id` shared between
+  storage and CLI; git-HTTP keeps its stricter UUID-only check renamed
+  to `is_uuid_vault_id`.
+- `set_login_rate_limit` and `set_history_flags` delegate to the
+  existing `write_kv_batch` helper instead of inlining SQL loops.
+- Blob-pointer JSON parsing unified into a single `BlobPointerJson`
+  struct shared by pull, events, and materialize (also eliminates
+  per-blob `serde_json::Value` allocations — PERF-4).
+- Plugin migration exclusion reuses `HARD_EXCLUDE_GLOBS` from the
+  exclude module; `isTextPath` extracted to shared util.
+- `RuntimeConfigCache` inner field narrowed from `pub` to `pub(crate)`.
+- `format.test.ts` moved from `plugin/src/` to `plugin/tests/`.
+
+### Performance
+
+- Hard-exclude glob matcher hoisted to a module-level singleton,
+  avoiding recompilation on every scan cycle.
+- `wordDiff` tokenizer regex hoisted to module scope with `lastIndex`
+  reset, removing per-call `new RegExp` overhead.
+- `applyPull` short-circuits when the pull response carries no file
+  changes, skipping the vault scan and Map clone.
+- `toHex` uses pre-allocated array with `join` instead of `+=`
+  concatenation.
+- `path::normalize` skips backslash replacement when the input contains
+  none, avoiding an allocation on the common (non-Windows) path.
+- `tree_entries_recursive` pre-sizes its output vector with the
+  top-level tree entry count.
+- Push skips blob-candidate collection when the changeset has no blob
+  entries.
+
 ## [1.4.3] - 2026-06-15
 
 ### Fixed
