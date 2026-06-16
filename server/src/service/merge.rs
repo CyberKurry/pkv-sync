@@ -532,7 +532,7 @@ mod tests {
             base_end: 13,
             replacement: "y".into(),
         };
-        assert!(char_hunks_overlap(&[a.clone()], &[b_overlap]));
+        assert!(char_hunks_overlap(std::slice::from_ref(&a), &[b_overlap]));
         assert!(!char_hunks_overlap(&[a], &[b_disjoint]));
     }
 

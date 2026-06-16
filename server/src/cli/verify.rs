@@ -263,6 +263,8 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::useless_concat)] // concat! splits these search strings so they
+                                     // don't appear verbatim in this test source (self-referential source checks).
     fn verify_run_does_not_accept_no_fail_flag() {
         let verify_source = include_str!("verify.rs");
         let main_source = include_str!("../main.rs");
