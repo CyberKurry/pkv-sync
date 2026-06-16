@@ -13,9 +13,9 @@ export async function sha256Text(text: string): Promise<string> {
 }
 
 function toHex(bytes: Uint8Array): string {
-  let hex = "";
-  for (const byte of bytes) {
-    hex += HEX_BYTES[byte];
+  const parts = new Array<string>(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    parts[i] = HEX_BYTES[bytes[i]];
   }
-  return hex;
+  return parts.join("");
 }

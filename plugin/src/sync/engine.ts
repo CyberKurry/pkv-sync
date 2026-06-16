@@ -392,6 +392,10 @@ export class SyncEngine {
 
   private async applyPull(pull: PullResponse): Promise<PendingScan | null> {
     if (!pull.to) return null;
+    if (pull.added.length === 0 && pull.modified.length === 0 && pull.deleted.length === 0) {
+      await this.advanceIndexHead(pull.to);
+      return null;
+    }
     let index = await this.opts.index.loadIndex();
     const current = await this.opts.vault.scan(this.opts.textExtensions, index);
     const currentByPath = new Map(current.map((file) => [file.path, file]));

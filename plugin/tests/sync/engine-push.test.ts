@@ -224,8 +224,8 @@ describe("SyncEngine push", () => {
 
     await engine.syncNow();
 
-    // scanPending (step ①) + applyPull inside pullIfChanged (step ③)
-    expect(scan).toHaveBeenCalledTimes(2);
+    // scanPending (step ①); applyPull short-circuits on empty pull (step ③)
+    expect(scan).toHaveBeenCalledTimes(1);
     expect(api.push).toHaveBeenCalledWith("v", "c0", [
       { kind: "text", path: "a.md", content: "hi" }
     ], "d");
