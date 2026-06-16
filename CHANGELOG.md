@@ -20,6 +20,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
   `.expect("storage lock mutex poisoned")` calls now recover the guard
   via `PoisonError::into_inner()`, so a prior panic no longer cascades
   into permanent process death (BUG-2024-001).
+- Auth rate limiters (`LoginRateLimiter`, `McpAuthRateLimiter`,
+  `McpWriteRateLimiter`) no longer panic on config-lock poisoning: the
+  eleven `.expect("... lock poisoned")` sites now recover the inner
+  value, mirroring the storage-lock fix, so a panicking task can't
+  cascade into a process-wide auth rate-limiting outage on the login
+  path (BUG-R2-OMIT).
 - Inline text apply now closes the TOCTOU window between the dirty
   check and `writeText`: a second read+hash re-check refuses the write
   if the local file changed on disk in the gap, preventing a remote

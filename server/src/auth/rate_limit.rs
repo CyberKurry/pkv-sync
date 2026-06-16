@@ -4,6 +4,13 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
+/// Recover from a poisoned config lock instead of panicking. Mirrors
+/// `storage/lock.rs`: a single panicking task must not cascade into a
+/// process-wide auth rate-limiting outage (BUG-R2-OMIT).
+fn unpoison<T>(poisoned: std::sync::PoisonError<T>) -> T {
+    poisoned.into_inner()
+}
+
 #[derive(Debug, Clone)]
 struct Entry {
     failures: u32,
@@ -19,6 +26,10 @@ struct Entry {
 #[derive(Clone)]
 pub struct LoginRateLimiter {
     inner: Arc<DashMap<IpAddr, Entry>>,
+    // Config is guarded by an RwLock shared with all three rate limiters. We
+    // recover from poisoning (mirror of `storage/lock.rs`) rather than panic:
+    // a single panicking task must not cascade into a process-wide auth
+    // rate-limiting outage. See BUG-R2-OMIT.
     config: Arc<RwLock<Config>>,
 }
 
@@ -68,7 +79,7 @@ impl LoginRateLimiter {
     }
 
     pub fn update_config(&self, threshold: u32, window: Duration, lock_duration: Duration) {
-        *self.config.write().expect("login limiter lock poisoned") = Config {
+        *self.config.write().unwrap_or_else(unpoison) = Config {
             threshold: threshold.max(1),
             window,
             lock_duration,
@@ -88,7 +99,7 @@ impl LoginRateLimiter {
     /// failure (which historically left a wide CPU-burn window).
     pub fn try_acquire(&self, ip: IpAddr) -> Result<AttemptReservation, Duration> {
         let now = Instant::now();
-        let config = *self.config.read().expect("login limiter lock poisoned");
+        let config = *self.config.read().unwrap_or_else(unpoison);
         let mut entry = self.inner.entry(ip).or_insert(Entry {
             failures: 0,
             in_flight: 0,
@@ -144,7 +155,7 @@ impl LoginRateLimiter {
     /// and atomically charge a failure.
     fn release_failure(&self, ip: IpAddr) {
         let now = Instant::now();
-        let config = *self.config.read().expect("login limiter lock poisoned");
+        let config = *self.config.read().unwrap_or_else(unpoison);
         let mut entry = self.inner.entry(ip).or_insert(Entry {
             failures: 0,
             in_flight: 0,
@@ -189,7 +200,7 @@ impl LoginRateLimiter {
 
     pub fn prune_stale(&self) -> usize {
         let now = Instant::now();
-        let config = *self.config.read().expect("login limiter lock poisoned");
+        let config = *self.config.read().unwrap_or_else(unpoison);
         let before = self.inner.len();
         self.inner
             .retain(|_, entry| !entry_is_stale(entry, now, config));
@@ -210,7 +221,7 @@ impl McpAuthRateLimiter {
     }
 
     pub fn update_config(&self, threshold: u32, window: Duration, lock_duration: Duration) {
-        *self.config.write().expect("mcp auth limiter lock poisoned") = Config {
+        *self.config.write().unwrap_or_else(unpoison) = Config {
             threshold: threshold.max(1),
             window,
             lock_duration,
@@ -219,7 +230,7 @@ impl McpAuthRateLimiter {
 
     pub fn try_acquire(&self, key: &str) -> Result<McpAuthAttemptReservation, Duration> {
         let now = Instant::now();
-        let config = *self.config.read().expect("mcp auth limiter lock poisoned");
+        let config = *self.config.read().unwrap_or_else(unpoison);
         let mut entry = self.inner.entry(key.to_string()).or_insert(Entry {
             failures: 0,
             in_flight: 0,
@@ -269,7 +280,7 @@ impl McpAuthRateLimiter {
 
     fn release_failure(&self, key: &str) {
         let now = Instant::now();
-        let config = *self.config.read().expect("mcp auth limiter lock poisoned");
+        let config = *self.config.read().unwrap_or_else(unpoison);
         let mut entry = self.inner.entry(key.to_string()).or_insert(Entry {
             failures: 0,
             in_flight: 0,
@@ -307,7 +318,7 @@ impl McpAuthRateLimiter {
 
     pub fn prune_stale(&self) -> usize {
         let now = Instant::now();
-        let config = *self.config.read().expect("mcp auth limiter lock poisoned");
+        let config = *self.config.read().unwrap_or_else(unpoison);
         let before = self.inner.len();
         self.inner
             .retain(|_, entry| !entry_is_stale(entry, now, config));
@@ -327,10 +338,7 @@ impl McpWriteRateLimiter {
     }
 
     pub fn update_config(&self, limit: u32, window: Duration) {
-        *self
-            .config
-            .write()
-            .expect("mcp write limiter lock poisoned") = McpWriteConfig {
+        *self.config.write().unwrap_or_else(unpoison) = McpWriteConfig {
             limit: limit.max(1),
             window,
         };
@@ -338,7 +346,7 @@ impl McpWriteRateLimiter {
 
     pub fn try_record(&self, token_id: &str, vault_id: &str) -> Result<(), Duration> {
         let now = Instant::now();
-        let config = *self.config.read().expect("mcp write limiter lock poisoned");
+        let config = *self.config.read().unwrap_or_else(unpoison);
         let key = (token_id.to_string(), vault_id.to_string());
         let mut entry = self.inner.entry(key).or_insert(McpWriteEntry {
             count: 0,
@@ -358,7 +366,7 @@ impl McpWriteRateLimiter {
 
     pub fn prune_stale(&self) -> usize {
         let now = Instant::now();
-        let config = *self.config.read().expect("mcp write limiter lock poisoned");
+        let config = *self.config.read().unwrap_or_else(unpoison);
         let before = self.inner.len();
         self.inner
             .retain(|_, entry| now.duration_since(entry.window_start) < config.window);
@@ -793,5 +801,63 @@ mod tests {
                 "McpAuthRateLimiter still exposes legacy API {legacy_api}"
             );
         }
+    }
+
+    /// Regression BUG-R2-OMIT: a task panicking while holding the config RwLock
+    /// used to poison it, after which EVERY subsequent login/limit path panicked
+    /// again (`.expect("login limiter lock poisoned")`), cascading a single
+    /// failure into process-wide rate-limiting outage until restart. The fix
+    /// mirrors `storage/lock.rs`: recover the inner value via `unpoison`.
+    #[test]
+    fn login_limiter_recovers_from_config_poisoning() {
+        let l = LoginRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
+        // Poison the shared config lock: a thread grabs the write guard and
+        // panics while still holding it.
+        let cfg = l.config.clone();
+        let handle = std::thread::spawn(move || {
+            let _guard = cfg.write().unwrap();
+            panic!("intentional poison");
+        });
+        let _ = handle.join(); // panicked while holding the guard → poisoned
+
+        // Before the fix both of these panicked via `.expect(...)`.
+        l.update_config(5, Duration::from_secs(60), Duration::from_secs(60));
+        l.try_acquire(ip())
+            .expect("login acquire must work after poison recovery")
+            .release();
+    }
+
+    /// Same regression for the MCP auth limiter, which shares the config-lock
+    /// pattern and the same poisoning risk.
+    #[test]
+    fn mcp_auth_limiter_recovers_from_config_poisoning() {
+        let l = McpAuthRateLimiter::new(3, Duration::from_secs(60), Duration::from_secs(60));
+        let cfg = l.config.clone();
+        let handle = std::thread::spawn(move || {
+            let _guard = cfg.write().unwrap();
+            panic!("intentional poison");
+        });
+        let _ = handle.join();
+
+        l.update_config(5, Duration::from_secs(60), Duration::from_secs(60));
+        l.try_acquire("poison-key")
+            .expect("mcp auth acquire must work after poison recovery")
+            .release();
+    }
+
+    /// Same regression for the MCP write limiter.
+    #[test]
+    fn mcp_write_limiter_recovers_from_config_poisoning() {
+        let l = McpWriteRateLimiter::new(3, Duration::from_secs(60));
+        let cfg = l.config.clone();
+        let handle = std::thread::spawn(move || {
+            let _guard = cfg.write().unwrap();
+            panic!("intentional poison");
+        });
+        let _ = handle.join();
+
+        l.update_config(5, Duration::from_secs(60));
+        l.try_record("token", "vault")
+            .expect("mcp write record must work after poison recovery");
     }
 }
