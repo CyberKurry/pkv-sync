@@ -253,12 +253,14 @@ interface DiffSegment {
 const WORD_DIFF_CHANGE_RATIO_GUARD = 0.7;
 const WORD_DIFF_MAX_TOKENS = 4000;
 
+const WORD_DIFF_TOKENIZER =
+  /([A-Za-z0-9_]+)|([\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af])|(\s+)|(.)/gu;
+
 function tokenizeForWordDiff(line: string): string[] {
   const tokens: string[] = [];
-  const re =
-    /([A-Za-z0-9_]+)|([\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af])|(\s+)|(.)/gu;
+  WORD_DIFF_TOKENIZER.lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(line)) !== null) {
+  while ((match = WORD_DIFF_TOKENIZER.exec(line)) !== null) {
     tokens.push(match[0]);
   }
   return tokens;

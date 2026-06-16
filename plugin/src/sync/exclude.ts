@@ -17,8 +17,10 @@ export interface PathAcceptsOptions {
 
 type PathMatcher = (path: string) => boolean;
 
+const HARD_EXCLUDE_MATCHER = createExcludeMatcher(HARD_EXCLUDE_GLOBS);
+
 export function createPathMatcher(opts: PathAcceptsOptions): PathMatcher {
-  const hardExclude = createExcludeMatcher(HARD_EXCLUDE_GLOBS);
+  const hardExclude = HARD_EXCLUDE_MATCHER;
   const userExcludes = createExcludeMatcher(opts.userExcludes);
   const userAllowlist = createExcludeMatcher(opts.userAllowlist);
 
