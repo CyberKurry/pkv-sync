@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-06-16
+
 ### Changed
 
 - Shared `sharded_blob_path` helper replaces three copy-pasted

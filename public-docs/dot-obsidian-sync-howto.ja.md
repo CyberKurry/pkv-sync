@@ -1,35 +1,35 @@
-# `.obsidian` 設定をデバイス間で同期する
+﻿# `.obsidian` 瑷畾銈掋儑銉愩偆銈归枔銇у悓鏈熴仚銈?
 
-[English](./dot-obsidian-sync-howto.md) | [简体中文](./dot-obsidian-sync-howto.zh-CN.md) | [繁體中文](./dot-obsidian-sync-howto.zh-Hant.md) | 日本語 | [한국어](./dot-obsidian-sync-howto.ko.md)
+[English](./dot-obsidian-sync-howto.md) | [绠€浣撲腑鏂嘳(./dot-obsidian-sync-howto.zh-CN.md) | [绻侀珨涓枃](./dot-obsidian-sync-howto.zh-Hant.md) | 鏃ユ湰瑾?| [頃滉淡鞏碷(./dot-obsidian-sync-howto.ko.md)
 
-ドキュメントバージョン: v1.4.3。
+銉夈偔銉ャ儭銉炽儓銉愩兗銈搞儳銉? v1.4.3銆?
 
-PKV Sync は通常、hidden path を同期しません。vault ごとの allowlist により、Obsidian 内部ディレクトリ全体ではなく、必要な `.obsidian` 設定ファイルだけを opt in できます。
+PKV Sync 銇€氬父銆乭idden path 銈掑悓鏈熴仐銇俱仜銈撱€倂ault 銇斻仺銇?allowlist 銇倛銈娿€丱bsidian 鍐呴儴銉囥偅銉偗銉堛儶鍏ㄤ綋銇с伅銇亸銆佸繀瑕併仾 `.obsidian` 瑷畾銉曘偂銈ゃ儷銇犮亼銈?opt in 銇с亶銇俱仚銆?
 
-## 新しい vault が既定で同期するもの
+## 鏂般仐銇?vault 銇屾棦瀹氥仹鍚屾湡銇欍倠銈傘伄
 
-新しい vault には、次の starter allowlist が設定されます。
+鏂般仐銇?vault 銇伅銆佹銇?starter allowlist 銇岃ō瀹氥仌銈屻伨銇欍€?
 
-- Themes：`.obsidian/themes/**`
-- CSS snippets：`.obsidian/snippets/**`
-- Hotkeys：`.obsidian/hotkeys.json`
-- App preferences：`.obsidian/app.json`
-- Appearance preferences：`.obsidian/appearance.json`
-- Enabled community plugin list：`.obsidian/community-plugins.json`
-- Enabled core plugin list：`.obsidian/core-plugins.json`
+- Themes锛歚.obsidian/themes/**`
+- CSS snippets锛歚.obsidian/snippets/**`
+- Hotkeys锛歚.obsidian/hotkeys.json`
+- App preferences锛歚.obsidian/app.json`
+- Appearance preferences锛歚.obsidian/appearance.json`
+- Enabled community plugin list锛歚.obsidian/community-plugins.json`
+- Enabled core plugin list锛歚.obsidian/core-plugins.json`
 
-含まれるのは有効化済み plugin list のみです。plugin code と plugin settings は既定では同期されません。
+鍚伨銈屻倠銇伅鏈夊姽鍖栨笀銇?plugin list 銇伩銇с仚銆俻lugin code 銇?plugin settings 銇棦瀹氥仹銇悓鏈熴仌銈屻伨銇涖倱銆?
 
-既存 vault は、starter list を適用するまで空の allowlist のままです。
+鏃㈠瓨 vault 銇€乻tarter list 銈掗仼鐢ㄣ仚銈嬨伨銇х┖銇?allowlist 銇伨銇俱仹銇欍€?
 
-- **Admin WebUI：Vaults -> Settings -> Apply starter allowlist** は上記の 7 glob すべてを starter list として書き込みます。
-- **Obsidian plugin：Settings -> PKV Sync -> Apply recommended starter list** は最も安全な 2 glob（`.obsidian/themes/**` と `.obsidian/snippets/**`）のみを書き込みます。themes と CSS snippets はデバイス間で共有しても通常安全ですが、残り 5 つの glob はユーザー固有の app state に触れるため、plugin は明示的な判断なしには有効化しません。
+- **Admin WebUI锛歏aults -> Settings -> Apply starter allowlist** 銇笂瑷樸伄 7 glob 銇欍伖銇︺倰 starter list 銇ㄣ仐銇︽浉銇嶈炯銇裤伨銇欍€?
+- **Obsidian plugin锛歋ettings -> PKV Sync -> Apply recommended starter list** 銇渶銈傚畨鍏ㄣ仾 2 glob锛坄.obsidian/themes/**` 銇?`.obsidian/snippets/**`锛夈伄銇裤倰鏇搞亶杈笺伩銇俱仚銆倀hemes 銇?CSS snippets 銇儑銉愩偆銈归枔銇у叡鏈夈仐銇︺倐閫氬父瀹夊叏銇с仚銇屻€佹畫銈?5 銇ゃ伄 glob 銇儲銉笺偠銉煎浐鏈夈伄 app state 銇Е銈屻倠銇熴倎銆乸lugin 銇槑绀虹殑銇垽鏂仾銇椼伀銇湁鍔瑰寲銇椼伨銇涖倱銆?
 
-7 glob の完全な starter を適用するには、Admin WebUI のボタンを使うか、plugin の allowlist editor に glob を手動で貼り付けてください。
+7 glob 銇畬鍏ㄣ仾 starter 銈掗仼鐢ㄣ仚銈嬨伀銇€丄dmin WebUI 銇儨銈裤兂銈掍娇銇嗐亱銆乸lugin 銇?allowlist editor 銇?glob 銈掓墜鍕曘仹璨笺倞浠樸亼銇︺亸銇犮仌銇勩€?
 
-## 常に同期されないもの
+## 甯搞伀鍚屾湡銇曘倢銇亜銈傘伄
 
-次の hard exclusions は、allowlist に追加しても常に優先されます。
+娆°伄 hard exclusions 銇€乤llowlist 銇拷鍔犮仐銇︺倐甯搞伀鍎厛銇曘倢銇俱仚銆?
 
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`
@@ -43,13 +43,13 @@ PKV Sync は通常、hidden path を同期しません。vault ごとの allowli
 
 ## Advanced opt-in
 
-追加の glob を設定できますが、リスクは利用者側で受け入れる必要があります。
+杩藉姞銇?glob 銈掕ō瀹氥仹銇嶃伨銇欍亴銆併儶銈广偗銇埄鐢ㄨ€呭伌銇у彈銇戝叆銈屻倠蹇呰銇屻亗銈娿伨銇欍€?
 
-- `.obsidian/plugins/*/data.json`：plugin settings。API keys、OAuth tokens、LLM keys が含まれることがあります。native E2EE が入るまで、同期内容は server に plaintext で保存されます。
-- `.obsidian/plugins/**`：plugin code。Git history が急速に増え、desktop-only plugin が mobile で壊れる可能性があります。
-- `.claude/**` や `.codex/**` など他の hidden directories：agent state が sensitive local context を含むことがあります。
+- `.obsidian/plugins/*/data.json`锛歱lugin settings銆侫PI keys銆丱Auth tokens銆丩LM keys 銇屽惈銇俱倢銈嬨亾銇ㄣ亴銇傘倞銇俱仚銆俷ative E2EE 銇屽叆銈嬨伨銇с€佸悓鏈熷唴瀹广伅 server 銇?plaintext 銇т繚瀛樸仌銈屻伨銇欍€?
+- `.obsidian/plugins/**`锛歱lugin code銆侴it history 銇屾€ラ€熴伀澧椼亪銆乨esktop-only plugin 銇?mobile 銇у銈屻倠鍙兘鎬с亴銇傘倞銇俱仚銆?
+- `.claude/**` 銈?`.codex/**` 銇仼浠栥伄 hidden directories锛歛gent state 銇?sensitive local context 銈掑惈銈€銇撱仺銇屻亗銈娿伨銇欍€?
 
-## ルールを編集する場所
+## 銉兗銉倰绶ㄩ泦銇欍倠鍫存墍
 
-- Obsidian：**Settings -> PKV Sync** を開き、現在の vault を選び、**.obsidian sync rules** を編集して保存します。
-- Admin WebUI：**Vaults** を開き、vault の **Settings** を選び、allowlist を編集して保存します。
+- Obsidian锛?*Settings -> PKV Sync** 銈掗枊銇嶃€佺従鍦ㄣ伄 vault 銈掗伕銇炽€?*.obsidian sync rules** 銈掔法闆嗐仐銇︿繚瀛樸仐銇俱仚銆?
+- Admin WebUI锛?*Vaults** 銈掗枊銇嶃€乿ault 銇?**Settings** 銈掗伕銇炽€乤llowlist 銈掔法闆嗐仐銇︿繚瀛樸仐銇俱仚銆?

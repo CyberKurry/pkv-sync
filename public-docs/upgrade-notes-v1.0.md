@@ -1,6 +1,6 @@
-# Upgrade notes: 0.x to 1.0
+﻿# Upgrade notes: 0.x to 1.0
 
-English | [简体中文](./upgrade-notes-v1.0.zh-CN.md) | [繁體中文](./upgrade-notes-v1.0.zh-Hant.md) | [日本語](./upgrade-notes-v1.0.ja.md) | [한국어](./upgrade-notes-v1.0.ko.md)
+English | [绠€浣撲腑鏂嘳(./upgrade-notes-v1.0.zh-CN.md) | [绻侀珨涓枃](./upgrade-notes-v1.0.zh-Hant.md) | [鏃ユ湰瑾瀅(./upgrade-notes-v1.0.ja.md) | [頃滉淡鞏碷(./upgrade-notes-v1.0.ko.md)
 
 Document version: v1.4.3.
 

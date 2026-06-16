@@ -1,38 +1,38 @@
-# PKV Sync를 사용한 LLM Wiki workflow
+﻿# PKV Sync毳?靷毄頃?LLM Wiki workflow
 
-[English](./llm-wiki-howto.md) | [简体中文](./llm-wiki-howto.zh-CN.md) | [繁體中文](./llm-wiki-howto.zh-Hant.md) | [日本語](./llm-wiki-howto.ja.md) | 한국어
+[English](./llm-wiki-howto.md) | [绠€浣撲腑鏂嘳(./llm-wiki-howto.zh-CN.md) | [绻侀珨涓枃](./llm-wiki-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./llm-wiki-howto.ja.md) | 頃滉淡鞏?
 
-문서 버전: v1.4.3.
+氍胳劀 氩勳爠: v1.4.3.
 
-이 문서는 기계 번역을 바탕으로 다듬은 한국어 문서입니다. 어색한 표현이나 의미가 모호한 부분이 있으면 영어 원문을 함께 확인하세요.
+鞚?氍胳劀電?旮瓣硠 氩堨棴鞚?氚旐儠鞙茧 雼る摤鞚€ 頃滉淡鞏?氍胳劀鞛呺媹雼? 鞏挫儔頃?響滍槃鞚措倶 鞚橂臧€ 氇樃頃?攵€攵勳澊 鞛堨溂氅?鞓侅柎 鞗愲鞚?頃粯 頇曥澑頃橃劯鞖?
 
-PKV Sync는 LLM이 유지 관리하는 wiki를 위한 storage, history, MCP substrate를 제공합니다. 사용자가 선택한 MCP-capable agent가 LLM을 실행하고, 일반 PKV Sync device token을 통해 읽고 쓰며, 승인된 모든 변경 사항을 vault의 git history에 commit합니다.
+PKV Sync電?LLM鞚?鞙犾 甏€毽晿電?wiki毳?鞙勴暅 storage, history, MCP substrate毳?鞝滉车頃╇媹雼? 靷毄鞛愱皜 靹犿儩頃?MCP-capable agent臧€ LLM鞚?鞁ろ枆頃橁碃, 鞚茧皹 PKV Sync device token鞚?韱淀暣 鞚疥碃 鞊半┌, 鞀轨澑霅?氇摖 氤€瓴?靷暛鞚?vault鞚?git history鞐?commit頃╇媹雼?
 
-## 세 가지 계층
+## 靹?臧€歆€ 瓿勳傅
 
-사람과 agent가 모두 vault를 추론할 수 있도록 작고 명시적인 구조를 사용하세요.
+靷瀸瓿?agent臧€ 氇憪 vault毳?於旊頃?靾?鞛堧弰搿?鞛戧碃 氇呾嫓鞝侅澑 甑“毳?靷毄頃橃劯鞖?
 
-- **Sources**: 원본 notes, 붙여넣은 research, imported files, meeting transcripts, 그 밖의 evidence입니다. 원자료에 가깝게 보관하고 나중에 audit할 수 있도록 충분한 provenance를 포함하세요.
-- **Wiki**: durable facts, decisions, concepts, people, projects, processes를 간결하게 설명하는 pages입니다. 이 pages는 서로 link하고 source pages를 cite합니다.
-- **Schema**: required frontmatter, index page, maintenance log처럼 wiki를 lintable하게 만드는 몇 가지 conventions입니다.
+- **Sources**: 鞗愲掣 notes, 攵欖棳雱ｌ潃 research, imported files, meeting transcripts, 攴?氚栰潣 evidence鞛呺媹雼? 鞗愳瀽耄岇棎 臧€旯濌矊 氤搓磤頃橁碃 雮橃鞐?audit頃?靾?鞛堧弰搿?於╇秳頃?provenance毳?韽暔頃橃劯鞖?
+- **Wiki**: durable facts, decisions, concepts, people, projects, processes毳?臧勱舶頃橁矊 靹る獏頃橂姅 pages鞛呺媹雼? 鞚?pages電?靹滊 link頃橁碃 source pages毳?cite頃╇媹雼?
+- **Schema**: required frontmatter, index page, maintenance log觳橂熂 wiki毳?lintable頃橁矊 毵岆摐電?氇?臧€歆€ conventions鞛呺媹雼?
 
-PKV Sync는 substrate이지 LLM host가 아닙니다. 서버는 safe read tools, optimistic write tools, link inspection, change inspection을 노출합니다. 무엇을 summarize, rewrite하거나 사용자에게 confirmation을 요청할지는 사용자가 선택한 agent가 결정합니다.
+PKV Sync電?substrate鞚挫 LLM host臧€ 鞎勲嫏雼堧嫟. 靹滊矂電?safe read tools, optimistic write tools, link inspection, change inspection鞚?雲胳稖頃╇媹雼? 氍挫棁鞚?summarize, rewrite頃橁卑雮?靷毄鞛愳棎瓴?confirmation鞚?鞖旍箔頃犾電?靷毄鞛愱皜 靹犿儩頃?agent臧€ 瓴办爼頃╇媹雼?
 
-## Agent 연결
+## Agent 鞐瓣舶
 
-PKV Sync device token을 만들거나 재사용한 뒤, MCP-capable agent가 stdio로 하나의 vault를 가리키게 하세요.
+PKV Sync device token鞚?毵岆摛瓯半倶 鞛偓鞖╉暅 霋? MCP-capable agent臧€ stdio搿?頃橂倶鞚?vault毳?臧€毽偆瓴?頃橃劯鞖?
 
 ```bash
 PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
 ```
 
-Streamable HTTP를 지원하는 agents의 경우 embedded 또는 standalone mode로 `/mcp`를 노출하고 모든 요청에 deployment key와 bearer token을 함께 보낼 수 있습니다. transport details는 MCP access guide를 참조하세요.
+Streamable HTTP毳?歆€鞗愴晿電?agents鞚?瓴届毎 embedded 霕愲姅 standalone mode搿?`/mcp`毳?雲胳稖頃橁碃 氇摖 鞖旍箔鞐?deployment key鞕€ bearer token鞚?頃粯 氤措偧 靾?鞛堨姷雼堧嫟. transport details電?MCP access guide毳?彀胳“頃橃劯鞖?
 
-agent에는 좁은 instruction을 주세요. source pages를 읽고, wiki updates를 제안하고, 쓸 때는 마지막 read에서 얻은 `parent_commit`을 사용하며, facts가 불확실하거나 conflicts가 나타나면 human review를 위해 멈추도록 지시합니다.
+agent鞐愲姅 膦侅潃 instruction鞚?欤检劯鞖? source pages毳?鞚疥碃, wiki updates毳?鞝滌晥頃橁碃, 鞊?霑岆姅 毵堨毵?read鞐愳劀 鞏混潃 `parent_commit`鞚?靷毄頃橂┌, facts臧€ 攵堩檿鞁ろ晿瓯半倶 conflicts臧€ 雮橅儉雮橂┐ human review毳?鞙勴暣 氅堨稊霃勲 歆€鞁滍暕雼堧嫟.
 
-## 권장 schema
+## 甓岇灔 schema
 
-다음 layout으로 시작하고, workflow에 비해 너무 작아졌을 때만 조정하세요.
+雼れ潓 layout鞙茧 鞁滌瀾頃橁碃, workflow鞐?牍勴暣 雱堧 鞛戩晞臁岇潉 霑岆 臁办爼頃橃劯鞖?
 
 ```text
 index.md
@@ -41,7 +41,7 @@ sources/
 wiki/
 ```
 
-`index.md`는 wiki의 map으로 사용합니다.
+`index.md`電?wiki鞚?map鞙茧 靷毄頃╇媹雼?
 
 ```markdown
 # Index
@@ -55,7 +55,7 @@ wiki/
 - [[wiki/sync-model]]
 ```
 
-`log.md`는 maintenance journal로 사용합니다.
+`log.md`電?maintenance journal搿?靷毄頃╇媹雼?
 
 ```markdown
 # Wiki log
@@ -66,7 +66,7 @@ wiki/
 - Updated [[wiki/project-alpha]] and checked broken links.
 ```
 
-wiki pages에는 provenance를 보존하기 위해 frontmatter를 사용합니다.
+wiki pages鞐愲姅 provenance毳?氤挫〈頃橁赴 鞙勴暣 frontmatter毳?靷毄頃╇媹雼?
 
 ```markdown
 ---
@@ -80,7 +80,7 @@ updated: 2026-06-08
 # Project Alpha
 ```
 
-Source pages는 raw 상태로 둘 수 있지만, 정보의 출처를 명시해야 합니다.
+Source pages電?raw 靸來儨搿?霊?靾?鞛堨毵? 鞝曤炒鞚?於滌矘毳?氇呾嫓頃挫暭 頃╇媹雼?
 
 ```markdown
 ---
@@ -90,23 +90,23 @@ captured: 2026-06-08
 ---
 ```
 
-## Agent 루프
+## Agent 耄攧
 
-1. Ingest: `sources/` 아래 source material을 추가하거나 업데이트하되, 가능하면 원문 표현을 보존합니다. 하나의 source가 10-25개의 source 및 wiki pages로 확장될 때는 `write_files`를 사용해 전체 ingest가 하나의 atomic commit으로 저장되게 합니다.
-2. Query: agent에게 관련 source 및 wiki pages를 읽게 한 다음 `wiki/` 아래 updates를 제안하게 합니다.
-3. Write: agent가 current `parent_commit`을 확보한 뒤에만 `write_file`, `write_files`, `move_file`, 또는 `delete_file`을 사용하게 합니다. page merge, split, archival move에는 `move_file`을 사용해 git이 history를 잃지 않고 rename으로 보고할 수 있게 합니다.
-4. Lint: `link_graph`를 실행해 orphaned, missing, ambiguous links를 찾고, 마지막 reviewed commit부터 `changes_since`를 실행해 변경 사항을 summarize합니다.
-5. Review: proposed commits를 inspect하고 conflicts를 resolve하며, 불확실한 claims는 사람이 wiki pages로 promote할 때까지 sources에 남겨 둡니다.
+1. Ingest: `sources/` 鞎勲灅 source material鞚?於旉皜頃橁卑雮?鞐呺嵃鞚错姼頃橂悩, 臧€電ロ晿氅?鞗愲 響滍槃鞚?氤挫〈頃╇媹雼? 頃橂倶鞚?source臧€ 10-25臧滌潣 source 氚?wiki pages搿?頇曥灔霅?霑岆姅 `write_files`毳?靷毄頃?鞝勳泊 ingest臧€ 頃橂倶鞚?atomic commit鞙茧 鞝€鞛ル悩瓴?頃╇媹雼?
+2. Query: agent鞐愱矊 甏€霠?source 氚?wiki pages毳?鞚疥矊 頃?雼れ潓 `wiki/` 鞎勲灅 updates毳?鞝滌晥頃橁矊 頃╇媹雼?
+3. Write: agent臧€ current `parent_commit`鞚?頇曤炒頃?霋れ棎毵?`write_file`, `write_files`, `move_file`, 霕愲姅 `delete_file`鞚?靷毄頃橁矊 頃╇媹雼? page merge, split, archival move鞐愲姅 `move_file`鞚?靷毄頃?git鞚?history毳?鞛冹 鞎婈碃 rename鞙茧 氤搓碃頃?靾?鞛堦矊 頃╇媹雼?
+4. Lint: `link_graph`毳?鞁ろ枆頃?orphaned, missing, ambiguous links毳?彀娟碃, 毵堨毵?reviewed commit攵€韯?`changes_since`毳?鞁ろ枆頃?氤€瓴?靷暛鞚?summarize頃╇媹雼?
+5. Review: proposed commits毳?inspect頃橁碃 conflicts毳?resolve頃橂┌, 攵堩檿鞁ろ暅 claims電?靷瀸鞚?wiki pages搿?promote頃?霑岅箤歆€ sources鞐?雮波 霊‰媹雼?
 
-v1.2.1에서는 이 루프가 더 큰 wiki vault에 맞게 조정되었습니다. 일괄 ingest는 `write_files`로 원자적으로 유지되고, 구조적인 페이지 이동은 `move_file`로 기록을 보존하며, link/change tools는 상한을 유지하면서 필터링된 paths를 숨기고, 반복 sync cycles는 가능한 경우 cached filters, token checks, scans를 재사용합니다.
+v1.2.1鞐愳劀電?鞚?耄攧臧€ 雿?韥?wiki vault鞐?毵炾矊 臁办爼霅橃棃鞀惦媹雼? 鞚缄磩 ingest電?`write_files`搿?鞗愳瀽鞝侅溂搿?鞙犾霅橁碃, 甑“鞝侅澑 韼橃澊歆€ 鞚措彊鞚€ `move_file`搿?旮半鞚?氤挫〈頃橂┌, link/change tools電?靸來暅鞚?鞙犾頃橂┐靹?頃勴劙毵侂悳 paths毳?靾赴瓿? 氚橂车 sync cycles電?臧€電ロ暅 瓴届毎 cached filters, token checks, scans毳?鞛偓鞖╉暕雼堧嫟.
 
-## Lint 루틴
+## Lint 耄嫶
 
-각 maintenance pass 이후 agent에게 다음을 요청하세요.
+臧?maintenance pass 鞚错泟 agent鞐愱矊 雼れ潓鞚?鞖旍箔頃橃劯鞖?
 
-- vault id와 함께 `link_graph`를 호출하고 broken links, ambiguous basename links, new orphaned pages를 보고합니다.
-- 마지막 human-reviewed commit과 함께 `changes_since`를 호출하고 added, modified, deleted, renamed pages를 summarize합니다.
-- durable wiki pages가 추가되었으면 `index.md`를 업데이트합니다.
-- source material, 변경된 wiki pages, unresolved questions를 설명하는 짧은 entry를 `log.md`에 추가합니다.
+- vault id鞕€ 頃粯 `link_graph`毳?順胳稖頃橁碃 broken links, ambiguous basename links, new orphaned pages毳?氤搓碃頃╇媹雼?
+- 毵堨毵?human-reviewed commit瓿?頃粯 `changes_since`毳?順胳稖頃橁碃 added, modified, deleted, renamed pages毳?summarize頃╇媹雼?
+- durable wiki pages臧€ 於旉皜霅橃棃鞙茧┐ `index.md`毳?鞐呺嵃鞚错姼頃╇媹雼?
+- source material, 氤€瓴诫悳 wiki pages, unresolved questions毳?靹る獏頃橂姅 歆ъ潃 entry毳?`log.md`鞐?於旉皜頃╇媹雼?
 
-Hidden paths는 workflow 전체에서 hidden 상태로 유지됩니다. 어떤 path가 SyncPathFilter 또는 exclude glob에 의해 거부되면 MCP read tools는 file lists, search results, link graphs, change summaries에서 해당 path를 보고하지 않습니다.
+Hidden paths電?workflow 鞝勳泊鞐愳劀 hidden 靸來儨搿?鞙犾霅╇媹雼? 鞏措枻 path臧€ SyncPathFilter 霕愲姅 exclude glob鞐?鞚橅暣 瓯半秬霅橂┐ MCP read tools電?file lists, search results, link graphs, change summaries鞐愳劀 頃措嫻 path毳?氤搓碃頃橃 鞎婌姷雼堧嫟.

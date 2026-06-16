@@ -1,6 +1,6 @@
-# Using git-crypt with PKV Sync
+﻿# Using git-crypt with PKV Sync
 
-English | [简体中文](./git-crypt-howto.zh-CN.md) | [繁體中文](./git-crypt-howto.zh-Hant.md) | [日本語](./git-crypt-howto.ja.md) | [한국어](./git-crypt-howto.ko.md)
+English | [绠€浣撲腑鏂嘳(./git-crypt-howto.zh-CN.md) | [绻侀珨涓枃](./git-crypt-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./git-crypt-howto.ja.md) | [頃滉淡鞏碷(./git-crypt-howto.ko.md)
 
 Document version: v1.4.3.
 
@@ -88,7 +88,7 @@ git-crypt unlock ../vault-key
 - **`pkvsyncd materialize` is not git-crypt-aware.** Files that PKV Sync stored
   as `pkvsync_pointer` JSON (typically binaries above the text-extension list)
   are resolved against the server's blob store during materialize and arrive
-  as raw bytes — git-crypt's filter never sees them on the client side, so
+  as raw bytes 鈥?git-crypt's filter never sees them on the client side, so
   encrypting `*.pdf` or other blob-stored extensions via git-crypt does not
   produce the expected ciphertext stream. Restrict git-crypt patterns to file
   types PKV Sync treats as text (the server-configured `text_extensions` list,

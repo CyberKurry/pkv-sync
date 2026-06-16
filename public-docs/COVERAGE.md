@@ -1,6 +1,6 @@
-# PKV Sync Coverage Baseline
+﻿# PKV Sync Coverage Baseline
 
-English | [简体中文](./COVERAGE.zh-CN.md) | [繁體中文](./COVERAGE.zh-Hant.md) | [日本語](./COVERAGE.ja.md) | [한국어](./COVERAGE.ko.md)
+English | [绠€浣撲腑鏂嘳(./COVERAGE.zh-CN.md) | [绻侀珨涓枃](./COVERAGE.zh-Hant.md) | [鏃ユ湰瑾瀅(./COVERAGE.ja.md) | [頃滉淡鞏碷(./COVERAGE.ko.md)
 
 Document version: v1.4.3.
 

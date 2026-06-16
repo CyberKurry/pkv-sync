@@ -1,6 +1,6 @@
-# PKV Sync Admin Manual
+﻿# PKV Sync Admin Manual
 
-English | [简体中文](./admin-manual.zh-CN.md) | [繁體中文](./admin-manual.zh-Hant.md) | [日本語](./admin-manual.ja.md) | [한국어](./admin-manual.ko.md)
+English | [绠€浣撲腑鏂嘳(./admin-manual.zh-CN.md) | [绻侀珨涓枃](./admin-manual.zh-Hant.md) | [鏃ユ湰瑾瀅(./admin-manual.ja.md) | [頃滉淡鞏碷(./admin-manual.ko.md)
 
 Document version: v1.4.3.
 
@@ -217,9 +217,9 @@ monitoring and rate limits.
 The Settings page edits values stored in SQLite. Changes take effect immediately
 for new requests; the in-memory cache is refreshed on save.
 
-**General** — server name, default timezone.
+**General** 鈥?server name, default timezone.
 
-**Security** — registration mode (`disabled` / `invite_only` / `open`), login
+**Security** 鈥?registration mode (`disabled` / `invite_only` / `open`), login
 failure threshold, failure window, and lock duration. The login rate limiter
 counts both failed attempts and in-flight password verifications, so a burst
 of concurrent guesses cannot bypass the threshold.
@@ -235,11 +235,11 @@ failure budget.
 - Max file size (default `100 MiB`). Blob upload request bodies are always
   clamped to the hard storage cap (`512 MiB` in production), even if this
   runtime setting is raised higher.
-- Supported text extensions — files outside this list are treated as binary
+- Supported text extensions 鈥?files outside this list are treated as binary
   blobs. The list is shown read-only in the Admin WebUI; edit it via the
   `text_extensions` runtime config row (or by editing the SQLite `runtime_config`
   table directly) if you need to change it.
-- Extra exclude globs — admin-tunable patterns that augment the built-in
+- Extra exclude globs 鈥?admin-tunable patterns that augment the built-in
   `.obsidian/`, `.trash/`, `.conflict-*`, `.git/` exclusion list.
 - History UI and diff endpoint toggles.
 - **Auto-merge text** (`enable_auto_merge`, default on): when enabled, the
@@ -268,7 +268,7 @@ failure budget.
   deployment key middleware, plugin User-Agent guard, and an admin bearer
   token.
 
-**Network and update checks** — `public_host`, bind address, trusted proxies,
+**Network and update checks** 鈥?`public_host`, bind address, trusted proxies,
 and `[update_check].repo` are read from `config.toml` at startup. Update-check
 enabled/disabled state and interval are runtime settings stored in SQLite; the
 allowed interval range is 60 seconds to 30 days.
@@ -332,8 +332,8 @@ writing a side-by-side binary.
 
 ### Automatic upgrades (opt-in)
 
-Both paths above are manual. To make upgrades hands-off — notified in the admin
-panel, then applied with one click — enable an **opt-in updater**. The server
+Both paths above are manual. To make upgrades hands-off 鈥?notified in the admin
+panel, then applied with one click 鈥?enable an **opt-in updater**. The server
 itself stays unprivileged: clicking **Upgrade now** only writes an
 `upgrade-request.json` marker into the data directory; a separate privileged
 updater applies it, restarts the service, and rolls back automatically if the
@@ -364,7 +364,7 @@ docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --pro
 The updater pulls the requested `X.Y.Z` image, recreates `pkv-sync`, health-checks
 it, and re-pins the previous tag on failure. As an alternative, point a
 third-party tool such as [Watchtower](https://containrrr.dev/watchtower/) or
-compose-updater at the `pkv-sync` container — note those poll `:latest` on a
+compose-updater at the `pkv-sync` container 鈥?note those poll `:latest` on a
 schedule rather than honoring the one-click pinned target.
 
 A brief restart interruption is expected during any upgrade; clients reconnect

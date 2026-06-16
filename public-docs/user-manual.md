@@ -1,6 +1,6 @@
-# PKV Sync User Manual
+﻿# PKV Sync User Manual
 
-English | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
+English | [绠€浣撲腑鏂嘳(./user-manual.zh-CN.md) | [绻侀珨涓枃](./user-manual.zh-Hant.md) | [鏃ユ湰瑾瀅(./user-manual.ja.md) | [頃滉淡鞏碷(./user-manual.ko.md)
 
 Document version: v1.4.3.
 
@@ -161,12 +161,12 @@ diff views require the server to be reachable.
 PKV Sync uses a push-first sync protocol with auto-merge. How concurrent
 edits are handled depends on the kind of overlap:
 
-- **Different lines, same file** — edits are auto-merged on both devices.
+- **Different lines, same file** 鈥?edits are auto-merged on both devices.
   No conflict file is generated.
-- **Same line, same file** — one `.conflict-*` file is generated alongside
+- **Same line, same file** 鈥?one `.conflict-*` file is generated alongside
   the original, containing the conflicting content with standard merge
   markers.
-- **Delete vs. modify** — the file survives with the modification. The side
+- **Delete vs. modify** 鈥?the file survives with the modification. The side
   that deleted the file receives a conflict notification so it can decide
   whether to re-delete or keep it.
 

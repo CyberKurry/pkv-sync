@@ -1,6 +1,6 @@
-# Sync `.obsidian` configuration across devices
+﻿# Sync `.obsidian` configuration across devices
 
-English | [简体中文](./dot-obsidian-sync-howto.zh-CN.md) | [繁體中文](./dot-obsidian-sync-howto.zh-Hant.md) | [日本語](./dot-obsidian-sync-howto.ja.md) | [한국어](./dot-obsidian-sync-howto.ko.md)
+English | [绠€浣撲腑鏂嘳(./dot-obsidian-sync-howto.zh-CN.md) | [绻侀珨涓枃](./dot-obsidian-sync-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./dot-obsidian-sync-howto.ja.md) | [頃滉淡鞏碷(./dot-obsidian-sync-howto.ko.md)
 
 Document version: v1.4.3.
 
@@ -29,7 +29,7 @@ Existing vaults keep an empty allowlist until you apply the starter list.
   full 7-glob starter list above.
 - **Obsidian plugin: Settings -> PKV Sync -> Apply recommended starter list**
   writes only the two safest globs (`.obsidian/themes/**` and
-  `.obsidian/snippets/**`) — themes and CSS snippets are usually safe to share
+  `.obsidian/snippets/**`) 鈥?themes and CSS snippets are usually safe to share
   across devices, while the other five globs touch user-specific app state
   that the plugin won't enable without an explicit decision.
 

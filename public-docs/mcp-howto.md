@@ -1,6 +1,6 @@
-# MCP access for AI tools
+﻿# MCP access for AI tools
 
-English | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
+English | [绠€浣撲腑鏂嘳(./mcp-howto.zh-CN.md) | [绻侀珨涓枃](./mcp-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./mcp-howto.ja.md) | [頃滉淡鞏碷(./mcp-howto.ko.md)
 
 Document version: v1.4.3.
 

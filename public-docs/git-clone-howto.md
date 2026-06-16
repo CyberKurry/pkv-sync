@@ -1,6 +1,6 @@
-# Git Clone Your PKV Vault
+﻿# Git Clone Your PKV Vault
 
-English | [简体中文](./git-clone-howto.zh-CN.md) | [繁體中文](./git-clone-howto.zh-Hant.md) | [日本語](./git-clone-howto.ja.md) | [한국어](./git-clone-howto.ko.md)
+English | [绠€浣撲腑鏂嘳(./git-clone-howto.zh-CN.md) | [绻侀珨涓枃](./git-clone-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./git-clone-howto.ja.md) | [頃滉淡鞏碷(./git-clone-howto.ko.md)
 
 Document version: v1.4.3.
 

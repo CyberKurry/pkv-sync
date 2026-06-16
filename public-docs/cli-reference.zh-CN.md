@@ -1,42 +1,42 @@
-# CLI 参考
+﻿# CLI 鍙傝€?
 
-[English](./cli-reference.md) | 简体中文 | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
+[English](./cli-reference.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./cli-reference.zh-Hant.md) | [鏃ユ湰瑾瀅(./cli-reference.ja.md) | [頃滉淡鞏碷(./cli-reference.ko.md)
 
-文档版本：v1.4.3。
+鏂囨。鐗堟湰锛歷1.4.3銆?
 
-`pkvsyncd` 是 PKV Sync 的服务端守护进程二进制文件。它承载 HTTP/WebSocket 同步 API、管理界面、MCP 服务器，以及一小组运维子命令。
+`pkvsyncd` 鏄?PKV Sync 鐨勬湇鍔＄瀹堟姢杩涚▼浜岃繘鍒舵枃浠躲€傚畠鎵胯浇 HTTP/WebSocket 鍚屾 API銆佺鐞嗙晫闈€丮CP 鏈嶅姟鍣紝浠ュ強涓€灏忕粍杩愮淮瀛愬懡浠ゃ€?
 
-## 全局选项
+## 鍏ㄥ眬閫夐」
 
-以下选项对所有子命令生效：
+浠ヤ笅閫夐」瀵规墍鏈夊瓙鍛戒护鐢熸晥锛?
 
-- `-c, --config <PATH>`：TOML 配置文件路径。默认值：`/etc/pkv-sync/config.toml`。
-- `-h, --help`：显示帮助信息。
-- `-V, --version`：打印 CLI 版本。
+- `-c, --config <PATH>`锛歍OML 閰嶇疆鏂囦欢璺緞銆傞粯璁ゅ€硷細`/etc/pkv-sync/config.toml`銆?
+- `-h, --help`锛氭樉绀哄府鍔╀俊鎭€?
+- `-V, --version`锛氭墦鍗?CLI 鐗堟湰銆?
 
 ```bash
 pkvsyncd -c /opt/pkv-sync/config.toml serve
 ```
 
-## 子命令
+## 瀛愬懡浠?
 
-`pkvsyncd` 提供九个子命令。最常用的运维流程是 `serve`、`genkey`、`migrate up`、`user add`、`backup` 和 `restore`。
+`pkvsyncd` 鎻愪緵涔濅釜瀛愬懡浠ゃ€傛渶甯哥敤鐨勮繍缁存祦绋嬫槸 `serve`銆乣genkey`銆乣migrate up`銆乣user add`銆乣backup` 鍜?`restore`銆?
 
 ## pkvsyncd serve
 
-启动 HTTP 服务器。
+鍚姩 HTTP 鏈嶅姟鍣ㄣ€?
 
-### 概述
+### 姒傝堪
 
 ```text
 pkvsyncd serve
 ```
 
-### 说明
+### 璇存槑
 
-运行公开的同步 HTTP 监听器、管理界面、SSE 流、Git smart HTTP 路由，以及在已配置时的 MCP HTTP 端点。监听器绑定到 `config.toml` 中的 `[server].bind_addr`。请将其作为前台进程在 systemd 或容器中运行。
+杩愯鍏紑鐨勫悓姝?HTTP 鐩戝惉鍣ㄣ€佺鐞嗙晫闈€丼SE 娴併€丟it smart HTTP 璺敱锛屼互鍙婂湪宸查厤缃椂鐨?MCP HTTP 绔偣銆傜洃鍚櫒缁戝畾鍒?`config.toml` 涓殑 `[server].bind_addr`銆傝灏嗗叾浣滀负鍓嶅彴杩涚▼鍦?systemd 鎴栧鍣ㄤ腑杩愯銆?
 
-### 示例
+### 绀轰緥
 
 ```bash
 pkvsyncd -c /etc/pkv-sync/config.toml serve
@@ -44,19 +44,19 @@ pkvsyncd -c /etc/pkv-sync/config.toml serve
 
 ## pkvsyncd migrate
 
-数据库迁移命令。唯一支持的操作是 `up`。
+鏁版嵁搴撹縼绉诲懡浠ゃ€傚敮涓€鏀寔鐨勬搷浣滄槸 `up`銆?
 
-### 概述
+### 姒傝堪
 
 ```text
 pkvsyncd migrate up
 ```
 
-### 说明
+### 璇存槑
 
-将 `server/migrations/` 中所有待执行的 SQLite 迁移应用到 `[storage].db_path` 处的数据库。可安全地重复运行，已应用的迁移会被跳过。HTTP 服务器在启动时也会运行待执行的迁移，因此手动执行 `migrate up` 通常只在冷恢复流程或迁移离线备份时才需要。
+灏?`server/migrations/` 涓墍鏈夊緟鎵ц鐨?SQLite 杩佺Щ搴旂敤鍒?`[storage].db_path` 澶勭殑鏁版嵁搴撱€傚彲瀹夊叏鍦伴噸澶嶈繍琛岋紝宸插簲鐢ㄧ殑杩佺Щ浼氳璺宠繃銆侶TTP 鏈嶅姟鍣ㄥ湪鍚姩鏃朵篃浼氳繍琛屽緟鎵ц鐨勮縼绉伙紝鍥犳鎵嬪姩鎵ц `migrate up` 閫氬父鍙湪鍐锋仮澶嶆祦绋嬫垨杩佺Щ绂荤嚎澶囦唤鏃舵墠闇€瑕併€?
 
-### 示例
+### 绀轰緥
 
 ```bash
 pkvsyncd migrate up
@@ -64,19 +64,19 @@ pkvsyncd migrate up
 
 ## pkvsyncd genkey
 
-生成一个适合用于 `[server].deployment_key` 的随机部署密钥。
+鐢熸垚涓€涓€傚悎鐢ㄤ簬 `[server].deployment_key` 鐨勯殢鏈洪儴缃插瘑閽ャ€?
 
-### 概述
+### 姒傝堪
 
 ```text
 pkvsyncd genkey
 ```
 
-### 说明
+### 璇存槑
 
-向 stdout 打印一个加密学随机的 `k_*` 令牌。将该值粘贴到 `config.toml` 中，并通过你自己的安全渠道分发给 plugin/admin 客户端。
+鍚?stdout 鎵撳嵃涓€涓姞瀵嗗闅忔満鐨?`k_*` 浠ょ墝銆傚皢璇ュ€肩矘璐村埌 `config.toml` 涓紝骞堕€氳繃浣犺嚜宸辩殑瀹夊叏娓犻亾鍒嗗彂缁?plugin/admin 瀹㈡埛绔€?
 
-### 示例
+### 绀轰緥
 
 ```bash
 pkvsyncd genkey
@@ -85,9 +85,9 @@ pkvsyncd genkey
 
 ## pkvsyncd user
 
-用户管理命令。适用于运维恢复（忘记密码、账户被锁定）以及通过脚本批量初始化次级运维账户。
+鐢ㄦ埛绠＄悊鍛戒护銆傞€傜敤浜庤繍缁存仮澶嶏紙蹇樿瀵嗙爜銆佽处鎴疯閿佸畾锛変互鍙婇€氳繃鑴氭湰鎵归噺鍒濆鍖栨绾ц繍缁磋处鎴枫€?
 
-### 概述
+### 姒傝堪
 
 ```text
 pkvsyncd user add <USERNAME> [--admin]
@@ -96,91 +96,91 @@ pkvsyncd user list
 pkvsyncd user set-active <USERNAME> --active <true|false>
 ```
 
-### 子命令
+### 瀛愬懡浠?
 
-- `add <USERNAME> [--admin]`：创建一个用户，并以交互方式提示输入密码。
-- `passwd <USERNAME>`：重置某用户的密码，交互式提示输入新密码。
-- `list`：列出所有用户，包括其管理员/启用状态以及创建时间。
-- `set-active <USERNAME> --active <true|false>`：禁用或重新启用某个用户。被禁用的用户保留其令牌，但无法登录或同步。
+- `add <USERNAME> [--admin]`锛氬垱寤轰竴涓敤鎴凤紝骞朵互浜や簰鏂瑰紡鎻愮ず杈撳叆瀵嗙爜銆?
+- `passwd <USERNAME>`锛氶噸缃煇鐢ㄦ埛鐨勫瘑鐮侊紝浜や簰寮忔彁绀鸿緭鍏ユ柊瀵嗙爜銆?
+- `list`锛氬垪鍑烘墍鏈夌敤鎴凤紝鍖呮嫭鍏剁鐞嗗憳/鍚敤鐘舵€佷互鍙婂垱寤烘椂闂淬€?
+- `set-active <USERNAME> --active <true|false>`锛氱鐢ㄦ垨閲嶆柊鍚敤鏌愪釜鐢ㄦ埛銆傝绂佺敤鐨勭敤鎴蜂繚鐣欏叾浠ょ墝锛屼絾鏃犳硶鐧诲綍鎴栧悓姝ャ€?
 
-### 示例
+### 绀轰緥
 
 ```bash
-# 创建一个用于紧急访问的管理员账户
+# 鍒涘缓涓€涓敤浜庣揣鎬ヨ闂殑绠＄悊鍛樿处鎴?
 pkvsyncd user add alice --admin
 
-# 重置忘记的密码
+# 閲嶇疆蹇樿鐨勫瘑鐮?
 pkvsyncd user passwd alice
 
-# 在不删除数据的情况下禁用一个离职用户
+# 鍦ㄤ笉鍒犻櫎鏁版嵁鐨勬儏鍐典笅绂佺敤涓€涓鑱岀敤鎴?
 pkvsyncd user set-active alice --active false
 ```
 
 ## pkvsyncd materialize
 
-将 PKV Sync 保险库的裸 git 仓库展开为磁盘上的普通文件树。
+灏?PKV Sync 淇濋櫓搴撶殑瑁?git 浠撳簱灞曞紑涓虹鐩樹笂鐨勬櫘閫氭枃浠舵爲銆?
 
-### 概述
+### 姒傝堪
 
 ```text
 pkvsyncd materialize <VAULT-ID> -o <OUTPUT-DIR> [--at <COMMIT-SHA>]
 ```
 
-### 选项
+### 閫夐」
 
-- `-o, --output <DIR>`：输出目录（必须不存在或为空）。
-- `--at <SHA>`：在指定 commit 处物化（默认值：HEAD）。
+- `-o, --output <DIR>`锛氳緭鍑虹洰褰曪紙蹇呴』涓嶅瓨鍦ㄦ垨涓虹┖锛夈€?
+- `--at <SHA>`锛氬湪鎸囧畾 commit 澶勭墿鍖栵紙榛樿鍊硷細HEAD锛夈€?
 
-### 说明
+### 璇存槑
 
-读取 `data_dir/vaults/<vault-id>` 下保险库的裸 git 仓库，并将每个文件写入输出目录：
+璇诲彇 `data_dir/vaults/<vault-id>` 涓嬩繚闄╁簱鐨勮８ git 浠撳簱锛屽苟灏嗘瘡涓枃浠跺啓鍏ヨ緭鍑虹洰褰曪細
 
-- 文本文件按原样写入。
-- 以 `pkvsync_pointer` JSON 形式存储的二进制文件，通过从服务器的 blob 存储（`data_dir/blobs/`）复制实际的 blob 来解析。
+- 鏂囨湰鏂囦欢鎸夊師鏍峰啓鍏ャ€?
+- 浠?`pkvsync_pointer` JSON 褰㈠紡瀛樺偍鐨勪簩杩涘埗鏂囦欢锛岄€氳繃浠庢湇鍔″櫒鐨?blob 瀛樺偍锛坄data_dir/blobs/`锛夊鍒跺疄闄呯殑 blob 鏉ヨВ鏋愩€?
 
-该命令是同步的，且不要求服务器正在运行。它直接从已配置的 `data_dir` 下的磁盘 git 仓库和 blob 存储读取。
+璇ュ懡浠ゆ槸鍚屾鐨勶紝涓斾笉瑕佹眰鏈嶅姟鍣ㄦ鍦ㄨ繍琛屻€傚畠鐩存帴浠庡凡閰嶇疆鐨?`data_dir` 涓嬬殑纾佺洏 git 浠撳簱鍜?blob 瀛樺偍璇诲彇銆?
 
-### 示例
+### 绀轰緥
 
 ```bash
-# 物化最新版本
+# 鐗╁寲鏈€鏂扮増鏈?
 pkvsyncd materialize 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c -o ./my-vault
 
-# 物化特定 commit
+# 鐗╁寲鐗瑰畾 commit
 pkvsyncd materialize 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c -o ./my-vault-old --at abc123def456
 ```
 
-### 退出码
+### 閫€鍑虹爜
 
-- `0`：成功。
-- `1`：错误，例如输出目录非空、保险库不存在、blob 缺失或 commit SHA 无效。
+- `0`锛氭垚鍔熴€?
+- `1`锛氶敊璇紝渚嬪杈撳嚭鐩綍闈炵┖銆佷繚闄╁簱涓嶅瓨鍦ㄣ€乥lob 缂哄け鎴?commit SHA 鏃犳晥銆?
 
-> 保险库 ID 是 32 位的小写十六进制（不含短横线）。上面的示例使用真实形态的 ID；管理界面与 `pkvsyncd user list` 会显示有效的 ID。
+> 淇濋櫓搴?ID 鏄?32 浣嶇殑灏忓啓鍗佸叚杩涘埗锛堜笉鍚煭妯嚎锛夈€備笂闈㈢殑绀轰緥浣跨敤鐪熷疄褰㈡€佺殑 ID锛涚鐞嗙晫闈笌 `pkvsyncd user list` 浼氭樉绀烘湁鏁堢殑 ID銆?
 
 ## pkvsyncd backup
 
-将服务器数据快照到一个可移植的备份目录中。
+灏嗘湇鍔″櫒鏁版嵁蹇収鍒颁竴涓彲绉绘鐨勫浠界洰褰曚腑銆?
 
-### 概述
+### 姒傝堪
 
 ```text
 pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 ```
 
-### 选项
+### 閫夐」
 
-- `-o, --output <DIR>`：备份输出目录（必须不存在或为空）。
-- `--data-dir <DIR>`：用于离线运维的 data 目录覆盖项。默认使用加载的配置中的 `[storage].data_dir`。
-- `--gzip`：在备份目录旁额外生成一个 `.tar.gz` 归档文件。
-- `--include-config`：把已加载的 `config.toml` 一并写入备份。默认备份会省略配置文件，因为其中可能包含部署密钥和本机秘密。
+- `-o, --output <DIR>`锛氬浠借緭鍑虹洰褰曪紙蹇呴』涓嶅瓨鍦ㄦ垨涓虹┖锛夈€?
+- `--data-dir <DIR>`锛氱敤浜庣绾胯繍缁寸殑 data 鐩綍瑕嗙洊椤广€傞粯璁や娇鐢ㄥ姞杞界殑閰嶇疆涓殑 `[storage].data_dir`銆?
+- `--gzip`锛氬湪澶囦唤鐩綍鏃侀澶栫敓鎴愪竴涓?`.tar.gz` 褰掓。鏂囦欢銆?
+- `--include-config`锛氭妸宸插姞杞界殑 `config.toml` 涓€骞跺啓鍏ュ浠姐€傞粯璁ゅ浠戒細鐪佺暐閰嶇疆鏂囦欢锛屽洜涓哄叾涓彲鑳藉寘鍚儴缃插瘑閽ュ拰鏈満绉樺瘑銆?
 
-### 说明
+### 璇存槑
 
-将 SQLite 数据库（通过 VACUUM INTO）、每个保险库的裸 git 仓库以及 blob 存储，快照到一个带有 `MANIFEST.json` 的自包含目录中。备份期间 HTTP 服务器可以继续运行；push、blob 上传、回滚、保险库删除和 GC 等存储写入会在 data-dir 快照锁之后排队，直到备份完成。
+灏?SQLite 鏁版嵁搴擄紙閫氳繃 VACUUM INTO锛夈€佹瘡涓繚闄╁簱鐨勮８ git 浠撳簱浠ュ強 blob 瀛樺偍锛屽揩鐓у埌涓€涓甫鏈?`MANIFEST.json` 鐨勮嚜鍖呭惈鐩綍涓€傚浠芥湡闂?HTTP 鏈嶅姟鍣ㄥ彲浠ョ户缁繍琛岋紱push銆乥lob 涓婁紶銆佸洖婊氥€佷繚闄╁簱鍒犻櫎鍜?GC 绛夊瓨鍌ㄥ啓鍏ヤ細鍦?data-dir 蹇収閿佷箣鍚庢帓闃燂紝鐩村埌澶囦唤瀹屾垚銆?
 
-默认情况下，备份会省略 `config.toml`；只有在你明确要保存配置并保护其中秘密时，才添加 `--include-config`。
+榛樿鎯呭喌涓嬶紝澶囦唤浼氱渷鐣?`config.toml`锛涘彧鏈夊湪浣犳槑纭淇濆瓨閰嶇疆骞朵繚鎶ゅ叾涓瀵嗘椂锛屾墠娣诲姞 `--include-config`銆?
 
-### 示例
+### 绀轰緥
 
 ```bash
 pkvsyncd backup -o /var/backups/pkv-2026-05-25 --gzip
@@ -188,25 +188,25 @@ pkvsyncd backup -o /var/backups/pkv-2026-05-25 --gzip
 
 ## pkvsyncd restore
 
-将一个备份目录恢复到指定的 data 目录中。
+灏嗕竴涓浠界洰褰曟仮澶嶅埌鎸囧畾鐨?data 鐩綍涓€?
 
-### 概述
+### 姒傝堪
 
 ```text
 pkvsyncd restore -i <BACKUP-DIR> [--data-dir <DIR>] [--force]
 ```
 
-### 选项
+### 閫夐」
 
-- `-i, --input <DIR>`：包含 `MANIFEST.json` 的备份目录。
-- `--data-dir <DIR>`：目标 data 目录覆盖项。默认使用 `[storage].data_dir`。
-- `--force`：在恢复前清空非空的目标 data 目录。
+- `-i, --input <DIR>`锛氬寘鍚?`MANIFEST.json` 鐨勫浠界洰褰曘€?
+- `--data-dir <DIR>`锛氱洰鏍?data 鐩綍瑕嗙洊椤广€傞粯璁や娇鐢?`[storage].data_dir`銆?
+- `--force`锛氬湪鎭㈠鍓嶆竻绌洪潪绌虹殑鐩爣 data 鐩綍銆?
 
-### 说明
+### 璇存槑
 
-校验备份的 `MANIFEST.json`，并将 SQLite 数据库、保险库仓库与 blob 存储复制到目标 data 目录。在恢复之前请先停止 HTTP 服务器。恢复完成后，如果你恢复的是更老服务器版本生成的备份，请运行 `pkvsyncd migrate up`。
+鏍￠獙澶囦唤鐨?`MANIFEST.json`锛屽苟灏?SQLite 鏁版嵁搴撱€佷繚闄╁簱浠撳簱涓?blob 瀛樺偍澶嶅埗鍒扮洰鏍?data 鐩綍銆傚湪鎭㈠涔嬪墠璇峰厛鍋滄 HTTP 鏈嶅姟鍣ㄣ€傛仮澶嶅畬鎴愬悗锛屽鏋滀綘鎭㈠鐨勬槸鏇磋€佹湇鍔″櫒鐗堟湰鐢熸垚鐨勫浠斤紝璇疯繍琛?`pkvsyncd migrate up`銆?
 
-### 示例
+### 绀轰緥
 
 ```bash
 pkvsyncd restore -i /var/backups/pkv-2026-05-25 --data-dir /var/lib/pkv-sync --force
@@ -214,29 +214,29 @@ pkvsyncd restore -i /var/backups/pkv-2026-05-25 --data-dir /var/lib/pkv-sync --f
 
 ## pkvsyncd verify
 
-校验保险库的 git 仓库和内容寻址的 blob。
+鏍￠獙淇濋櫓搴撶殑 git 浠撳簱鍜屽唴瀹瑰鍧€鐨?blob銆?
 
-### 概述
+### 姒傝堪
 
 ```text
 pkvsyncd verify [--data-dir <DIR>] [--no-fail]
 ```
 
-### 选项
+### 閫夐」
 
-- `--data-dir <DIR>`：data 目录覆盖项。
-- `--no-fail`：即使校验发现错误也返回退出码 0。适用于希望仅记录而不触发告警的监控脚本。
+- `--data-dir <DIR>`锛歞ata 鐩綍瑕嗙洊椤广€?
+- `--no-fail`锛氬嵆浣挎牎楠屽彂鐜伴敊璇篃杩斿洖閫€鍑虹爜 0銆傞€傜敤浜庡笇鏈涗粎璁板綍鑰屼笉瑙﹀彂鍛婅鐨勭洃鎺ц剼鏈€?
 
-### 说明
+### 璇存槑
 
-对 `data_dir/vaults/` 下的每个保险库：
+瀵?`data_dir/vaults/` 涓嬬殑姣忎釜淇濋櫓搴擄細
 
-- 在裸仓库上运行 `git fsck --strict`。
-- 遍历 HEAD 树，并验证每个 `pkvsync_pointer` 都能解析到一个 blob，且其在磁盘上的 SHA-256 与文件名匹配。
+- 鍦ㄨ８浠撳簱涓婅繍琛?`git fsck --strict`銆?
+- 閬嶅巻 HEAD 鏍戯紝骞堕獙璇佹瘡涓?`pkvsync_pointer` 閮借兘瑙ｆ瀽鍒颁竴涓?blob锛屼笖鍏跺湪纾佺洏涓婄殑 SHA-256 涓庢枃浠跺悕鍖归厤銆?
 
-按保险库报告错误计数。当任何保险库存在错误时以非零退出码退出，除非设置了 `--no-fail`。
+鎸変繚闄╁簱鎶ュ憡閿欒璁℃暟銆傚綋浠讳綍淇濋櫓搴撳瓨鍦ㄩ敊璇椂浠ラ潪闆堕€€鍑虹爜閫€鍑猴紝闄ら潪璁剧疆浜?`--no-fail`銆?
 
-### 示例
+### 绀轰緥
 
 ```bash
 pkvsyncd verify --data-dir /var/lib/pkv-sync
@@ -244,70 +244,70 @@ pkvsyncd verify --data-dir /var/lib/pkv-sync
 
 ## pkvsyncd mcp
 
-为 AI 工具启动 MCP（Model Context Protocol）服务器。
+涓?AI 宸ュ叿鍚姩 MCP锛圡odel Context Protocol锛夋湇鍔″櫒銆?
 
-### 概述
+### 姒傝堪
 
 ```text
 pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>] [--bind <ADDR>]
 ```
 
-### 选项
+### 閫夐」
 
-- `--transport <stdio|http>`：传输模式。默认值：`stdio`。
-- `--vault <VAULT-ID>`：stdio 模式必填；要向客户端暴露的单一保险库。
-- `--token <PKS-TOKEN>`：stdio 模式使用的 bearer 设备令牌。若省略，则使用 `PKV_TOKEN` 环境变量。
-- `--bind <ADDR>`：HTTP 绑定地址。默认值：`127.0.0.1:6711`。
+- `--transport <stdio|http>`锛氫紶杈撴ā寮忋€傞粯璁ゅ€硷細`stdio`銆?
+- `--vault <VAULT-ID>`锛歴tdio 妯″紡蹇呭～锛涜鍚戝鎴风鏆撮湶鐨勫崟涓€淇濋櫓搴撱€?
+- `--token <PKS-TOKEN>`锛歴tdio 妯″紡浣跨敤鐨?bearer 璁惧浠ょ墝銆傝嫢鐪佺暐锛屽垯浣跨敤 `PKV_TOKEN` 鐜鍙橀噺銆?
+- `--bind <ADDR>`锛欻TTP 缁戝畾鍦板潃銆傞粯璁ゅ€硷細`127.0.0.1:6711`銆?
 
-### 说明
+### 璇存槑
 
-`stdio` 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC。`http` 模式在 `/mcp` 上提供一个无状态的 Streamable HTTP MCP 端点。两种模式暴露相同的工具集：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files` 和 `move_file`。`write_files` 适合原子的多页 wiki 编辑，`move_file` 适合保留历史的重命名或归档移动。写入类工具按 `(token, vault)` 限流为每分钟 60 次写入，且一个 `write_files` 批次只消耗一次写入记录。搜索请求最多扫描 5000 个可见 tree 文件、返回 500 条匹配，并在生产环境搜索文本累计达到 256 MiB 后停止。`link_graph` 最多扫描 5000 个可见文本文件，并使用同一个生产文本预算；`changes_since` 最多返回 5000 条可见变更。超过 64 MiB 的二进制/blob 读取响应会被拒绝，而不是被 base64 展开进 JSON。
+`stdio` 妯″紡浠?stdin 璇诲彇 JSON-RPC锛屽苟鍚?stdout 鍐欏叆 JSON-RPC銆俙http` 妯″紡鍦?`/mcp` 涓婃彁渚涗竴涓棤鐘舵€佺殑 Streamable HTTP MCP 绔偣銆備袱绉嶆ā寮忔毚闇茬浉鍚岀殑宸ュ叿闆嗭細`list_vaults`銆乣list_files`銆乣read_file`銆乣read_file_at_commit`銆乣search`銆乣link_graph`銆乣changes_since`銆乣write_file`銆乣delete_file`銆乣write_files` 鍜?`move_file`銆俙write_files` 閫傚悎鍘熷瓙鐨勫椤?wiki 缂栬緫锛宍move_file` 閫傚悎淇濈暀鍘嗗彶鐨勯噸鍛藉悕鎴栧綊妗ｇЩ鍔ㄣ€傚啓鍏ョ被宸ュ叿鎸?`(token, vault)` 闄愭祦涓烘瘡鍒嗛挓 60 娆″啓鍏ワ紝涓斾竴涓?`write_files` 鎵规鍙秷鑰椾竴娆″啓鍏ヨ褰曘€傛悳绱㈣姹傛渶澶氭壂鎻?5000 涓彲瑙?tree 鏂囦欢銆佽繑鍥?500 鏉″尮閰嶏紝骞跺湪鐢熶骇鐜鎼滅储鏂囨湰绱杈惧埌 256 MiB 鍚庡仠姝€俙link_graph` 鏈€澶氭壂鎻?5000 涓彲瑙佹枃鏈枃浠讹紝骞朵娇鐢ㄥ悓涓€涓敓浜ф枃鏈绠楋紱`changes_since` 鏈€澶氳繑鍥?5000 鏉″彲瑙佸彉鏇淬€傝秴杩?64 MiB 鐨勪簩杩涘埗/blob 璇诲彇鍝嶅簲浼氳鎷掔粷锛岃€屼笉鏄 base64 灞曞紑杩?JSON銆?
 
-`http` 模式要求每个请求都携带服务器部署密钥请求头，与常规同步 API 一致。
+`http` 妯″紡瑕佹眰姣忎釜璇锋眰閮芥惡甯︽湇鍔″櫒閮ㄧ讲瀵嗛挜璇锋眰澶达紝涓庡父瑙勫悓姝?API 涓€鑷淬€?
 
 
-这个子命令仍然是独立 MCP 进程。若要把同一个 Streamable HTTP transport 挂到主服务端口，请设置 `[mcp].embed_in_serve = true` 并运行 `pkvsyncd serve`。
-### 示例
+杩欎釜瀛愬懡浠や粛鐒舵槸鐙珛 MCP 杩涚▼銆傝嫢瑕佹妸鍚屼竴涓?Streamable HTTP transport 鎸傚埌涓绘湇鍔＄鍙ｏ紝璇疯缃?`[mcp].embed_in_serve = true` 骞惰繍琛?`pkvsyncd serve`銆?
+### 绀轰緥
 
 ```bash
-# 使用环境变量中的 token 启动 stdio
+# 浣跨敤鐜鍙橀噺涓殑 token 鍚姩 stdio
 PKV_TOKEN=pks_xxx pkvsyncd mcp --vault 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 
-# 本地 Streamable HTTP 端点
+# 鏈湴 Streamable HTTP 绔偣
 pkvsyncd mcp --transport http --bind 127.0.0.1:6711
 ```
 
 ## pkvsyncd upgrade
 
-在当前可执行文件旁下载一个 PKV Sync 发行版二进制文件。
+鍦ㄥ綋鍓嶅彲鎵ц鏂囦欢鏃佷笅杞戒竴涓?PKV Sync 鍙戣鐗堜簩杩涘埗鏂囦欢銆?
 
-### 概述
+### 姒傝堪
 
 ```text
 pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 ```
 
-### 选项
+### 閫夐」
 
-- `--dry-run`：显示所选的发行版、资产和目标路径，但不下载任何文件。
-- `--yes`：跳过交互式确认提示。
-- `--version <VERSION>`：下载指定版本（例如 `1.4.3`），而不是最新发行版。
+- `--dry-run`锛氭樉绀烘墍閫夌殑鍙戣鐗堛€佽祫浜у拰鐩爣璺緞锛屼絾涓嶄笅杞戒换浣曟枃浠躲€?
+- `--yes`锛氳烦杩囦氦浜掑紡纭鎻愮ず銆?
+- `--version <VERSION>`锛氫笅杞芥寚瀹氱増鏈紙渚嬪 `1.4.3`锛夛紝鑰屼笉鏄渶鏂板彂琛岀増銆?
 
-### 说明
+### 璇存槑
 
-该命令为当前平台选择对应的发行版资产，针对 `SHA256SUMS` 校验下载结果，在当前二进制文件旁写入 `pkvsyncd.new`（Windows 上为 `pkvsyncd.new.exe`），并打印 systemd/手动切换步骤。它不会热替换正在运行的服务器。
+璇ュ懡浠や负褰撳墠骞冲彴閫夋嫨瀵瑰簲鐨勫彂琛岀増璧勪骇锛岄拡瀵?`SHA256SUMS` 鏍￠獙涓嬭浇缁撴灉锛屽湪褰撳墠浜岃繘鍒舵枃浠舵梺鍐欏叆 `pkvsyncd.new`锛圵indows 涓婁负 `pkvsyncd.new.exe`锛夛紝骞舵墦鍗?systemd/鎵嬪姩鍒囨崲姝ラ銆傚畠涓嶄細鐑浛鎹㈡鍦ㄨ繍琛岀殑鏈嶅姟鍣ㄣ€?
 
-Docker 与 Kubernetes 部署应通过拉取或修改镜像标签并重启服务/滚动更新来升级。当该命令检测到容器环境时，会打印基于镜像的指导信息并退出，不会写入任何二进制文件。
+Docker 涓?Kubernetes 閮ㄧ讲搴旈€氳繃鎷夊彇鎴栦慨鏀归暅鍍忔爣绛惧苟閲嶅惎鏈嶅姟/婊氬姩鏇存柊鏉ュ崌绾с€傚綋璇ュ懡浠ゆ娴嬪埌瀹瑰櫒鐜鏃讹紝浼氭墦鍗板熀浜庨暅鍍忕殑鎸囧淇℃伅骞堕€€鍑猴紝涓嶄細鍐欏叆浠讳綍浜岃繘鍒舵枃浠躲€?
 
-### 示例
+### 绀轰緥
 
 ```bash
-# 预览升级计划
+# 棰勮鍗囩骇璁″垝
 pkvsyncd upgrade --dry-run
 
-# 下载最新的已校验二进制文件
+# 涓嬭浇鏈€鏂扮殑宸叉牎楠屼簩杩涘埗鏂囦欢
 pkvsyncd upgrade --yes
 
-# 下载指定版本
+# 涓嬭浇鎸囧畾鐗堟湰
 pkvsyncd upgrade --yes --version 1.4.3
 ```

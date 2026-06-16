@@ -1,55 +1,55 @@
-# PKV Sync 部署加固指南
+﻿# PKV Sync 閮ㄧ讲鍔犲浐鎸囧崡
 
-[English](./deployment-hardening.md) | [简体中文](./deployment-hardening.zh-CN.md) | 繁體中文 | [日本語](./deployment-hardening.ja.md) | [한국어](./deployment-hardening.ko.md)
+[English](./deployment-hardening.md) | [绠€浣撲腑鏂嘳(./deployment-hardening.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./deployment-hardening.ja.md) | [頃滉淡鞏碷(./deployment-hardening.ko.md)
 
-文件版本：v1.4.3。
+鏂囦欢鐗堟湰锛歷1.4.3銆?
 
-本文假設部署對象是自己、家庭、團隊或可信朋友使用的小型自託管服務。PKV Sync 運維上比較簡單，但服務端會保存可讀的倉庫內容，因此主機和備份衛生很重要。
+鏈枃鍋囪ō閮ㄧ讲灏嶈薄鏄嚜宸便€佸搴€佸湗闅婃垨鍙俊鏈嬪弸浣跨敤鐨勫皬鍨嬭嚜瑷楃鏈嶅嫏銆侾KV Sync 閬嬬董涓婃瘮杓冪啊鍠紝浣嗘湇鍕欑鏈冧繚瀛樺彲璁€鐨勫€夊韩鍏у锛屽洜姝や富姗熷拰鍌欎唤琛涚敓寰堥噸瑕併€?
 
-## 威脅模型
+## 濞佽剠妯″瀷
 
-PKV Sync 不提供端到端加密。保護倉庫內容依賴多層控制：
+PKV Sync 涓嶆彁渚涚鍒扮鍔犲瘑銆備繚璀峰€夊韩鍏у渚濊炒澶氬堡鎺у埗锛?
 
-1. HTTPS 傳輸加密
-2. 部署金鑰預認證
-3. 使用者名稱/密碼登入和使用時續期的 bearer 裝置 token
-4. 按使用者和筆記庫執行授權檢查
-5. Admin session 和 CSRF 保護
-6. 作業系統或雲端供應商磁碟加密
-7. 最小化暴露服務
-8. 加密且經過恢復測試的備份
+1. HTTPS 鍌宠几鍔犲瘑
+2. 閮ㄧ讲閲戦懓闋愯獚璀?
+3. 浣跨敤鑰呭悕绋?瀵嗙⒓鐧诲叆鍜屼娇鐢ㄦ檪绾屾湡鐨?bearer 瑁濈疆 token
+4. 鎸変娇鐢ㄨ€呭拰绛嗚搴煼琛屾巿娆婃鏌?
+5. Admin session 鍜?CSRF 淇濊
+6. 浣滄キ绯荤当鎴栭洸绔緵鎳夊晢纾佺鍔犲瘑
+7. 鏈€灏忓寲鏆撮湶鏈嶅嫏
+8. 鍔犲瘑涓旂稉閬庢仮寰╂脯瑭︾殑鍌欎唤
 
-請把服務端管理員和服務端檔案系統視為可以存取倉庫明文內容的可信邊界。
+璜嬫妸鏈嶅嫏绔鐞嗗摗鍜屾湇鍕欑妾旀绯荤当瑕栫偤鍙互瀛樺彇鍊夊韩鏄庢枃鍏у鐨勫彲淇￠倞鐣屻€?
 
-1.2.1 修補也收緊了暴露邊界：Git HTTP Basic 失敗資訊保持泛化，MCP JSON request body 上限為 100 MiB，blob 中繼資料檢查會拒絕符號連結的 blob 路徑，而不是跟隨它們。
+1.2.1 淇涔熸敹绶婁簡鏆撮湶閭婄晫锛欸it HTTP Basic 澶辨晽璩囪▕淇濇寔娉涘寲锛孧CP JSON request body 涓婇檺鐐?100 MiB锛宐lob 涓辜璩囨枡妾㈡煡鏈冩嫆绲曠铏熼€ｇ祼鐨?blob 璺緫锛岃€屼笉鏄窡闅ㄥ畠鍊戙€?
 
-## 推薦拓撲
+## 鎺ㄨ枽鎷撴挷
 
 ```text
 Internet -> HTTPS reverse proxy -> 127.0.0.1:6710 pkvsyncd
 ```
 
-除非你有明確的額外網路控制層，否則不要把 `pkvsyncd` 直接暴露到公網。
+闄ら潪浣犳湁鏄庣⒑鐨勯澶栫恫璺帶鍒跺堡锛屽惁鍓囦笉瑕佹妸 `pkvsyncd` 鐩存帴鏆撮湶鍒板叕缍层€?
 
-## 安裝前準備
+## 瀹夎鍓嶆簴鍌?
 
-準備：
+婧栧倷锛?
 
-- 網域名稱，例如 `sync.example.com`
-- 透過 `pkvsyncd genkey` 產生的部署金鑰
+- 缍插煙鍚嶇ū锛屼緥濡?`sync.example.com`
+- 閫忛亷 `pkvsyncd genkey` 鐢㈢敓鐨勯儴缃查噾閼?
 - `/etc/pkv-sync/config.toml`
-- 持久化資料目錄，通常是 `/var/lib/pkv-sync`
-- 帶有有效 TLS 憑證的反向代理
+- 鎸佷箙鍖栬硣鏂欑洰閷勶紝閫氬父鏄?`/var/lib/pkv-sync`
+- 甯舵湁鏈夋晥 TLS 鎲戣瓑鐨勫弽鍚戜唬鐞?
 
-服務端分享 URL 形式如下：
+鏈嶅嫏绔垎浜?URL 褰㈠紡濡備笅锛?
 
 ```text
 https://sync.example.com/k_xxx/
 ```
 
-請保持私密。部署金鑰是 API 流量的預認證入口，但不能取代使用者密碼。
+璜嬩繚鎸佺瀵嗐€傞儴缃查噾閼版槸 API 娴侀噺鐨勯爯瑾嶈瓑鍏ュ彛锛屼絾涓嶈兘鍙栦唬浣跨敤鑰呭瘑纰笺€?
 
-## 系統使用者
+## 绯荤当浣跨敤鑰?
 
 ```bash
 sudo useradd --system --home /var/lib/pkv-sync --shell /usr/sbin/nologin pkv-sync
@@ -58,11 +58,11 @@ sudo chown -R pkv-sync:pkv-sync /var/lib/pkv-sync
 sudo chmod 750 /var/lib/pkv-sync
 ```
 
-將 `config.toml` 放在 `/etc/pkv-sync/config.toml`，並確保只有服務使用者和管理員可以讀取。
+灏?`config.toml` 鏀惧湪 `/etc/pkv-sync/config.toml`锛屼甫纰轰繚鍙湁鏈嶅嫏浣跨敤鑰呭拰绠＄悊鍝″彲浠ヨ畝鍙栥€?
 
-## 防火牆
+## 闃茬伀鐗?
 
-典型主機只暴露 SSH 和 HTTPS：
+鍏稿瀷涓绘鍙毚闇?SSH 鍜?HTTPS锛?
 
 ```bash
 sudo ufw allow OpenSSH
@@ -70,20 +70,20 @@ sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
-如果 Caddy 或其他 ACME HTTP-01 用戶端管理憑證，還需要開放 `80` 連接埠用於驗證和跳轉流量：
+濡傛灉 Caddy 鎴栧叾浠?ACME HTTP-01 鐢ㄦ埗绔鐞嗘啈璀夛紝閭勯渶瑕侀枊鏀?`80` 閫ｆ帴鍩犵敤鏂奸璀夊拰璺宠綁娴侀噺锛?
 
 ```bash
 sudo ufw allow 80/tcp
 ```
 
-在宿主機直接執行時，讓 `pkvsyncd` 只監聽本機：
+鍦ㄥ涓绘鐩存帴鍩疯鏅傦紝璁?`pkvsyncd` 鍙洠鑱芥湰姗燂細
 
 ```toml
 [server]
 bind_addr = "127.0.0.1:6710"
 ```
 
-Docker Compose 中讓應用監聽容器所有介面；如果需要宿主機偵錯，只把宿主機連接埠發布到 localhost：
+Docker Compose 涓畵鎳夌敤鐩ｈ伣瀹瑰櫒鎵€鏈変粙闈紱濡傛灉闇€瑕佸涓绘鍋甸尟锛屽彧鎶婂涓绘閫ｆ帴鍩犵櫦甯冨埌 localhost锛?
 
 ```toml
 [server]
@@ -97,21 +97,21 @@ ports:
 
 ## Docker Compose + Caddy
 
-如果希望用 Caddy 自動申請和續期 HTTPS 憑證，使用這個路徑。
+濡傛灉甯屾湜鐢?Caddy 鑷嫊鐢宠珛鍜岀簩鏈?HTTPS 鎲戣瓑锛屼娇鐢ㄩ€欏€嬭矾寰戙€?
 
-1. 將 DNS 指向伺服器：
+1. 灏?DNS 鎸囧悜浼烘湇鍣細
 
    ```text
    sync.example.com A    <server IPv4>
    sync.example.com AAAA <server IPv6, optional>
    ```
 
-2. 在 `docker-compose.yml` 同目錄建立 `config.toml`：
+2. 鍦?`docker-compose.yml` 鍚岀洰閷勫缓绔?`config.toml`锛?
 
    ```toml
    [server]
    bind_addr = "0.0.0.0:6710"
-   deployment_key = "k_0123456789abcdef0123456789abcdef"  # 替換為 genkey 輸出
+   deployment_key = "k_0123456789abcdef0123456789abcdef"  # 鏇挎彌鐐?genkey 杓稿嚭
    public_host = "sync.example.com"
 
    [storage]
@@ -126,25 +126,25 @@ ports:
    format = "json"
    ```
 
-3. 替換 `deploy/caddy/Caddyfile` 中的 `sync.example.com`。
-4. 啟動：
+3. 鏇挎彌 `deploy/caddy/Caddyfile` 涓殑 `sync.example.com`銆?
+4. 鍟熷嫊锛?
 
    ```bash
    docker compose up -d
    docker compose logs -f pkv-sync
    ```
 
-5. 全新資料庫首次啟動後，開啟 setup wizard 建立第一個管理員帳號：
+5. 鍏ㄦ柊璩囨枡搴娆″暉鍕曞緦锛岄枊鍟?setup wizard 寤虹珛绗竴鍊嬬鐞嗗摗甯宠櫉锛?
 
    ```text
    https://sync.example.com/setup
    ```
 
-   如條件允許，請把 setup 階段放在私有網路或臨時反向代理 allowlist 後完成，完成後立刻收緊公開存取。日常管理員登入使用 `https://sync.example.com/admin/login`。
+   濡傛浠跺厑瑷憋紝璜嬫妸 setup 闅庢鏀惧湪绉佹湁缍茶矾鎴栬嚚鏅傚弽鍚戜唬鐞?allowlist 寰屽畬鎴愶紝瀹屾垚寰岀珛鍒绘敹绶婂叕闁嬪瓨鍙栥€傛棩甯哥鐞嗗摗鐧诲叆浣跨敤 `https://sync.example.com/admin/login`銆?
 
-備份 `./data`、`config.toml` 和 Caddy 的命名卷。
+鍌欎唤 `./data`銆乣config.toml` 鍜?Caddy 鐨勫懡鍚嶅嵎銆?
 
-升級：
+鍗囩礆锛?
 
 ```bash
 docker compose pull
@@ -152,50 +152,50 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
-儀表板每 24 小時檢查一次 GitHub releases，發現較新的 PKV Sync 版本時會顯示橫幅。全新資料庫首次啟動時，`enabled` 和 `interval_seconds` 會寫入執行階段設定；之後可在 Admin WebUI Settings 中修改，無需重啟。來源倉庫仍保留為靜態 `config.toml` 欄位，供離線鏡像部署使用：
+鍎€琛ㄦ澘姣?24 灏忔檪妾㈡煡涓€娆?GitHub releases锛岀櫦鐝捐純鏂扮殑 PKV Sync 鐗堟湰鏅傛渻椤ず姗箙銆傚叏鏂拌硣鏂欏韩棣栨鍟熷嫊鏅傦紝`enabled` 鍜?`interval_seconds` 鏈冨鍏ュ煼琛岄殠娈佃ō瀹氾紱涔嬪緦鍙湪 Admin WebUI Settings 涓慨鏀癸紝鐒￠渶閲嶅暉銆備締婧愬€夊韩浠嶄繚鐣欑偤闈滄厠 `config.toml` 娆勪綅锛屼緵闆㈢窔閺″儚閮ㄧ讲浣跨敤锛?
 
 ```toml
 [update_check]
-enabled = true                          # 僅作為首次啟動種子
-interval_seconds = 86400                # 僅作為首次啟動種子
-repo = "cyberkurry/pkv-sync"            # 靜態查詢的 GitHub 倉庫
+enabled = true                          # 鍍呬綔鐐洪娆″暉鍕曠ó瀛?
+interval_seconds = 86400                # 鍍呬綔鐐洪娆″暉鍕曠ó瀛?
+repo = "cyberkurry/pkv-sync"            # 闈滄厠鏌ヨ鐨?GitHub 鍊夊韩
 ```
 
-若要讓離線主機在初始化後保持安靜，請在 Admin WebUI 執行階段設定中關閉更新檢查，或用 `enabled = false` 作為全新部署的初始種子。
+鑻ヨ璁撻洟绶氫富姗熷湪鍒濆鍖栧緦淇濇寔瀹夐潨锛岃珛鍦?Admin WebUI 鍩疯闅庢瑷畾涓棞闁夋洿鏂版鏌ワ紝鎴栫敤 `enabled = false` 浣滅偤鍏ㄦ柊閮ㄧ讲鐨勫垵濮嬬ó瀛愩€?
 
-## public_host（admin POST 必備）
+## public_host锛坅dmin POST 蹇呭倷锛?
 
-將 `[server].public_host` 設定為運維實際存取 admin 面板使用的外部主機名稱（不含協定，必要時含連接埠），例如 `sync.example.com` 或 `pkv.local:8443`。admin CSRF 檢查依據該值計算期望 Origin。設定 `public_host` 後，期望 Origin 固定為 `https://<public_host>`；反向代理傳入的 `X-Forwarded-Proto` 不會把 admin CSRF 校驗降級到後端 HTTP。
+灏?`[server].public_host` 瑷畾鐐洪亱缍闅涘瓨鍙?admin 闈㈡澘浣跨敤鐨勫閮ㄤ富姗熷悕绋憋紙涓嶅惈鍗斿畾锛屽繀瑕佹檪鍚€ｆ帴鍩狅級锛屼緥濡?`sync.example.com` 鎴?`pkv.local:8443`銆俛dmin CSRF 妾㈡煡渚濇摎瑭插€艰▓绠楁湡鏈?Origin銆傝ō瀹?`public_host` 寰岋紝鏈熸湜 Origin 鍥哄畾鐐?`https://<public_host>`锛涘弽鍚戜唬鐞嗗偝鍏ョ殑 `X-Forwarded-Proto` 涓嶆渻鎶?admin CSRF 鏍￠闄嶇礆鍒板緦绔?HTTP銆?
 
-如果 `public_host` 留空，所有 admin POST 都會被拒絕，返回 `403 csrf validation failed`，並打一條 `tracing::warn` 日誌。這是有意的 fail-closed 行為：另一種做法是回退請求自帶的 `Host` header，但會把鑑權耦合到攻擊者可影響的 header，且在代理轉發不一致的 Host 時會出錯。
+濡傛灉 `public_host` 鐣欑┖锛屾墍鏈?admin POST 閮芥渻琚嫆绲曪紝杩斿洖 `403 csrf validation failed`锛屼甫鎵撲竴姊?`tracing::warn` 鏃ヨ獙銆傞€欐槸鏈夋剰鐨?fail-closed 琛岀偤锛氬彟涓€绋仛娉曟槸鍥為€€璜嬫眰鑷付鐨?`Host` header锛屼絾鏈冩妸閼戞瑠鑰﹀悎鍒版敾鎿婅€呭彲褰遍熆鐨?header锛屼笖鍦ㄤ唬鐞嗚綁鐧间笉涓€鑷寸殑 Host 鏅傛渻鍑洪尟銆?
 
-`public_host` 同時驅動：
+`public_host` 鍚屾檪椹呭嫊锛?
 
-- 生產風格的 admin cookie（設定後啟用 `Secure`、`SameSite=Strict`）
-- admin 中「share server URL」連結使用 `https://` 前綴
-- `/api/plugin-manifest` 返回的外掛資源 URL 使用 `https://` 外部主機
+- 鐢熺敘棰ㄦ牸鐨?admin cookie锛堣ō瀹氬緦鍟熺敤 `Secure`銆乣SameSite=Strict`锛?
+- admin 涓€宻hare server URL銆嶉€ｇ祼浣跨敤 `https://` 鍓嶇洞
+- `/api/plugin-manifest` 杩斿洖鐨勫鎺涜硣婧?URL 浣跨敤 `https://` 澶栭儴涓绘
 
-外掛清單 URL 產生不會信任用戶端傳入的 `X-Forwarded-Proto`。生產環境請設定 `public_host`，這樣外掛自更新拿到的資源 URL 才會穩定指向真實外部主機。
+澶栨帥娓呭柈 URL 鐢㈢敓涓嶆渻淇′换鐢ㄦ埗绔偝鍏ョ殑 `X-Forwarded-Proto`銆傜敓鐢㈢挵澧冭珛瑷畾 `public_host`锛岄€欐ǎ澶栨帥鑷洿鏂版嬁鍒扮殑璩囨簮 URL 鎵嶆渻绌╁畾鎸囧悜鐪熷澶栭儴涓绘銆?
 
-對 SSE 來說，該設定也能幫助反向代理識別長連線事件流而不是普通短請求。
+灏?SSE 渚嗚锛岃┎瑷畾涔熻兘骞姪鍙嶅悜浠ｇ悊璀樺垾闀烽€ｇ窔浜嬩欢娴佽€屼笉鏄櫘閫氱煭璜嬫眰銆?
 
-## 安全回應標頭
+## 瀹夊叏鍥炴噳妯欓牠
 
-PKV Sync 會在生產服務端棧中加入這些回應標頭：
+PKV Sync 鏈冨湪鐢熺敘鏈嶅嫏绔＇涓姞鍏ラ€欎簺鍥炴噳妯欓牠锛?
 
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: same-origin`
 - `Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'`
-- 在設定了 `public_host` 時加入 `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+- 鍦ㄨō瀹氫簡 `public_host` 鏅傚姞鍏?`Strict-Transport-Security: max-age=31536000; includeSubDomains`
 
-請讓 TLS 終止和 `public_host` 保持一致。只有當服務端被設定為 HTTPS 對外發布時，才會發送 HSTS。
+璜嬭畵 TLS 绲傛鍜?`public_host` 淇濇寔涓€鑷淬€傚彧鏈夌暥鏈嶅嫏绔瑷畾鐐?HTTPS 灏嶅鐧煎竷鏅傦紝鎵嶆渻鐧奸€?HSTS銆?
 
-### 關於端到端加密
+### 闂滄柤绔埌绔姞瀵?
 
-PKV Sync 1.0 不提供端到端加密：伺服器系統管理員以及任何可存取伺服器檔案系統的人都能讀取已同步的筆記庫內容。原生的按筆記庫 E2EE 已列入 1.x 規劃。今天就需要對伺服器保密的維運者，可依 [`git-crypt-howto.md`](./git-crypt-howto.md) 套用按筆記庫的過渡性加密層。該模式下檔名仍對伺服器可見，只有檔案內容會在用戶端加密。
+PKV Sync 1.0 涓嶆彁渚涚鍒扮鍔犲瘑锛氫己鏈嶅櫒绯荤当绠＄悊鍝′互鍙婁换浣曞彲瀛樺彇浼烘湇鍣ㄦ獢妗堢郴绲辩殑浜洪兘鑳借畝鍙栧凡鍚屾鐨勭瓎瑷樺韩鍏у銆傚師鐢熺殑鎸夌瓎瑷樺韩 E2EE 宸插垪鍏?1.x 瑕忓妰銆備粖澶╁氨闇€瑕佸皪浼烘湇鍣ㄤ繚瀵嗙殑缍亱鑰咃紝鍙緷 [`git-crypt-howto.md`](./git-crypt-howto.md) 濂楃敤鎸夌瓎瑷樺韩鐨勯亷娓℃€у姞瀵嗗堡銆傝┎妯″紡涓嬫獢鍚嶄粛灏嶄己鏈嶅櫒鍙锛屽彧鏈夋獢妗堝収瀹规渻鍦ㄧ敤鎴剁鍔犲瘑銆?
 
-## 反向代理注意事項
+## 鍙嶅悜浠ｇ悊娉ㄦ剰浜嬮爡
 
 ### Caddy
 
@@ -207,9 +207,9 @@ sync.example.com {
 
 ### Nginx
 
-倉庫提供了 `deploy/nginx/pkv-sync.conf`。它會把 HTTP 跳轉到 HTTPS，設定 `client_max_body_size 110m`，加入標準瀏覽器加固 header，並轉發 PKV Sync 用於 Host 和用戶端 IP 處理的 header。
+鍊夊韩鎻愪緵浜?`deploy/nginx/pkv-sync.conf`銆傚畠鏈冩妸 HTTP 璺宠綁鍒?HTTPS锛岃ō瀹?`client_max_body_size 110m`锛屽姞鍏ユ婧栫€忚鍣ㄥ姞鍥?header锛屼甫杞夌櫦 PKV Sync 鐢ㄦ柤 Host 鍜岀敤鎴剁 IP 铏曠悊鐨?header銆?
 
-最小結構：
+鏈€灏忕祼妲嬶細
 
 ```nginx
 server {
@@ -245,110 +245,110 @@ server {
 
 ### Traefik
 
-倉庫在 `deploy/traefik/docker-compose.traefik.yml` 提供了 Traefik 範例。請將 `trusted_proxies` 設定為 Traefik 使用的 Docker 網路 CIDR，並替換範例網域和 ACME 電子郵件。
+鍊夊韩鍦?`deploy/traefik/docker-compose.traefik.yml` 鎻愪緵浜?Traefik 绡勪緥銆傝珛灏?`trusted_proxies` 瑷畾鐐?Traefik 浣跨敤鐨?Docker 缍茶矾 CIDR锛屼甫鏇挎彌绡勪緥缍插煙鍜?ACME 闆诲瓙閮典欢銆?
 
 ## trusted_proxies
 
-只信任來自反向代理的 `X-Forwarded-For`。如果代理和應用執行在同一台主機：
+鍙俊浠讳締鑷弽鍚戜唬鐞嗙殑 `X-Forwarded-For`銆傚鏋滀唬鐞嗗拰鎳夌敤鍩疯鍦ㄥ悓涓€鍙颁富姗燂細
 
 ```toml
 [network]
 trusted_proxies = ["127.0.0.1/32", "::1/128"]
 ```
 
-如果使用 Docker bridge 網路：
+濡傛灉浣跨敤 Docker bridge 缍茶矾锛?
 
 ```toml
 [network]
 trusted_proxies = ["172.16.0.0/12"]
 ```
 
-不要加入寬泛公網網段。如果用戶端可以偽造 `X-Forwarded-For`，限流和稽核資料都會變弱。
+涓嶈鍔犲叆瀵硾鍏恫缍叉銆傚鏋滅敤鎴剁鍙互鍋介€?`X-Forwarded-For`锛岄檺娴佸拰绋芥牳璩囨枡閮芥渻璁婂急銆?
 
-## 執行階段安全設定
+## 鍩疯闅庢瀹夊叏瑷畾
 
-從 Admin WebUI 檢查這些設定：
+寰?Admin WebUI 妾㈡煡閫欎簺瑷畾锛?
 
-- 註冊模式：私有部署建議保持 `disabled` 或 `invite_only`。
-- 登入限流閾值、視窗和鎖定時長。
-- 最大檔案大小，預設 `100 MiB`。
-- 支援的文字副檔名。
-- 時區，預設 `Asia/Shanghai`。
+- 瑷诲唺妯″紡锛氱鏈夐儴缃插缓璀颁繚鎸?`disabled` 鎴?`invite_only`銆?
+- 鐧诲叆闄愭祦闁惧€笺€佽绐楀拰閹栧畾鏅傞暦銆?
+- 鏈€澶ф獢妗堝ぇ灏忥紝闋愯ō `100 MiB`銆?
+- 鏀彺鐨勬枃瀛楀壇妾斿悕銆?
+- 鏅傚崁锛岄爯瑷?`Asia/Shanghai`銆?
 
-註冊和登入失敗會被限流。Setup、公開註冊、使用者自助修改密碼，以及管理員建立或重設的密碼都必須至少 12 個字元，並包含大寫字母、小寫字母和數字；CLI 建立的使用者也仍應使用強密碼。
+瑷诲唺鍜岀櫥鍏ュけ鏁楁渻琚檺娴併€係etup銆佸叕闁嬭ɑ鍐娿€佷娇鐢ㄨ€呰嚜鍔╀慨鏀瑰瘑纰硷紝浠ュ強绠＄悊鍝″缓绔嬫垨閲嶈ō鐨勫瘑纰奸兘蹇呴爤鑷冲皯 12 鍊嬪瓧鍏冿紝涓﹀寘鍚ぇ瀵瓧姣嶃€佸皬瀵瓧姣嶅拰鏁稿瓧锛汣LI 寤虹珛鐨勪娇鐢ㄨ€呬篃浠嶆噳浣跨敤寮峰瘑纰笺€?
 
-認證同步 API 路由也按路由、方法、用戶端 IP 和 bearer token 固定視窗限流，每 60 秒最多 600 次請求。失敗的 bearer token 認證會另按用戶端 IP 限流，每 60 秒最多 120 次失敗嘗試。保持 `trusted_proxies` 準確，讓限流器和稽核日誌看到真實用戶端 IP。
+瑾嶈瓑鍚屾 API 璺敱涔熸寜璺敱銆佹柟娉曘€佺敤鎴剁 IP 鍜?bearer token 鍥哄畾瑕栫獥闄愭祦锛屾瘡 60 绉掓渶澶?600 娆¤珛姹傘€傚け鏁楃殑 bearer token 瑾嶈瓑鏈冨彟鎸夌敤鎴剁 IP 闄愭祦锛屾瘡 60 绉掓渶澶?120 娆″け鏁楀槜瑭︺€備繚鎸?`trusted_proxies` 婧栫⒑锛岃畵闄愭祦鍣ㄥ拰绋芥牳鏃ヨ獙鐪嬪埌鐪熷鐢ㄦ埗绔?IP銆?
 
-Blob 上傳請求 body 受 `max_file_size` 限制，並且一律會被硬 blob 上限限制（生產環境 `512 MiB`）。主 SSE 串流在保持開啟時會複查 bearer token；MCP 讀取和搜尋工具也有回應大小與總搜尋預算，避免大型筆記庫被展開成無界 JSON 回應。
+Blob 涓婂偝璜嬫眰 body 鍙?`max_file_size` 闄愬埗锛屼甫涓斾竴寰嬫渻琚‖ blob 涓婇檺闄愬埗锛堢敓鐢㈢挵澧?`512 MiB`锛夈€備富 SSE 涓叉祦鍦ㄤ繚鎸侀枊鍟熸檪鏈冭鏌?bearer token锛汳CP 璁€鍙栧拰鎼滃皨宸ュ叿涔熸湁鍥炴噳澶у皬鑸囩附鎼滃皨闋愮畻锛岄伩鍏嶅ぇ鍨嬬瓎瑷樺韩琚睍闁嬫垚鐒＄晫 JSON 鍥炴噳銆?
 
-Pull/tree 遍歷和 rollback 可達性檢查都有邊界；被目前同步過濾規則拒絕的路徑會從讀取、歷史、diff 和 commit-list 介面隱藏。
+Pull/tree 閬嶆鍜?rollback 鍙仈鎬ф鏌ラ兘鏈夐倞鐣岋紱琚洰鍓嶅悓姝ラ亷婵捐鍓囨嫆绲曠殑璺緫鏈冨緸璁€鍙栥€佹鍙层€乨iff 鍜?commit-list 浠嬮潰闅辫棌銆?
 
 ## Prometheus Metrics
 
-`/metrics` 預設停用。當 `enable_metrics` 執行階段設定為 true 時，端點會返回 Prometheus text exposition，並且仍需要每個生產閘門：部署金鑰中介軟體、外掛 User-Agent guard 和管理員 bearer token。
+`/metrics` 闋愯ō鍋滅敤銆傜暥 `enable_metrics` 鍩疯闅庢瑷畾鐐?true 鏅傦紝绔粸鏈冭繑鍥?Prometheus text exposition锛屼甫涓斾粛闇€瑕佹瘡鍊嬬敓鐢㈤枠闁€锛氶儴缃查噾閼颁腑浠嬭粺楂斻€佸鎺?User-Agent guard 鍜岀鐞嗗摗 bearer token銆?
 
-設定 scrape 用戶端傳送 `X-PKVSync-Deployment-Key`、接受的 PKV Sync User-Agent，以及 `Authorization: Bearer <admin-token>`。不要把 metrics 暴露給未認證網路。
+瑷畾 scrape 鐢ㄦ埗绔偝閫?`X-PKVSync-Deployment-Key`銆佹帴鍙楃殑 PKV Sync User-Agent锛屼互鍙?`Authorization: Bearer <admin-token>`銆備笉瑕佹妸 metrics 鏆撮湶绲︽湭瑾嶈瓑缍茶矾銆?
 
-## 備份
+## 鍌欎唤
 
-一起備份：
+涓€璧峰倷浠斤細
 
 - `/var/lib/pkv-sync/metadata.db`
 - `/var/lib/pkv-sync/vaults/`
 - `/var/lib/pkv-sync/blobs/`
 - `/etc/pkv-sync/config.toml`
 
-複製資料庫時使用 SQLite 線上備份，或先停止服務。盡量讓資料庫、Git 筆記庫和 blobs 來自同一時間點。
+瑜囪＝璩囨枡搴檪浣跨敤 SQLite 绶氫笂鍌欎唤锛屾垨鍏堝仠姝㈡湇鍕欍€傜洝閲忚畵璩囨枡搴€丟it 绛嗚搴拰 blobs 渚嗚嚜鍚屼竴鏅傞枔榛炪€?
 
-內建 backup/restore helper 不會跟隨 symlink。`vaults/` 或 `blobs/` 下的 symlink 條目會在備份時跳過，在恢復清理時只移除連結本身，不會觸碰連結目標。
+鍏у缓 backup/restore helper 涓嶆渻璺熼毃 symlink銆俙vaults/` 鎴?`blobs/` 涓嬬殑 symlink 姊濈洰鏈冨湪鍌欎唤鏅傝烦閬庯紝鍦ㄦ仮寰╂竻鐞嗘檪鍙Щ闄ら€ｇ祼鏈韩锛屼笉鏈冭Ц纰伴€ｇ祼鐩銆?
 
-restic 範例：
+restic 绡勪緥锛?
 
 ```bash
 restic -r sftp:user@backup.example.com:/repo backup /var/lib/pkv-sync /etc/pkv-sync
 ```
 
-備份離開機器前應先加密，並定期測試恢復。
+鍌欎唤闆㈤枊姗熷櫒鍓嶆噳鍏堝姞瀵嗭紝涓﹀畾鏈熸脯瑭︽仮寰┿€?
 
-## 磁碟加密
+## 纾佺鍔犲瘑
 
-盡量使用 LUKS、BitLocker、FileVault 或雲端供應商託管磁碟加密。如果 VPS 供應商無法加密根磁碟，加密離線備份就不是可選項，而是必要項。
+鐩￠噺浣跨敤 LUKS銆丅itLocker銆丗ileVault 鎴栭洸绔緵鎳夊晢瑷楃纾佺鍔犲瘑銆傚鏋?VPS 渚涙噳鍟嗙劇娉曞姞瀵嗘牴纾佺锛屽姞瀵嗛洟绶氬倷浠藉氨涓嶆槸鍙伕闋咃紝鑰屾槸蹇呰闋呫€?
 
-## Token 衛生
+## Token 琛涚敓
 
-裝置 bearer token 會在認證使用時續期，連續 90 天未使用才會過期，單個 token 最長有效 365 天，也可以由使用者或管理員撤銷。在過期或撤銷前，請把活躍 token 當作憑證處理。
+瑁濈疆 bearer token 鏈冨湪瑾嶈瓑浣跨敤鏅傜簩鏈燂紝閫ｇ簩 90 澶╂湭浣跨敤鎵嶆渻閬庢湡锛屽柈鍊?token 鏈€闀锋湁鏁?365 澶╋紝涔熷彲浠ョ敱浣跨敤鑰呮垨绠＄悊鍝℃挙閵枫€傚湪閬庢湡鎴栨挙閵峰墠锛岃珛鎶婃椿韬?token 鐣朵綔鎲戣瓑铏曠悊銆?
 
-Obsidian 會把外掛的活躍 token、部署金鑰、登入狀態和穩定裝置身分保存在裝置本機儲存中。筆記庫本機外掛 `data.json` 只保留非敏感偏好和同步索引；目前版本的同步索引 key 不再包含部署金鑰，舊版帶敏感資訊的索引項會在下次寫入外掛資料時被丟棄。請提醒使用者保護 Obsidian 裝置本機儲存、分享壓縮包、不可信同步目標、明文備份以及舊版本留下的 `data.json` 副本。如果這些儲存可能外洩，請撤銷受影響的裝置 token；如果部署金鑰曾經暴露，請輪換部署金鑰。
+Obsidian 鏈冩妸澶栨帥鐨勬椿韬?token銆侀儴缃查噾閼般€佺櫥鍏ョ媭鎱嬪拰绌╁畾瑁濈疆韬垎淇濆瓨鍦ㄨ缃湰姗熷劜瀛樹腑銆傜瓎瑷樺韩鏈澶栨帥 `data.json` 鍙繚鐣欓潪鏁忔劅鍋忓ソ鍜屽悓姝ョ储寮曪紱鐩墠鐗堟湰鐨勫悓姝ョ储寮?key 涓嶅啀鍖呭惈閮ㄧ讲閲戦懓锛岃垔鐗堝付鏁忔劅璩囪▕鐨勭储寮曢爡鏈冨湪涓嬫瀵叆澶栨帥璩囨枡鏅傝涓熸銆傝珛鎻愰啋浣跨敤鑰呬繚璀?Obsidian 瑁濈疆鏈鍎插瓨銆佸垎浜绺寘銆佷笉鍙俊鍚屾鐩銆佹槑鏂囧倷浠戒互鍙婅垔鐗堟湰鐣欎笅鐨?`data.json` 鍓湰銆傚鏋滈€欎簺鍎插瓨鍙兘澶栨穿锛岃珛鎾ら姺鍙楀奖闊跨殑瑁濈疆 token锛涘鏋滈儴缃查噾閼版浘缍撴毚闇诧紝璜嬭吉鎻涢儴缃查噾閼般€?
 
-建議：
+寤鸿锛?
 
-- 從 Admin WebUI 裝置頁面撤銷遺失裝置。
-- 如果只遺失單台裝置，優先撤銷該裝置 token，而不是重設整個帳號。
-- 懷疑帳號憑證洩露時再輪換使用者密碼。
-- 例行維護時檢查舊 token 和已撤銷 token。
+- 寰?Admin WebUI 瑁濈疆闋侀潰鎾ら姺閬哄け瑁濈疆銆?
+- 濡傛灉鍙伜澶卞柈鍙拌缃紝鍎厛鎾ら姺瑭茶缃?token锛岃€屼笉鏄噸瑷暣鍊嬪赋铏熴€?
+- 鎳风枒甯宠櫉鎲戣瓑娲╅湶鏅傚啀杓彌浣跨敤鑰呭瘑纰笺€?
+- 渚嬭缍鏅傛鏌ヨ垔 token 鍜屽凡鎾ら姺 token銆?
 
-## 活動和日誌
+## 娲诲嫊鍜屾棩瑾?
 
-PKV Sync 會記錄同步、筆記庫生命週期和唯讀瀏覽活動，包括使用者、筆記庫、動作、裝置名稱、檔案數、大小、IP、User-Agent、詳情和時間戳。筆記庫生命週期行包括來自 Admin WebUI、外掛或 API 操作的 `create_vault` 和 `delete_vault`。可用 Admin WebUI 的活動篩選檢查使用者或動作類型。
+PKV Sync 鏈冭閷勫悓姝ャ€佺瓎瑷樺韩鐢熷懡閫辨湡鍜屽敮璁€鐎忚娲诲嫊锛屽寘鎷娇鐢ㄨ€呫€佺瓎瑷樺韩銆佸嫊浣溿€佽缃悕绋便€佹獢妗堟暩銆佸ぇ灏忋€両P銆乁ser-Agent銆佽┏鎯呭拰鏅傞枔鎴炽€傜瓎瑷樺韩鐢熷懡閫辨湡琛屽寘鎷締鑷?Admin WebUI銆佸鎺涙垨 API 鎿嶄綔鐨?`create_vault` 鍜?`delete_vault`銆傚彲鐢?Admin WebUI 鐨勬椿鍕曠閬告鏌ヤ娇鐢ㄨ€呮垨鍕曚綔椤炲瀷銆?
 
-關注應用和反向代理日誌中重複出現的：
+闂滄敞鎳夌敤鍜屽弽鍚戜唬鐞嗘棩瑾屼腑閲嶈鍑虹従鐨勶細
 
-- `401`：憑證無效或已過期
-- `403`：帳號停用或操作被禁止
-- `404`：生產中介軟體拒絕部署金鑰或 User-Agent
-- `409`：同步 head 不匹配或資源重複
-- `429`：登入、註冊、認證同步 API 或 MCP HTTP 限流
+- `401`锛氭啈璀夌劇鏁堟垨宸查亷鏈?
+- `403`锛氬赋铏熷仠鐢ㄦ垨鎿嶄綔琚姝?
+- `404`锛氱敓鐢腑浠嬭粺楂旀嫆绲曢儴缃查噾閼版垨 User-Agent
+- `409`锛氬悓姝?head 涓嶅尮閰嶆垨璩囨簮閲嶈
+- `429`锛氱櫥鍏ャ€佽ɑ鍐娿€佽獚璀夊悓姝?API 鎴?MCP HTTP 闄愭祦
 
-## 發布衛生
+## 鐧煎竷琛涚敓
 
-生產升級前：
+鐢熺敘鍗囩礆鍓嶏細
 
-1. 閱讀 `CHANGELOG.md`。
-2. 確認 release tag 與服務端、外掛、OpenAPI、Docker 和文件版本一致。
-3. 檢查 GitHub release 包含 Linux amd64、Linux arm64、Windows x64、外掛 zip 和 `SHA256SUMS`。
-4. 確認 GHCR 映像存在對應 tag 和 `latest`。
-5. 備份目前資料。
-6. 如果目前部署是 0.x，啟動 1.0 二進位或映像前先閱讀 [`upgrade-notes-v1.0.zh-Hant.md`](./upgrade-notes-v1.0.zh-Hant.md)。不要把 1.0 直接指向既有的 0.x `metadata.db`。
-7. 用新二進位執行 migrations。
+1. 闁辫畝 `CHANGELOG.md`銆?
+2. 纰鸿獚 release tag 鑸囨湇鍕欑銆佸鎺涖€丱penAPI銆丏ocker 鍜屾枃浠剁増鏈竴鑷淬€?
+3. 妾㈡煡 GitHub release 鍖呭惈 Linux amd64銆丩inux arm64銆乄indows x64銆佸鎺?zip 鍜?`SHA256SUMS`銆?
+4. 纰鸿獚 GHCR 鏄犲儚瀛樺湪灏嶆噳 tag 鍜?`latest`銆?
+5. 鍌欎唤鐩墠璩囨枡銆?
+6. 濡傛灉鐩墠閮ㄧ讲鏄?0.x锛屽暉鍕?1.0 浜岄€蹭綅鎴栨槧鍍忓墠鍏堥柋璁€ [`upgrade-notes-v1.0.zh-Hant.md`](./upgrade-notes-v1.0.zh-Hant.md)銆備笉瑕佹妸 1.0 鐩存帴鎸囧悜鏃㈡湁鐨?0.x `metadata.db`銆?
+7. 鐢ㄦ柊浜岄€蹭綅鍩疯 migrations銆?
 
-PKV Sync 1.0 使用單一 v1 SQLite 基線。在這次基線之後，已發布的 1.x migration 對既有 1.x 部署保持追加式。
+PKV Sync 1.0 浣跨敤鍠竴 v1 SQLite 鍩虹窔銆傚湪閫欐鍩虹窔涔嬪緦锛屽凡鐧煎竷鐨?1.x migration 灏嶆棦鏈?1.x 閮ㄧ讲淇濇寔杩藉姞寮忋€?

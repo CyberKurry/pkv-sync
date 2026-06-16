@@ -1,68 +1,68 @@
-# PKV Sync 管理员手册
+﻿# PKV Sync 绠＄悊鍛樻墜鍐?
 
-[English](./admin-manual.md) | 简体中文 | [繁體中文](./admin-manual.zh-Hant.md) | [日本語](./admin-manual.ja.md) | [한국어](./admin-manual.ko.md)
+[English](./admin-manual.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./admin-manual.zh-Hant.md) | [鏃ユ湰瑾瀅(./admin-manual.ja.md) | [頃滉淡鞏碷(./admin-manual.ko.md)
 
-文档版本：v1.4.3。
+鏂囨。鐗堟湰锛歷1.4.3銆?
 
-本文覆盖自托管 PKV Sync 服务端的日常管理。网络和主机加固请同时阅读部署加固指南。
+鏈枃瑕嗙洊鑷墭绠?PKV Sync 鏈嶅姟绔殑鏃ュ父绠＄悊銆傜綉缁滃拰涓绘満鍔犲浐璇峰悓鏃堕槄璇婚儴缃插姞鍥烘寚鍗椼€?
 
-## 首次运行
+## 棣栨杩愯
 
-1. 生成部署密钥：
+1. 鐢熸垚閮ㄧ讲瀵嗛挜锛?
 
    ```bash
    pkvsyncd genkey
    ```
 
-2. 基于 `config.example.toml` 创建 `/etc/pkv-sync/config.toml`。
-3. 为全新的 1.x 数据目录初始化 v1 数据库基线：
+2. 鍩轰簬 `config.example.toml` 鍒涘缓 `/etc/pkv-sync/config.toml`銆?
+3. 涓哄叏鏂扮殑 1.x 鏁版嵁鐩綍鍒濆鍖?v1 鏁版嵁搴撳熀绾匡細
 
    ```bash
    pkvsyncd -c /etc/pkv-sync/config.toml migrate up
    ```
 
-4. 启动服务端：
+4. 鍚姩鏈嶅姟绔細
 
    ```bash
    pkvsyncd -c /etc/pkv-sync/config.toml serve
    ```
 
-5. 全新数据库首次启动后，在浏览器打开 `/setup`，创建第一个管理员账号。PKV Sync 不再把随机管理员密码输出到 stderr 或容器日志。
-6. setup 完成后，日常管理员登录使用 `/admin/login`。
+5. 鍏ㄦ柊鏁版嵁搴撻娆″惎鍔ㄥ悗锛屽湪娴忚鍣ㄦ墦寮€ `/setup`锛屽垱寤虹涓€涓鐞嗗憳璐﹀彿銆侾KV Sync 涓嶅啀鎶婇殢鏈虹鐞嗗憳瀵嗙爜杈撳嚭鍒?stderr 鎴栧鍣ㄦ棩蹇椼€?
+6. setup 瀹屾垚鍚庯紝鏃ュ父绠＄悊鍛樼櫥褰曚娇鐢?`/admin/login`銆?
 
-PKV Sync 1.0 使用单个 v1 SQLite 基线。由 0.x 创建的数据库不支持原地升级到 1.0.0；请按 [`upgrade-notes-v1.0.zh-CN.md`](./upgrade-notes-v1.0.zh-CN.md) 操作。在这次 v1 基线之后，已发布的 1.x migration 保持追加式。
+PKV Sync 1.0 浣跨敤鍗曚釜 v1 SQLite 鍩虹嚎銆傜敱 0.x 鍒涘缓鐨勬暟鎹簱涓嶆敮鎸佸師鍦板崌绾у埌 1.0.0锛涜鎸?[`upgrade-notes-v1.0.zh-CN.md`](./upgrade-notes-v1.0.zh-CN.md) 鎿嶄綔銆傚湪杩欐 v1 鍩虹嚎涔嬪悗锛屽凡鍙戝竷鐨?1.x migration 淇濇寔杩藉姞寮忋€?
 
-## Admin Web 面板
+## Admin Web 闈㈡澘
 
-打开：
+鎵撳紑锛?
 
 ```text
 https://sync.example.com/admin/login
 ```
 
-管理后台包含：
+绠＄悊鍚庡彴鍖呭惈锛?
 
-- 仪表盘：系统、存储、笔记库、用户、最近活动指标，以及有新版 PKV Sync 时的更新提示
-- 用户列表，支持搜索和状态筛选
-- 用户详情页：重置密码、启用/禁用、管理员权限控制和 token 查看
-- 全局设备 token 页面，可列出、创建和撤销 token
-- 笔记库卡片：所有者、文件数、大小、上次同步、元数据修复、删除操作和按笔记库同步设置
-- 只读笔记库文件浏览器，支持文件预览、单文件历史时间线和 unified diff 渲染
-- 邀请码创建，可选过期时间，活跃邀请码列表，以及删除未使用邀请码
-- 运行时设置，分为 General、Security、Sync & Storage、Network，并包含更新检查开关和间隔
-- 活动日志，支持按用户和动作真实筛选 push/pull 以及笔记库生命周期记录
-- Blob 垃圾回收触发
-- 英文、简体中文、繁体中文、日文和韩文语言切换
+- 浠〃鐩橈細绯荤粺銆佸瓨鍌ㄣ€佺瑪璁板簱銆佺敤鎴枫€佹渶杩戞椿鍔ㄦ寚鏍囷紝浠ュ強鏈夋柊鐗?PKV Sync 鏃剁殑鏇存柊鎻愮ず
+- 鐢ㄦ埛鍒楄〃锛屾敮鎸佹悳绱㈠拰鐘舵€佺瓫閫?
+- 鐢ㄦ埛璇︽儏椤碉細閲嶇疆瀵嗙爜銆佸惎鐢?绂佺敤銆佺鐞嗗憳鏉冮檺鎺у埗鍜?token 鏌ョ湅
+- 鍏ㄥ眬璁惧 token 椤甸潰锛屽彲鍒楀嚭銆佸垱寤哄拰鎾ら攢 token
+- 绗旇搴撳崱鐗囷細鎵€鏈夎€呫€佹枃浠舵暟銆佸ぇ灏忋€佷笂娆″悓姝ャ€佸厓鏁版嵁淇銆佸垹闄ゆ搷浣滃拰鎸夌瑪璁板簱鍚屾璁剧疆
+- 鍙绗旇搴撴枃浠舵祻瑙堝櫒锛屾敮鎸佹枃浠堕瑙堛€佸崟鏂囦欢鍘嗗彶鏃堕棿绾垮拰 unified diff 娓叉煋
+- 閭€璇风爜鍒涘缓锛屽彲閫夎繃鏈熸椂闂达紝娲昏穬閭€璇风爜鍒楄〃锛屼互鍙婂垹闄ゆ湭浣跨敤閭€璇风爜
+- 杩愯鏃惰缃紝鍒嗕负 General銆丼ecurity銆丼ync & Storage銆丯etwork锛屽苟鍖呭惈鏇存柊妫€鏌ュ紑鍏冲拰闂撮殧
+- 娲诲姩鏃ュ織锛屾敮鎸佹寜鐢ㄦ埛鍜屽姩浣滅湡瀹炵瓫閫?push/pull 浠ュ強绗旇搴撶敓鍛藉懆鏈熻褰?
+- Blob 鍨冨溇鍥炴敹瑙﹀彂
+- 鑻辨枃銆佺畝浣撲腑鏂囥€佺箒浣撲腑鏂囥€佹棩鏂囧拰闊╂枃璇█鍒囨崲
 
-在 1.2.1 中，用户详情统计来自真实的 vault 数量和最后同步时间戳，时长标签已覆盖所有随版本发布的 Admin 语言，本版也会在可用时使用增量或批处理路径执行 reconciliation 与元数据修复。
+鍦?1.2.1 涓紝鐢ㄦ埛璇︽儏缁熻鏉ヨ嚜鐪熷疄鐨?vault 鏁伴噺鍜屾渶鍚庡悓姝ユ椂闂存埑锛屾椂闀挎爣绛惧凡瑕嗙洊鎵€鏈夐殢鐗堟湰鍙戝竷鐨?Admin 璇█锛屾湰鐗堜篃浼氬湪鍙敤鏃朵娇鐢ㄥ閲忔垨鎵瑰鐞嗚矾寰勬墽琛?reconciliation 涓庡厓鏁版嵁淇銆?
 
-时间戳、持续时间、字节大小、运行时长和活动数据都会以人类可读形式显示。默认时区是 `Asia/Shanghai`，可在设置中修改。
+鏃堕棿鎴炽€佹寔缁椂闂淬€佸瓧鑺傚ぇ灏忋€佽繍琛屾椂闀垮拰娲诲姩鏁版嵁閮戒細浠ヤ汉绫诲彲璇诲舰寮忔樉绀恒€傞粯璁ゆ椂鍖烘槸 `Asia/Shanghai`锛屽彲鍦ㄨ缃腑淇敼銆?
 
-## 更新通知
+## 鏇存柊閫氱煡
 
-PKV Sync 默认每 24 小时检查一次 GitHub release。发现新的服务端版本时，仪表盘会显示提示，包含当前版本、最新版本、发行说明链接和简短摘要。
+PKV Sync 榛樿姣?24 灏忔椂妫€鏌ヤ竴娆?GitHub release銆傚彂鐜版柊鐨勬湇鍔＄鐗堟湰鏃讹紝浠〃鐩樹細鏄剧ず鎻愮ず锛屽寘鍚綋鍓嶇増鏈€佹渶鏂扮増鏈€佸彂琛岃鏄庨摼鎺ュ拰绠€鐭憳瑕併€?
 
-`config.toml` 中的 `[update_check].enabled` 和 `[update_check].interval_seconds` 只在全新数据库首次启动时写入运行时设置。之后以 Admin WebUI 的 Settings 页面为准：在 **Network** 分区切换更新检查或调整间隔，后台任务会在下一轮读取新的运行时值。如果当前已关闭更新检查，重新开启后约 60 秒内生效。`[update_check].repo` 仍保留为静态 `config.toml` 字段，供离线镜像部署使用。
+`config.toml` 涓殑 `[update_check].enabled` 鍜?`[update_check].interval_seconds` 鍙湪鍏ㄦ柊鏁版嵁搴撻娆″惎鍔ㄦ椂鍐欏叆杩愯鏃惰缃€備箣鍚庝互 Admin WebUI 鐨?Settings 椤甸潰涓哄噯锛氬湪 **Network** 鍒嗗尯鍒囨崲鏇存柊妫€鏌ユ垨璋冩暣闂撮殧锛屽悗鍙颁换鍔′細鍦ㄤ笅涓€杞鍙栨柊鐨勮繍琛屾椂鍊笺€傚鏋滃綋鍓嶅凡鍏抽棴鏇存柊妫€鏌ワ紝閲嶆柊寮€鍚悗绾?60 绉掑唴鐢熸晥銆俙[update_check].repo` 浠嶄繚鐣欎负闈欐€?`config.toml` 瀛楁锛屼緵绂荤嚎闀滃儚閮ㄧ讲浣跨敤銆?
 
 ```toml
 [update_check]
@@ -71,22 +71,22 @@ interval_seconds = 86400
 repo = "cyberkurry/pkv-sync"
 ```
 
-更新检查只提供信息。PKV Sync 不会自动替换正在运行的服务端二进制或容器镜像。
+鏇存柊妫€鏌ュ彧鎻愪緵淇℃伅銆侾KV Sync 涓嶄細鑷姩鏇挎崲姝ｅ湪杩愯鐨勬湇鍔＄浜岃繘鍒舵垨瀹瑰櫒闀滃儚銆?
 
-## 用户管理
+## 鐢ㄦ埛绠＄悊
 
-- 可在 **Users** 页面或 CLI 创建用户。
-- 用户名必须是 3-32 个 ASCII 字母、数字、`_`、`-` 或 `.`。
-- 管理员创建、管理员重置、公开注册和用户自行修改的密码都必须至少 12 个字符，并包含大写字母、小写字母和数字。
-- 用户页面的搜索和状态筛选可以缩小表格范围。
-- 打开用户详情页可重置密码、启用或禁用账号、提升或降低管理员权限，并查看该用户的设备 token。
-- 如果后续可能需要审计历史，优先禁用用户而不是删除用户。
-- Admin WebUI 会在禁用用户或降级管理员前弹出确认。禁用自己的管理员会话、降级最后一个管理员会被拦截，并在用户详情页显示本地化反馈。
-- 不要把所有剩余管理员账号都禁用。
+- 鍙湪 **Users** 椤甸潰鎴?CLI 鍒涘缓鐢ㄦ埛銆?
+- 鐢ㄦ埛鍚嶅繀椤绘槸 3-32 涓?ASCII 瀛楁瘝銆佹暟瀛椼€乣_`銆乣-` 鎴?`.`銆?
+- 绠＄悊鍛樺垱寤恒€佺鐞嗗憳閲嶇疆銆佸叕寮€娉ㄥ唽鍜岀敤鎴疯嚜琛屼慨鏀圭殑瀵嗙爜閮藉繀椤昏嚦灏?12 涓瓧绗︼紝骞跺寘鍚ぇ鍐欏瓧姣嶃€佸皬鍐欏瓧姣嶅拰鏁板瓧銆?
+- 鐢ㄦ埛椤甸潰鐨勬悳绱㈠拰鐘舵€佺瓫閫夊彲浠ョ缉灏忚〃鏍艰寖鍥淬€?
+- 鎵撳紑鐢ㄦ埛璇︽儏椤靛彲閲嶇疆瀵嗙爜銆佸惎鐢ㄦ垨绂佺敤璐﹀彿銆佹彁鍗囨垨闄嶄綆绠＄悊鍛樻潈闄愶紝骞舵煡鐪嬭鐢ㄦ埛鐨勮澶?token銆?
+- 濡傛灉鍚庣画鍙兘闇€瑕佸璁″巻鍙诧紝浼樺厛绂佺敤鐢ㄦ埛鑰屼笉鏄垹闄ょ敤鎴枫€?
+- Admin WebUI 浼氬湪绂佺敤鐢ㄦ埛鎴栭檷绾х鐞嗗憳鍓嶅脊鍑虹‘璁ゃ€傜鐢ㄨ嚜宸辩殑绠＄悊鍛樹細璇濄€侀檷绾ф渶鍚庝竴涓鐞嗗憳浼氳鎷︽埅锛屽苟鍦ㄧ敤鎴疯鎯呴〉鏄剧ず鏈湴鍖栧弽棣堛€?
+- 涓嶈鎶婃墍鏈夊墿浣欑鐞嗗憳璐﹀彿閮界鐢ㄣ€?
 
-从 Admin WebUI 重置密码会撤销该用户已有设备 token。用户需要重新登录。
+浠?Admin WebUI 閲嶇疆瀵嗙爜浼氭挙閿€璇ョ敤鎴峰凡鏈夎澶?token銆傜敤鎴烽渶瑕侀噸鏂扮櫥褰曘€?
 
-CLI 兜底命令：
+CLI 鍏滃簳鍛戒护锛?
 
 ```bash
 pkvsyncd -c /etc/pkv-sync/config.toml user add alice
@@ -96,125 +96,125 @@ pkvsyncd -c /etc/pkv-sync/config.toml user list
 pkvsyncd -c /etc/pkv-sync/config.toml user set-active alice --active false
 ```
 
-## 设备 Token
+## 璁惧 Token
 
-设备 bearer token 会在认证请求时续期，连续 90 天未使用才会过期，且单个 token 最长有效 365 天。用户可以撤销自己的 token，管理员可以撤销任意用户的 token。
+璁惧 bearer token 浼氬湪璁よ瘉璇锋眰鏃剁画鏈燂紝杩炵画 90 澶╂湭浣跨敤鎵嶄細杩囨湡锛屼笖鍗曚釜 token 鏈€闀挎湁鏁?365 澶┿€傜敤鎴峰彲浠ユ挙閿€鑷繁鐨?token锛岀鐞嗗憳鍙互鎾ら攢浠绘剰鐢ㄦ埛鐨?token銆?
 
-运维注意事项：
+杩愮淮娉ㄦ剰浜嬮」锛?
 
-- Token 明文只在创建时展示一次。
-- 数据库只保存 SHA-256 token hash。
-- 管理员 token 列表接口和表格只展示公开 token 元数据，不返回明文 token，也不返回内部过期或撤销字段。
-- 每次认证请求都会把 token 过期时间延长到该请求时间之后 90 天，但不会超过 token 创建后 365 天。
-- 同一稳定插件设备 ID 再次登录时，会替换该设备旧的活跃 token。
-- 被活动记录引用的已撤销 token 可以清理，同时保留活动历史。
+- Token 鏄庢枃鍙湪鍒涘缓鏃跺睍绀轰竴娆°€?
+- 鏁版嵁搴撳彧淇濆瓨 SHA-256 token hash銆?
+- 绠＄悊鍛?token 鍒楄〃鎺ュ彛鍜岃〃鏍煎彧灞曠ず鍏紑 token 鍏冩暟鎹紝涓嶈繑鍥炴槑鏂?token锛屼篃涓嶈繑鍥炲唴閮ㄨ繃鏈熸垨鎾ら攢瀛楁銆?
+- 姣忔璁よ瘉璇锋眰閮戒細鎶?token 杩囨湡鏃堕棿寤堕暱鍒拌璇锋眰鏃堕棿涔嬪悗 90 澶╋紝浣嗕笉浼氳秴杩?token 鍒涘缓鍚?365 澶┿€?
+- 鍚屼竴绋冲畾鎻掍欢璁惧 ID 鍐嶆鐧诲綍鏃讹紝浼氭浛鎹㈣璁惧鏃х殑娲昏穬 token銆?
+- 琚椿鍔ㄨ褰曞紩鐢ㄧ殑宸叉挙閿€ token 鍙互娓呯悊锛屽悓鏃朵繚鐣欐椿鍔ㄥ巻鍙层€?
 
-## 笔记库
+## 绗旇搴?
 
-从 Admin WebUI 删除笔记库需要额外确认弹窗。即使未引用的 blob 可能要等垃圾回收后才清理，也应把删除视为破坏性操作。
+浠?Admin WebUI 鍒犻櫎绗旇搴撻渶瑕侀澶栫‘璁ゅ脊绐椼€傚嵆浣挎湭寮曠敤鐨?blob 鍙兘瑕佺瓑鍨冨溇鍥炴敹鍚庢墠娓呯悊锛屼篃搴旀妸鍒犻櫎瑙嗕负鐮村潖鎬ф搷浣溿€?
 
-删除笔记库会移除：
+鍒犻櫎绗旇搴撲細绉婚櫎锛?
 
-- 笔记库数据库行
-- 从该行级联的相关元数据
-- `data_dir/vaults/<vault-id>` 下的后端裸 Git 仓库
-- 内存中的按笔记库 push 锁
+- 绗旇搴撴暟鎹簱琛?
+- 浠庤琛岀骇鑱旂殑鐩稿叧鍏冩暟鎹?
+- `data_dir/vaults/<vault-id>` 涓嬬殑鍚庣瑁?Git 浠撳簱
+- 鍐呭瓨涓殑鎸夌瑪璁板簱 push 閿?
 
-Blob 文件是内容寻址的，可能会保留到垃圾回收确认其超过宽限期且不再被引用。
+Blob 鏂囦欢鏄唴瀹瑰鍧€鐨勶紝鍙兘浼氫繚鐣欏埌鍨冨溇鍥炴敹纭鍏惰秴杩囧闄愭湡涓斾笉鍐嶈寮曠敤銆?
 
-如果中断操作后文件数、大小或 blob 引用看起来不正确，可以使用笔记库元数据修复。修复流程会从 tree entry 直接读取 blob pointer hash，并批量修复 blob 引用，不再逐个重新打开 pointer 文件。
+濡傛灉涓柇鎿嶄綔鍚庢枃浠舵暟銆佸ぇ灏忔垨 blob 寮曠敤鐪嬭捣鏉ヤ笉姝ｇ‘锛屽彲浠ヤ娇鐢ㄧ瑪璁板簱鍏冩暟鎹慨澶嶃€備慨澶嶆祦绋嬩細浠?tree entry 鐩存帴璇诲彇 blob pointer hash锛屽苟鎵归噺淇 blob 寮曠敤锛屼笉鍐嶉€愪釜閲嶆柊鎵撳紑 pointer 鏂囦欢銆?
 
-### 按笔记库同步设置
+### 鎸夌瑪璁板簱鍚屾璁剧疆
 
-在 **Vaults** 页面点击某个笔记库卡片上的 **Settings**，可以编辑该笔记库的 `extra_sync_globs` allowlist。它控制哪些隐藏路径，包括选定的 `.obsidian` 配置文件，可以参与同步。
+鍦?**Vaults** 椤甸潰鐐瑰嚮鏌愪釜绗旇搴撳崱鐗囦笂鐨?**Settings**锛屽彲浠ョ紪杈戣绗旇搴撶殑 `extra_sync_globs` allowlist銆傚畠鎺у埗鍝簺闅愯棌璺緞锛屽寘鎷€夊畾鐨?`.obsidian` 閰嶇疆鏂囦欢锛屽彲浠ュ弬涓庡悓姝ャ€?
 
-新笔记库会自动获得推荐起步 allowlist。已有笔记库保持空配置，直到管理员或笔记库所有者应用起步清单。**Apply starter allowlist** 会写入推荐清单，包括主题、CSS snippets、快捷键、应用偏好、外观偏好和已启用插件列表。
+鏂扮瑪璁板簱浼氳嚜鍔ㄨ幏寰楁帹鑽愯捣姝?allowlist銆傚凡鏈夌瑪璁板簱淇濇寔绌洪厤缃紝鐩村埌绠＄悊鍛樻垨绗旇搴撴墍鏈夎€呭簲鐢ㄨ捣姝ユ竻鍗曘€?*Apply starter allowlist** 浼氬啓鍏ユ帹鑽愭竻鍗曪紝鍖呮嫭涓婚銆丆SS snippets銆佸揩鎹烽敭銆佸簲鐢ㄥ亸濂姐€佸瑙傚亸濂藉拰宸插惎鐢ㄦ彃浠跺垪琛ㄣ€?
 
-### 只读文件历史
+### 鍙鏂囦欢鍘嗗彶
 
-在 **Vaults** 页面点击某个笔记库卡片上的 **Browse files**。文件浏览器会列出当前 HEAD 中的文件、大小以及文本/二进制类型。打开文件后，文本文件会显示只读预览，并提供 **History** 和 **Diff with previous** 链接。
+鍦?**Vaults** 椤甸潰鐐瑰嚮鏌愪釜绗旇搴撳崱鐗囦笂鐨?**Browse files**銆傛枃浠舵祻瑙堝櫒浼氬垪鍑哄綋鍓?HEAD 涓殑鏂囦欢銆佸ぇ灏忎互鍙婃枃鏈?浜岃繘鍒剁被鍨嬨€傛墦寮€鏂囦欢鍚庯紝鏂囨湰鏂囦欢浼氭樉绀哄彧璇婚瑙堬紝骞舵彁渚?**History** 鍜?**Diff with previous** 閾炬帴銆?
 
-历史页会列出该文件相关的提交，并提供“查看该提交时的文件”和对应 diff 的链接。diff 页会按行渲染 unified diff，并用颜色区分新增、删除和 hunk。二进制文件只显示元数据，不渲染二进制 diff 内容。当前同步过滤器拒绝的路径也会从文件预览、commit 列表、历史和 diff 页面隐藏。
+鍘嗗彶椤典細鍒楀嚭璇ユ枃浠剁浉鍏崇殑鎻愪氦锛屽苟鎻愪緵鈥滄煡鐪嬭鎻愪氦鏃剁殑鏂囦欢鈥濆拰瀵瑰簲 diff 鐨勯摼鎺ャ€俤iff 椤典細鎸夎娓叉煋 unified diff锛屽苟鐢ㄩ鑹插尯鍒嗘柊澧炪€佸垹闄ゅ拰 hunk銆備簩杩涘埗鏂囦欢鍙樉绀哄厓鏁版嵁锛屼笉娓叉煋浜岃繘鍒?diff 鍐呭銆傚綋鍓嶅悓姝ヨ繃婊ゅ櫒鎷掔粷鐨勮矾寰勪篃浼氫粠鏂囦欢棰勮銆乧ommit 鍒楄〃銆佸巻鍙插拰 diff 椤甸潰闅愯棌銆?
 
-浏览文件、历史和 diff 会记录 `view_commit`、`view_history` 和 `view_diff` 活动。Admin history 中提供笔记库 rollback 控制；请在确认目标提交后再使用，因为 rollback 会从选定历史点创建新的笔记库状态。
+娴忚鏂囦欢銆佸巻鍙插拰 diff 浼氳褰?`view_commit`銆乣view_history` 鍜?`view_diff` 娲诲姩銆侫dmin history 涓彁渚涚瑪璁板簱 rollback 鎺у埗锛涜鍦ㄧ‘璁ょ洰鏍囨彁浜ゅ悗鍐嶄娇鐢紝鍥犱负 rollback 浼氫粠閫夊畾鍘嗗彶鐐瑰垱寤烘柊鐨勭瑪璁板簱鐘舵€併€?
 
-## 邀请码和注册
+## 閭€璇风爜鍜屾敞鍐?
 
-可从 **Settings** 配置注册模式：
+鍙粠 **Settings** 閰嶇疆娉ㄥ唽妯″紡锛?
 
-- `disabled`：只允许管理员创建账号
-- `invite_only`：用户使用邀请码注册
-- `open`：任何拥有部署 URL 的人都可以注册
+- `disabled`锛氬彧鍏佽绠＄悊鍛樺垱寤鸿处鍙?
+- `invite_only`锛氱敤鎴蜂娇鐢ㄩ個璇风爜娉ㄥ唽
+- `open`锛氫换浣曟嫢鏈夐儴缃?URL 鐨勪汉閮藉彲浠ユ敞鍐?
 
-创建邀请码时可以填写未来过期时间。Admin WebUI 使用人类可读日期时间输入，内部仍存储 Unix 秒。已使用邀请码不能通过 admin API 删除，应保留用于审计历史。
+鍒涘缓閭€璇风爜鏃跺彲浠ュ～鍐欐湭鏉ヨ繃鏈熸椂闂淬€侫dmin WebUI 浣跨敤浜虹被鍙鏃ユ湡鏃堕棿杈撳叆锛屽唴閮ㄤ粛瀛樺偍 Unix 绉掋€傚凡浣跨敤閭€璇风爜涓嶈兘閫氳繃 admin API 鍒犻櫎锛屽簲淇濈暀鐢ㄤ簬瀹¤鍘嗗彶銆?
 
-只有在短时间窗口或具备额外监控和限流的公开部署中，才建议使用 `open`。
+鍙湁鍦ㄧ煭鏃堕棿绐楀彛鎴栧叿澶囬澶栫洃鎺у拰闄愭祦鐨勫叕寮€閮ㄧ讲涓紝鎵嶅缓璁娇鐢?`open`銆?
 
-## 运行时设置
+## 杩愯鏃惰缃?
 
-设置页编辑保存在 SQLite 中的配置值,改动对新请求立即生效(保存时刷新内存缓存)。
+璁剧疆椤电紪杈戜繚瀛樺湪 SQLite 涓殑閰嶇疆鍊?鏀瑰姩瀵规柊璇锋眰绔嬪嵆鐢熸晥(淇濆瓨鏃跺埛鏂板唴瀛樼紦瀛?銆?
 
-**通用** — 服务名称、默认时区、`enable_metrics` 指标开关。开启后 `/metrics` 可用，但仍需要部署密钥中间件、插件 User-Agent guard 和管理员 bearer token。
+**閫氱敤** 鈥?鏈嶅姟鍚嶇О銆侀粯璁ゆ椂鍖恒€乣enable_metrics` 鎸囨爣寮€鍏炽€傚紑鍚悗 `/metrics` 鍙敤锛屼絾浠嶉渶瑕侀儴缃插瘑閽ヤ腑闂翠欢銆佹彃浠?User-Agent guard 鍜岀鐞嗗憳 bearer token銆?
 
-**安全** — 注册模式(`disabled` / `invite_only` / `open`)、登录失败阈值、失败窗口和锁定时长。登录速率限制器同时统计已失败次数和在途密码验证,并发暴力尝试无法绕过阈值。认证同步 API 路由另有固定窗口限流：按路由、方法、客户端 IP 和 bearer 设备 token 分桶，每 60 秒最多 600 次请求。失败的 bearer token 认证尝试也会按客户端 IP 限流，每 60 秒最多 120 次，因此轮换伪造 token 不能绕过失败预算。
+**瀹夊叏** 鈥?娉ㄥ唽妯″紡(`disabled` / `invite_only` / `open`)銆佺櫥褰曞け璐ラ槇鍊笺€佸け璐ョ獥鍙ｅ拰閿佸畾鏃堕暱銆傜櫥褰曢€熺巼闄愬埗鍣ㄥ悓鏃剁粺璁″凡澶辫触娆℃暟鍜屽湪閫斿瘑鐮侀獙璇?骞跺彂鏆村姏灏濊瘯鏃犳硶缁曡繃闃堝€笺€傝璇佸悓姝?API 璺敱鍙︽湁鍥哄畾绐楀彛闄愭祦锛氭寜璺敱銆佹柟娉曘€佸鎴风 IP 鍜?bearer 璁惧 token 鍒嗘《锛屾瘡 60 绉掓渶澶?600 娆¤姹傘€傚け璐ョ殑 bearer token 璁よ瘉灏濊瘯涔熶細鎸夊鎴风 IP 闄愭祦锛屾瘡 60 绉掓渶澶?120 娆★紝鍥犳杞崲浼€?token 涓嶈兘缁曡繃澶辫触棰勭畻銆?
 
-**同步与存储**
-- 最大文件大小(默认 `100 MiB`)。Blob 上传请求体始终会被硬存储上限限制（生产环境 `512 MiB`），即使运行时设置被调得更高
-- 支持的文本扩展名 — 列表外的文件按二进制 blob 处理。Admin WebUI 中该列表只读展示；如需修改，请通过 `text_extensions` 运行时配置行（或直接编辑 SQLite `runtime_config` 表）调整
-- 额外 exclude glob — 管理员可调,补充内置的 `.obsidian/`、`.trash/`、`.conflict-*`、`.git/` 排除清单
-- 历史界面和 diff 端点开关
-- **文本自动合并**（`enable_auto_merge`，默认开启）：启用后，服务端在写入冲突文件之前会先尝试三方按行合并。不相交的编辑会干净合并；重叠编辑仍会生成带合并标记的冲突文件
-- **Push 去抖**(`push_debounce_ms`,默认 `250`):本地编辑稳定到推送之间的延迟。变小可缩短端到端延迟,变大可每次 push 合并更多按键
-- **SSE 内联内容上限**(`inline_content_max_bytes`,默认 `8192`,上限 `65536`):此尺寸以内的文本变更随 SSE 事件直接下发,接收端插件无需再 pull;超过则降级走 pull
-- **SSE 心跳**(`sse_heartbeat_seconds`,默认 `30`):事件流保活,避免空闲 SSE 连接被反向代理切断。并发 SSE 订阅默认按用户限制为 16，并保留 1024 的全局上限。已打开的事件流会周期性复查 bearer token；token 被撤销或账号被禁用后会关闭。
-- **Git smart HTTP**(`enable_git_smart_http`,默认关):开启后授权设备可 `git clone https://_:<token>@host/git/<vault-id>`。服务器还需要 `PATH` 中有 `git` 二进制;公开的 `/api/config` 能力两个条件都满足才显示为可用
+**鍚屾涓庡瓨鍌?*
+- 鏈€澶ф枃浠跺ぇ灏?榛樿 `100 MiB`)銆侭lob 涓婁紶璇锋眰浣撳缁堜細琚‖瀛樺偍涓婇檺闄愬埗锛堢敓浜х幆澧?`512 MiB`锛夛紝鍗充娇杩愯鏃惰缃璋冨緱鏇撮珮
+- 鏀寔鐨勬枃鏈墿灞曞悕 鈥?鍒楄〃澶栫殑鏂囦欢鎸変簩杩涘埗 blob 澶勭悊銆侫dmin WebUI 涓鍒楄〃鍙灞曠ず锛涘闇€淇敼锛岃閫氳繃 `text_extensions` 杩愯鏃堕厤缃锛堟垨鐩存帴缂栬緫 SQLite `runtime_config` 琛級璋冩暣
+- 棰濆 exclude glob 鈥?绠＄悊鍛樺彲璋?琛ュ厖鍐呯疆鐨?`.obsidian/`銆乣.trash/`銆乣.conflict-*`銆乣.git/` 鎺掗櫎娓呭崟
+- 鍘嗗彶鐣岄潰鍜?diff 绔偣寮€鍏?
+- **鏂囨湰鑷姩鍚堝苟**锛坄enable_auto_merge`锛岄粯璁ゅ紑鍚級锛氬惎鐢ㄥ悗锛屾湇鍔＄鍦ㄥ啓鍏ュ啿绐佹枃浠朵箣鍓嶄細鍏堝皾璇曚笁鏂规寜琛屽悎骞躲€備笉鐩镐氦鐨勭紪杈戜細骞插噣鍚堝苟锛涢噸鍙犵紪杈戜粛浼氱敓鎴愬甫鍚堝苟鏍囪鐨勫啿绐佹枃浠?
+- **Push 鍘绘姈**(`push_debounce_ms`,榛樿 `250`):鏈湴缂栬緫绋冲畾鍒版帹閫佷箣闂寸殑寤惰繜銆傚彉灏忓彲缂╃煭绔埌绔欢杩?鍙樺ぇ鍙瘡娆?push 鍚堝苟鏇村鎸夐敭
+- **SSE 鍐呰仈鍐呭涓婇檺**(`inline_content_max_bytes`,榛樿 `8192`,涓婇檺 `65536`):姝ゅ昂瀵镐互鍐呯殑鏂囨湰鍙樻洿闅?SSE 浜嬩欢鐩存帴涓嬪彂,鎺ユ敹绔彃浠舵棤闇€鍐?pull;瓒呰繃鍒欓檷绾ц蛋 pull
+- **SSE 蹇冭烦**(`sse_heartbeat_seconds`,榛樿 `30`):浜嬩欢娴佷繚娲?閬垮厤绌洪棽 SSE 杩炴帴琚弽鍚戜唬鐞嗗垏鏂€傚苟鍙?SSE 璁㈤槄榛樿鎸夌敤鎴烽檺鍒朵负 16锛屽苟淇濈暀 1024 鐨勫叏灞€涓婇檺銆傚凡鎵撳紑鐨勪簨浠舵祦浼氬懆鏈熸€у鏌?bearer token锛泃oken 琚挙閿€鎴栬处鍙疯绂佺敤鍚庝細鍏抽棴銆?
+- **Git smart HTTP**(`enable_git_smart_http`,榛樿鍏?:寮€鍚悗鎺堟潈璁惧鍙?`git clone https://_:<token>@host/git/<vault-id>`銆傛湇鍔″櫒杩橀渶瑕?`PATH` 涓湁 `git` 浜岃繘鍒?鍏紑鐨?`/api/config` 鑳藉姏涓や釜鏉′欢閮芥弧瓒虫墠鏄剧ず涓哄彲鐢?
 
-**网络与更新检查** — `public_host`、监听地址、可信代理以及 `[update_check].repo` 在启动时从 `config.toml` 读取。更新检查的启用状态和间隔是保存在 SQLite 中的运行时设置；允许范围为 60 秒到 30 天。
+**缃戠粶涓庢洿鏂版鏌?* 鈥?`public_host`銆佺洃鍚湴鍧€銆佸彲淇′唬鐞嗕互鍙?`[update_check].repo` 鍦ㄥ惎鍔ㄦ椂浠?`config.toml` 璇诲彇銆傛洿鏂版鏌ョ殑鍚敤鐘舵€佸拰闂撮殧鏄繚瀛樺湪 SQLite 涓殑杩愯鏃惰缃紱鍏佽鑼冨洿涓?60 绉掑埌 30 澶┿€?
 
-## 活动日志
+## 娲诲姩鏃ュ織
 
-活动日志记录 push、pull、create_vault、delete_vault、view_commit、view_history、view_diff 等同步、笔记库生命周期与只读浏览操作，包括：
+娲诲姩鏃ュ織璁板綍 push銆乸ull銆乧reate_vault銆乨elete_vault銆乿iew_commit銆乿iew_history銆乿iew_diff 绛夊悓姝ャ€佺瑪璁板簱鐢熷懡鍛ㄦ湡涓庡彧璇绘祻瑙堟搷浣滐紝鍖呮嫭锛?
 
-- 用户
-- 笔记库
-- 动作
-- 设备名
-- 文件数
-- 字节大小
-- 客户端 IP
+- 鐢ㄦ埛
+- 绗旇搴?
+- 鍔ㄤ綔
+- 璁惧鍚?
+- 鏂囦欢鏁?
+- 瀛楄妭澶у皬
+- 瀹㈡埛绔?IP
 - User-Agent
-- 详情
-- 时间戳
+- 璇︽儏
+- 鏃堕棿鎴?
 
-使用活动筛选可以检查特定用户或操作类型。
+浣跨敤娲诲姩绛涢€夊彲浠ユ鏌ョ壒瀹氱敤鎴锋垨鎿嶄綔绫诲瀷銆?
 
-`create_vault` 和 `delete_vault` 来自管理面板、插件和 API 的笔记库创建／删除操作。
+`create_vault` 鍜?`delete_vault` 鏉ヨ嚜绠＄悊闈㈡澘銆佹彃浠跺拰 API 鐨勭瑪璁板簱鍒涘缓锛忓垹闄ゆ搷浣溿€?
 
-## 分享服务端 URL
+## 鍒嗕韩鏈嶅姟绔?URL
 
-分享服务端或 Admin WebUI 提供的 URL：
+鍒嗕韩鏈嶅姟绔垨 Admin WebUI 鎻愪緵鐨?URL锛?
 
 ```text
 https://sync.example.com/k_xxx/
 ```
 
-请把它视为敏感信息。它不是用户密码，但包含部署密钥，是插件 API 流量的第一道预认证入口。
+璇锋妸瀹冭涓烘晱鎰熶俊鎭€傚畠涓嶆槸鐢ㄦ埛瀵嗙爜锛屼絾鍖呭惈閮ㄧ讲瀵嗛挜锛屾槸鎻掍欢 API 娴侀噺鐨勭涓€閬撻璁よ瘉鍏ュ彛銆?
 
-## 升级 PKV Sync
+## 鍗囩骇 PKV Sync
 
-二进制部署可先运行 `pkvsyncd upgrade --dry-run` 预览最新 release、目标资产和旁路写入路径。运行 `pkvsyncd upgrade --yes` 会把校验后的 release 二进制下载到当前可执行文件旁边的 `pkvsyncd.new`（Windows 为 `pkvsyncd.new.exe`）。命令会根据 `SHA256SUMS` 校验 SHA-256，并打印 systemd／手动替换步骤；它不会热替换正在运行的进程。
+浜岃繘鍒堕儴缃插彲鍏堣繍琛?`pkvsyncd upgrade --dry-run` 棰勮鏈€鏂?release銆佺洰鏍囪祫浜у拰鏃佽矾鍐欏叆璺緞銆傝繍琛?`pkvsyncd upgrade --yes` 浼氭妸鏍￠獙鍚庣殑 release 浜岃繘鍒朵笅杞藉埌褰撳墠鍙墽琛屾枃浠舵梺杈圭殑 `pkvsyncd.new`锛圵indows 涓?`pkvsyncd.new.exe`锛夈€傚懡浠や細鏍规嵁 `SHA256SUMS` 鏍￠獙 SHA-256锛屽苟鎵撳嵃 systemd锛忔墜鍔ㄦ浛鎹㈡楠わ紱瀹冧笉浼氱儹鏇挎崲姝ｅ湪杩愯鐨勮繘绋嬨€?
 
-使用 `pkvsyncd upgrade --version 1.4.3` 可以指定 release。若命令找不到匹配资产或校验和，请手动从 GitHub release 下载，并自行校验 `SHA256SUMS`。
+浣跨敤 `pkvsyncd upgrade --version 1.4.3` 鍙互鎸囧畾 release銆傝嫢鍛戒护鎵句笉鍒板尮閰嶈祫浜ф垨鏍￠獙鍜岋紝璇锋墜鍔ㄤ粠 GitHub release 涓嬭浇锛屽苟鑷鏍￠獙 `SHA256SUMS`銆?
 
-对于 0.x 部署，不要把 1.0 二进制或镜像直接指向已有 `metadata.db`。请先备份、materialize 或导出笔记库内容，使用全新的 1.0 数据目录启动服务，再把笔记库内容导入或 push 到新服务端。详见 [`upgrade-notes-v1.0.zh-CN.md`](./upgrade-notes-v1.0.zh-CN.md)。
+瀵逛簬 0.x 閮ㄧ讲锛屼笉瑕佹妸 1.0 浜岃繘鍒舵垨闀滃儚鐩存帴鎸囧悜宸叉湁 `metadata.db`銆傝鍏堝浠姐€乵aterialize 鎴栧鍑虹瑪璁板簱鍐呭锛屼娇鐢ㄥ叏鏂扮殑 1.0 鏁版嵁鐩綍鍚姩鏈嶅姟锛屽啀鎶婄瑪璁板簱鍐呭瀵煎叆鎴?push 鍒版柊鏈嶅姟绔€傝瑙?[`upgrade-notes-v1.0.zh-CN.md`](./upgrade-notes-v1.0.zh-CN.md)銆?
 
-Docker 和 Kubernetes 部署应通过拉取或修改容器镜像 tag 升级，然后重启服务或 rollout。upgrade CLI 检测到容器环境时，会输出镜像升级指引，不写入旁路二进制。
+Docker 鍜?Kubernetes 閮ㄧ讲搴旈€氳繃鎷夊彇鎴栦慨鏀瑰鍣ㄩ暅鍍?tag 鍗囩骇锛岀劧鍚庨噸鍚湇鍔℃垨 rollout銆倁pgrade CLI 妫€娴嬪埌瀹瑰櫒鐜鏃讹紝浼氳緭鍑洪暅鍍忓崌绾ф寚寮曪紝涓嶅啓鍏ユ梺璺簩杩涘埗銆?
 
-### 自动升级（opt-in）
+### 鑷姩鍗囩骇锛坥pt-in锛?
 
-上面两种方式都是手动的。要让升级免手动——在管理面板收到通知后一键应用——可启用**可选的升级器**。服务端本身保持非特权：点击 **Upgrade now** 只会向数据目录写入一个 `upgrade-request.json` 标记；由独立的特权升级器应用它、重启服务，并在新版本健康检查失败时自动回滚。在你启用之前，全新安装的升级行为与上文完全一致。
+涓婇潰涓ょ鏂瑰紡閮芥槸鎵嬪姩鐨勩€傝璁╁崌绾у厤鎵嬪姩鈥斺€斿湪绠＄悊闈㈡澘鏀跺埌閫氱煡鍚庝竴閿簲鐢ㄢ€斺€斿彲鍚敤**鍙€夌殑鍗囩骇鍣?*銆傛湇鍔＄鏈韩淇濇寔闈炵壒鏉冿細鐐瑰嚮 **Upgrade now** 鍙細鍚戞暟鎹洰褰曞啓鍏ヤ竴涓?`upgrade-request.json` 鏍囪锛涚敱鐙珛鐨勭壒鏉冨崌绾у櫒搴旂敤瀹冦€侀噸鍚湇鍔★紝骞跺湪鏂扮増鏈仴搴锋鏌ュけ璐ユ椂鑷姩鍥炴粴銆傚湪浣犲惎鐢ㄤ箣鍓嶏紝鍏ㄦ柊瀹夎鐨勫崌绾ц涓轰笌涓婃枃瀹屽叏涓€鑷淬€?
 
-**systemd：** 从 `deploy/updater/` 安装升级脚本与单元：
+**systemd锛?* 浠?`deploy/updater/` 瀹夎鍗囩骇鑴氭湰涓庡崟鍏冿細
 
 ```sh
 sudo install -m 0755 deploy/updater/pkv-sync-update.sh /usr/local/bin/
@@ -222,28 +222,28 @@ sudo cp deploy/updater/pkv-sync-updater.service deploy/updater/pkv-sync-updater.
 sudo systemctl enable --now pkv-sync-updater.path
 ```
 
-root 的 `pkv-sync-updater.path` 单元监视该标记并运行一次性的 `pkv-sync-updater.service`：它会暂存并 SHA-256 校验 release 二进制、替换它、重启 `pkv-sync`，健康检查失败时回滚到旧二进制。用 `sudo systemctl disable --now pkv-sync-updater.path` 关闭。
+root 鐨?`pkv-sync-updater.path` 鍗曞厓鐩戣璇ユ爣璁板苟杩愯涓€娆℃€х殑 `pkv-sync-updater.service`锛氬畠浼氭殏瀛樺苟 SHA-256 鏍￠獙 release 浜岃繘鍒躲€佹浛鎹㈠畠銆侀噸鍚?`pkv-sync`锛屽仴搴锋鏌ュけ璐ユ椂鍥炴粴鍒版棫浜岃繘鍒躲€傜敤 `sudo systemctl disable --now pkv-sync-updater.path` 鍏抽棴銆?
 
-**Docker：** 启用随附的 updater profile。它只通过受限的 `docker-socket-proxy` 访问 Docker；`pkv-sync` 容器本身永远拿不到 socket：
+**Docker锛?* 鍚敤闅忛檮鐨?updater profile銆傚畠鍙€氳繃鍙楅檺鐨?`docker-socket-proxy` 璁块棶 Docker锛沗pkv-sync` 瀹瑰櫒鏈韩姘歌繙鎷夸笉鍒?socket锛?
 
 ```sh
 docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
 ```
 
-升级器会拉取所请求的 `X.Y.Z` 镜像、重建 `pkv-sync`、对其做健康检查，失败时重新固定回旧 tag。作为替代，你也可以让 [Watchtower](https://containrrr.dev/watchtower/) 或 compose-updater 等第三方工具盯住 `pkv-sync` 容器——但它们是按计划轮询 `:latest`，而非遵循一键固定的目标版本。
+鍗囩骇鍣ㄤ細鎷夊彇鎵€璇锋眰鐨?`X.Y.Z` 闀滃儚銆侀噸寤?`pkv-sync`銆佸鍏跺仛鍋ュ悍妫€鏌ワ紝澶辫触鏃堕噸鏂板浐瀹氬洖鏃?tag銆備綔涓烘浛浠ｏ紝浣犱篃鍙互璁?[Watchtower](https://containrrr.dev/watchtower/) 鎴?compose-updater 绛夌涓夋柟宸ュ叿鐩綇 `pkv-sync` 瀹瑰櫒鈥斺€斾絾瀹冧滑鏄寜璁″垝杞 `:latest`锛岃€岄潪閬靛惊涓€閿浐瀹氱殑鐩爣鐗堟湰銆?
 
-升级期间会有短暂的重启中断；客户端会自动重连。
+鍗囩骇鏈熼棿浼氭湁鐭殏鐨勯噸鍚腑鏂紱瀹㈡埛绔細鑷姩閲嶈繛銆?
 
-## 维护清单
+## 缁存姢娓呭崟
 
-- 使用 `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` 生成运维快照。输出目录必须不存在或为空；命令会用 `VACUUM INTO` 快照 SQLite，复制 `vaults/` 和 `blobs/`，并写入带 pkvsyncd 版本、组件哈希、大小和数量的 `MANIFEST.json`。默认备份会省略 `config.toml`；只有在你明确要保存并保护部署密钥和其他本机秘密时，才添加 `--include-config`。
-- 使用 `pkvsyncd restore --input <backup-dir> --data-dir <dir>` 恢复到不存在或为空的数据目录。只有确认目标可以先清空时才加 `--force`；恢复会先校验 manifest 哈希，复制完成后自动运行 verify。
-- 维护后或主机存储异常后运行 `pkvsyncd verify [--data-dir <dir>]`。它会检查被引用的 blob 文件，报告孤立 blob，用 `git2` 校验笔记库 git 仓库，并在缺失、损坏或 git 错误时返回失败。`--no-fail` 会保留报告但强制返回成功退出码。
-- 使用 `pkvsyncd materialize <vault-id> -o <dir>` 把笔记库 HEAD 导出为普通文件树（文本文件原样输出，二进制 blob 从 blob 存储解析）。适合离线导出、临时审计或冷迁移。配合 `--at <commit-sha>` 可 materialize 某个历史 commit。
-- 设置 `[mcp].embed_in_serve = true` 可在主 `pkvsyncd serve` 端口的 `/mcp` 暴露读写 MCP Streamable HTTP 端点；也可以运行 `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` 作为独立 MCP 进程。使用 `pkvsyncd mcp --vault <id>` 可启动仅 stdio 的单笔记库会话。
-- 大量删除附件后运行 blob 垃圾回收。
-- 维护前检查仪表盘更新提示或 GitHub release。
-- 关注日志和活动中重复出现的 `401`、`403`、`404`、`409` 和 `429` 响应。
-- 保持服务端二进制、插件包、Docker 镜像、反向代理和主机系统及时更新。
-- 打 tag 发版前确认 CI 通过。
-- 检查每个 release 都包含 Linux amd64、Linux arm64、Windows x64、插件 zip、校验和和 GHCR Docker 镜像 tag。
+- 浣跨敤 `pkvsyncd backup --output <dir> [--data-dir <dir>] [--gzip]` 鐢熸垚杩愮淮蹇収銆傝緭鍑虹洰褰曞繀椤讳笉瀛樺湪鎴栦负绌猴紱鍛戒护浼氱敤 `VACUUM INTO` 蹇収 SQLite锛屽鍒?`vaults/` 鍜?`blobs/`锛屽苟鍐欏叆甯?pkvsyncd 鐗堟湰銆佺粍浠跺搱甯屻€佸ぇ灏忓拰鏁伴噺鐨?`MANIFEST.json`銆傞粯璁ゅ浠戒細鐪佺暐 `config.toml`锛涘彧鏈夊湪浣犳槑纭淇濆瓨骞朵繚鎶ら儴缃插瘑閽ュ拰鍏朵粬鏈満绉樺瘑鏃讹紝鎵嶆坊鍔?`--include-config`銆?
+- 浣跨敤 `pkvsyncd restore --input <backup-dir> --data-dir <dir>` 鎭㈠鍒颁笉瀛樺湪鎴栦负绌虹殑鏁版嵁鐩綍銆傚彧鏈夌‘璁ょ洰鏍囧彲浠ュ厛娓呯┖鏃舵墠鍔?`--force`锛涙仮澶嶄細鍏堟牎楠?manifest 鍝堝笇锛屽鍒跺畬鎴愬悗鑷姩杩愯 verify銆?
+- 缁存姢鍚庢垨涓绘満瀛樺偍寮傚父鍚庤繍琛?`pkvsyncd verify [--data-dir <dir>]`銆傚畠浼氭鏌ヨ寮曠敤鐨?blob 鏂囦欢锛屾姤鍛婂绔?blob锛岀敤 `git2` 鏍￠獙绗旇搴?git 浠撳簱锛屽苟鍦ㄧ己澶便€佹崯鍧忔垨 git 閿欒鏃惰繑鍥炲け璐ャ€俙--no-fail` 浼氫繚鐣欐姤鍛婁絾寮哄埗杩斿洖鎴愬姛閫€鍑虹爜銆?
+- 浣跨敤 `pkvsyncd materialize <vault-id> -o <dir>` 鎶婄瑪璁板簱 HEAD 瀵煎嚭涓烘櫘閫氭枃浠舵爲锛堟枃鏈枃浠跺師鏍疯緭鍑猴紝浜岃繘鍒?blob 浠?blob 瀛樺偍瑙ｆ瀽锛夈€傞€傚悎绂荤嚎瀵煎嚭銆佷复鏃跺璁℃垨鍐疯縼绉汇€傞厤鍚?`--at <commit-sha>` 鍙?materialize 鏌愪釜鍘嗗彶 commit銆?
+- 璁剧疆 `[mcp].embed_in_serve = true` 鍙湪涓?`pkvsyncd serve` 绔彛鐨?`/mcp` 鏆撮湶璇诲啓 MCP Streamable HTTP 绔偣锛涗篃鍙互杩愯 `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` 浣滀负鐙珛 MCP 杩涚▼銆備娇鐢?`pkvsyncd mcp --vault <id>` 鍙惎鍔ㄤ粎 stdio 鐨勫崟绗旇搴撲細璇濄€?
+- 澶ч噺鍒犻櫎闄勪欢鍚庤繍琛?blob 鍨冨溇鍥炴敹銆?
+- 缁存姢鍓嶆鏌ヤ华琛ㄧ洏鏇存柊鎻愮ず鎴?GitHub release銆?
+- 鍏虫敞鏃ュ織鍜屾椿鍔ㄤ腑閲嶅鍑虹幇鐨?`401`銆乣403`銆乣404`銆乣409` 鍜?`429` 鍝嶅簲銆?
+- 淇濇寔鏈嶅姟绔簩杩涘埗銆佹彃浠跺寘銆丏ocker 闀滃儚銆佸弽鍚戜唬鐞嗗拰涓绘満绯荤粺鍙婃椂鏇存柊銆?
+- 鎵?tag 鍙戠増鍓嶇‘璁?CI 閫氳繃銆?
+- 妫€鏌ユ瘡涓?release 閮藉寘鍚?Linux amd64銆丩inux arm64銆乄indows x64銆佹彃浠?zip銆佹牎楠屽拰鍜?GHCR Docker 闀滃儚 tag銆?

@@ -1,12 +1,12 @@
-# PKV Sync Coverage Baseline
+﻿# PKV Sync Coverage Baseline
 
-[English](./COVERAGE.md) | [简体中文](./COVERAGE.zh-CN.md) | [繁體中文](./COVERAGE.zh-Hant.md) | [日本語](./COVERAGE.ja.md) | 한국어
+[English](./COVERAGE.md) | [绠€浣撲腑鏂嘳(./COVERAGE.zh-CN.md) | [绻侀珨涓枃](./COVERAGE.zh-Hant.md) | [鏃ユ湰瑾瀅(./COVERAGE.ja.md) | 頃滉淡鞏?
 
-문서 버전: v1.4.3.
+氍胳劀 氩勳爠: v1.4.3.
 
-이 문서는 Rust server와 Obsidian plugin의 CI coverage baseline을 기록합니다. CI는 새 coverage report를 이 표와 비교하며, 어떤 component라도 허용 threshold보다 더 떨어지면 실패합니다.
+鞚?氍胳劀電?Rust server鞕€ Obsidian plugin鞚?CI coverage baseline鞚?旮半頃╇媹雼? CI電?靸?coverage report毳?鞚?響滌檧 牍勱祼頃橂┌, 鞏措枻 component霛茧弰 項堨毄 threshold氤措嫟 雿?霒柎歆€氅?鞁ろ尐頃╇媹雼?
 
-Rust coverage는 Ubuntu CI runner에서 `cargo tarpaulin --engine Llvm`으로만 생성합니다. Windows 로컬 tarpaulin 출력은 이 baseline으로 승격하지 않습니다. gate는 component별 최대 5.0 percentage points 하락을 허용합니다.
+Rust coverage電?Ubuntu CI runner鞐愳劀 `cargo tarpaulin --engine Llvm`鞙茧毵?靸濎劚頃╇媹雼? Windows 搿滌滑 tarpaulin 於滊牓鞚€ 鞚?baseline鞙茧 鞀龟博頃橃 鞎婌姷雼堧嫟. gate電?component氤?斓滊寑 5.0 percentage points 頃橂澖鞚?項堨毄頃╇媹雼?
 
 | Component | Report source | Baseline |
 | --- | --- | ---: |
@@ -15,15 +15,15 @@ Rust coverage는 Ubuntu CI runner에서 `cargo tarpaulin --engine Llvm`으로만
 
 ## Baseline Refresh
 
-Rust server baseline은 coverage job을 tarpaulin ptrace engine에서 LLVM engine으로 전환한 뒤 CI run `26963777091`에서 갱신했습니다. LLVM artifact는 `85.80%`를 보고했으며, 이제 이것이 유효한 Rust gate입니다. Obsidian plugin coverage는 CI run `26225831124`에서 review된 Vitest/V8 baseline(`48.42%`)을 계속 사용합니다.
+Rust server baseline鞚€ coverage job鞚?tarpaulin ptrace engine鞐愳劀 LLVM engine鞙茧 鞝勴櫂頃?霋?CI run `26963777091`鞐愳劀 臧膘嫚頄堨姷雼堧嫟. LLVM artifact電?`85.80%`毳?氤搓碃頄堨溂氅? 鞚挫牅 鞚搓矁鞚?鞙犿毃頃?Rust gate鞛呺媹雼? Obsidian plugin coverage電?CI run `26225831124`鞐愳劀 review霅?Vitest/V8 baseline(`48.42%`)鞚?瓿勳啀 靷毄頃╇媹雼?
 
 ## Policy
 
-- Pull request는 추적 대상 component를 이 baseline보다 5.0 percentage points 넘게 낮추면 안 됩니다. 필요한 경우 명시적인 baseline update를 함께 제출해야 합니다.
-- 새 Rust 또는 plugin module은 generated glue, CI에서 실행할 수 없는 platform integration, 또는 대부분 UI wiring인 경우가 아니라면 최소 60% line coverage를 포함해야 합니다.
-- Rust server baseline update는 review된 Ubuntu tarpaulin artifact에서 가져와야 합니다. Windows 로컬 tarpaulin 출력은 사용하지 않습니다.
-- CI의 Rust coverage는 tarpaulin LLVM engine을 사용합니다. ptrace engine은 Ubuntu runner에서 원래 통과하는 Admin integration tests를 실행하던 중 segfault한 적이 있으므로, green CI 재현 없이 되돌리지 마세요.
-- major release 경계에서는 baseline을 다시 계산합니다. 큰 refactor로 code가 module 사이를 이동하면 coverage gate expectation과 이 문서를 같은 commit에서 업데이트해야 합니다.
-- 예외는 이 문서 또는 예외를 도입한 release notes에 명시해야 합니다.
+- Pull request電?於旍爜 雽€靸?component毳?鞚?baseline氤措嫟 5.0 percentage points 雱橁矊 雮稊氅?鞎?霅╇媹雼? 頃勳殧頃?瓴届毎 氇呾嫓鞝侅澑 baseline update毳?頃粯 鞝滌稖頃挫暭 頃╇媹雼?
+- 靸?Rust 霕愲姅 plugin module鞚€ generated glue, CI鞐愳劀 鞁ろ枆頃?靾?鞐嗠姅 platform integration, 霕愲姅 雽€攵€攵?UI wiring鞚?瓴届毎臧€ 鞎勲媹霛茧┐ 斓滌唽 60% line coverage毳?韽暔頃挫暭 頃╇媹雼?
+- Rust server baseline update電?review霅?Ubuntu tarpaulin artifact鞐愳劀 臧€鞝胳檧鞎?頃╇媹雼? Windows 搿滌滑 tarpaulin 於滊牓鞚€ 靷毄頃橃 鞎婌姷雼堧嫟.
+- CI鞚?Rust coverage電?tarpaulin LLVM engine鞚?靷毄頃╇媹雼? ptrace engine鞚€ Ubuntu runner鞐愳劀 鞗愲灅 韱店臣頃橂姅 Admin integration tests毳?鞁ろ枆頃橂崢 欷?segfault頃?鞝侅澊 鞛堨溂氙€搿? green CI 鞛槃 鞐嗢澊 霅橂弻毽 毵堨劯鞖?
+- major release 瓴疥硠鞐愳劀電?baseline鞚?雼れ嫓 瓿勳偘頃╇媹雼? 韥?refactor搿?code臧€ module 靷澊毳?鞚措彊頃橂┐ coverage gate expectation瓿?鞚?氍胳劀毳?臧欖潃 commit鞐愳劀 鞐呺嵃鞚错姼頃挫暭 頃╇媹雼?
+- 鞓堨櫢電?鞚?氍胳劀 霕愲姅 鞓堨櫢毳?霃勳瀰頃?release notes鞐?氇呾嫓頃挫暭 頃╇媹雼?
 
-Coverage gate는 영어 문서 `public-docs/COVERAGE.md`를 추적 source of truth로 읽습니다. 이 표를 변경할 때마다 모든 언어 mirror를 동기화하세요.
+Coverage gate電?鞓侅柎 氍胳劀 `public-docs/COVERAGE.md`毳?於旍爜 source of truth搿?鞚届姷雼堧嫟. 鞚?響滊ゼ 氤€瓴巾暊 霑岆雼?氇摖 鞏胳柎 mirror毳?霃欔赴頇旐晿靹胳殧.

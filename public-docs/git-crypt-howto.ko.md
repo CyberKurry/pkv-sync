@@ -1,18 +1,18 @@
-# PKV Sync에서 git-crypt 사용하기
+﻿# PKV Sync鞐愳劀 git-crypt 靷毄頃橁赴
 
-[English](./git-crypt-howto.md) | [简体中文](./git-crypt-howto.zh-CN.md) | [繁體中文](./git-crypt-howto.zh-Hant.md) | [日本語](./git-crypt-howto.ja.md) | 한국어
+[English](./git-crypt-howto.md) | [绠€浣撲腑鏂嘳(./git-crypt-howto.zh-CN.md) | [绻侀珨涓枃](./git-crypt-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./git-crypt-howto.ja.md) | 頃滉淡鞏?
 
-문서 버전: v1.4.3.
+氍胳劀 氩勳爠: v1.4.3.
 
-> **Note:** native end-to-end encryption(E2EE)이 제공되기 전까지의 임시 가이드입니다. PKV Sync server는 여전히 filenames와 commit metadata를 볼 수 있습니다.
+> **Note:** native end-to-end encryption(E2EE)鞚?鞝滉车霅橁赴 鞝勱箤歆€鞚?鞛勳嫓 臧€鞚措摐鞛呺媹雼? PKV Sync server電?鞐爠頌?filenames鞕€ commit metadata毳?氤?靾?鞛堨姷雼堧嫟.
 
 ## Overview
 
-[git-crypt](https://github.com/AGWA/git-crypt)는 Git repository 안에서 transparent file encryption을 제공합니다. PKV Sync는 vault를 Git repository로 노출할 수 있으므로, 민감한 파일이 server에 도달하기 전에 git-crypt로 암호화할 수 있습니다.
+[git-crypt](https://github.com/AGWA/git-crypt)電?Git repository 鞎堨棎靹?transparent file encryption鞚?鞝滉车頃╇媹雼? PKV Sync電?vault毳?Git repository搿?雲胳稖頃?靾?鞛堨溂氙€搿? 氙缄皭頃?韺岇澕鞚?server鞐?霃勲嫭頃橁赴 鞝勳棎 git-crypt搿?鞎旐樃頇旐暊 靾?鞛堨姷雼堧嫟.
 
 ## Setup
 
-### 1. git-crypt 설치
+### 1. git-crypt 靹れ箻
 
 ```bash
 # macOS
@@ -25,7 +25,7 @@ sudo apt install git-crypt
 scoop install git-crypt
 ```
 
-### 2. clone한 vault에서 git-crypt 초기화
+### 2. clone頃?vault鞐愳劀 git-crypt 齑堦赴頇?
 
 ```bash
 git clone https://_:<token>@your-server/git/<vault-id>
@@ -33,36 +33,36 @@ cd <vault-id>
 git-crypt init
 ```
 
-### 3. 암호화할 파일 설정
+### 3. 鞎旐樃頇旐暊 韺岇澕 靹れ爼
 
-`.gitattributes`를 만들거나 편집합니다.
+`.gitattributes`毳?毵岆摛瓯半倶 韼胳頃╇媹雼?
 
 ```gitattributes
-# 기본으로 모든 파일 암호화
+# 旮半掣鞙茧 氇摖 韺岇澕 鞎旐樃頇?
 * filter=git-crypt diff=git-crypt
 
-# 단 .gitattributes 자체는 암호화하지 않음
+# 雼?.gitattributes 鞛愳泊電?鞎旐樃頇旐晿歆€ 鞎婌潓
 .gitattributes !filter !diff
 ```
 
-선택적 암호화를 권장합니다.
+靹犿儩鞝?鞎旐樃頇旊ゼ 甓岇灔頃╇媹雼?
 
 ```gitattributes
-# 특정 pattern만 암호화
+# 韸轨爼 pattern毵?鞎旐樃頇?
 secrets/** filter=git-crypt diff=git-crypt
 *.key filter=git-crypt diff=git-crypt
 *.pem filter=git-crypt diff=git-crypt
 ```
 
-### 4. collaborator와 key 공유
+### 4. collaborator鞕€ key 瓿奠湢
 
-symmetric key를 export합니다.
+symmetric key毳?export頃╇媹雼?
 
 ```bash
 git-crypt export-key ../vault-key
 ```
 
-각 collaborator가 import합니다.
+臧?collaborator臧€ import頃╇媹雼?
 
 ```bash
 git-crypt unlock ../vault-key
@@ -70,14 +70,14 @@ git-crypt unlock ../vault-key
 
 ## Limitations
 
-- **Filenames는 암호화되지 않습니다.** PKV Sync server는 file paths와 directory structure를 볼 수 있습니다.
-- **git-crypt는 Git client 쪽에서 동작합니다.** Server는 ciphertext blobs를 저장합니다. key 없이 clone하면 encrypted files는 불투명한 binary data로 보입니다.
-- **Key management는 수동입니다.** key를 잃으면 encrypted files를 복구할 수 없습니다.
-- **Git clone workflow에서만 동작합니다.** PKV Sync Obsidian plugin은 git-crypt를 이해하지 않습니다. encrypted files는 vault를 clone하고 Git으로 직접 다뤄야 합니다.
-- **`pkvsyncd materialize`는 git-crypt를 인식하지 않습니다.** PKV Sync가 `pkvsync_pointer` JSON으로 저장한 파일(주로 text-extension list보다 큰 binaries)은 materialize 시 서버의 blob store에서 resolve되어 raw bytes로 도착합니다. git-crypt의 filter는 클라이언트 쪽에서 이를 보지 못하므로, `*.pdf`나 그 외 blob에 저장되는 확장자를 git-crypt로 암호화해도 기대한 ciphertext stream이 만들어지지 않습니다. git-crypt patterns는 PKV Sync가 text로 취급하는 파일 형식(server에서 설정하는 `text_extensions` list, 기본값: `md`, `canvas`, `base`, `json`, `txt`, `css`)으로 제한하세요.
+- **Filenames電?鞎旐樃頇旊悩歆€ 鞎婌姷雼堧嫟.** PKV Sync server電?file paths鞕€ directory structure毳?氤?靾?鞛堨姷雼堧嫟.
+- **git-crypt電?Git client 飒届棎靹?霃欖瀾頃╇媹雼?** Server電?ciphertext blobs毳?鞝€鞛ロ暕雼堧嫟. key 鞐嗢澊 clone頃橂┐ encrypted files電?攵堩埇氇呿暅 binary data搿?氤挫瀰雼堧嫟.
+- **Key management電?靾橂彊鞛呺媹雼?** key毳?鞛冹溂氅?encrypted files毳?氤店惮頃?靾?鞐嗢姷雼堧嫟.
+- **Git clone workflow鞐愳劀毵?霃欖瀾頃╇媹雼?** PKV Sync Obsidian plugin鞚€ git-crypt毳?鞚错暣頃橃 鞎婌姷雼堧嫟. encrypted files電?vault毳?clone頃橁碃 Git鞙茧 歆侅爲 雼る鞎?頃╇媹雼?
+- **`pkvsyncd materialize`電?git-crypt毳?鞚胳嫕頃橃 鞎婌姷雼堧嫟.** PKV Sync臧€ `pkvsync_pointer` JSON鞙茧 鞝€鞛ロ暅 韺岇澕(欤茧 text-extension list氤措嫟 韥?binaries)鞚€ materialize 鞁?靹滊矂鞚?blob store鞐愳劀 resolve霅橃柎 raw bytes搿?霃勳癌頃╇媹雼? git-crypt鞚?filter電?韥措澕鞚挫柛韸?飒届棎靹?鞚措ゼ 氤挫 氇豁晿氙€搿? `*.pdf`雮?攴?鞕?blob鞐?鞝€鞛ル悩電?頇曥灔鞛愲ゼ git-crypt搿?鞎旐樃頇旐暣霃?旮半寑頃?ciphertext stream鞚?毵岆摛鞏挫歆€ 鞎婌姷雼堧嫟. git-crypt patterns電?PKV Sync臧€ text搿?旆笁頃橂姅 韺岇澕 順曥嫕(server鞐愳劀 靹れ爼頃橂姅 `text_extensions` list, 旮半掣臧? `md`, `canvas`, `base`, `json`, `txt`, `css`)鞙茧 鞝滍暅頃橃劯鞖?
 
 ## Recommended Workflow
 
-1. 일상 note-taking에는 Obsidian plugin과 암호화하지 않은 파일을 사용합니다.
-2. E2EE가 필요한 민감한 파일에는 Git clone과 git-crypt를 사용합니다.
-3. git-crypt key를 안전하게 backup합니다.
+1. 鞚检儊 note-taking鞐愲姅 Obsidian plugin瓿?鞎旐樃頇旐晿歆€ 鞎婌潃 韺岇澕鞚?靷毄頃╇媹雼?
+2. E2EE臧€ 頃勳殧頃?氙缄皭頃?韺岇澕鞐愲姅 Git clone瓿?git-crypt毳?靷毄頃╇媹雼?
+3. git-crypt key毳?鞎堨爠頃橁矊 backup頃╇媹雼?

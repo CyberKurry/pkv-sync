@@ -1,6 +1,6 @@
-# CLI Reference
+﻿# CLI Reference
 
-English | [简体中文](./cli-reference.zh-CN.md) | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
+English | [绠€浣撲腑鏂嘳(./cli-reference.zh-CN.md) | [绻侀珨涓枃](./cli-reference.zh-Hant.md) | [鏃ユ湰瑾瀅(./cli-reference.ja.md) | [頃滉淡鞏碷(./cli-reference.ko.md)
 
 Document version: v1.4.3.
 

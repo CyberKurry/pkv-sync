@@ -1,16 +1,16 @@
-# 透過 Git clone 你的 PKV vault
+﻿# 閫忛亷 Git clone 浣犵殑 PKV vault
 
-[English](./git-clone-howto.md) | [简体中文](./git-clone-howto.zh-CN.md) | 繁體中文 | [日本語](./git-clone-howto.ja.md) | [한국어](./git-clone-howto.ko.md)
+[English](./git-clone-howto.md) | [绠€浣撲腑鏂嘳(./git-clone-howto.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./git-clone-howto.ja.md) | [頃滉淡鞏碷(./git-clone-howto.ko.md)
 
-文件版本：v1.4.3。
+鏂囦欢鐗堟湰锛歷1.4.3銆?
 
-PKV Sync 可以將每個 vault 透過 HTTPS 暴露為唯讀 Git repository。
+PKV Sync 鍙互灏囨瘡鍊?vault 閫忛亷 HTTPS 鏆撮湶鐐哄敮璁€ Git repository銆?
 
-## 前置條件
+## 鍓嶇疆姊濅欢
 
-- Server admin 已在 Sync & Storage settings 啟用「Git smart HTTP」。
-- Server 上有可用的 `git` binary。
-- 你擁有有效的 device token。
+- Server admin 宸插湪 Sync & Storage settings 鍟熺敤銆孏it smart HTTP銆嶃€?
+- Server 涓婃湁鍙敤鐨?`git` binary銆?
+- 浣犳搧鏈夋湁鏁堢殑 device token銆?
 
 ## Clone
 
@@ -18,30 +18,30 @@ PKV Sync 可以將每個 vault 透過 HTTPS 暴露為唯讀 Git repository。
 git clone https://_:<token>@your-server/git/<vault-id>
 ```
 
-冒號前的底線是 username。可填任意值；只有 password 位置的 token 會被使用。
+鍐掕櫉鍓嶇殑搴曠窔鏄?username銆傚彲濉换鎰忓€硷紱鍙湁 password 浣嶇疆鐨?token 鏈冭浣跨敤銆?
 
-### 範例
+### 绡勪緥
 
-如果 server 是 `sync.example.com`、vault ID 是 `6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`、device token 是 `pks_0f1e2d3c4b5a6978...`，執行：
+濡傛灉 server 鏄?`sync.example.com`銆乿ault ID 鏄?`6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`銆乨evice token 鏄?`pks_0f1e2d3c4b5a6978...`锛屽煼琛岋細
 
 ```bash
 git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 ```
 
-Vault ID 是 32 個字元的小寫 hex（不含連字號）。Admin WebUI 與 `pkvsyncd user list` 會顯示有效 ID；像 `abc123` 這類佔位字串會被以 `400 invalid_vault_id` 拒絕。
+Vault ID 鏄?32 鍊嬪瓧鍏冪殑灏忓 hex锛堜笉鍚€ｅ瓧铏燂級銆侫dmin WebUI 鑸?`pkvsyncd user list` 鏈冮’绀烘湁鏁?ID锛涘儚 `abc123` 閫欓浣斾綅瀛椾覆鏈冭浠?`400 invalid_vault_id` 鎷掔禃銆?
 
 ## Materialize
 
-Clone 之後，blob 檔案會顯示為 pointer JSON，因為 PKV Sync server 會單獨儲存大檔案。執行：
+Clone 涔嬪緦锛宐lob 妾旀鏈冮’绀虹偤 pointer JSON锛屽洜鐐?PKV Sync server 鏈冨柈鐛ㄥ劜瀛樺ぇ妾旀銆傚煼琛岋細
 
 ```bash
 pkvsyncd materialize <vault-id> -o ./output
 ```
 
-這會將 pointer 檔案替換為實際二進位內容，產生完整可用的本機 vault copy。
+閫欐渻灏?pointer 妾旀鏇挎彌鐐哄闅涗簩閫蹭綅鍏у锛岀敘鐢熷畬鏁村彲鐢ㄧ殑鏈 vault copy銆?
 
-## 注意事項
+## 娉ㄦ剰浜嬮爡
 
-- HTTP 上的 repository 是**唯讀**。你不能透過 Git push 變更。
-- 請使用 PKV Sync 外掛進行變更，並透過一般 sync API push。
-- 如果 server admin 停用 Git smart HTTP，clone 或 fetch 會回傳 HTTP 503。
+- HTTP 涓婄殑 repository 鏄?*鍞畝**銆備綘涓嶈兘閫忛亷 Git push 璁婃洿銆?
+- 璜嬩娇鐢?PKV Sync 澶栨帥閫茶璁婃洿锛屼甫閫忛亷涓€鑸?sync API push銆?
+- 濡傛灉 server admin 鍋滅敤 Git smart HTTP锛宑lone 鎴?fetch 鏈冨洖鍌?HTTP 503銆?

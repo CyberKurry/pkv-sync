@@ -1,36 +1,36 @@
-# 使用 PKV Sync 的 LLM Wiki 工作流程
+﻿# 浣跨敤 PKV Sync 鐨?LLM Wiki 宸ヤ綔娴佺▼
 
-[English](./llm-wiki-howto.md) | [简体中文](./llm-wiki-howto.zh-CN.md) | 繁體中文 | [日本語](./llm-wiki-howto.ja.md) | [한국어](./llm-wiki-howto.ko.md)
+[English](./llm-wiki-howto.md) | [绠€浣撲腑鏂嘳(./llm-wiki-howto.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./llm-wiki-howto.ja.md) | [頃滉淡鞏碷(./llm-wiki-howto.ko.md)
 
-文件版本：v1.4.3。
+鏂囦欢鐗堟湰锛歷1.4.3銆?
 
-PKV Sync 為由 LLM 維護的 wiki 提供儲存、歷史與 MCP substrate。你自己的 MCP-capable agent 負責執行 LLM，透過普通 PKV Sync 裝置 token 讀寫，並把每個接受的變更提交到筆記庫的 git 歷史。
+PKV Sync 鐐虹敱 LLM 缍鐨?wiki 鎻愪緵鍎插瓨銆佹鍙茶垏 MCP substrate銆備綘鑷繁鐨?MCP-capable agent 璨犺铂鍩疯 LLM锛岄€忛亷鏅€?PKV Sync 瑁濈疆 token 璁€瀵紝涓︽妸姣忓€嬫帴鍙楃殑璁婃洿鎻愪氦鍒扮瓎瑷樺韩鐨?git 姝峰彶銆?
 
-## 三個層次
+## 涓夊€嬪堡娆?
 
-使用小而明確的結構，讓人類與 agent 都能理解筆記庫。
+浣跨敤灏忚€屾槑纰虹殑绲愭锛岃畵浜洪鑸?agent 閮借兘鐞嗚В绛嗚搴€?
 
-- **Sources**：原始筆記、貼上的研究資料、匯入檔案、會議逐字稿，以及其他證據。盡量貼近原始素材保存，並包含足夠來源資訊，以便日後稽核。
-- **Wiki**：精簡頁面，用來說明持久的事實、決策、概念、人物、專案或流程。這些頁面彼此連結，並引用來源頁面。
-- **Schema**：少量慣例，讓 wiki 可以被 lint，例如必填 frontmatter、索引頁與維護日誌。
+- **Sources**锛氬師濮嬬瓎瑷樸€佽布涓婄殑鐮旂┒璩囨枡銆佸尟鍏ユ獢妗堛€佹渻璀伴€愬瓧绋匡紝浠ュ強鍏朵粬璀夋摎銆傜洝閲忚布杩戝師濮嬬礌鏉愪繚瀛橈紝涓﹀寘鍚冻澶犱締婧愯硣瑷婏紝浠ヤ究鏃ュ緦绋芥牳銆?
+- **Wiki**锛氱簿绨￠爜闈紝鐢ㄤ締瑾槑鎸佷箙鐨勪簨瀵︺€佹焙绛栥€佹蹇点€佷汉鐗┿€佸皥妗堟垨娴佺▼銆傞€欎簺闋侀潰褰兼閫ｇ祼锛屼甫寮曠敤渚嗘簮闋侀潰銆?
+- **Schema**锛氬皯閲忔叄渚嬶紝璁?wiki 鍙互琚?lint锛屼緥濡傚繀濉?frontmatter銆佺储寮曢爜鑸囩董璀锋棩瑾屻€?
 
-PKV Sync 是 substrate，而不是 LLM host。服務端暴露安全的讀取工具、樂觀寫入工具、連結檢查與變更檢查；你選擇的 agent 則決定要摘要、重寫哪些內容，或何時請你確認。
+PKV Sync 鏄?substrate锛岃€屼笉鏄?LLM host銆傛湇鍕欑鏆撮湶瀹夊叏鐨勮畝鍙栧伐鍏枫€佹▊瑙€瀵叆宸ュ叿銆侀€ｇ祼妾㈡煡鑸囪畩鏇存鏌ワ紱浣犻伕鎿囩殑 agent 鍓囨焙瀹氳鎽樿銆侀噸瀵摢浜涘収瀹癸紝鎴栦綍鏅傝珛浣犵⒑瑾嶃€?
 
-## 連接 agent
+## 閫ｆ帴 agent
 
-建立或重用 PKV Sync 裝置 token，然後用 stdio 將 MCP-capable agent 指向單一筆記庫：
+寤虹珛鎴栭噸鐢?PKV Sync 瑁濈疆 token锛岀劧寰岀敤 stdio 灏?MCP-capable agent 鎸囧悜鍠竴绛嗚搴細
 
 ```bash
 PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
 ```
 
-對於支援 Streamable HTTP 的 agent，你可以用內嵌或獨立模式暴露 `/mcp`，並在每個請求上同時發送部署金鑰與 bearer token。Transport 詳情請參閱 MCP access guide。
+灏嶆柤鏀彺 Streamable HTTP 鐨?agent锛屼綘鍙互鐢ㄥ収宓屾垨鐛ㄧ珛妯″紡鏆撮湶 `/mcp`锛屼甫鍦ㄦ瘡鍊嬭珛姹備笂鍚屾檪鐧奸€侀儴缃查噾閼拌垏 bearer token銆俆ransport 瑭虫儏璜嬪弮闁?MCP access guide銆?
 
-給 agent 一段狹窄的指令：讀取 source 頁面、提出 wiki 更新、寫入時使用上次讀取得到的 `parent_commit`，並在事實不確定或出現衝突時停止，等待人工審查。
+绲?agent 涓€娈电嫻绐勭殑鎸囦护锛氳畝鍙?source 闋侀潰銆佹彁鍑?wiki 鏇存柊銆佸鍏ユ檪浣跨敤涓婃璁€鍙栧緱鍒扮殑 `parent_commit`锛屼甫鍦ㄤ簨瀵︿笉纰哄畾鎴栧嚭鐝捐绐佹檪鍋滄锛岀瓑寰呬汉宸ュ鏌ャ€?
 
-## 建議 schema
+## 寤鸿 schema
 
-從這個版面配置開始，只有當它對你的工作流程來說太小時才調整：
+寰為€欏€嬬増闈㈤厤缃枊濮嬶紝鍙湁鐣跺畠灏嶄綘鐨勫伐浣滄祦绋嬩締瑾お灏忔檪鎵嶈鏁达細
 
 ```text
 index.md
@@ -39,7 +39,7 @@ sources/
 wiki/
 ```
 
-使用 `index.md` 作為 wiki 地圖：
+浣跨敤 `index.md` 浣滅偤 wiki 鍦板湒锛?
 
 ```markdown
 # Index
@@ -53,7 +53,7 @@ wiki/
 - [[wiki/sync-model]]
 ```
 
-使用 `log.md` 作為維護日誌：
+浣跨敤 `log.md` 浣滅偤缍鏃ヨ獙锛?
 
 ```markdown
 # Wiki log
@@ -64,7 +64,7 @@ wiki/
 - Updated [[wiki/project-alpha]] and checked broken links.
 ```
 
-在 wiki 頁面使用 frontmatter 保留來源脈絡：
+鍦?wiki 闋侀潰浣跨敤 frontmatter 淇濈暀渚嗘簮鑴堢怠锛?
 
 ```markdown
 ---
@@ -78,7 +78,7 @@ updated: 2026-06-08
 # Project Alpha
 ```
 
-Source 頁面可以保持原始狀態，但應該標明資訊來源：
+Source 闋侀潰鍙互淇濇寔鍘熷鐙€鎱嬶紝浣嗘噳瑭叉鏄庤硣瑷婁締婧愶細
 
 ```markdown
 ---
@@ -88,23 +88,23 @@ captured: 2026-06-08
 ---
 ```
 
-## Agent 循環
+## Agent 寰挵
 
-1. Ingest：在 `sources/` 下新增或更新 source 材料，盡量保留原始措辭。當一個 source 會展開成 10 到 25 個 source 與 wiki 頁面時，使用 `write_files`，讓整個 ingest 以一個原子 commit 落地。
-2. Query：請 agent 讀取相關 source 與 wiki 頁面，然後提出 `wiki/` 下的更新。
-3. Write：只有在 agent 擁有目前的 `parent_commit` 之後，才允許它使用 `write_file`、`write_files`、`move_file` 或 `delete_file`。頁面合併、拆分和歸檔移動時使用 `move_file`，讓 git 能回報重新命名，而不是遺失歷史。
-4. Lint：執行 `link_graph` 找出孤立、缺失或 ambiguous 連結；從上次審查過的 commit 執行 `changes_since`，摘要變更內容。
-5. Review：檢查提出的 commits、解決衝突，並將不確定的主張保留在 sources 中，直到人類將它們提升到 wiki 頁面。
+1. Ingest锛氬湪 `sources/` 涓嬫柊澧炴垨鏇存柊 source 鏉愭枡锛岀洝閲忎繚鐣欏師濮嬫帾杈€傜暥涓€鍊?source 鏈冨睍闁嬫垚 10 鍒?25 鍊?source 鑸?wiki 闋侀潰鏅傦紝浣跨敤 `write_files`锛岃畵鏁村€?ingest 浠ヤ竴鍊嬪師瀛?commit 钀藉湴銆?
+2. Query锛氳珛 agent 璁€鍙栫浉闂?source 鑸?wiki 闋侀潰锛岀劧寰屾彁鍑?`wiki/` 涓嬬殑鏇存柊銆?
+3. Write锛氬彧鏈夊湪 agent 鎿佹湁鐩墠鐨?`parent_commit` 涔嬪緦锛屾墠鍏佽ū瀹冧娇鐢?`write_file`銆乣write_files`銆乣move_file` 鎴?`delete_file`銆傞爜闈㈠悎浣点€佹媶鍒嗗拰姝告獢绉诲嫊鏅備娇鐢?`move_file`锛岃畵 git 鑳藉洖鍫遍噸鏂板懡鍚嶏紝鑰屼笉鏄伜澶辨鍙层€?
+4. Lint锛氬煼琛?`link_graph` 鎵惧嚭瀛ょ珛銆佺己澶辨垨 ambiguous 閫ｇ祼锛涘緸涓婃瀵╂煡閬庣殑 commit 鍩疯 `changes_since`锛屾憳瑕佽畩鏇村収瀹广€?
+5. Review锛氭鏌ユ彁鍑虹殑 commits銆佽В姹鸿绐侊紝涓﹀皣涓嶇⒑瀹氱殑涓诲嫉淇濈暀鍦?sources 涓紝鐩村埌浜洪灏囧畠鍊戞彁鍗囧埌 wiki 闋侀潰銆?
 
-在 v1.2.1 中，這個循環更適合大型 wiki 筆記庫：批次 ingest 繼續透過 `write_files` 保持原子性，結構性的頁面移動透過 `move_file` 保留歷史，連結和變更工具保持有界並隱藏被過濾路徑，重複同步週期會盡可能重用篩選器、token 檢查和掃描結果快取。
+鍦?v1.2.1 涓紝閫欏€嬪惊鐠版洿閬╁悎澶у瀷 wiki 绛嗚搴細鎵规 ingest 绻肩簩閫忛亷 `write_files` 淇濇寔鍘熷瓙鎬э紝绲愭鎬х殑闋侀潰绉诲嫊閫忛亷 `move_file` 淇濈暀姝峰彶锛岄€ｇ祼鍜岃畩鏇村伐鍏蜂繚鎸佹湁鐣屼甫闅辫棌琚亷婵捐矾寰戯紝閲嶈鍚屾閫辨湡鏈冪洝鍙兘閲嶇敤绡╅伕鍣ㄣ€乼oken 妾㈡煡鍜屾巸鎻忕祼鏋滃揩鍙栥€?
 
-## Lint 例行流程
+## Lint 渚嬭娴佺▼
 
-每次維護完成後，請 agent：
+姣忔缍瀹屾垚寰岋紝璜?agent锛?
 
-- 使用 vault id 呼叫 `link_graph`，並回報斷裂連結、ambiguous basename links，以及新的孤立頁面；
-- 使用上次人工審查過的 commit 呼叫 `changes_since`，並摘要新增、修改、刪除與重新命名的頁面；
-- 新增持久 wiki 頁面時，更新 `index.md`；
-- 在 `log.md` 附加一則短紀錄，描述來源材料、變更的 wiki 頁面，以及未解問題。
+- 浣跨敤 vault id 鍛煎彨 `link_graph`锛屼甫鍥炲牨鏂疯閫ｇ祼銆乤mbiguous basename links锛屼互鍙婃柊鐨勫绔嬮爜闈紱
+- 浣跨敤涓婃浜哄伐瀵╂煡閬庣殑 commit 鍛煎彨 `changes_since`锛屼甫鎽樿鏂板銆佷慨鏀广€佸埅闄よ垏閲嶆柊鍛藉悕鐨勯爜闈紱
+- 鏂板鎸佷箙 wiki 闋侀潰鏅傦紝鏇存柊 `index.md`锛?
+- 鍦?`log.md` 闄勫姞涓€鍓囩煭绱€閷勶紝鎻忚堪渚嗘簮鏉愭枡銆佽畩鏇寸殑 wiki 闋侀潰锛屼互鍙婃湭瑙ｅ晱椤屻€?
 
-Hidden paths 在整個工作流程中都會保持隱藏。如果某個路徑被 SyncPathFilter 或 exclude glob 拒絕，MCP 讀取工具不會在檔案列表、搜尋結果、連結圖或變更摘要中回報它。
+Hidden paths 鍦ㄦ暣鍊嬪伐浣滄祦绋嬩腑閮芥渻淇濇寔闅辫棌銆傚鏋滄煇鍊嬭矾寰戣 SyncPathFilter 鎴?exclude glob 鎷掔禃锛孧CP 璁€鍙栧伐鍏蜂笉鏈冨湪妾旀鍒楄〃銆佹悳灏嬬祼鏋溿€侀€ｇ祼鍦栨垨璁婃洿鎽樿涓洖鍫卞畠銆?

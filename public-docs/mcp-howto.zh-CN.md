@@ -1,36 +1,36 @@
-# AI 工具的 MCP 接入
+﻿# AI 宸ュ叿鐨?MCP 鎺ュ叆
 
-[English](./mcp-howto.md) | 简体中文 | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
+[English](./mcp-howto.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./mcp-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./mcp-howto.ja.md) | [頃滉淡鞏碷(./mcp-howto.ko.md)
 
-文档版本：v1.4.3。
+鏂囨。鐗堟湰锛歷1.4.3銆?
 
-PKV Sync 可以通过 MCP server 暴露笔记库内容。服务端在返回文件内容前会解析 blob pointer，可以通过显式读写工具写入文件，并且要求使用普通的 PKV Sync bearer 设备 token。
+PKV Sync 鍙互閫氳繃 MCP server 鏆撮湶绗旇搴撳唴瀹广€傛湇鍔＄鍦ㄨ繑鍥炴枃浠跺唴瀹瑰墠浼氳В鏋?blob pointer锛屽彲浠ラ€氳繃鏄惧紡璇诲啓宸ュ叿鍐欏叆鏂囦欢锛屽苟涓旇姹備娇鐢ㄦ櫘閫氱殑 PKV Sync bearer 璁惧 token銆?
 
-## 工具
+## 宸ュ叿
 
-- `list_vaults`：列出已认证用户可访问的笔记库。
-- `list_files {vault_id, at?}`：列出 HEAD 的路径；设置 `at` 时，列出该 commit SHA 下的路径。
-- `read_file {vault_id, path}`：读取 HEAD 下的文件。
-- `read_file_at_commit {vault_id, path, commit}`：读取指定 commit 下的文件。
-- `search {vault_id, query, at?, limit?}`：在文本文件中执行大小写不敏感的子串搜索。`at` 将范围限定到某个历史 commit；`limit` 限制返回的匹配数量。
-- `link_graph {vault_id, at?, path_prefix?, limit?}`：返回笔记库的 wikilink 和 Markdown 链接图。响应包含每个文件节点的 `outlinks` 和计算出的 `inlinks`、孤立页面、带有 `missing` 或 `ambiguous` 原因的断链，以及 `truncated` 标志。
-- `changes_since {vault_id, since_commit, path_prefix?, limit?}`：列出自 `since_commit` 以来新增、修改、删除或重命名的文件。响应包含 `from_commit`、当前 `to_commit`、`changes` 和 `truncated`；如果 `since_commit` 不是 HEAD 的祖先，工具会返回 `unrelated_commit`，以便客户端重新读取笔记库。
-- `write_file {vault_id, path, content, parent_commit}`：以 `parent_commit` 进行乐观并发控制，创建或更新文本文件。
-- `delete_file {vault_id, path, parent_commit}`：以 `parent_commit` 进行乐观并发控制，删除文件。
-- `write_files {vault_id, parent_commit, writes?, deletes?}`：在一个 commit 中原子地创建、更新和／或删除多个文本文件。`writes[]` 包含 `{path, content}` 对象；`deletes[]` 包含路径。
-- `move_file {vault_id, parent_commit, from, to}`：在一个 commit 中移动或重命名文本文件，并保留 git rename 历史。目标路径不能已经存在。
+- `list_vaults`锛氬垪鍑哄凡璁よ瘉鐢ㄦ埛鍙闂殑绗旇搴撱€?
+- `list_files {vault_id, at?}`锛氬垪鍑?HEAD 鐨勮矾寰勶紱璁剧疆 `at` 鏃讹紝鍒楀嚭璇?commit SHA 涓嬬殑璺緞銆?
+- `read_file {vault_id, path}`锛氳鍙?HEAD 涓嬬殑鏂囦欢銆?
+- `read_file_at_commit {vault_id, path, commit}`锛氳鍙栨寚瀹?commit 涓嬬殑鏂囦欢銆?
+- `search {vault_id, query, at?, limit?}`锛氬湪鏂囨湰鏂囦欢涓墽琛屽ぇ灏忓啓涓嶆晱鎰熺殑瀛愪覆鎼滅储銆俙at` 灏嗚寖鍥撮檺瀹氬埌鏌愪釜鍘嗗彶 commit锛沗limit` 闄愬埗杩斿洖鐨勫尮閰嶆暟閲忋€?
+- `link_graph {vault_id, at?, path_prefix?, limit?}`锛氳繑鍥炵瑪璁板簱鐨?wikilink 鍜?Markdown 閾炬帴鍥俱€傚搷搴斿寘鍚瘡涓枃浠惰妭鐐圭殑 `outlinks` 鍜岃绠楀嚭鐨?`inlinks`銆佸绔嬮〉闈€佸甫鏈?`missing` 鎴?`ambiguous` 鍘熷洜鐨勬柇閾撅紝浠ュ強 `truncated` 鏍囧織銆?
+- `changes_since {vault_id, since_commit, path_prefix?, limit?}`锛氬垪鍑鸿嚜 `since_commit` 浠ユ潵鏂板銆佷慨鏀广€佸垹闄ゆ垨閲嶅懡鍚嶇殑鏂囦欢銆傚搷搴斿寘鍚?`from_commit`銆佸綋鍓?`to_commit`銆乣changes` 鍜?`truncated`锛涘鏋?`since_commit` 涓嶆槸 HEAD 鐨勭鍏堬紝宸ュ叿浼氳繑鍥?`unrelated_commit`锛屼互渚垮鎴风閲嶆柊璇诲彇绗旇搴撱€?
+- `write_file {vault_id, path, content, parent_commit}`锛氫互 `parent_commit` 杩涜涔愯骞跺彂鎺у埗锛屽垱寤烘垨鏇存柊鏂囨湰鏂囦欢銆?
+- `delete_file {vault_id, path, parent_commit}`锛氫互 `parent_commit` 杩涜涔愯骞跺彂鎺у埗锛屽垹闄ゆ枃浠躲€?
+- `write_files {vault_id, parent_commit, writes?, deletes?}`锛氬湪涓€涓?commit 涓師瀛愬湴鍒涘缓銆佹洿鏂板拰锛忔垨鍒犻櫎澶氫釜鏂囨湰鏂囦欢銆俙writes[]` 鍖呭惈 `{path, content}` 瀵硅薄锛沗deletes[]` 鍖呭惈璺緞銆?
+- `move_file {vault_id, parent_commit, from, to}`锛氬湪涓€涓?commit 涓Щ鍔ㄦ垨閲嶅懡鍚嶆枃鏈枃浠讹紝骞朵繚鐣?git rename 鍘嗗彶銆傜洰鏍囪矾寰勪笉鑳藉凡缁忓瓨鍦ㄣ€?
 
-所有 MCP 读取工具都会遵守当前的 SyncPathFilter。被内置隐藏路径规则或运行时 exclude glob 拒绝的路径，不会被列出、搜索、读取、纳入链接图，也不会作为变更报告。
+鎵€鏈?MCP 璇诲彇宸ュ叿閮戒細閬靛畧褰撳墠鐨?SyncPathFilter銆傝鍐呯疆闅愯棌璺緞瑙勫垯鎴栬繍琛屾椂 exclude glob 鎷掔粷鐨勮矾寰勶紝涓嶄細琚垪鍑恒€佹悳绱€佽鍙栥€佺撼鍏ラ摼鎺ュ浘锛屼篃涓嶄細浣滀负鍙樻洿鎶ュ憡銆?
 
 ## stdio transport
 
-本地 AI 工具需要启动命令时，使用 stdio。stdio 模式限定到一个笔记库。
+鏈湴 AI 宸ュ叿闇€瑕佸惎鍔ㄥ懡浠ゆ椂锛屼娇鐢?stdio銆俿tdio 妯″紡闄愬畾鍒颁竴涓瑪璁板簱銆?
 
 ```bash
 PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
 ```
 
-也可以直接传入 token：
+涔熷彲浠ョ洿鎺ヤ紶鍏?token锛?
 
 ```bash
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
@@ -38,71 +38,71 @@ pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 
 ## Streamable HTTP transport
 
-当客户端连接到一个已经运行的本地或内网 MCP 端点时，使用 HTTP。PKV Sync 提供两种 HTTP 部署模式：
+褰撳鎴风杩炴帴鍒颁竴涓凡缁忚繍琛岀殑鏈湴鎴栧唴缃?MCP 绔偣鏃讹紝浣跨敤 HTTP銆侾KV Sync 鎻愪緵涓ょ HTTP 閮ㄧ讲妯″紡锛?
 
-- **嵌入模式**：在 `config.toml` 中设置 `[mcp].embed_in_serve = true`，然后 `pkvsyncd serve` 会在主服务端口挂载 `/mcp`。
-- **独立模式**：运行单独的 MCP 进程，适合专用监听地址、隔离 MCP，或独立扩缩容：
+- **宓屽叆妯″紡**锛氬湪 `config.toml` 涓缃?`[mcp].embed_in_serve = true`锛岀劧鍚?`pkvsyncd serve` 浼氬湪涓绘湇鍔＄鍙ｆ寕杞?`/mcp`銆?
+- **鐙珛妯″紡**锛氳繍琛屽崟鐙殑 MCP 杩涚▼锛岄€傚悎涓撶敤鐩戝惉鍦板潃銆侀殧绂?MCP锛屾垨鐙珛鎵╃缉瀹癸細
 
 ```bash
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
 ```
 
-端点路径始终是 `/mcp`；嵌入模式使用主服务 origin，独立模式使用单独的监听地址：
+绔偣璺緞濮嬬粓鏄?`/mcp`锛涘祵鍏ユā寮忎娇鐢ㄤ富鏈嶅姟 origin锛岀嫭绔嬫ā寮忎娇鐢ㄥ崟鐙殑鐩戝惉鍦板潃锛?
 
 ```text
 POST http://127.0.0.1:6711/mcp
 GET  http://127.0.0.1:6711/mcp
 ```
 
-每个请求都必须包含：
+姣忎釜璇锋眰閮藉繀椤诲寘鍚細
 
 ```text
 X-PKVSync-Deployment-Key: k_xxx
 Authorization: Bearer pks_xxx
 ```
 
-部署密钥来自与主 PKV Sync 服务相同的配置文件。缺少或错误的部署密钥会在 bearer token 认证前收到 HTTP `404`。
+閮ㄧ讲瀵嗛挜鏉ヨ嚜涓庝富 PKV Sync 鏈嶅姟鐩稿悓鐨勯厤缃枃浠躲€傜己灏戞垨閿欒鐨勯儴缃插瘑閽ヤ細鍦?bearer token 璁よ瘉鍓嶆敹鍒?HTTP `404`銆?
 
-MCP HTTP 使用固定窗口限流，每 60 秒最多 120 次请求。超限时，服务端返回 HTTP `429`，并返回 code 为 `-32029` 的 JSON-RPC error。
-失败的 MCP bearer-token 认证也会在进程内限流，stdio 和 HTTP transport 合计每 60 秒最多 30 次失败尝试。
+MCP HTTP 浣跨敤鍥哄畾绐楀彛闄愭祦锛屾瘡 60 绉掓渶澶?120 娆¤姹傘€傝秴闄愭椂锛屾湇鍔＄杩斿洖 HTTP `429`锛屽苟杩斿洖 code 涓?`-32029` 鐨?JSON-RPC error銆?
+澶辫触鐨?MCP bearer-token 璁よ瘉涔熶細鍦ㄨ繘绋嬪唴闄愭祦锛宻tdio 鍜?HTTP transport 鍚堣姣?60 绉掓渶澶?30 娆″け璐ュ皾璇曘€?
 
-POST 承载 JSON-RPC 工具调用并返回 JSON 响应。GET 携带 `Accept: text/event-stream` 时订阅 `vault_changed` notification。事件 id 使用 `<vault-id>:<commit-sha>`，客户端重连时可作为 `Last-Event-ID` 传回，以 replay 断线期间错过的 commit。Replay 有上限；如果服务端无法覆盖错过的历史，会发送 `lagged`，客户端应通过同步 API 刷新。
+POST 鎵胯浇 JSON-RPC 宸ュ叿璋冪敤骞惰繑鍥?JSON 鍝嶅簲銆侴ET 鎼哄甫 `Accept: text/event-stream` 鏃惰闃?`vault_changed` notification銆備簨浠?id 浣跨敤 `<vault-id>:<commit-sha>`锛屽鎴风閲嶈繛鏃跺彲浣滀负 `Last-Event-ID` 浼犲洖锛屼互 replay 鏂嚎鏈熼棿閿欒繃鐨?commit銆俁eplay 鏈変笂闄愶紱濡傛灉鏈嶅姟绔棤娉曡鐩栭敊杩囩殑鍘嗗彶锛屼細鍙戦€?`lagged`锛屽鎴风搴旈€氳繃鍚屾 API 鍒锋柊銆?
 
-除非放在可信网络控制之后，否则请将 HTTP 绑定到 loopback。bearer token 会授予该用户所有笔记库的读写访问权限。
+闄ら潪鏀惧湪鍙俊缃戠粶鎺у埗涔嬪悗锛屽惁鍒欒灏?HTTP 缁戝畾鍒?loopback銆俠earer token 浼氭巿浜堣鐢ㄦ埛鎵€鏈夌瑪璁板簱鐨勮鍐欒闂潈闄愩€?
 
-## 读取和搜索上限
+## 璇诲彇鍜屾悳绱笂闄?
 
-`search` 最多扫描 5000 个可见 tree 文件，最多返回 500 条匹配，并在生产环境搜索文本累计达到 256 MiB 后停止。`link_graph` 最多扫描 5000 个可见文本文件，并使用相同的生产环境文本预算。`changes_since` 最多返回 5000 条可见变更项。`read_file` 和 `read_file_at_commit` 会在返回前解析 blob pointer；超过 64 MiB 的二进制/blob 响应会被拒绝，而不是被 base64 展开进 JSON。
+`search` 鏈€澶氭壂鎻?5000 涓彲瑙?tree 鏂囦欢锛屾渶澶氳繑鍥?500 鏉″尮閰嶏紝骞跺湪鐢熶骇鐜鎼滅储鏂囨湰绱杈惧埌 256 MiB 鍚庡仠姝€俙link_graph` 鏈€澶氭壂鎻?5000 涓彲瑙佹枃鏈枃浠讹紝骞朵娇鐢ㄧ浉鍚岀殑鐢熶骇鐜鏂囨湰棰勭畻銆俙changes_since` 鏈€澶氳繑鍥?5000 鏉″彲瑙佸彉鏇撮」銆俙read_file` 鍜?`read_file_at_commit` 浼氬湪杩斿洖鍓嶈В鏋?blob pointer锛涜秴杩?64 MiB 鐨勪簩杩涘埗/blob 鍝嶅簲浼氳鎷掔粷锛岃€屼笉鏄 base64 灞曞紑杩?JSON銆?
 
-## 写入工具
+## 鍐欏叆宸ュ叿
 
-PKV Sync 在读取工具之外提供四个 MCP 写入工具：
+PKV Sync 鍦ㄨ鍙栧伐鍏蜂箣澶栨彁渚涘洓涓?MCP 鍐欏叆宸ュ叿锛?
 
-- `write_file(vault_id, path, content, parent_commit)`：创建或更新文本文件。
-- `delete_file(vault_id, path, parent_commit)`：删除文件。
-- `write_files(vault_id, parent_commit, writes[], deletes[])`：在一个 commit 中原子地创建、更新和删除多个文本文件。如果任一路径无效、文件超过 `max_file_size`、批次为空（`empty_batch`），或批次超过 100 个变更（`batch_too_large`），服务端不会提交任何内容。陈旧的 `parent_commit` 会返回常规 `Conflict` 响应。
-- `move_file(vault_id, parent_commit, from, to)`：在单个 commit 中移动或重命名一个文本文件。它会拒绝已存在的目标（`target_exists`）、二进制／blob-pointer 源文件（`unsupported_binary_move`），以及缺失或隐藏的源文件（`not_found`）。
+- `write_file(vault_id, path, content, parent_commit)`锛氬垱寤烘垨鏇存柊鏂囨湰鏂囦欢銆?
+- `delete_file(vault_id, path, parent_commit)`锛氬垹闄ゆ枃浠躲€?
+- `write_files(vault_id, parent_commit, writes[], deletes[])`锛氬湪涓€涓?commit 涓師瀛愬湴鍒涘缓銆佹洿鏂板拰鍒犻櫎澶氫釜鏂囨湰鏂囦欢銆傚鏋滀换涓€璺緞鏃犳晥銆佹枃浠惰秴杩?`max_file_size`銆佹壒娆′负绌猴紙`empty_batch`锛夛紝鎴栨壒娆¤秴杩?100 涓彉鏇达紙`batch_too_large`锛夛紝鏈嶅姟绔笉浼氭彁浜や换浣曞唴瀹广€傞檲鏃х殑 `parent_commit` 浼氳繑鍥炲父瑙?`Conflict` 鍝嶅簲銆?
+- `move_file(vault_id, parent_commit, from, to)`锛氬湪鍗曚釜 commit 涓Щ鍔ㄦ垨閲嶅懡鍚嶄竴涓枃鏈枃浠躲€傚畠浼氭嫆缁濆凡瀛樺湪鐨勭洰鏍囷紙`target_exists`锛夈€佷簩杩涘埗锛廱lob-pointer 婧愭枃浠讹紙`unsupported_binary_move`锛夛紝浠ュ強缂哄け鎴栭殣钘忕殑婧愭枃浠讹紙`not_found`锛夈€?
 
-### 乐观并发控制
+### 涔愯骞跺彂鎺у埗
 
-每次写入都必须提供 `parent_commit`，也就是客户端认为当前笔记库 HEAD 所在的 commit hash。如果客户端上次读取后笔记库已经前进，服务端会返回 `{ "conflict": true, "current_head": "..." }`，并且不会写入。客户端需要重新读取、必要时合并，再用新的 `parent_commit` 重试。
+姣忔鍐欏叆閮藉繀椤绘彁渚?`parent_commit`锛屼篃灏辨槸瀹㈡埛绔涓哄綋鍓嶇瑪璁板簱 HEAD 鎵€鍦ㄧ殑 commit hash銆傚鏋滃鎴风涓婃璇诲彇鍚庣瑪璁板簱宸茬粡鍓嶈繘锛屾湇鍔＄浼氳繑鍥?`{ "conflict": true, "current_head": "..." }`锛屽苟涓斾笉浼氬啓鍏ャ€傚鎴风闇€瑕侀噸鏂拌鍙栥€佸繀瑕佹椂鍚堝苟锛屽啀鐢ㄦ柊鐨?`parent_commit` 閲嶈瘯銆?
 
-### 限流
+### 闄愭祦
 
-写入工具按 `(token, vault)` 组合限流，每分钟最多 60 次写入。`write_files` 整个批次只消耗一次限流记录。读取工具和 SSE 订阅不受这个写入额度影响。
+鍐欏叆宸ュ叿鎸?`(token, vault)` 缁勫悎闄愭祦锛屾瘡鍒嗛挓鏈€澶?60 娆″啓鍏ャ€俙write_files` 鏁翠釜鎵规鍙秷鑰椾竴娆￠檺娴佽褰曘€傝鍙栧伐鍏峰拰 SSE 璁㈤槄涓嶅彈杩欎釜鍐欏叆棰濆害褰卞搷銆?
 
-1.2.1 的加固让写入校验保持 fail-closed：`writes[]` 和 `deletes[]` 中归一化后重复的路径会被拒绝，隐藏或排除路径不会泄漏目标存在性，无效的 `move_file` 来源会在消耗写入额度前被拒绝。MCP 鉴权错误保持泛化，Streamable HTTP JSON 请求体上限为 100 MiB。
+1.2.1 鐨勫姞鍥鸿鍐欏叆鏍￠獙淇濇寔 fail-closed锛歚writes[]` 鍜?`deletes[]` 涓綊涓€鍖栧悗閲嶅鐨勮矾寰勪細琚嫆缁濓紝闅愯棌鎴栨帓闄よ矾寰勪笉浼氭硠婕忕洰鏍囧瓨鍦ㄦ€э紝鏃犳晥鐨?`move_file` 鏉ユ簮浼氬湪娑堣€楀啓鍏ラ搴﹀墠琚嫆缁濄€侻CP 閴存潈閿欒淇濇寔娉涘寲锛孲treamable HTTP JSON 璇锋眰浣撲笂闄愪负 100 MiB銆?
 
-### 审计记录
+### 瀹¤璁板綍
 
-每次成功写入、批量写入、移动或删除都会在活动日志中记录为 `mcp_write` 或 `mcp_delete`，details 中包含路径摘要、commit 和 size。管理员可以在活动页查看 AI 驱动的改动。
+姣忔鎴愬姛鍐欏叆銆佹壒閲忓啓鍏ャ€佺Щ鍔ㄦ垨鍒犻櫎閮戒細鍦ㄦ椿鍔ㄦ棩蹇椾腑璁板綍涓?`mcp_write` 鎴?`mcp_delete`锛宒etails 涓寘鍚矾寰勬憳瑕併€乧ommit 鍜?size銆傜鐞嗗憳鍙互鍦ㄦ椿鍔ㄩ〉鏌ョ湅 AI 椹卞姩鐨勬敼鍔ㄣ€?
 
-### 注意：写入会进入 git 历史
+### 娉ㄦ剰锛氬啓鍏ヤ細杩涘叆 git 鍘嗗彶
 
-AI 驱动的写入会成为笔记库 git 历史中的 commit。你可以通过普通 git 操作回滚，但无法让已经提交的改动“从未发生”；这种可审计性是有意设计。
+AI 椹卞姩鐨勫啓鍏ヤ細鎴愪负绗旇搴?git 鍘嗗彶涓殑 commit銆備綘鍙互閫氳繃鏅€?git 鎿嶄綔鍥炴粴锛屼絾鏃犳硶璁╁凡缁忔彁浜ょ殑鏀瑰姩鈥滀粠鏈彂鐢熲€濓紱杩欑鍙璁℃€ф槸鏈夋剰璁捐銆?
 
-## 客户端提示
+## 瀹㈡埛绔彁绀?
 
-- Claude Code、Codex CLI、Cherry Studio、OpenCode，以及通过桥接使用 MCP 的客户端，都可以通过启动 `pkvsyncd mcp` 使用 stdio 模式。
-- 支持 Streamable HTTP 的客户端可以指向 `/mcp`，并在每个请求上发送 bearer auth 和部署密钥。
-- 服务端是无状态的，不要求也不返回 `Mcp-Session-Id`。
+- Claude Code銆丆odex CLI銆丆herry Studio銆丱penCode锛屼互鍙婇€氳繃妗ユ帴浣跨敤 MCP 鐨勫鎴风锛岄兘鍙互閫氳繃鍚姩 `pkvsyncd mcp` 浣跨敤 stdio 妯″紡銆?
+- 鏀寔 Streamable HTTP 鐨勫鎴风鍙互鎸囧悜 `/mcp`锛屽苟鍦ㄦ瘡涓姹備笂鍙戦€?bearer auth 鍜岄儴缃插瘑閽ャ€?
+- 鏈嶅姟绔槸鏃犵姸鎬佺殑锛屼笉瑕佹眰涔熶笉杩斿洖 `Mcp-Session-Id`銆?

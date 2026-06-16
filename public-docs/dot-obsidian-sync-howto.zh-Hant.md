@@ -1,35 +1,35 @@
-# 跨裝置同步 `.obsidian` 設定
+﻿# 璺ㄨ缃悓姝?`.obsidian` 瑷畾
 
-[English](./dot-obsidian-sync-howto.md) | [简体中文](./dot-obsidian-sync-howto.zh-CN.md) | 繁體中文 | [日本語](./dot-obsidian-sync-howto.ja.md) | [한국어](./dot-obsidian-sync-howto.ko.md)
+[English](./dot-obsidian-sync-howto.md) | [绠€浣撲腑鏂嘳(./dot-obsidian-sync-howto.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./dot-obsidian-sync-howto.ja.md) | [頃滉淡鞏碷(./dot-obsidian-sync-howto.ko.md)
 
-文件版本：v1.4.3。
+鏂囦欢鐗堟湰锛歷1.4.3銆?
 
-PKV Sync 預設避開隱藏路徑。它提供按 vault 設定的 allowlist，讓你可以選擇性同步 `.obsidian` 設定檔，而不是同步整個 Obsidian 內部目錄。
+PKV Sync 闋愯ō閬块枊闅辫棌璺緫銆傚畠鎻愪緵鎸?vault 瑷畾鐨?allowlist锛岃畵浣犲彲浠ラ伕鎿囨€у悓姝?`.obsidian` 瑷畾妾旓紝鑰屼笉鏄悓姝ユ暣鍊?Obsidian 鍏ч儴鐩寗銆?
 
-## 新 vault 預設同步什麼
+## 鏂?vault 闋愯ō鍚屾浠€楹?
 
-新 vault 會得到這組起步 allowlist：
+鏂?vault 鏈冨緱鍒伴€欑祫璧锋 allowlist锛?
 
-- 主題：`.obsidian/themes/**`
-- CSS snippets：`.obsidian/snippets/**`
-- 快捷鍵：`.obsidian/hotkeys.json`
-- App 偏好：`.obsidian/app.json`
-- 外觀偏好：`.obsidian/appearance.json`
-- 已啟用社群外掛清單：`.obsidian/community-plugins.json`
-- 已啟用核心外掛清單：`.obsidian/core-plugins.json`
+- 涓婚锛歚.obsidian/themes/**`
+- CSS snippets锛歚.obsidian/snippets/**`
+- 蹇嵎閸碉細`.obsidian/hotkeys.json`
+- App 鍋忓ソ锛歚.obsidian/app.json`
+- 澶栬鍋忓ソ锛歚.obsidian/appearance.json`
+- 宸插暉鐢ㄧぞ缇ゅ鎺涙竻鍠細`.obsidian/community-plugins.json`
+- 宸插暉鐢ㄦ牳蹇冨鎺涙竻鍠細`.obsidian/core-plugins.json`
 
-這裡只包含已啟用外掛清單。外掛程式碼和外掛設定預設不會同步。
+閫欒！鍙寘鍚凡鍟熺敤澶栨帥娓呭柈銆傚鎺涚▼寮忕⒓鍜屽鎺涜ō瀹氶爯瑷笉鏈冨悓姝ャ€?
 
-既有 vault 會保持空 allowlist，直到你套用起步清單。
+鏃㈡湁 vault 鏈冧繚鎸佺┖ allowlist锛岀洿鍒颁綘濂楃敤璧锋娓呭柈銆?
 
-- **Admin WebUI：Vaults -> Settings -> Apply starter allowlist** 會寫入上述完整 7 條 glob 起步清單。
-- **Obsidian 外掛：設定 -> PKV Sync -> Apply recommended starter list** 只寫入兩條最安全的 glob（`.obsidian/themes/**` 與 `.obsidian/snippets/**`）—— 主題與 CSS snippets 通常可以安全跨裝置共享；其餘 5 條 glob 會觸及使用者專屬的 app 狀態，外掛不會在沒有明確決定下啟用它們。
+- **Admin WebUI锛歏aults -> Settings -> Apply starter allowlist** 鏈冨鍏ヤ笂杩板畬鏁?7 姊?glob 璧锋娓呭柈銆?
+- **Obsidian 澶栨帥锛氳ō瀹?-> PKV Sync -> Apply recommended starter list** 鍙鍏ュ叐姊濇渶瀹夊叏鐨?glob锛坄.obsidian/themes/**` 鑸?`.obsidian/snippets/**`锛夆€斺€?涓婚鑸?CSS snippets 閫氬父鍙互瀹夊叏璺ㄨ缃叡浜紱鍏堕 5 姊?glob 鏈冭Ц鍙婁娇鐢ㄨ€呭皥灞殑 app 鐙€鎱嬶紝澶栨帥涓嶆渻鍦ㄦ矑鏈夋槑纰烘焙瀹氫笅鍟熺敤瀹冨€戙€?
 
-要使用完整 7 條 glob 起步清單，請按 Admin WebUI 按鈕，或在外掛的 allowlist 編輯器中手動貼入這些 glob。
+瑕佷娇鐢ㄥ畬鏁?7 姊?glob 璧锋娓呭柈锛岃珛鎸?Admin WebUI 鎸夐垥锛屾垨鍦ㄥ鎺涚殑 allowlist 绶ㄨ集鍣ㄤ腑鎵嬪嫊璨煎叆閫欎簺 glob銆?
 
-## 永不同步
+## 姘镐笉鍚屾
 
-以下硬性排除始終優先，即使你把它們加入 allowlist 也不會同步：
+浠ヤ笅纭€ф帓闄ゅ绲傚劒鍏堬紝鍗充娇浣犳妸瀹冨€戝姞鍏?allowlist 涔熶笉鏈冨悓姝ワ細
 
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`
@@ -41,15 +41,15 @@ PKV Sync 預設避開隱藏路徑。它提供按 vault 設定的 allowlist，讓
 - `*.lock`
 - `*.tmp`
 
-## 進階 opt-in
+## 閫查殠 opt-in
 
-你可以新增額外 glob，但需要自行承擔風險：
+浣犲彲浠ユ柊澧為澶?glob锛屼絾闇€瑕佽嚜琛屾壙鎿旈ⅷ闅細
 
-- `.obsidian/plugins/*/data.json`：外掛設定。這裡可能包含 API key、OAuth token 或 LLM key。原生端到端加密落地前，同步內容會以明文存放在 server。
-- `.obsidian/plugins/**`：外掛程式碼。這會讓 Git 歷史快速膨脹，且桌面專用外掛同步到行動端時可能無法運行。
-- 其他隱藏目錄，例如 `.claude/**` 或 `.codex/**`：agent 狀態可能包含敏感本機上下文。
+- `.obsidian/plugins/*/data.json`锛氬鎺涜ō瀹氥€傞€欒！鍙兘鍖呭惈 API key銆丱Auth token 鎴?LLM key銆傚師鐢熺鍒扮鍔犲瘑钀藉湴鍓嶏紝鍚屾鍏у鏈冧互鏄庢枃瀛樻斁鍦?server銆?
+- `.obsidian/plugins/**`锛氬鎺涚▼寮忕⒓銆傞€欐渻璁?Git 姝峰彶蹇€熻啫鑴癸紝涓旀闈㈠皥鐢ㄥ鎺涘悓姝ュ埌琛屽嫊绔檪鍙兘鐒℃硶閬嬭銆?
+- 鍏朵粬闅辫棌鐩寗锛屼緥濡?`.claude/**` 鎴?`.codex/**`锛歛gent 鐙€鎱嬪彲鑳藉寘鍚晱鎰熸湰姗熶笂涓嬫枃銆?
 
-## 在哪裡編輯規則
+## 鍦ㄥ摢瑁＄法杓鍓?
 
-- Obsidian：開啟 **設定 -> PKV Sync**，選擇目前 vault，編輯 **.obsidian sync rules**，然後儲存。
-- Admin WebUI：開啟 **Vaults**，選擇 vault 的 **Settings**，編輯 allowlist，然後儲存。
+- Obsidian锛氶枊鍟?**瑷畾 -> PKV Sync**锛岄伕鎿囩洰鍓?vault锛岀法杓?**.obsidian sync rules**锛岀劧寰屽劜瀛樸€?
+- Admin WebUI锛氶枊鍟?**Vaults**锛岄伕鎿?vault 鐨?**Settings**锛岀法杓?allowlist锛岀劧寰屽劜瀛樸€?

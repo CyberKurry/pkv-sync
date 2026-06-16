@@ -1,59 +1,59 @@
-# 升級說明：0.x 到 1.0
+﻿# 鍗囩礆瑾槑锛?.x 鍒?1.0
 
-[English](./upgrade-notes-v1.0.md) | [简体中文](./upgrade-notes-v1.0.zh-CN.md) | 繁體中文 | [日本語](./upgrade-notes-v1.0.ja.md) | [한국어](./upgrade-notes-v1.0.ko.md)
+[English](./upgrade-notes-v1.0.md) | [绠€浣撲腑鏂嘳(./upgrade-notes-v1.0.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./upgrade-notes-v1.0.ja.md) | [頃滉淡鞏碷(./upgrade-notes-v1.0.ko.md)
 
-文件版本：v1.4.3。
+鏂囦欢鐗堟湰锛歷1.4.3銆?
 
-PKV Sync 1.0 是第一個穩定版。它也為後續 1.x 維護重置了 SQLite migration 基線。
+PKV Sync 1.0 鏄涓€鍊嬬┅瀹氱増銆傚畠涔熺偤寰岀簩 1.x 缍閲嶇疆浜?SQLite migration 鍩虹窔銆?
 
-## 重要資料庫說明
+## 閲嶈璩囨枡搴鏄?
 
-PKV Sync 1.0 只發布一個 `0001_initial.sql` 基線 migration。由 0.x 版本建立的 SQLite 資料庫**不支援原地升級**到 1.0.0。
+PKV Sync 1.0 鍙櫦甯冧竴鍊?`0001_initial.sql` 鍩虹窔 migration銆傜敱 0.x 鐗堟湰寤虹珛鐨?SQLite 璩囨枡搴?*涓嶆敮鎻村師鍦板崌绱?*鍒?1.0.0銆?
 
-如果你正在執行 0.x 服務端，請選擇下面路徑之一：
+濡傛灉浣犳鍦ㄥ煼琛?0.x 鏈嶅嫏绔紝璜嬮伕鎿囦笅闈㈣矾寰戜箣涓€锛?
 
-1. 舊部署只在遷移準備期間停留在最終 0.8.x patch 版本，用於備份、materialize 或匯出資料。
-2. 先備份或 materialize 每個筆記庫，使用全新的 1.0 資料目錄啟動服務，重新建立使用者和筆記庫，然後把筆記庫內容匯入或 push 到新服務端。
-3. 在任何遷移演練前，先用 `pkvsyncd backup` 保存完整的 0.x 資料根目錄。
+1. 鑸婇儴缃插彧鍦ㄩ伔绉绘簴鍌欐湡闁撳仠鐣欏湪鏈€绲?0.8.x patch 鐗堟湰锛岀敤鏂煎倷浠姐€乵aterialize 鎴栧尟鍑鸿硣鏂欍€?
+2. 鍏堝倷浠芥垨 materialize 姣忓€嬬瓎瑷樺韩锛屼娇鐢ㄥ叏鏂扮殑 1.0 璩囨枡鐩寗鍟熷嫊鏈嶅嫏锛岄噸鏂板缓绔嬩娇鐢ㄨ€呭拰绛嗚搴紝鐒跺緦鎶婄瓎瑷樺韩鍏у鍖叆鎴?push 鍒版柊鏈嶅嫏绔€?
+3. 鍦ㄤ换浣曢伔绉绘紨绶村墠锛屽厛鐢?`pkvsyncd backup` 淇濆瓨瀹屾暣鐨?0.x 璩囨枡鏍圭洰閷勩€?
 
-不要把 1.0 二進位或 Docker 映像直接指向既有的 0.x `metadata.db`。
+涓嶈鎶?1.0 浜岄€蹭綅鎴?Docker 鏄犲儚鐩存帴鎸囧悜鏃㈡湁鐨?0.x `metadata.db`銆?
 
-## 1.0 穩定承諾
+## 1.0 绌╁畾鎵胯
 
-從 1.0 開始，以下表面遵循語義化版本：
+寰?1.0 闁嬪锛屼互涓嬭〃闈㈤伒寰獮缇╁寲鐗堟湰锛?
 
-- `public-docs/openapi.yaml` 中記錄的公開 REST 路由。
-- MCP how-to 中記錄的 MCP stdio 和 Streamable HTTP 工具行為。
-- 面向 1.x 全新資料庫的 SQLite migrations；在這次 v1 基線之後，未來 1.x migration 保持追加式。
-- 每筆記庫 git repository 布局和內容定址 blob 儲存。
-- CLI 子命令和既有參數。
-- Obsidian 外掛設定和同步行為，允許 1.x 正常新增向後相容功能。
+- `public-docs/openapi.yaml` 涓閷勭殑鍏枊 REST 璺敱銆?
+- MCP how-to 涓閷勭殑 MCP stdio 鍜?Streamable HTTP 宸ュ叿琛岀偤銆?
+- 闈㈠悜 1.x 鍏ㄦ柊璩囨枡搴殑 SQLite migrations锛涘湪閫欐 v1 鍩虹窔涔嬪緦锛屾湭渚?1.x migration 淇濇寔杩藉姞寮忋€?
+- 姣忕瓎瑷樺韩 git repository 甯冨眬鍜屽収瀹瑰畾鍧€ blob 鍎插瓨銆?
+- CLI 瀛愬懡浠ゅ拰鏃㈡湁鍙冩暩銆?
+- Obsidian 澶栨帥瑷畾鍜屽悓姝ヨ鐐猴紝鍏佽ū 1.x 姝ｅ父鏂板鍚戝緦鐩稿鍔熻兘銆?
 
-OpenAPI 中沒有記錄的路由，例如 Admin Web UI 表單處理器，屬於內部實作細節。
+OpenAPI 涓矑鏈夎閷勭殑璺敱锛屼緥濡?Admin Web UI 琛ㄥ柈铏曠悊鍣紝灞柤鍏ч儴瀵︿綔绱扮瘈銆?
 
-## 推薦的 0.x 到 1.0 流程
+## 鎺ㄨ枽鐨?0.x 鍒?1.0 娴佺▼
 
-1. 如條件允許，先把舊部署升級到最終 0.8.x patch 版本，然後僅用它完成備份、materialize 或匯出準備。
-2. 執行 `pkvsyncd backup --output <backup-dir>` 並妥善保存備份。
-3. 對每個筆記庫，使用最新 Obsidian 用戶端、`git clone`，或 `pkvsyncd materialize <vault-id> --output <dir>` 得到目前檔案樹。
-4. 停止舊服務端。
-5. 使用全新的空 `data_dir` 和 `metadata.db` 啟動 PKV Sync 1.0。
-6. 完成 `/setup`，重新建立使用者和筆記庫，然後 push 或匯入 materialized 筆記庫內容。
-7. 通知使用者把 Obsidian 外掛更新到 1.0.0。
+1. 濡傛浠跺厑瑷憋紝鍏堟妸鑸婇儴缃插崌绱氬埌鏈€绲?0.8.x patch 鐗堟湰锛岀劧寰屽儏鐢ㄥ畠瀹屾垚鍌欎唤銆乵aterialize 鎴栧尟鍑烘簴鍌欍€?
+2. 鍩疯 `pkvsyncd backup --output <backup-dir>` 涓﹀Ε鍠勪繚瀛樺倷浠姐€?
+3. 灏嶆瘡鍊嬬瓎瑷樺韩锛屼娇鐢ㄦ渶鏂?Obsidian 鐢ㄦ埗绔€乣git clone`锛屾垨 `pkvsyncd materialize <vault-id> --output <dir>` 寰楀埌鐩墠妾旀妯广€?
+4. 鍋滄鑸婃湇鍕欑銆?
+5. 浣跨敤鍏ㄦ柊鐨勭┖ `data_dir` 鍜?`metadata.db` 鍟熷嫊 PKV Sync 1.0銆?
+6. 瀹屾垚 `/setup`锛岄噸鏂板缓绔嬩娇鐢ㄨ€呭拰绛嗚搴紝鐒跺緦 push 鎴栧尟鍏?materialized 绛嗚搴収瀹广€?
+7. 閫氱煡浣跨敤鑰呮妸 Obsidian 澶栨帥鏇存柊鍒?1.0.0銆?
 
-## 外掛相容性
+## 澶栨帥鐩稿鎬?
 
-1.0 服務端的受支援外掛是隨服務端捆綁的 1.0 Obsidian 外掛。舊的 v0.8.x 外掛使用同一套核心同步 API，但新的修復和自更新加固只在 1.0+ 中維護。
+1.0 鏈嶅嫏绔殑鍙楁敮鎻村鎺涙槸闅ㄦ湇鍕欑鎹嗙秮鐨?1.0 Obsidian 澶栨帥銆傝垔鐨?v0.8.x 澶栨帥浣跨敤鍚屼竴濂楁牳蹇冨悓姝?API锛屼絾鏂扮殑淇京鍜岃嚜鏇存柊鍔犲浐鍙湪 1.0+ 涓董璀枫€?
 
-## 相對 0.x 的破壞性變更
+## 鐩稿皪 0.x 鐨勭牬澹炴€ц畩鏇?
 
-- 由於 migrations 已壓縮為單個 v1 基線，0.x SQLite 資料庫不能原地升級。
-- 首次執行 setup 仍然透過瀏覽器完成；全新服務端不會再把隨機管理員密碼列印到日誌。
+- 鐢辨柤 migrations 宸插绺偤鍠€?v1 鍩虹窔锛?.x SQLite 璩囨枡搴笉鑳藉師鍦板崌绱氥€?
+- 棣栨鍩疯 setup 浠嶇劧閫忛亷鐎忚鍣ㄥ畬鎴愶紱鍏ㄦ柊鏈嶅嫏绔笉鏈冨啀鎶婇毃姗熺鐞嗗摗瀵嗙⒓鍒楀嵃鍒版棩瑾屻€?
 
-筆記內容、git 歷史和 blobs 仍可透過 backup/materialize/recreate/import 工作流帶到新部署。
+绛嗚鍏у銆乬it 姝峰彶鍜?blobs 浠嶅彲閫忛亷 backup/materialize/recreate/import 宸ヤ綔娴佸付鍒版柊閮ㄧ讲銆?
 
-## 已知注意事項
+## 宸茬煡娉ㄦ剰浜嬮爡
 
-- 原生 per-vault E2EE 不屬於 1.0 範圍。今天需要客戶端側檔案內容加密的使用者可以使用 [`git-crypt`](./git-crypt-howto.zh-Hant.md)，並接受路徑仍為明文的取捨。
-- `/metrics` 預設關閉；啟用後仍需生產認證門禁。
-- 生產部署請設定 `public_host`。當服務端無法確定設定好的 HTTPS 公網 origin 時，admin POST 會故意 fail closed。
+- 鍘熺敓 per-vault E2EE 涓嶅爆鏂?1.0 绡勫湇銆備粖澶╅渶瑕佸鎴剁鍋存獢妗堝収瀹瑰姞瀵嗙殑浣跨敤鑰呭彲浠ヤ娇鐢?[`git-crypt`](./git-crypt-howto.zh-Hant.md)锛屼甫鎺ュ彈璺緫浠嶇偤鏄庢枃鐨勫彇鎹ㄣ€?
+- `/metrics` 闋愯ō闂滈枆锛涘暉鐢ㄥ緦浠嶉渶鐢熺敘瑾嶈瓑闁€绂併€?
+- 鐢熺敘閮ㄧ讲璜嬭ō瀹?`public_host`銆傜暥鏈嶅嫏绔劇娉曠⒑瀹氳ō瀹氬ソ鐨?HTTPS 鍏恫 origin 鏅傦紝admin POST 鏈冩晠鎰?fail closed銆?

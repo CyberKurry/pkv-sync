@@ -1,51 +1,51 @@
-# Obsidian Sync에서 마이그레이션
+﻿# Obsidian Sync鞐愳劀 毵堨澊攴鸽爤鞚挫厴
 
-[English](./migrate-from-obsidian-sync.md) | [简体中文](./migrate-from-obsidian-sync.zh-CN.md) | [繁體中文](./migrate-from-obsidian-sync.zh-Hant.md) | [日本語](./migrate-from-obsidian-sync.ja.md) | 한국어
+[English](./migrate-from-obsidian-sync.md) | [绠€浣撲腑鏂嘳(./migrate-from-obsidian-sync.zh-CN.md) | [绻侀珨涓枃](./migrate-from-obsidian-sync.zh-Hant.md) | [鏃ユ湰瑾瀅(./migrate-from-obsidian-sync.ja.md) | 頃滉淡鞏?
 
-문서 버전: v1.4.3.
+氍胳劀 氩勳爠: v1.4.3.
 
-이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
+鞚?氍胳劀電?旮瓣硠 氩堨棴鞙茧 毵岆摖 齑堦赴 氩勳爠鞛呺媹雼? 瓿店皽 鞝勳棎 鞗愳柎氙?瓴€韱犽ゼ 甓岇灔頃╇媹雼?
 
-이 가이드는 이미 Obsidian Sync를 사용하는 Obsidian vault의 현재 파일을 새 PKV Sync vault로 가져오는 방법을 설명합니다.
+鞚?臧€鞚措摐電?鞚措 Obsidian Sync毳?靷毄頃橂姅 Obsidian vault鞚?順勳灛 韺岇澕鞚?靸?PKV Sync vault搿?臧€鞝胳槫電?氚╇矔鞚?靹る獏頃╇媹雼?
 
-마이그레이션은 이 장치에 현재 존재하는 파일만 가져옵니다. Obsidian Sync 기록, 원격 버전 기록, 삭제된 파일 기록, 충돌 메타데이터는 가져오지 않습니다. PKV Sync 기록은 새 PKV vault를 만드는 마이그레이션 commit에서 시작됩니다.
+毵堨澊攴鸽爤鞚挫厴鞚€ 鞚?鞛レ箻鞐?順勳灛 臁挫灛頃橂姅 韺岇澕毵?臧€鞝胳樀雼堧嫟. Obsidian Sync 旮半, 鞗愱博 氩勳爠 旮半, 靷牅霅?韺岇澕 旮半, 於╇弻 氅旐儉雿办澊韯半姅 臧€鞝胳槫歆€ 鞎婌姷雼堧嫟. PKV Sync 旮半鞚€ 靸?PKV vault毳?毵岆摐電?毵堨澊攴鸽爤鞚挫厴 commit鞐愳劀 鞁滌瀾霅╇媹雼?
 
-마이그레이션은 Obsidian Sync를 비활성화하거나 제거하거나 변경하지 않습니다. PKV Sync 결과를 확인한 뒤 Obsidian Sync 사용을 중지하려면 Obsidian에서 수동으로 끄세요.
+毵堨澊攴鸽爤鞚挫厴鞚€ Obsidian Sync毳?牍勴櫆靹表檾頃橁卑雮?鞝滉卑頃橁卑雮?氤€瓴巾晿歆€ 鞎婌姷雼堧嫟. PKV Sync 瓴瓣臣毳?頇曥澑頃?霋?Obsidian Sync 靷毄鞚?欷戩頃橂牑氅?Obsidian鞐愳劀 靾橂彊鞙茧 雭勳劯鞖?
 
-## 시작하기 전에
+## 鞁滌瀾頃橁赴 鞝勳棎
 
-- 마이그레이션에 사용할 장치에서 Obsidian Sync 동기화가 끝날 때까지 기다립니다.
-- 마이그레이션 전에 vault 폴더를 수동으로 백업합니다.
-- 가능하면 가져오는 동안 Obsidian을 닫아 두거나, 적어도 파일 편집을 피합니다.
-- 대상 PKV Sync 서버 계정을 먼저 만들거나 확인합니다.
+- 毵堨澊攴鸽爤鞚挫厴鞐?靷毄頃?鞛レ箻鞐愳劀 Obsidian Sync 霃欔赴頇旉皜 雭濍偁 霑岅箤歆€ 旮半嫟毽诫媹雼?
+- 毵堨澊攴鸽爤鞚挫厴 鞝勳棎 vault 韽措崝毳?靾橂彊鞙茧 氚膘梾頃╇媹雼?
+- 臧€電ロ晿氅?臧€鞝胳槫電?霃欖晥 Obsidian鞚?雼晞 霊愱卑雮? 鞝侅柎霃?韺岇澕 韼胳鞚?頂柬暕雼堧嫟.
+- 雽€靸?PKV Sync 靹滊矂 瓿勳爼鞚?毹检爛 毵岆摛瓯半倶 頇曥澑頃╇媹雼?
 
-## 가져오는 항목
+## 臧€鞝胳槫電?頃
 
-PKV Sync는 새 vault를 만들고 현재 가져오기 내용을 첫 PKV 기록 항목으로 commit합니다.
+PKV Sync電?靸?vault毳?毵岆摛瓿?順勳灛 臧€鞝胳槫旮?雮挫毄鞚?觳?PKV 旮半 頃鞙茧 commit頃╇媹雼?
 
-일반 Markdown 파일, 첨부 파일, 일반 vault 파일은 PKV Sync의 강제 제외 규칙에 걸리지 않는 한 가져옵니다.
+鞚茧皹 Markdown 韺岇澕, 觳秬 韺岇澕, 鞚茧皹 vault 韺岇澕鞚€ PKV Sync鞚?臧曥牅 鞝滌櫢 攴滌箼鞐?瓯鸽Μ歆€ 鞎婋姅 頃?臧€鞝胳樀雼堧嫟.
 
-## 건너뛰는 항목
+## 瓯措剤霙半姅 頃
 
-가져오기 도구는 Obsidian Sync 내부 파일, PKV Sync plugin 자체 상태, OS 부산물 파일, 로컬 런타임 파일을 건너뜁니다. 예:
+臧€鞝胳槫旮?霃勱惮電?Obsidian Sync 雮措秬 韺岇澕, PKV Sync plugin 鞛愳泊 靸來儨, OS 攵€靷半 韺岇澕, 搿滌滑 霟绊儉鞛?韺岇澕鞚?瓯措剤霚侂媹雼? 鞓?
 
 - `.obsidian/sync/`
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`
 - `.obsidian/workspaces.json`
 - `.obsidian/cache/**`
-- `.obsidian/plugins/pkv-sync/` (plugin 자체 설정과 token 저장소는 로컬에만 보관)
+- `.obsidian/plugins/pkv-sync/` (plugin 鞛愳泊 靹れ爼瓿?token 鞝€鞛レ唽電?搿滌滑鞐愲 氤搓磤)
 - `.trash/**`
 - `.git/**`
 - `.DS_Store` (macOS)
 - `Thumbs.db` (Windows)
-- `*.tmp`, `*.lock` 같은 임시 파일
-- 장치별 workspace, cache, trash, 임시 파일
+- `*.tmp`, `*.lock` 臧欖潃 鞛勳嫓 韺岇澕
+- 鞛レ箻氤?workspace, cache, trash, 鞛勳嫓 韺岇澕
 
-선택한 `.obsidian` 설정 파일은 나중에 vault별 `.obsidian` allowlist로 동기화할 수 있습니다. 자세한 규칙은 `.obsidian` 설정 동기화 가이드를 참고하세요.
+靹犿儩頃?`.obsidian` 靹れ爼 韺岇澕鞚€ 雮橃鞐?vault氤?`.obsidian` allowlist搿?霃欔赴頇旐暊 靾?鞛堨姷雼堧嫟. 鞛愳劯頃?攴滌箼鞚€ `.obsidian` 靹れ爼 霃欔赴頇?臧€鞚措摐毳?彀戈碃頃橃劯鞖?
 
-## 마이그레이션 후
+## 毵堨澊攴鸽爤鞚挫厴 頉?
 
-다른 장치에서 새 PKV vault를 열고 노트와 첨부 파일이 올바르게 보이는지 확인합니다. 확인이 끝날 때까지 수동 백업을 보관하세요.
+雼るジ 鞛レ箻鞐愳劀 靸?PKV vault毳?鞐搓碃 雲疙姼鞕€ 觳秬 韺岇澕鞚?鞓皵毳搓矊 氤挫澊電旍 頇曥澑頃╇媹雼? 頇曥澑鞚?雭濍偁 霑岅箤歆€ 靾橂彊 氚膘梾鞚?氤搓磤頃橃劯鞖?
 
-Obsidian Sync와 PKV Sync를 같은 폴더에서 계속 실행한다면 변경 작업을 신중하게 하세요. 두 동기화 시스템이 같은 파일에서 충돌할 수 있으며, PKV Sync는 마이그레이션 commit 이후 받은 변경만 기록합니다.
+Obsidian Sync鞕€ PKV Sync毳?臧欖潃 韽措崝鞐愳劀 瓿勳啀 鞁ろ枆頃滊嫟氅?氤€瓴?鞛戩梾鞚?鞁犾頃橁矊 頃橃劯鞖? 霊?霃欔赴頇?鞁滌姢韰滌澊 臧欖潃 韺岇澕鞐愳劀 於╇弻頃?靾?鞛堨溂氅? PKV Sync電?毵堨澊攴鸽爤鞚挫厴 commit 鞚错泟 氚涭潃 氤€瓴诫 旮半頃╇媹雼?

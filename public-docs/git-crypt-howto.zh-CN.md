@@ -1,18 +1,18 @@
-# 在 PKV Sync 中使用 git-crypt
+﻿# 鍦?PKV Sync 涓娇鐢?git-crypt
 
-[English](./git-crypt-howto.md) | 简体中文 | [繁體中文](./git-crypt-howto.zh-Hant.md) | [日本語](./git-crypt-howto.ja.md) | [한국어](./git-crypt-howto.ko.md)
+[English](./git-crypt-howto.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./git-crypt-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./git-crypt-howto.ja.md) | [頃滉淡鞏碷(./git-crypt-howto.ko.md)
 
-文档版本：v1.4.3。
+鏂囨。鐗堟湰锛歷1.4.3銆?
 
-> **注意：** 这是原生端到端加密（E2EE）发布前的过渡方案。PKV Sync 服务器仍然可以看到文件名和提交元数据。
+> **娉ㄦ剰锛?* 杩欐槸鍘熺敓绔埌绔姞瀵嗭紙E2EE锛夊彂甯冨墠鐨勮繃娓℃柟妗堛€侾KV Sync 鏈嶅姟鍣ㄤ粛鐒跺彲浠ョ湅鍒版枃浠跺悕鍜屾彁浜ゅ厓鏁版嵁銆?
 
-## 概述
+## 姒傝堪
 
-[git-crypt](https://github.com/AGWA/git-crypt) 可以在 Git 仓库内实现透明的文件加密。由于 PKV Sync 将仓库以 Git 仓库形式暴露，你可以使用 git-crypt 在敏感文件到达服务器之前进行加密。
+[git-crypt](https://github.com/AGWA/git-crypt) 鍙互鍦?Git 浠撳簱鍐呭疄鐜伴€忔槑鐨勬枃浠跺姞瀵嗐€傜敱浜?PKV Sync 灏嗕粨搴撲互 Git 浠撳簱褰㈠紡鏆撮湶锛屼綘鍙互浣跨敤 git-crypt 鍦ㄦ晱鎰熸枃浠跺埌杈炬湇鍔″櫒涔嬪墠杩涜鍔犲瘑銆?
 
-## 设置
+## 璁剧疆
 
-### 1. 安装 git-crypt
+### 1. 瀹夎 git-crypt
 
 ```bash
 # macOS
@@ -21,11 +21,11 @@ brew install git-crypt
 # Ubuntu/Debian
 sudo apt install git-crypt
 
-# Windows，通过 scoop
+# Windows锛岄€氳繃 scoop
 scoop install git-crypt
 ```
 
-### 2. 在克隆的仓库中初始化 git-crypt
+### 2. 鍦ㄥ厠闅嗙殑浠撳簱涓垵濮嬪寲 git-crypt
 
 ```bash
 git clone https://_:<token>@your-server/git/<vault-id>
@@ -33,51 +33,51 @@ cd <vault-id>
 git-crypt init
 ```
 
-### 3. 配置要加密的文件
+### 3. 閰嶇疆瑕佸姞瀵嗙殑鏂囦欢
 
-创建或编辑 `.gitattributes`：
+鍒涘缓鎴栫紪杈?`.gitattributes`锛?
 
 ```gitattributes
-# 默认加密所有文件
+# 榛樿鍔犲瘑鎵€鏈夋枃浠?
 * filter=git-crypt diff=git-crypt
 
-# 但不要加密 .gitattributes 文件本身
+# 浣嗕笉瑕佸姞瀵?.gitattributes 鏂囦欢鏈韩
 .gitattributes !filter !diff
 ```
 
-选择性加密（推荐）：
+閫夋嫨鎬у姞瀵嗭紙鎺ㄨ崘锛夛細
 
 ```gitattributes
-# 只加密特定模式
+# 鍙姞瀵嗙壒瀹氭ā寮?
 secrets/** filter=git-crypt diff=git-crypt
 *.key filter=git-crypt diff=git-crypt
 *.pem filter=git-crypt diff=git-crypt
 ```
 
-### 4. 与协作者共享密钥
+### 4. 涓庡崗浣滆€呭叡浜瘑閽?
 
-导出对称密钥：
+瀵煎嚭瀵圭О瀵嗛挜锛?
 
 ```bash
 git-crypt export-key ../vault-key
 ```
 
-每位协作者导入：
+姣忎綅鍗忎綔鑰呭鍏ワ細
 
 ```bash
 git-crypt unlock ../vault-key
 ```
 
-## 限制
+## 闄愬埗
 
-- **文件名未加密。** PKV Sync 服务器可以看到文件路径和目录结构。
-- **git-crypt 在 Git 客户端运行。** 服务器存储的是密文。如果你在没有密钥的情况下克隆，加密文件会显示为不透明的二进制数据。
-- **密钥管理是手动的。** 如果密钥丢失，加密文件无法恢复。
-- **仅适用于 Git 克隆工作流。** PKV Sync Obsidian 插件不理解 git-crypt。你必须克隆仓库并通过 Git 直接操作加密文件。
-- **`pkvsyncd materialize` 不感知 git-crypt。** PKV Sync 以 `pkvsync_pointer` JSON 形式存储的文件（通常是文本扩展名清单之外的二进制文件）在 materialize 时会从服务器的 blob 存储中解析，并以原始字节落地——git-crypt 的 filter 在客户端根本看不到它们，因此通过 git-crypt 加密 `*.pdf` 或其他以 blob 形式存储的扩展名，不会得到预期的密文流。请把 git-crypt 模式限制在 PKV Sync 视为文本的扩展名（服务器配置的 `text_extensions` 列表，默认为 `md`、`canvas`、`base`、`json`、`txt`、`css`）。
+- **鏂囦欢鍚嶆湭鍔犲瘑銆?* PKV Sync 鏈嶅姟鍣ㄥ彲浠ョ湅鍒版枃浠惰矾寰勫拰鐩綍缁撴瀯銆?
+- **git-crypt 鍦?Git 瀹㈡埛绔繍琛屻€?* 鏈嶅姟鍣ㄥ瓨鍌ㄧ殑鏄瘑鏂囥€傚鏋滀綘鍦ㄦ病鏈夊瘑閽ョ殑鎯呭喌涓嬪厠闅嗭紝鍔犲瘑鏂囦欢浼氭樉绀轰负涓嶉€忔槑鐨勪簩杩涘埗鏁版嵁銆?
+- **瀵嗛挜绠＄悊鏄墜鍔ㄧ殑銆?* 濡傛灉瀵嗛挜涓㈠け锛屽姞瀵嗘枃浠舵棤娉曟仮澶嶃€?
+- **浠呴€傜敤浜?Git 鍏嬮殕宸ヤ綔娴併€?* PKV Sync Obsidian 鎻掍欢涓嶇悊瑙?git-crypt銆備綘蹇呴』鍏嬮殕浠撳簱骞堕€氳繃 Git 鐩存帴鎿嶄綔鍔犲瘑鏂囦欢銆?
+- **`pkvsyncd materialize` 涓嶆劅鐭?git-crypt銆?* PKV Sync 浠?`pkvsync_pointer` JSON 褰㈠紡瀛樺偍鐨勬枃浠讹紙閫氬父鏄枃鏈墿灞曞悕娓呭崟涔嬪鐨勪簩杩涘埗鏂囦欢锛夊湪 materialize 鏃朵細浠庢湇鍔″櫒鐨?blob 瀛樺偍涓В鏋愶紝骞朵互鍘熷瀛楄妭钀藉湴鈥斺€攇it-crypt 鐨?filter 鍦ㄥ鎴风鏍规湰鐪嬩笉鍒板畠浠紝鍥犳閫氳繃 git-crypt 鍔犲瘑 `*.pdf` 鎴栧叾浠栦互 blob 褰㈠紡瀛樺偍鐨勬墿灞曞悕锛屼笉浼氬緱鍒伴鏈熺殑瀵嗘枃娴併€傝鎶?git-crypt 妯″紡闄愬埗鍦?PKV Sync 瑙嗕负鏂囨湰鐨勬墿灞曞悕锛堟湇鍔″櫒閰嶇疆鐨?`text_extensions` 鍒楄〃锛岄粯璁や负 `md`銆乣canvas`銆乣base`銆乣json`銆乣txt`銆乣css`锛夈€?
 
-## 推荐工作流
+## 鎺ㄨ崘宸ヤ綔娴?
 
-1. 使用 Obsidian 插件进行日常笔记记录（未加密文件）。
-2. 对于需要端到端加密的敏感文件，使用 Git 克隆和 git-crypt。
-3. 安全备份 git-crypt 密钥。
+1. 浣跨敤 Obsidian 鎻掍欢杩涜鏃ュ父绗旇璁板綍锛堟湭鍔犲瘑鏂囦欢锛夈€?
+2. 瀵逛簬闇€瑕佺鍒扮鍔犲瘑鐨勬晱鎰熸枃浠讹紝浣跨敤 Git 鍏嬮殕鍜?git-crypt銆?
+3. 瀹夊叏澶囦唤 git-crypt 瀵嗛挜銆?

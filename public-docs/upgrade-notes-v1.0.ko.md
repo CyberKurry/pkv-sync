@@ -1,73 +1,73 @@
-# Upgrade notes: 0.x에서 1.0으로
+﻿# Upgrade notes: 0.x鞐愳劀 1.0鞙茧
 
-[English](./upgrade-notes-v1.0.md) | [简体中文](./upgrade-notes-v1.0.zh-CN.md) | [繁體中文](./upgrade-notes-v1.0.zh-Hant.md) | [日本語](./upgrade-notes-v1.0.ja.md) | 한국어
+[English](./upgrade-notes-v1.0.md) | [绠€浣撲腑鏂嘳(./upgrade-notes-v1.0.zh-CN.md) | [绻侀珨涓枃](./upgrade-notes-v1.0.zh-Hant.md) | [鏃ユ湰瑾瀅(./upgrade-notes-v1.0.ja.md) | 頃滉淡鞏?
 
-문서 버전: v1.4.3.
+氍胳劀 氩勳爠: v1.4.3.
 
-PKV Sync 1.0은 첫 stable release입니다. 또한 향후 1.x maintenance를 위해 SQLite migration
-baseline을 reset합니다.
+PKV Sync 1.0鞚€ 觳?stable release鞛呺媹雼? 霕愴暅 頄ロ泟 1.x maintenance毳?鞙勴暣 SQLite migration
+baseline鞚?reset頃╇媹雼?
 
-## 중요한 database note
+## 欷戩殧頃?database note
 
-PKV Sync 1.0은 단일 `0001_initial.sql` baseline migration을 제공합니다. 0.x release로 만든
-SQLite database는 1.0.0으로 in-place upgrade할 수 없습니다.
+PKV Sync 1.0鞚€ 雼澕 `0001_initial.sql` baseline migration鞚?鞝滉车頃╇媹雼? 0.x release搿?毵岆摖
+SQLite database電?1.0.0鞙茧 in-place upgrade頃?靾?鞐嗢姷雼堧嫟.
 
-0.x server를 운영 중이라면 다음 경로 중 하나를 선택하세요.
+0.x server毳?鞖挫榿 欷戩澊霛茧┐ 雼れ潓 瓴诫 欷?頃橂倶毳?靹犿儩頃橃劯鞖?
 
-1. 기존 deployment는 migration 준비를 위한 backup, materialize, export에 필요한 동안만 최종 0.8.x patch release에 유지합니다.
-2. 각 vault를 backup 또는 materialize하고, 새 1.0 data directory로 시작한 뒤 user와 vault를
-   다시 만들고 contents를 새 server로 import 또는 push합니다.
-3. migration rehearsal을 시도하기 전에 0.x data root의 전체 `pkvsyncd backup`을 보관합니다.
+1. 旮办〈 deployment電?migration 欷€牍勲ゼ 鞙勴暅 backup, materialize, export鞐?頃勳殧頃?霃欖晥毵?斓滌 0.8.x patch release鞐?鞙犾頃╇媹雼?
+2. 臧?vault毳?backup 霕愲姅 materialize頃橁碃, 靸?1.0 data directory搿?鞁滌瀾頃?霋?user鞕€ vault毳?
+   雼れ嫓 毵岆摛瓿?contents毳?靸?server搿?import 霕愲姅 push頃╇媹雼?
+3. migration rehearsal鞚?鞁滊弰頃橁赴 鞝勳棎 0.x data root鞚?鞝勳泊 `pkvsyncd backup`鞚?氤搓磤頃╇媹雼?
 
-기존 0.x `metadata.db`에 1.0 binary 또는 Docker image를 직접 연결하지 마세요.
+旮办〈 0.x `metadata.db`鞐?1.0 binary 霕愲姅 Docker image毳?歆侅爲 鞐瓣舶頃橃 毵堨劯鞖?
 
-## 1.0에서 안정화되는 surface
+## 1.0鞐愳劀 鞎堨爼頇旊悩電?surface
 
-1.0부터 다음 surface는 semantic versioning을 따릅니다.
+1.0攵€韯?雼れ潓 surface電?semantic versioning鞚?霐半雼堧嫟.
 
-- `public-docs/openapi.yaml`에 문서화된 public REST routes.
-- MCP how-to에 문서화된 MCP stdio 및 Streamable HTTP tool behavior.
-- 1.x fresh database용 SQLite migrations. 이후 1.x migrations는 이 v1 baseline 이후
-  append-only입니다.
-- vault별 git repository layout과 content-addressed blob storage.
-- CLI subcommands와 기존 flags.
-- Obsidian plugin settings와 sync behavior. 일반적인 backward-compatible 1.x feature addition은
-  있을 수 있습니다.
+- `public-docs/openapi.yaml`鞐?氍胳劀頇旊悳 public REST routes.
+- MCP how-to鞐?氍胳劀頇旊悳 MCP stdio 氚?Streamable HTTP tool behavior.
+- 1.x fresh database鞖?SQLite migrations. 鞚错泟 1.x migrations電?鞚?v1 baseline 鞚错泟
+  append-only鞛呺媹雼?
+- vault氤?git repository layout瓿?content-addressed blob storage.
+- CLI subcommands鞕€ 旮办〈 flags.
+- Obsidian plugin settings鞕€ sync behavior. 鞚茧皹鞝侅澑 backward-compatible 1.x feature addition鞚€
+  鞛堨潉 靾?鞛堨姷雼堧嫟.
 
-OpenAPI에 문서화되지 않은 route, 예를 들어 Admin Web UI form handler는 internal implementation
-detail입니다.
+OpenAPI鞐?氍胳劀頇旊悩歆€ 鞎婌潃 route, 鞓堧ゼ 霌れ柎 Admin Web UI form handler電?internal implementation
+detail鞛呺媹雼?
 
-## 권장 0.x to 1.0 절차
+## 甓岇灔 0.x to 1.0 鞝堨皑
 
-1. 가능하면 먼저 기존 deployment를 최종 0.8.x patch release로 update하고, backup, materialize, export 준비에만 사용합니다.
-2. `pkvsyncd backup --output <backup-dir>`를 실행하고 결과를 안전하게 보관합니다.
-3. 각 vault에 대해 최신 Obsidian client, `git clone`, 또는
-   `pkvsyncd materialize <vault-id> --output <dir>`로 현재 file tree를 만듭니다.
-4. 기존 server를 중지합니다.
-5. 빈 `data_dir`와 `metadata.db`로 PKV Sync 1.0을 시작합니다.
-6. `/setup`을 완료하고 user와 vault를 다시 만든 뒤, materialized vault contents를 push 또는
-   import합니다.
-7. user에게 Obsidian plugin을 1.0.0으로 update하도록 안내합니다.
+1. 臧€電ロ晿氅?毹检爛 旮办〈 deployment毳?斓滌 0.8.x patch release搿?update頃橁碃, backup, materialize, export 欷€牍勳棎毵?靷毄頃╇媹雼?
+2. `pkvsyncd backup --output <backup-dir>`毳?鞁ろ枆頃橁碃 瓴瓣臣毳?鞎堨爠頃橁矊 氤搓磤頃╇媹雼?
+3. 臧?vault鞐?雽€頃?斓滌嫚 Obsidian client, `git clone`, 霕愲姅
+   `pkvsyncd materialize <vault-id> --output <dir>`搿?順勳灛 file tree毳?毵岆摥雼堧嫟.
+4. 旮办〈 server毳?欷戩頃╇媹雼?
+5. 牍?`data_dir`鞕€ `metadata.db`搿?PKV Sync 1.0鞚?鞁滌瀾頃╇媹雼?
+6. `/setup`鞚?鞕勲頃橁碃 user鞕€ vault毳?雼れ嫓 毵岆摖 霋? materialized vault contents毳?push 霕愲姅
+   import頃╇媹雼?
+7. user鞐愱矊 Obsidian plugin鞚?1.0.0鞙茧 update頃橂弰搿?鞎堧偞頃╇媹雼?
 
 ## Plugin compatibility
 
-1.0 server에서 supported plugin은 server에 bundled된 1.0 Obsidian plugin입니다. 오래된 v0.8.x
-plugin도 core sync API는 같지만, 새로운 수정과 self-update hardening은 1.0+에서만 유지됩니다.
+1.0 server鞐愳劀 supported plugin鞚€ server鞐?bundled霅?1.0 Obsidian plugin鞛呺媹雼? 鞓る灅霅?v0.8.x
+plugin霃?core sync API電?臧欖毵? 靸堧鞖?靾橃爼瓿?self-update hardening鞚€ 1.0+鞐愳劀毵?鞙犾霅╇媹雼?
 
-## 0.x에서의 breaking changes
+## 0.x鞐愳劀鞚?breaking changes
 
-- migration이 단일 v1 baseline으로 squash되었기 때문에 0.x SQLite database는 in-place upgrade되지
-  않습니다.
-- first-run setup은 browser-based를 유지합니다. fresh server는 random admin password를 log에
-  출력하지 않습니다.
+- migration鞚?雼澕 v1 baseline鞙茧 squash霅橃棃旮?霑岆鞐?0.x SQLite database電?in-place upgrade霅橃
+  鞎婌姷雼堧嫟.
+- first-run setup鞚€ browser-based毳?鞙犾頃╇媹雼? fresh server電?random admin password毳?log鞐?
+  於滊牓頃橃 鞎婌姷雼堧嫟.
 
-vault file contents, git history, blob은 backup/materialize/recreate/import workflow로 가져갈 수
-있습니다.
+vault file contents, git history, blob鞚€ backup/materialize/recreate/import workflow搿?臧€鞝戈皥 靾?
+鞛堨姷雼堧嫟.
 
 ## Known caveats
 
-- native per-vault E2EE는 1.0 범위에 포함되지 않습니다. 지금 client-side encrypted file contents가
-  필요하고 plaintext path를 받아들일 수 있다면 [`git-crypt`](./git-crypt-howto.ko.md)를 사용하세요.
-- `/metrics`는 default로 disabled이며, 활성화해도 production authentication gates가 필요합니다.
-- production에서는 `public_host`를 설정하세요. configured HTTPS public origin을 결정할 수 없으면
-  admin POST는 의도적으로 fail-closed됩니다.
+- native per-vault E2EE電?1.0 氩旍渼鞐?韽暔霅橃 鞎婌姷雼堧嫟. 歆€旮?client-side encrypted file contents臧€
+  頃勳殧頃橁碃 plaintext path毳?氚涭晞霌れ澕 靾?鞛堧嫟氅?[`git-crypt`](./git-crypt-howto.ko.md)毳?靷毄頃橃劯鞖?
+- `/metrics`電?default搿?disabled鞚措┌, 頇滌劚頇旐暣霃?production authentication gates臧€ 頃勳殧頃╇媹雼?
+- production鞐愳劀電?`public_host`毳?靹れ爼頃橃劯鞖? configured HTTPS public origin鞚?瓴办爼頃?靾?鞐嗢溂氅?
+  admin POST電?鞚橂弰鞝侅溂搿?fail-closed霅╇媹雼?

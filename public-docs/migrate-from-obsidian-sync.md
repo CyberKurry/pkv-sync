@@ -1,6 +1,6 @@
-# Migrate from Obsidian Sync
+﻿# Migrate from Obsidian Sync
 
-English | [简体中文](./migrate-from-obsidian-sync.zh-CN.md) | [繁體中文](./migrate-from-obsidian-sync.zh-Hant.md) | [日本語](./migrate-from-obsidian-sync.ja.md) | [한국어](./migrate-from-obsidian-sync.ko.md)
+English | [绠€浣撲腑鏂嘳(./migrate-from-obsidian-sync.zh-CN.md) | [绻侀珨涓枃](./migrate-from-obsidian-sync.zh-Hant.md) | [鏃ユ湰瑾瀅(./migrate-from-obsidian-sync.ja.md) | [頃滉淡鞏碷(./migrate-from-obsidian-sync.ko.md)
 
 Document version: v1.4.3.
 

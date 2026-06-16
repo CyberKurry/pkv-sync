@@ -1,47 +1,47 @@
-# 通过 Git 克隆你的 PKV 仓库
+﻿# 閫氳繃 Git 鍏嬮殕浣犵殑 PKV 浠撳簱
 
-[English](./git-clone-howto.md) | 简体中文 | [繁體中文](./git-clone-howto.zh-Hant.md) | [日本語](./git-clone-howto.ja.md) | [한국어](./git-clone-howto.ko.md)
+[English](./git-clone-howto.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./git-clone-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./git-clone-howto.ja.md) | [頃滉淡鞏碷(./git-clone-howto.ko.md)
 
-文档版本：v1.4.3。
+鏂囨。鐗堟湰锛歷1.4.3銆?
 
-PKV Sync 可以将每个仓库（vault）通过 HTTPS 以只读 Git 仓库的形式暴露出来。
+PKV Sync 鍙互灏嗘瘡涓粨搴擄紙vault锛夐€氳繃 HTTPS 浠ュ彧璇?Git 浠撳簱鐨勫舰寮忔毚闇插嚭鏉ャ€?
 
-## 前提条件
+## 鍓嶆彁鏉′欢
 
-- 服务器管理员已在“同步与存储”设置中启用“Git smart HTTP”。
-- 服务器上有可用的 `git` 二进制文件。
-- 你拥有有效的设备令牌（device token）。
+- 鏈嶅姟鍣ㄧ鐞嗗憳宸插湪鈥滃悓姝ヤ笌瀛樺偍鈥濊缃腑鍚敤鈥淕it smart HTTP鈥濄€?
+- 鏈嶅姟鍣ㄤ笂鏈夊彲鐢ㄧ殑 `git` 浜岃繘鍒舵枃浠躲€?
+- 浣犳嫢鏈夋湁鏁堢殑璁惧浠ょ墝锛坉evice token锛夈€?
 
-## 克隆
+## 鍏嬮殕
 
 ```bash
 git clone https://_:<token>@your-server/git/<vault-id>
 ```
 
-冒号前的下划线是用户名。可以填写任意值；只有密码部分的令牌有效。
+鍐掑彿鍓嶇殑涓嬪垝绾挎槸鐢ㄦ埛鍚嶃€傚彲浠ュ～鍐欎换鎰忓€硷紱鍙湁瀵嗙爜閮ㄥ垎鐨勪护鐗屾湁鏁堛€?
 
-### 示例
+### 绀轰緥
 
-如果你的服务器地址为 `sync.example.com`，仓库 ID 为 `6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`，设备令牌为 `pks_0f1e2d3c4b5a6978...`，运行：
+濡傛灉浣犵殑鏈嶅姟鍣ㄥ湴鍧€涓?`sync.example.com`锛屼粨搴?ID 涓?`6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`锛岃澶囦护鐗屼负 `pks_0f1e2d3c4b5a6978...`锛岃繍琛岋細
 
 ```bash
 git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 ```
 
-Vault ID 是 32 个字符的小写十六进制（不含连字符）。Admin WebUI 和 `pkvsyncd user list` 会显示有效 ID；像 `abc123` 这样的占位符会被以 `400 invalid_vault_id` 拒绝。
+Vault ID 鏄?32 涓瓧绗︾殑灏忓啓鍗佸叚杩涘埗锛堜笉鍚繛瀛楃锛夈€侫dmin WebUI 鍜?`pkvsyncd user list` 浼氭樉绀烘湁鏁?ID锛涘儚 `abc123` 杩欐牱鐨勫崰浣嶇浼氳浠?`400 invalid_vault_id` 鎷掔粷銆?
 
-## 还原（Materialize）
+## 杩樺師锛圡aterialize锛?
 
-克隆后，二进制文件会以指针 JSON 的形式出现，因为 PKV Sync 服务器会单独存储大文件。运行：
+鍏嬮殕鍚庯紝浜岃繘鍒舵枃浠朵細浠ユ寚閽?JSON 鐨勫舰寮忓嚭鐜帮紝鍥犱负 PKV Sync 鏈嶅姟鍣ㄤ細鍗曠嫭瀛樺偍澶ф枃浠躲€傝繍琛岋細
 
 ```bash
 pkvsyncd materialize <vault-id> -o ./output
 ```
 
-这会将指针文件替换为实际的二进制内容，生成一个完整可用的本地仓库副本。
+杩欎細灏嗘寚閽堟枃浠舵浛鎹负瀹為檯鐨勪簩杩涘埗鍐呭锛岀敓鎴愪竴涓畬鏁村彲鐢ㄧ殑鏈湴浠撳簱鍓湰銆?
 
-## 注意事项
+## 娉ㄦ剰浜嬮」
 
-- 该仓库通过 HTTP **只读**。你不能通过 Git 推送更改。
-- 请使用 PKV Sync 插件进行更改，并通过常规同步 API 推送。
-- 如果服务器管理员禁用了 Git smart HTTP，克隆或拉取操作将返回 HTTP 503。
+- 璇ヤ粨搴撻€氳繃 HTTP **鍙**銆備綘涓嶈兘閫氳繃 Git 鎺ㄩ€佹洿鏀广€?
+- 璇蜂娇鐢?PKV Sync 鎻掍欢杩涜鏇存敼锛屽苟閫氳繃甯歌鍚屾 API 鎺ㄩ€併€?
+- 濡傛灉鏈嶅姟鍣ㄧ鐞嗗憳绂佺敤浜?Git smart HTTP锛屽厠闅嗘垨鎷夊彇鎿嶄綔灏嗚繑鍥?HTTP 503銆?
