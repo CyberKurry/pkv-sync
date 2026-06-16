@@ -597,13 +597,15 @@ async fn commit_event_time_seconds(git: &Git2VaultStore, vault_id: &str, commit:
     match git.commit_time_seconds(vault_id, commit).await {
         Ok(ts) => ts,
         Err(err) => {
+            let fallback = chrono::Utc::now().timestamp();
             tracing::warn!(
                 vault_id = %vault_id,
                 commit = %commit,
                 error = %err,
-                "failed to read git commit timestamp for live SSE event"
+                fallback_now = fallback,
+                "failed to read git commit timestamp for live SSE event; using wall clock instead of epoch 0"
             );
-            0
+            fallback
         }
     }
 }
@@ -1931,5 +1933,41 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
+    }
+
+    /// Regression BUG-R2-003: when the git commit-time read fails for a live
+    /// SSE event, the broadcast `at` must fall back to the current wall clock,
+    /// NOT 0 (epoch 1970), so subscribers never store/sort 1970 timestamps.
+    #[tokio::test]
+    async fn commit_event_time_falls_back_to_now_not_epoch_zero_on_read_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        store.ensure_repo("v1").await.unwrap();
+        let real = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "note.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"hi".to_vec(),
+                    },
+                }],
+                "initial",
+            )
+            .await
+            .unwrap();
+
+        let before = chrono::Utc::now().timestamp();
+        // A bogus commit oid makes commit_time_seconds error, exercising the
+        // fallback path. Use 40 hex chars that cannot be a real object here.
+        let bogus = "f".repeat(40);
+        assert_ne!(bogus, real);
+        let ts = commit_event_time_seconds(&store, "v1", &bogus).await;
+        let after = chrono::Utc::now().timestamp();
+        assert!(
+            (before..=after).contains(&ts),
+            "fallback timestamp {ts} should be ~now [{before},{after}], not epoch 0"
+        );
     }
 }

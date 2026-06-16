@@ -34,6 +34,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
   re-entering the push idempotency path with the same key no longer hits a
   PRIMARY KEY violation that surfaced as a 500 — the duplicate write is a
   no-op that retains the first response (BUG-R2-002).
+- Live push SSE events fall back to the current wall-clock time instead of
+  epoch 0 when the git commit timestamp cannot be read, so subscribers no
+  longer record or sort 1970 timestamps (BUG-R2-003).
 
 ### Performance
 
