@@ -12,6 +12,14 @@ export async function sha256Text(text: string): Promise<string> {
   return sha256Bytes(TEXT_ENCODER.encode(text).buffer);
 }
 
+export async function sha256TextWithLength(
+  text: string
+): Promise<{ hash: string; byteLength: number }> {
+  const bytes = TEXT_ENCODER.encode(text);
+  const hash = await sha256Bytes(bytes.buffer);
+  return { hash, byteLength: bytes.byteLength };
+}
+
 function toHex(bytes: Uint8Array): string {
   const parts = new Array<string>(bytes.length);
   for (let i = 0; i < bytes.length; i++) {

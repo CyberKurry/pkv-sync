@@ -44,6 +44,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
   entries.
 - Pull fetches the current and base tree maps in a single blocking task
   instead of two separate `open_bare` + full-tree walks.
+- Plugin `sha256TextWithLength` computes hash and byte length from a
+  single UTF-8 encode, avoiding a redundant re-encode of pulled and
+  inline-applied text content.
 
 ## [1.4.3] - 2026-06-15
 
