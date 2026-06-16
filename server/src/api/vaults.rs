@@ -264,14 +264,21 @@ async fn restore(
     Path(id): Path<String>,
     Json(req): Json<RestoreVaultReq>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let vault = state
-        .vaults
-        .find_by_id(&id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("vault not found"))?;
-    if !user.is_admin && vault.user_id != user.user_id {
-        return Err(ApiError::forbidden("vault access denied"));
-    }
+    let vault = if user.is_admin {
+        state
+            .vaults
+            .find_by_id(&id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("vault not found"))?
+    } else {
+        // Non-admin: query scoped by ownership so "not found" and
+        // "someone else's vault" are indistinguishable (no timing IDOR).
+        state
+            .vaults
+            .find_for_user(&user.user_id, &id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("vault not found"))?
+    };
     if vault.name != req.confirm_vault_name {
         return Err(ApiError::bad_request(
             "confirm_vault_name_mismatch",

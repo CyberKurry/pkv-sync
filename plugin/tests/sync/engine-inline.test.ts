@@ -12,6 +12,9 @@ class FakeVault {
   writes = new Map<string, string>();
   deletions: string[] = [];
   store = new Map<string, string>();
+  /** When set, the Nth readText call (1-based) returns this value instead. */
+  tamperOnRead: { call: number; content: string } | null = null;
+  private readCalls = 0;
 
   async scan() {
     return Array.from(this.store.entries())
@@ -30,6 +33,13 @@ class FakeVault {
   }
 
   async readText(path: string): Promise<string> {
+    this.readCalls += 1;
+    if (
+      this.tamperOnRead !== null &&
+      this.readCalls === this.tamperOnRead.call
+    ) {
+      return this.tamperOnRead.content;
+    }
     const value = this.store.get(path);
     if (value === undefined) throw new Error(`not found: ${path}`);
     return value;
@@ -221,6 +231,43 @@ describe("SyncEngine inline apply dirty detection", () => {
     expect(vault.store.get("note.md")).toBe("user-edited-locally");
     expect(vault.writes.size).toBe(0);
     // And index was NOT advanced
+    expect(index.saved).toBeNull();
+  });
+
+  it("refuses to overwrite when the local file changes between dirty check and write (TOCTOU)", async () => {
+    // Model: local file matches the index (clean) on the first read, but a
+    // user edit lands on disk before the second read. The inline apply must
+    // detect the change and refuse the write instead of clobbering the edit.
+    const vault = new FakeVault();
+    vault.store.set("note.md", "synced text");
+    const cleanHash = await sha256Text("synced text");
+    const index = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "note.md": {
+          lastSyncedHash: cleanHash,
+          lastSyncedAt: 1,
+          size: 11,
+          kind: "text"
+        }
+      }
+    });
+    const engine = buildEngine({ vault, index });
+
+    // The 2nd readText (the TOCTOU re-check after the dirty check passes)
+    // returns tampered content as if the user edited mid-flight.
+    vault.tamperOnRead = { call: 2, content: "user edited now" };
+
+    await expect(
+      (engine as never as { applyInlineText: (p: string, c: string, sha: string) => Promise<void> })
+        .applyInlineText("note.md", "remote replacement", "c1")
+    ).rejects.toBeInstanceOf(InlineApplyDirtyError);
+
+    // Remote content must not be written and the index must not advance.
+    // The local store retains its original "synced text" (the user's
+    // in-flight edit is outside the engine's control; we only guarantee we
+    // don't clobber it with the remote push).
+    expect(vault.writes.size).toBe(0);
     expect(index.saved).toBeNull();
   });
 

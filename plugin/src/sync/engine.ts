@@ -596,6 +596,15 @@ export class SyncEngine {
           // advance and the file is not touched.
           throw new InlineApplyDirtyError(path);
         }
+        // Close the TOCTOU window between the dirty check and writeText:
+        // re-read and re-hash. If the file changed on disk between the two
+        // reads (user edit landing in the gap), the index would be advanced
+        // over a stale view — refuse instead of clobbering the edit.
+        const recheckContent = await this.opts.vault.readText(path);
+        const recheckHash = await sha256Text(recheckContent);
+        if (recheckHash !== localHash) {
+          throw new InlineApplyDirtyError(path);
+        }
       }
       // Write file inside the atomic update so a concurrent applyInlineText
       // cannot interleave its writeText between our dirty check and our save.

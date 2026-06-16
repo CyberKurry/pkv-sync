@@ -7,6 +7,24 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Security
+
+- Vault restore endpoint now scopes the ownership lookup by user for
+  non-admin callers (`find_for_user`), so "vault not found" and
+  "someone else's vault" are indistinguishable — closing a timing-based
+  IDOR that could enumerate vault ownership (SEC-2024-001).
+
+### Fixed
+
+- Storage lock no longer panics on mutex poisoning: the four
+  `.expect("storage lock mutex poisoned")` calls now recover the guard
+  via `PoisonError::into_inner()`, so a prior panic no longer cascades
+  into permanent process death (BUG-2024-001).
+- Inline text apply now closes the TOCTOU window between the dirty
+  check and `writeText`: a second read+hash re-check refuses the write
+  if the local file changed on disk in the gap, preventing a remote
+  push from clobbering an in-flight user edit (BUG-2024-003).
+
 ## [1.4.4] - 2026-06-16
 
 ### Changed

@@ -57,18 +57,27 @@ fn acquire_lock(data_dir: &Path, mode: LockMode) -> io::Result<StorageLock> {
 
 fn acquire_local_lock(mode: LockMode) -> LocalGuard {
     let (state, ready) = &*LOCAL_LOCK;
-    let mut state = state.lock().expect("storage lock mutex poisoned");
+    // Recover from poisoning instead of panicking: a prior panic already
+    // broke invariants, but cascading into process death is worse than
+    // proceeding with a cleared lock state.
+    let mut state = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     match mode {
         LockMode::Shared => {
             while state.writer || state.waiting_writers > 0 {
-                state = ready.wait(state).expect("storage lock mutex poisoned");
+                state = ready
+                    .wait(state)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
             }
             state.readers += 1;
         }
         LockMode::Exclusive => {
             state.waiting_writers += 1;
             while state.writer || state.readers > 0 {
-                state = ready.wait(state).expect("storage lock mutex poisoned");
+                state = ready
+                    .wait(state)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
             }
             state.waiting_writers -= 1;
             state.writer = true;
@@ -80,7 +89,9 @@ fn acquire_local_lock(mode: LockMode) -> LocalGuard {
 impl Drop for LocalGuard {
     fn drop(&mut self) {
         let (state, ready) = &*LOCAL_LOCK;
-        let mut state = state.lock().expect("storage lock mutex poisoned");
+        let mut state = state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         match self.mode {
             LockMode::Shared => {
                 state.readers = state.readers.saturating_sub(1);
