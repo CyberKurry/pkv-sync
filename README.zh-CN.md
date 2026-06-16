@@ -5,7 +5,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-鏂囨。鐗堟湰锛歷1.4.3銆?
+鏂囨。鐗堟湰锛歷1.4.4銆?
 
 [English](./README.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./README.zh-Hant.md) | [鏃ユ湰瑾瀅(./README.ja.md) | [頃滉淡鞏碷(./README.ko.md)
 
@@ -101,7 +101,7 @@ PKV Sync 1.0 **鏆備笉**鎻愪緵鍘熺敓绔埌绔姞瀵嗏€斺€旀
 
 ## 鐘舵€?
 
-PKV Sync 1.4.3 缁х画瀹¤淇锛屼晶閲嶆纭€э細鍚庡彴鐩戠潱浠诲姟鍦ㄤ紭闆呭叧闂椂涓锛岃繃鏈?DashMap 鏉＄洰瀹氭湡鍥炴敹锛岃嚜鍔ㄥ悎骞舵纭尯鍒嗙己澶卞璞′笌 Git 鐬€侀敊璇紝骞傜瓑缂撳瓨鍦ㄥ厓鏁版嵁浜嬪姟澶辫触鍚庡缁堝啓鍏ワ紝骞跺彂鏂囨湰鍒涘缓閫氳繃鍐茬獊鏂囦欢鎻愬崌淇濈暀銆傚悓鏃舵竻鐞嗕簡鏃犵敤浠ｇ爜锛堝簾寮冭緟鍔╁嚱鏁般€乮18n 閿€丏ocker 灞傦級銆?
+PKV Sync 1.4.4 缁х画瀹¤淇锛屼晶閲嶆纭€э細鍚庡彴鐩戠潱浠诲姟鍦ㄤ紭闆呭叧闂椂涓锛岃繃鏈?DashMap 鏉＄洰瀹氭湡鍥炴敹锛岃嚜鍔ㄥ悎骞舵纭尯鍒嗙己澶卞璞′笌 Git 鐬€侀敊璇紝骞傜瓑缂撳瓨鍦ㄥ厓鏁版嵁浜嬪姟澶辫触鍚庡缁堝啓鍏ワ紝骞跺彂鏂囨湰鍒涘缓閫氳繃鍐茬獊鏂囦欢鎻愬崌淇濈暀銆傚悓鏃舵竻鐞嗕簡鏃犵敤浠ｇ爜锛堝簾寮冭緟鍔╁嚱鏁般€乮18n 閿€丏ocker 灞傦級銆?
 
 PKV Sync 1.0 鏄涓€涓ǔ瀹氱増銆傚叕寮€ REST API銆丆LI銆佸瓨鍌ㄥ竷灞€銆佹彃浠跺寘銆丏ocker 闀滃儚浣滀负涓€缁勫悓姝ュ彂鐗堬紝閬靛惊 semver锛?.X.Y 鍦ㄥ叕寮€琛ㄩ潰淇濇寔鍚戝悗鍏煎锛孫penAPI 瑙勮寖鏄繖涓吋瀹瑰绾︾殑鏉冨▉鏉ユ簮銆?.x 鍒涘缓鐨?SQLite 搴?*涓嶆敮鎸?*灏卞湴鍗囩骇鍒?1.0.0鈥斺€旇鎸?[1.0 鍗囩骇璇存槑](./public-docs/upgrade-notes-v1.0.zh-CN.md)鎿嶄綔銆?
 
