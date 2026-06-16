@@ -736,7 +736,10 @@ mod tests {
     use super::*;
     use crate::auth::{password, token};
     use crate::db::pool;
-    use crate::db::repos::{NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo};
+    use crate::db::repos::{
+        NewToken, NewUser, RuntimeConfig, RuntimeConfigRepo, RuntimeConfigSettingsUpdate,
+        TokenRepo, UserRepo, VaultRepo,
+    };
     use crate::service::AppState;
     use crate::storage::blob::LocalFsBlobStore;
     use crate::storage::git::{FileChange, GitVaultStore, StoredFile};
@@ -1541,9 +1544,31 @@ mod tests {
     #[tokio::test]
     async fn history_and_diff_feature_flags_return_404_when_disabled() {
         let (app, state, raw) = setup_with_state().await;
+        let defaults = RuntimeConfig::default();
         state
             .runtime_cfg_repo
-            .set_history_flags(false, false, None)
+            .set_admin_settings(
+                RuntimeConfigSettingsUpdate {
+                    server_name: defaults.server_name,
+                    timezone: defaults.timezone,
+                    registration_mode: defaults.registration_mode,
+                    login_failure_threshold: defaults.login_failure_threshold,
+                    login_window_seconds: defaults.login_window_seconds,
+                    login_lock_seconds: defaults.login_lock_seconds,
+                    enable_history_ui: false,
+                    enable_diff_endpoint: false,
+                    extra_exclude_globs: defaults.extra_exclude_globs,
+                    inline_content_max_bytes: defaults.inline_content_max_bytes,
+                    sse_heartbeat_seconds: defaults.sse_heartbeat_seconds,
+                    push_debounce_ms: defaults.push_debounce_ms,
+                    enable_git_smart_http: defaults.enable_git_smart_http,
+                    enable_metrics: defaults.enable_metrics,
+                    enable_auto_merge: defaults.enable_auto_merge,
+                    update_check_enabled: defaults.update_check_enabled,
+                    update_check_interval_seconds: defaults.update_check_interval_seconds,
+                },
+                None,
+            )
             .await
             .unwrap();
         let cfg = state.runtime_cfg_repo.load().await.unwrap();

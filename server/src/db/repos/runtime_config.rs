@@ -129,8 +129,6 @@ pub trait RuntimeConfigRepo: Send + Sync {
         mode: RegistrationMode,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
-    async fn set_server_name(&self, name: &str, by: Option<&str>) -> Result<(), sqlx::Error>;
-    async fn set_timezone(&self, timezone: &str, by: Option<&str>) -> Result<(), sqlx::Error>;
     async fn set_login_rate_limit(
         &self,
         threshold: u32,
@@ -143,28 +141,11 @@ pub trait RuntimeConfigRepo: Send + Sync {
         max_file_size: u64,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
-    async fn set_text_extensions(
-        &self,
-        extensions: Vec<String>,
-        by: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
-    async fn set_history_flags(
-        &self,
-        enable_history_ui: bool,
-        enable_diff_endpoint: bool,
-        by: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
     async fn set_extra_exclude_globs(
         &self,
         globs: Vec<String>,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
-    async fn set_sse_heartbeat_seconds(
-        &self,
-        value: u64,
-        by: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
-    async fn set_push_debounce_ms(&self, value: u32, by: Option<&str>) -> Result<(), sqlx::Error>;
     async fn set_enable_git_smart_http(
         &self,
         value: bool,
@@ -178,20 +159,10 @@ pub trait RuntimeConfigRepo: Send + Sync {
         value: bool,
         by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
-    async fn set_update_check_interval_seconds(
-        &self,
-        value: u64,
-        by: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
     async fn seed_update_check_from_static_config(
         &self,
         enabled: bool,
         interval_seconds: u64,
-    ) -> Result<(), sqlx::Error>;
-    async fn set_inline_content_max_bytes(
-        &self,
-        value: u32,
-        by: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 }
 
@@ -434,16 +405,6 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         write_kv(&self.pool, "registration_mode", &v, by).await
     }
 
-    async fn set_server_name(&self, name: &str, by: Option<&str>) -> Result<(), sqlx::Error> {
-        let v = serde_json::to_string(name).expect("string serializes");
-        write_kv(&self.pool, "server_name", &v, by).await
-    }
-
-    async fn set_timezone(&self, timezone: &str, by: Option<&str>) -> Result<(), sqlx::Error> {
-        let v = serde_json::to_string(timezone).expect("string serializes");
-        write_kv(&self.pool, "timezone", &v, by).await
-    }
-
     async fn set_login_rate_limit(
         &self,
         threshold: u32,
@@ -485,42 +446,6 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         .await
     }
 
-    async fn set_text_extensions(
-        &self,
-        extensions: Vec<String>,
-        by: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        write_kv(
-            &self.pool,
-            "text_extensions",
-            &serde_json::to_string(&extensions).unwrap(),
-            by,
-        )
-        .await
-    }
-
-    async fn set_history_flags(
-        &self,
-        enable_history_ui: bool,
-        enable_diff_endpoint: bool,
-        by: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        let kvs = [
-            (
-                "enable_history_ui",
-                serde_json::to_string(&enable_history_ui).unwrap(),
-            ),
-            (
-                "enable_diff_endpoint",
-                serde_json::to_string(&enable_diff_endpoint).unwrap(),
-            ),
-        ];
-        let mut tx = self.pool.begin().await?;
-        write_kv_batch(&mut tx, &kvs, by).await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
     async fn set_extra_exclude_globs(
         &self,
         globs: Vec<String>,
@@ -528,30 +453,6 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
     ) -> Result<(), sqlx::Error> {
         let json = serde_json::to_string(&globs).unwrap_or_else(|_| "[]".into());
         write_kv(&self.pool, "extra_exclude_globs", &json, by).await
-    }
-
-    async fn set_sse_heartbeat_seconds(
-        &self,
-        value: u64,
-        by: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        write_kv(
-            &self.pool,
-            "sse_heartbeat_seconds",
-            &serde_json::to_string(&value.max(10)).unwrap(),
-            by,
-        )
-        .await
-    }
-
-    async fn set_push_debounce_ms(&self, value: u32, by: Option<&str>) -> Result<(), sqlx::Error> {
-        write_kv(
-            &self.pool,
-            "push_debounce_ms",
-            &serde_json::to_string(&value.max(1)).unwrap(),
-            by,
-        )
-        .await
     }
 
     async fn set_enable_git_smart_http(
@@ -606,20 +507,6 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         .await
     }
 
-    async fn set_update_check_interval_seconds(
-        &self,
-        value: u64,
-        by: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        write_kv(
-            &self.pool,
-            "update_check.interval_seconds",
-            &serde_json::to_string(&value.max(60)).unwrap(),
-            by,
-        )
-        .await
-    }
-
     async fn seed_update_check_from_static_config(
         &self,
         enabled: bool,
@@ -669,20 +556,6 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
         }
         tx.commit().await?;
         Ok(())
-    }
-
-    async fn set_inline_content_max_bytes(
-        &self,
-        value: u32,
-        by: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        write_kv(
-            &self.pool,
-            "inline_content_max_bytes",
-            &serde_json::to_string(&value.max(1)).unwrap(),
-            by,
-        )
-        .await
     }
 }
 
@@ -776,13 +649,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_and_reload_server_name() {
-        let r = setup().await;
-        r.set_server_name("Alice's Vault Hub", None).await.unwrap();
-        assert_eq!(r.load().await.unwrap().server_name, "Alice's Vault Hub");
-    }
-
-    #[tokio::test]
     async fn cache_snapshot_and_replace() {
         let cache = RuntimeConfigCache::new(RuntimeConfig::default());
         let snap1 = cache.snapshot().await;
@@ -840,34 +706,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_and_reload_timezone() {
-        let r = setup().await;
-        r.set_timezone("Asia/Shanghai", None).await.unwrap();
-        assert_eq!(r.load().await.unwrap().timezone, "Asia/Shanghai");
-    }
-
-    #[tokio::test]
-    async fn set_and_reload_text_extensions() {
-        let r = setup().await;
-        r.set_text_extensions(vec!["md".into(), "txt".into()], None)
-            .await
-            .unwrap();
-        let cfg = r.load().await.unwrap();
-        assert_eq!(cfg.text_extensions, vec!["md", "txt"]);
-        assert!(cfg.text_classifier.is_text_path("note.md"));
-        assert!(!cfg.text_classifier.is_text_path("note.foo"));
-    }
-
-    #[tokio::test]
-    async fn set_and_reload_history_flags() {
-        let r = setup().await;
-        r.set_history_flags(false, false, None).await.unwrap();
-        let cfg = r.load().await.unwrap();
-        assert!(!cfg.enable_history_ui);
-        assert!(!cfg.enable_diff_endpoint);
-    }
-
-    #[tokio::test]
     async fn defaults_include_max_file_size_and_extensions() {
         let cfg = RuntimeConfig::default();
         assert_eq!(cfg.max_file_size, 100 * 1024 * 1024);
@@ -891,19 +729,6 @@ mod tests {
         assert!(r.load().await.unwrap().update_check_enabled);
         r.set_update_check_enabled(false, None).await.unwrap();
         assert!(!r.load().await.unwrap().update_check_enabled);
-    }
-
-    #[tokio::test]
-    async fn set_and_reload_update_check_interval_seconds() {
-        let r = setup().await;
-        assert_eq!(
-            r.load().await.unwrap().update_check_interval_seconds,
-            86_400
-        );
-        r.set_update_check_interval_seconds(3600, None)
-            .await
-            .unwrap();
-        assert_eq!(r.load().await.unwrap().update_check_interval_seconds, 3600);
     }
 
     #[tokio::test]
@@ -1014,9 +839,14 @@ mod tests {
         r.set_update_check_enabled(false, Some("admin"))
             .await
             .unwrap();
-        r.set_update_check_interval_seconds(3600, Some("admin"))
-            .await
-            .unwrap();
+        write_kv(
+            &r.pool,
+            "update_check.interval_seconds",
+            &serde_json::to_string(&3600u64).unwrap(),
+            Some("admin"),
+        )
+        .await
+        .unwrap();
 
         r.seed_update_check_from_static_config(true, 86_400)
             .await

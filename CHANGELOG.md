@@ -22,6 +22,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 - Plugin migration exclusion reuses `HARD_EXCLUDE_GLOBS` from the
   exclude module; `isTextPath` extracted to shared util.
 - `RuntimeConfigCache` inner field narrowed from `pub` to `pub(crate)`.
+- Eight single-field `RuntimeConfigRepo` trait setters removed; callers
+  migrated to the batch `set_admin_settings` writer.
 - `format.test.ts` moved from `plugin/src/` to `plugin/tests/`.
 
 ### Performance

@@ -8,8 +8,8 @@ use pkv_sync_server::auth::{password, LoginRateLimiter};
 use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig, StorageConfig};
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{
-    NewActivity, NewToken, NewUser, RuntimeConfigRepo, SyncActivityRepo, TokenRepo, UserRepo,
-    VaultRepo,
+    NewActivity, NewToken, NewUser, RuntimeConfig, RuntimeConfigRepo, RuntimeConfigSettingsUpdate,
+    SyncActivityRepo, TokenRepo, UserRepo, VaultRepo,
 };
 use pkv_sync_server::server;
 use pkv_sync_server::service::AppState;
@@ -818,11 +818,35 @@ async fn admin_history_and_diff_routes_follow_runtime_flags() {
         .await
         .unwrap();
 
-    state
-        .runtime_cfg_repo
-        .set_history_flags(false, false, None)
-        .await
-        .unwrap();
+    {
+        let d = RuntimeConfig::default();
+        state
+            .runtime_cfg_repo
+            .set_admin_settings(
+                RuntimeConfigSettingsUpdate {
+                    server_name: d.server_name,
+                    timezone: d.timezone,
+                    registration_mode: d.registration_mode,
+                    login_failure_threshold: d.login_failure_threshold,
+                    login_window_seconds: d.login_window_seconds,
+                    login_lock_seconds: d.login_lock_seconds,
+                    enable_history_ui: false,
+                    enable_diff_endpoint: false,
+                    extra_exclude_globs: d.extra_exclude_globs,
+                    inline_content_max_bytes: d.inline_content_max_bytes,
+                    sse_heartbeat_seconds: d.sse_heartbeat_seconds,
+                    push_debounce_ms: d.push_debounce_ms,
+                    enable_git_smart_http: d.enable_git_smart_http,
+                    enable_metrics: d.enable_metrics,
+                    enable_auto_merge: d.enable_auto_merge,
+                    update_check_enabled: d.update_check_enabled,
+                    update_check_interval_seconds: d.update_check_interval_seconds,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+    }
     state
         .runtime_cfg
         .replace(state.runtime_cfg_repo.load().await.unwrap())
@@ -850,11 +874,35 @@ async fn admin_history_and_diff_routes_follow_runtime_flags() {
         assert_eq!(resp.status(), StatusCode::NOT_FOUND, "{uri}");
     }
 
-    state
-        .runtime_cfg_repo
-        .set_history_flags(true, false, None)
-        .await
-        .unwrap();
+    {
+        let d = RuntimeConfig::default();
+        state
+            .runtime_cfg_repo
+            .set_admin_settings(
+                RuntimeConfigSettingsUpdate {
+                    server_name: d.server_name,
+                    timezone: d.timezone,
+                    registration_mode: d.registration_mode,
+                    login_failure_threshold: d.login_failure_threshold,
+                    login_window_seconds: d.login_window_seconds,
+                    login_lock_seconds: d.login_lock_seconds,
+                    enable_history_ui: true,
+                    enable_diff_endpoint: false,
+                    extra_exclude_globs: d.extra_exclude_globs,
+                    inline_content_max_bytes: d.inline_content_max_bytes,
+                    sse_heartbeat_seconds: d.sse_heartbeat_seconds,
+                    push_debounce_ms: d.push_debounce_ms,
+                    enable_git_smart_http: d.enable_git_smart_http,
+                    enable_metrics: d.enable_metrics,
+                    enable_auto_merge: d.enable_auto_merge,
+                    update_check_enabled: d.update_check_enabled,
+                    update_check_interval_seconds: d.update_check_interval_seconds,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+    }
     state
         .runtime_cfg
         .replace(state.runtime_cfg_repo.load().await.unwrap())
