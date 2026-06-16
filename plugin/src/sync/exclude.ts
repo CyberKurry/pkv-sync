@@ -1,4 +1,4 @@
-const HARD_EXCLUDE_GLOBS = [
+export const HARD_EXCLUDE_GLOBS = [
   ".obsidian/workspace.json",
   ".obsidian/workspace-mobile.json",
   ".obsidian/workspaces.json",
@@ -31,7 +31,7 @@ export function createPathMatcher(opts: PathAcceptsOptions): PathMatcher {
   };
 }
 
-function createExcludeMatcher(globs: string[]): PathMatcher {
+export function createExcludeMatcher(globs: string[]): PathMatcher {
   const regexes = nonEmptyGlobs(globs).map(compileGlob);
   if (regexes.length === 0) return () => false;
   return (path: string) => regexes.some((regex) => regex.test(path));

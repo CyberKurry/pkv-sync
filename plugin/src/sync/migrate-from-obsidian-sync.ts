@@ -4,7 +4,8 @@ import { sha256Bytes, sha256Text } from "./hash";
 import { guessMime } from "./mime";
 import { textByteLength } from "./text-encoding";
 import type { LocalFileSnapshot, LocalIndex, PushChange, PushResponse, StateResponse } from "./types";
-import { errorToMessage, extensionOf } from "../util";
+import { errorToMessage, isTextPath } from "../util";
+import { HARD_EXCLUDE_GLOBS, createExcludeMatcher } from "./exclude";
 
 const COMMUNITY_PLUGINS_PATH = ".obsidian/community-plugins.json";
 const SYNC_DIR_PATH = ".obsidian/sync";
@@ -254,25 +255,21 @@ async function hasObsidianSyncCommunityPlugin(vault: MigrationVault): Promise<bo
   }
 }
 
-function isMigrationExcluded(path: string): boolean {
-  const normalized = path.replace(/\\/g, "/");
-  const fileName = normalized.split("/").at(-1) ?? normalized;
+const MIGRATION_EXTRA_GLOBS = [
+  ".obsidian/cache",
+  ".obsidian/sync/**",
+  ".obsidian/plugins/pkv-sync/**",
+  "**/.DS_Store",
+  "**/Thumbs.db"
+];
 
-  return (
-    normalized === ".obsidian/workspace.json" ||
-    normalized === ".obsidian/workspace-mobile.json" ||
-    normalized === ".obsidian/workspaces.json" ||
-    normalized === ".obsidian/cache" ||
-    normalized.startsWith(".obsidian/cache/") ||
-    normalized.startsWith(".obsidian/sync/") ||
-    normalized.startsWith(".obsidian/plugins/pkv-sync/") ||
-    normalized.startsWith(".trash/") ||
-    normalized.startsWith(".git/") ||
-    normalized.endsWith(".lock") ||
-    normalized.endsWith(".tmp") ||
-    fileName === ".DS_Store" ||
-    fileName === "Thumbs.db"
-  );
+const migrationExcludeMatcher = createExcludeMatcher([
+  ...HARD_EXCLUDE_GLOBS,
+  ...MIGRATION_EXTRA_GLOBS
+]);
+
+function isMigrationExcluded(path: string): boolean {
+  return migrationExcludeMatcher(path.replace(/\\/g, "/"));
 }
 
 function fileSize(file: TFile): number {
@@ -333,11 +330,6 @@ function buildMigrationIndex(files: LocalFileSnapshot[], commit: string | null):
     };
   }
   return { lastSyncedCommit: commit, files: entries };
-}
-
-function isTextPath(path: string, textExtensions: Set<string>): boolean {
-  const ext = extensionOf(path);
-  return !!ext && textExtensions.has(ext);
 }
 
 function normalizeBatchSize(value: number | undefined): number {

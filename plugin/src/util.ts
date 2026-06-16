@@ -8,6 +8,11 @@ export function extensionOf(path: string): string {
   return dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : "";
 }
 
+export function isTextPath(path: string, textExtensions: Set<string>): boolean {
+  const ext = extensionOf(path);
+  return !!ext && textExtensions.has(ext);
+}
+
 export function debugLog(...args: unknown[]): void {
   const env = (window as { process?: { env?: { NODE_ENV?: string } } })
     .process?.env?.NODE_ENV;
