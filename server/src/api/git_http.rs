@@ -46,7 +46,7 @@ pub async fn info_refs(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     check_enabled(&state).await?;
-    validate_vault_id(&vault_id)?;
+    is_uuid_vault_id(&vault_id)?;
     let user = authenticate_basic(&state, &headers, client_ip.to_string()).await?;
     let _vault = vault::ensure_user_vault(&state, &user.user_id, &vault_id).await?;
 
@@ -125,7 +125,7 @@ pub async fn upload_pack(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     check_enabled(&state).await?;
-    validate_vault_id(&vault_id)?;
+    is_uuid_vault_id(&vault_id)?;
     let user = authenticate_basic(&state, &headers, client_ip.to_string()).await?;
     let _vault = vault::ensure_user_vault(&state, &user.user_id, &vault_id).await?;
     if body.len() > MAX_UPLOAD_PACK_BODY_BYTES {
@@ -277,7 +277,13 @@ async fn check_enabled(state: &AppState) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn validate_vault_id(vault_id: &str) -> Result<(), ApiError> {
+/// Validate that `vault_id` is exactly 32 lowercase/uppercase hex chars.
+///
+/// This is intentionally stricter than the `[A-Za-z0-9_-]` rule used by the
+/// storage layer and CLI (`is_valid_vault_id`): the smart-HTTP boundary only
+/// ever receives server-generated UUIDs, so we reject anything that is not a
+/// bare UUID to avoid exposing internal path structure.
+fn is_uuid_vault_id(vault_id: &str) -> Result<(), ApiError> {
     let is_simple_uuid =
         vault_id.len() == 32 && vault_id.as_bytes().iter().all(u8::is_ascii_hexdigit);
     if is_simple_uuid {
@@ -634,11 +640,11 @@ mod tests {
     }
 
     #[test]
-    fn validate_vault_id_uses_ascii_bytes_for_hex_check() {
+    fn is_uuid_vault_id_uses_ascii_bytes_for_hex_check() {
         let source = include_str!("git_http.rs");
         let fn_start = source
-            .find("fn validate_vault_id")
-            .expect("validate_vault_id implementation exists");
+            .find("fn is_uuid_vault_id")
+            .expect("is_uuid_vault_id implementation exists");
         let next_doc = source[fn_start + 1..]
             .find("\n///")
             .map(|idx| fn_start + 1 + idx)

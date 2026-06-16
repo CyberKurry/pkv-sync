@@ -590,7 +590,12 @@ fn parse_blob_pointer_if_candidate(blob: &git2::Blob<'_>) -> Option<BlobPointerJ
     parse_blob_pointer(blob.content())
 }
 
-fn is_valid_storage_vault_id(vault_id: &str) -> bool {
+/// Check that `vault_id` contains only `[A-Za-z0-9_-]` and is 1–128 bytes.
+///
+/// Shared by the storage layer and the CLI materialize command. The HTTP
+/// smart-http boundary enforces a stricter 32-hex UUID rule instead (see
+/// `is_uuid_vault_id` in `api/git_http.rs`).
+pub(crate) fn is_valid_vault_id(vault_id: &str) -> bool {
     !vault_id.is_empty()
         && vault_id.len() <= 128
         && vault_id
@@ -599,7 +604,7 @@ fn is_valid_storage_vault_id(vault_id: &str) -> bool {
 }
 
 pub(crate) fn storage_vault_path(root: &Path, vault_id: &str) -> Result<PathBuf, GitStoreError> {
-    if !is_valid_storage_vault_id(vault_id) {
+    if !is_valid_vault_id(vault_id) {
         return Err(GitStoreError::InvalidVaultId);
     }
     Ok(root.join(vault_id))

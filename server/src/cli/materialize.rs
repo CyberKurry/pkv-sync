@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::Config;
 use crate::storage::blob::{is_sha256_hex, sharded_blob_path};
-use crate::storage::git::BlobPointerJson;
+use crate::storage::git::{is_valid_vault_id, BlobPointerJson};
 
 /// Expand a vault's git + blob storage into a plain file tree on disk.
 ///
@@ -95,12 +95,7 @@ fn create_staging_dir(parent: &Path, output: &Path) -> anyhow::Result<PathBuf> {
 }
 
 fn validate_vault_id(vault_id: &str) -> anyhow::Result<()> {
-    if vault_id.is_empty()
-        || vault_id.len() > 128
-        || !vault_id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-    {
+    if !is_valid_vault_id(vault_id) {
         anyhow::bail!("invalid vault id: {vault_id}");
     }
     Ok(())
