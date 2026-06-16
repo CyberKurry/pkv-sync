@@ -42,6 +42,26 @@ fn format_public_origin(public_host: Option<&str>, bind: &SocketAddr) -> String 
     }
 }
 
+/// Returns a startup warning when the server binds a non-loopback address
+/// without a configured `public_host` (SEC-R2-005). In that state the admin
+/// session cookie is issued without the `Secure` flag and CSRF-protected admin
+/// POSTs fail closed, so an operator who deploys behind TLS without setting
+/// `public_host` gets silently degraded security. Loopback binds (local dev)
+/// never trip it.
+fn public_host_footgun_warning(
+    bind: SocketAddr,
+    public_host: Option<&str>,
+) -> Option<&'static str> {
+    if bind.ip().is_loopback() {
+        return None;
+    }
+    let configured = public_host.is_some_and(|h| !h.trim().is_empty());
+    if configured {
+        return None;
+    }
+    Some("binding a non-loopback address without [server].public_host: admin session cookies will not be marked Secure and CSRF-protected admin POSTs will be rejected. Set [server].public_host (and run behind TLS) in config.toml.")
+}
+
 /// Construct the fully-stacked axum Router for production use.
 pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Router {
     let trusted = real_ip::TrustedProxies::from_vec(cfg.network.trusted_proxies.clone());
@@ -460,6 +480,13 @@ pub async fn run(cfg: Arc<Config>) -> crate::Result<()> {
     eprintln!(
         "Deployment key is configured; copy it from the server config when onboarding users."
     );
+    if let Some(warning) =
+        public_host_footgun_warning(cfg.server.bind_addr, cfg.server.public_host.as_deref())
+    {
+        tracing::warn!("{warning}");
+        eprintln!();
+        eprintln!("WARNING: {warning}");
+    }
     eprintln!();
 
     let listener = tokio::net::TcpListener::bind(cfg.server.bind_addr)
@@ -495,6 +522,27 @@ mod tests {
     fn uptime_is_non_negative() {
         mark_start();
         let _ = uptime_seconds();
+    }
+
+    #[test]
+    fn public_host_footgun_warning_for_non_loopback_without_public_host() {
+        // SEC-R2-005: binding a non-loopback address without public_host silently
+        // degrades admin cookies to non-Secure; operators must be warned at startup.
+        let lan: SocketAddr = "0.0.0.0:6710".parse().unwrap();
+        assert!(public_host_footgun_warning(lan, None).is_some());
+        assert!(
+            public_host_footgun_warning(lan, Some("admin.example.test")).is_none(),
+            "setting public_host clears the footgun"
+        );
+        let loopback: SocketAddr = "127.0.0.1:6710".parse().unwrap();
+        assert!(
+            public_host_footgun_warning(loopback, None).is_none(),
+            "loopback binds never trip the footgun"
+        );
+        assert!(
+            public_host_footgun_warning(lan, Some("   ")).is_some(),
+            "blank public_host is treated as unset"
+        );
     }
 
     #[tokio::test]

@@ -13,6 +13,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
   non-admin callers (`find_for_user`), so "vault not found" and
   "someone else's vault" are indistinguishable — closing a timing-based
   IDOR that could enumerate vault ownership (SEC-2024-001).
+- Server startup now warns prominently when binding a non-loopback
+  address without `[server].public_host` configured, since that state
+  silently issues admin cookies without the `Secure` flag and rejects
+  CSRF-protected admin POSTs — an operational footgun behind TLS (SEC-R2-005).
 
 ### Fixed
 
