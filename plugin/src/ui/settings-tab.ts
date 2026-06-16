@@ -37,6 +37,8 @@ export class PKVSyncSettingTab extends PluginSettingTab {
   private cfg: ServerConfigResponse | null = null;
   private renderId = 0;
   private syncTimeExpanded = false;
+  private conflictCount: number | null = null;
+  private conflictCountAt = 0;
 
   constructor(
     app: App,
@@ -572,7 +574,12 @@ export class PKVSyncSettingTab extends PluginSettingTab {
 
   private renderConflictCleanup(body: HTMLElement): void {
     const t = this.plugin.text();
-    const count = listConflictFiles(this.app.vault).length;
+    const now = Date.now();
+    if (this.conflictCount === null || now - this.conflictCountAt > 5000) {
+      this.conflictCount = listConflictFiles(this.app.vault).length;
+      this.conflictCountAt = now;
+    }
+    const count = this.conflictCount;
     this.renderSectionLabel(body, t.conflictFiles);
     const row = body.createDiv({ cls: "pkv-sync-conflict-row" });
     const meta = row.createDiv({ cls: "pkv-sync-conflict-meta" });
@@ -587,6 +594,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       "secondary",
       async () => {
         await this.plugin.deleteConflictFiles();
+        this.conflictCount = null;
         this.display();
       }
     );

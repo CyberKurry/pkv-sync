@@ -51,6 +51,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
   byte before verifying the full case-insensitive match.
 - `RuntimeConfig::set_text_extensions` centralizes extension updates so
   the derived text classifier can never diverge from the source list.
+- Settings tab caches the conflict-file count with a short TTL instead
+  of re-scanning the whole vault on every panel render.
 
 ## [1.4.3] - 2026-06-15
 
