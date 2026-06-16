@@ -326,12 +326,7 @@ async fn push_with_request_metadata_internal(
                         "non-text path sent as text",
                     ));
                 }
-                let event_path = p.clone();
-                event_changes.push(text_event_with_budget(
-                    &event_path,
-                    &content,
-                    &mut inline_budget,
-                ));
+                event_changes.push(text_event_with_budget(&p, &content, &mut inline_budget));
                 git_changes.push(FileChange::Upsert {
                     path: p,
                     file: StoredFile::Text {

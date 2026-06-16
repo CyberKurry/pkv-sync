@@ -25,6 +25,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
   if the local file changed on disk in the gap, preventing a remote
   push from clobbering an in-flight user edit (BUG-2024-003).
 
+### Performance
+
+- Push event collection passes the text-change path by borrow (`&p`)
+  instead of cloning it for the SSE inline event, eliminating one
+  `String` allocation per text change (PERF-2024-006).
+
 ## [1.4.4] - 2026-06-16
 
 ### Changed
