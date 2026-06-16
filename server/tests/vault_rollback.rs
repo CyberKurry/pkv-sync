@@ -359,7 +359,11 @@ async fn restore_endpoint_rejects_unknown_commit() {
 }
 
 #[tokio::test]
-async fn restore_endpoint_rejects_non_owner_with_forbidden() {
+async fn restore_endpoint_rejects_non_owner_with_not_found() {
+    // SEC-2024-001: a non-owner must NOT be able to distinguish "vault does
+    // not exist" from "vault belongs to someone else". The ownership check is
+    // folded into the lookup (find_for_user), so both cases return 404 — no
+    // timing/enumeration side channel.
     let ctx = setup().await;
     let first = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, None, "v1").await;
     let _second = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, Some(&first), "v2").await;
@@ -375,9 +379,9 @@ async fn restore_endpoint_rejects_non_owner_with_forbidden() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     let body = response_json(resp).await;
-    assert_eq!(body["error"]["code"], "forbidden");
+    assert_eq!(body["error"]["code"], "not_found");
 }
 
 #[tokio::test]
