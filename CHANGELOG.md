@@ -47,6 +47,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
 - Plugin `sha256TextWithLength` computes hash and byte length from a
   single UTF-8 encode, avoiding a redundant re-encode of pulled and
   inline-applied text content.
+- MCP search matcher uses `memchr` to fast-locate the needle's first
+  byte before verifying the full case-insensitive match.
+- `RuntimeConfig::set_text_extensions` centralizes extension updates so
+  the derived text classifier can never diverge from the source list.
 
 ## [1.4.3] - 2026-06-15
 

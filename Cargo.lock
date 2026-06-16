@@ -1698,6 +1698,7 @@ dependencies = [
  "globset",
  "hex",
  "ipnet",
+ "memchr",
  "percent-encoding",
  "prometheus",
  "rand 0.8.6",

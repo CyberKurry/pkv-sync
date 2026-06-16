@@ -250,8 +250,7 @@ fn runtime_config_from_rows(rows: Vec<(String, String)>) -> RuntimeConfig {
         cfg.max_file_size = n.max(1024);
     }
     if let Some(exts) = read_json_value::<Vec<String>>(&values, "text_extensions") {
-        cfg.text_extensions = exts;
-        cfg.rebuild_text_classifier();
+        cfg.set_text_extensions(exts);
     }
     if let Some(enabled) = read_json_value::<bool>(&values, "enable_history_ui") {
         cfg.enable_history_ui = enabled;
@@ -294,6 +293,11 @@ impl RuntimeConfig {
         self.text_classifier = Arc::new(TextClassifier::new(
             self.text_extensions.iter().map(String::as_str),
         ));
+    }
+
+    pub fn set_text_extensions(&mut self, exts: Vec<String>) {
+        self.text_extensions = exts;
+        self.rebuild_text_classifier();
     }
 }
 

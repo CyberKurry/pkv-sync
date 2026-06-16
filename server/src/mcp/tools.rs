@@ -576,16 +576,42 @@ fn mcp_path_visible(filter: &SyncPathFilter, path: &str) -> bool {
 }
 
 fn contains_ascii_case_insensitive(haystack: &str, lowercase_needle: &str) -> bool {
+    let haystack = haystack.as_bytes();
     let needle = lowercase_needle.as_bytes();
-    if needle.is_empty() {
+    let n = needle.len();
+    if n == 0 {
         return true;
     }
-    haystack.as_bytes().windows(needle.len()).any(|window| {
-        window
-            .iter()
-            .zip(needle)
-            .all(|(left, right)| left.to_ascii_lowercase() == *right)
-    })
+    if haystack.len() < n {
+        return false;
+    }
+    let first = needle[0];
+    let upper = first.to_ascii_uppercase();
+    let rest = &needle[1..];
+    let scan_limit = haystack.len() - n;
+    let mut from = 0;
+    loop {
+        let region = &haystack[from..=scan_limit];
+        let found = if upper != first {
+            memchr::memchr2(first, upper, region)
+        } else {
+            memchr::memchr(first, region)
+        };
+        match found {
+            None => return false,
+            Some(rel) => {
+                let start = from + rel;
+                if rest
+                    .iter()
+                    .zip(&haystack[start + 1..start + n])
+                    .all(|(right, left)| left.to_ascii_lowercase() == *right)
+                {
+                    return true;
+                }
+                from = start + 1;
+            }
+        }
+    }
 }
 
 /// Extract link targets from markdown text: Obsidian wikilinks `[[T]]`,
