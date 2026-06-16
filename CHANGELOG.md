@@ -42,6 +42,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
   top-level tree entry count.
 - Push skips blob-candidate collection when the changeset has no blob
   entries.
+- Pull fetches the current and base tree maps in a single blocking task
+  instead of two separate `open_bare` + full-tree walks.
 
 ## [1.4.3] - 2026-06-15
 

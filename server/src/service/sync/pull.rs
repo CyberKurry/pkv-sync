@@ -108,16 +108,21 @@ async fn pull_for_user(
             deleted: vec![],
         });
     };
-    let current = git
-        .list_tree_map(vault_id, Some(&h))
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-    let base = match since {
-        Some(s) => git
-            .list_tree_map(vault_id, Some(s))
-            .await
-            .map_err(|e| ApiError::internal(e.to_string()))?,
-        None => std::collections::BTreeMap::new(),
+    let (current, base) = match since {
+        Some(s) => {
+            let [cur, b] = git
+                .list_tree_maps(vault_id, [Some(h.as_str()), Some(s)])
+                .await
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            (cur, b)
+        }
+        None => {
+            let cur = git
+                .list_tree_map(vault_id, Some(&h))
+                .await
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            (cur, std::collections::BTreeMap::new())
+        }
     };
     if current.len() > max_tree_entries || base.len() > max_tree_entries {
         return Err(ApiError::new(

@@ -254,6 +254,25 @@ impl Git2VaultStore {
         Ok(entries.into_iter().map(|e| (e.path.clone(), e)).collect())
     }
 
+    pub async fn list_tree_maps(
+        &self,
+        vault_id: &str,
+        ats: [Option<&str>; 2],
+    ) -> Result<[std::collections::BTreeMap<String, TreeEntry>; 2], GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let at0 = ats[0].map(|s| s.to_string());
+        let at1 = ats[1].map(|s| s.to_string());
+        let (map0, map1) = tokio::task::spawn_blocking(move || -> Result<_, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let map0 = collect_tree_map(&repo, at0.as_deref())?;
+            let map1 = collect_tree_map(&repo, at1.as_deref())?;
+            Ok((map0, map1))
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)??;
+        Ok([map0, map1])
+    }
+
     pub async fn file_size_at(
         &self,
         vault_id: &str,
@@ -846,6 +865,21 @@ fn remove_if_present(builder: &mut git2::TreeBuilder<'_>, name: &str) -> Result<
         builder.remove(name)?;
     }
     Ok(())
+}
+
+fn collect_tree_map(
+    repo: &Repository,
+    at: Option<&str>,
+) -> Result<std::collections::BTreeMap<String, TreeEntry>, GitStoreError> {
+    let oid = match at {
+        Some(h) => Oid::from_str(h)?,
+        None => main_ref_target(repo)?.ok_or(GitStoreError::NotFound)?,
+    };
+    let commit = repo.find_commit(oid)?;
+    let tree = commit.tree()?;
+    let mut out = Vec::with_capacity(tree.len());
+    tree_entries_recursive(repo, &tree, "", 0, &mut out)?;
+    Ok(out.into_iter().map(|e| (e.path.clone(), e)).collect())
 }
 
 fn tree_entries_recursive(
