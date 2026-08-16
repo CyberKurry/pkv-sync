@@ -9,6 +9,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Security
 
+- Build-only devDependency advisories cleared: `nanoid` pinned to a patched
+  version and `postcss` bumped to a patched release (both transitive via the
+  vitest/vite toolchain; no runtime impact, no lockfile regeneration).
+
 - Docker self-upgrade overlay hardening: the `updater` network is now
   `internal` (the socket proxy is unreachable from outside and has no
   egress path), the updater container drops all Linux capabilities and
