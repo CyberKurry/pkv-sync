@@ -40,13 +40,15 @@ export function normalizeIndex(raw: unknown): LocalIndex {
   };
 }
 
-export function markSynced(
+function applyFilesAndDeletes(
   index: LocalIndex,
   commit: string | null,
-  files: LocalFileSnapshot[]
+  files: LocalFileSnapshot[],
+  deletedPaths: string[],
+  advance: boolean
 ): LocalIndex {
   const next: LocalIndex = {
-    lastSyncedCommit: commit,
+    lastSyncedCommit: advance ? commit : index.lastSyncedCommit,
     files: copyFiles(index.files)
   };
   const now = Date.now();
@@ -59,7 +61,16 @@ export function markSynced(
       size: file.size
     };
   }
+  for (const path of deletedPaths) delete next.files[path];
   return next;
+}
+
+export function markSynced(
+  index: LocalIndex,
+  commit: string | null,
+  files: LocalFileSnapshot[]
+): LocalIndex {
+  return applyFilesAndDeletes(index, commit, files, [], true);
 }
 
 /**
@@ -72,21 +83,22 @@ export function markFilesSynced(
   index: LocalIndex,
   files: LocalFileSnapshot[]
 ): LocalIndex {
-  const next: LocalIndex = {
-    lastSyncedCommit: index.lastSyncedCommit,
-    files: copyFiles(index.files)
-  };
-  const now = Date.now();
-  for (const file of files) {
-    next.files[file.path] = {
-      lastSyncedHash: file.hash,
-      lastSyncedAt: now,
-      lastSyncedMtime: file.mtime,
-      kind: file.kind,
-      size: file.size
-    };
-  }
-  return next;
+  return applyFilesAndDeletes(index, index.lastSyncedCommit, files, [], false);
+}
+
+/**
+ * Apply file upserts and deletions in a single index copy. The push batch
+ * path used to call markSynced/markFilesSynced then markDeleted/markFilesDeleted,
+ * copying the whole files map twice per batch; this is the one-copy equivalent.
+ */
+export function markBatch(
+  index: LocalIndex,
+  commit: string | null,
+  files: LocalFileSnapshot[],
+  deletedPaths: string[],
+  advance: boolean
+): LocalIndex {
+  return applyFilesAndDeletes(index, commit, files, deletedPaths, advance);
 }
 
 /**
@@ -97,12 +109,7 @@ export function markFilesDeleted(
   index: LocalIndex,
   paths: string[]
 ): LocalIndex {
-  const next: LocalIndex = {
-    lastSyncedCommit: index.lastSyncedCommit,
-    files: copyFiles(index.files)
-  };
-  for (const path of paths) delete next.files[path];
-  return next;
+  return applyFilesAndDeletes(index, index.lastSyncedCommit, [], paths, false);
 }
 
 export function markDeleted(
@@ -110,12 +117,7 @@ export function markDeleted(
   commit: string | null,
   paths: string[]
 ): LocalIndex {
-  const next: LocalIndex = {
-    lastSyncedCommit: commit,
-    files: copyFiles(index.files)
-  };
-  for (const path of paths) delete next.files[path];
-  return next;
+  return applyFilesAndDeletes(index, commit, [], paths, true);
 }
 
 export function pendingFiles(

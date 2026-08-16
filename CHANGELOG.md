@@ -121,6 +121,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Performance
 
+- Push batch index updates now apply file upserts and deletions in a single
+  index copy instead of two (`markBatch`), halving the per-batch O(N) files
+  map copy that a large initial sync (issue #2) hits hardest. Benchmark on a
+  20,000-file index: 11.98ms per batch -> 5.93ms (2.0x) (PERF-PLUGIN-INDEX-DOUBLE-COPY).
+
 ## [1.4.5] - 2026-06-16
 
 ### Security

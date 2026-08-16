@@ -10,6 +10,7 @@ import { conflictPath } from "./conflict";
 import { sha256Bytes, sha256Text, sha256TextWithLength } from "./hash";
 import { guessMime } from "./mime";
 import {
+  markBatch,
   markDeleted,
   markFilesDeleted,
   markFilesSynced,
@@ -370,12 +371,8 @@ export class SyncEngine {
 
       if (!hasNonClean) {
       // All-clean (or field absent) — fast path: advance head immediately
-        const pendingFiles = hydrated;
-        const deletedPaths = batchDeleted;
         await this.opts.index.updateIndex((current) => {
-          let next = markSynced(current, response.new_commit, pendingFiles);
-          next = markDeleted(next, response.new_commit, deletedPaths);
-          return next;
+          return markBatch(current, response.new_commit, hydrated, batchDeleted, true);
         });
         ifMatch = response.new_commit;
       } else {
@@ -383,12 +380,8 @@ export class SyncEngine {
       // The subsequent pull will bring the merged content and advance head.
       // Use updateIndex to avoid regressing lastSyncedCommit if a concurrent
       // SSE event advanced it between our scan and this write.
-        const pendingFiles = hydrated;
-        const deletedPaths = batchDeleted;
         await this.opts.index.updateIndex((current) => {
-          let next = markFilesSynced(current, pendingFiles);
-          next = markFilesDeleted(next, deletedPaths);
-          return next;
+          return markBatch(current, current.lastSyncedCommit, hydrated, batchDeleted, false);
         });
       }
     }
