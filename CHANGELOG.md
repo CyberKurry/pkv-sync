@@ -76,11 +76,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
   configs) actually sync. Obsidian's `vault.getFiles()` reads the file
   cache, which does not index `.obsidian`, so those files were never
   discovered even when the allowlist matched (issue #1).
-- Obsidian plugin: the vault scan drops the loaded content/bytes of files
-  whose hash already matches the local index, bounding memory during a
-  scan. Previously every file's full content was held in RAM at once,
-  which crashed the Obsidian mobile app on vaults with thousands of files
-  (issue #2). Changed files still carry their content for push/conflicts.
+- Obsidian plugin: the vault scan no longer retains payloads for the whole
+  initial sync. Pending files are re-read only for the current bounded push
+  batch, and more than 1000 changes are split across sequential commits
+  instead of being rejected. This bounds memory on large mobile vaults
+  while preserving the issue #2 fix for unchanged files.
 - MCP Streamable HTTP SSE reconnect now subscribes to live events BEFORE
   replaying history (previously a commit landing between the history
   snapshot and the live subscription was lost), and deduplicates commits

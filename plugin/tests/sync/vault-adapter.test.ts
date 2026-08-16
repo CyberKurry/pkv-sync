@@ -173,6 +173,27 @@ describe("ObsidianVaultAdapter", () => {
     expect(changedSnapshot.content).toBe("changed!");
   });
 
+  it("can scan an initial sync without retaining file payloads", async () => {
+    const file = tfile("initial.md", { size: 5 });
+    const vault = new FakeVault();
+    vault.files = [file];
+    vi.spyOn(vault, "read").mockResolvedValue("hello");
+    const adapter = new ObsidianVaultAdapter(vault as any);
+
+    const snapshots = await adapter.scan(new Set(["md"]), undefined, {
+      retainPayload: false
+    });
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({
+      path: "initial.md",
+      kind: "text",
+      size: 5,
+      hash: expect.any(String)
+    });
+    expect(snapshots[0].content).toBeUndefined();
+  });
+
   it("creates parent folders before writing a missing nested text file", async () => {
     const vault = new FakeVault();
     const adapter = new ObsidianVaultAdapter(vault as any);

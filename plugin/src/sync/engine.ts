@@ -26,6 +26,7 @@ import {
 } from "./vault-adapter";
 
 const BLOB_UPLOAD_CONCURRENCY = 4;
+const MAX_PUSH_CHANGES = 1000;
 
 interface PendingScan {
   pending: LocalFileSnapshot[];
@@ -201,7 +202,9 @@ export class SyncEngine {
     index: LocalIndex;
   }> {
     const index = await this.opts.index.loadIndex();
-    const current = await this.opts.vault.scan(this.opts.textExtensions, index);
+    const current = await this.opts.vault.scan(this.opts.textExtensions, index, {
+      retainPayload: false
+    });
     return this.scanPendingFrom(index, current);
   }
 
@@ -294,80 +297,117 @@ export class SyncEngine {
     const { pending, deleted, index } = scan ?? await this.scanPending();
     if (pending.length === 0 && deleted.length === 0) return;
 
-    const blobFiles = pending.filter((file) => file.kind === "blob");
-    const blobHashes = blobFiles.map((file) => file.hash);
-    const missing =
-      blobHashes.length > 0
-        ? (await this.opts.api.uploadCheck(this.opts.vaultId, blobHashes)).missing
-        : [];
-    const missingSet = new Set(missing);
-    await uploadMissingBlobs(
-      this.opts.api,
-      this.opts.vaultId,
-      blobFiles.filter((file) => missingSet.has(file.hash))
-    );
-
-    const changes: PushChange[] = [
-      ...pending.map((file) => {
-        if (file.kind === "text") {
-          return {
-            kind: "text" as const,
-            path: file.path,
-            content: file.content ?? ""
-          };
-        }
-        return {
-          kind: "blob" as const,
-          path: file.path,
-          blob_hash: file.hash,
-          size: file.size,
-          mime: guessMime(file.path)
-        };
-      }),
+    type PendingPushItem =
+      | { kind: "file"; file: LocalFileSnapshot }
+      | { kind: "delete"; path: string };
+    const items: PendingPushItem[] = [
+      ...pending.map((file) => ({ kind: "file" as const, file })),
       ...deleted.map((path) => ({ kind: "delete" as const, path }))
     ];
-    if (changes.length > 1000) {
-      throw new Error(
-        "Too many pending changes for one sync pass; run manual sync after reducing batch size"
-      );
-    }
+    let ifMatch = index.lastSyncedCommit;
 
-    const response = await this.opts.api.push(
-      this.opts.vaultId,
-      index.lastSyncedCommit,
-      changes,
-      this.opts.deviceName
-    );
+    for (let offset = 0; offset < items.length; offset += MAX_PUSH_CHANGES) {
+      const batch = items.slice(offset, offset + MAX_PUSH_CHANGES);
+      const batchPending = batch
+        .filter(
+          (item): item is { kind: "file"; file: LocalFileSnapshot } =>
+            item.kind === "file"
+        )
+        .map((item) => item.file);
+      const batchDeleted = batch
+        .filter(
+          (item): item is { kind: "delete"; path: string } =>
+            item.kind === "delete"
+        )
+        .map((item) => item.path);
+      const hydrated = await this.hydratePendingFiles(batchPending);
+
+      const blobFiles = hydrated.filter((file) => file.kind === "blob");
+      const blobHashes = blobFiles.map((file) => file.hash);
+      const missing =
+        blobHashes.length > 0
+          ? (await this.opts.api.uploadCheck(this.opts.vaultId, blobHashes)).missing
+          : [];
+      const missingSet = new Set(missing);
+      await uploadMissingBlobs(
+        this.opts.api,
+        this.opts.vaultId,
+        blobFiles.filter((file) => missingSet.has(file.hash))
+      );
+
+      const changes: PushChange[] = [
+        ...hydrated.map((file) => {
+          if (file.kind === "text") {
+            return {
+              kind: "text" as const,
+              path: file.path,
+              content: file.content ?? ""
+            };
+          }
+          return {
+            kind: "blob" as const,
+            path: file.path,
+            blob_hash: file.hash,
+            size: file.size,
+            mime: guessMime(file.path)
+          };
+        }),
+        ...batchDeleted.map((path) => ({ kind: "delete" as const, path }))
+      ];
+      const response = await this.opts.api.push(
+        this.opts.vaultId,
+        ifMatch,
+        changes,
+        this.opts.deviceName
+      );
 
     // Check if any merge outcome is non-clean (merged or conflict).
     // If so, record per-file hashes but do NOT advance lastSyncedCommit
     // so the subsequent pull includes the merge commit in its range.
-    const hasNonClean = response.merge_outcomes?.some(
-      (o) => o.outcome !== "clean"
-    ) ?? false;
+      const hasNonClean = response.merge_outcomes?.some(
+        (o) => o.outcome !== "clean"
+      ) ?? false;
 
-    if (!hasNonClean) {
+      if (!hasNonClean) {
       // All-clean (or field absent) — fast path: advance head immediately
-      const pendingFiles = pending;
-      const deletedPaths = deleted;
-      await this.opts.index.updateIndex((current) => {
-        let next = markSynced(current, response.new_commit, pendingFiles);
-        next = markDeleted(next, response.new_commit, deletedPaths);
-        return next;
-      });
-    } else {
+        const pendingFiles = hydrated;
+        const deletedPaths = batchDeleted;
+        await this.opts.index.updateIndex((current) => {
+          let next = markSynced(current, response.new_commit, pendingFiles);
+          next = markDeleted(next, response.new_commit, deletedPaths);
+          return next;
+        });
+        ifMatch = response.new_commit;
+      } else {
       // Non-clean merge outcome — per-file hashes recorded, HEAD STAYS.
       // The subsequent pull will bring the merged content and advance head.
       // Use updateIndex to avoid regressing lastSyncedCommit if a concurrent
       // SSE event advanced it between our scan and this write.
-      const pendingFiles = pending;
-      const deletedPaths = deleted;
-      await this.opts.index.updateIndex((current) => {
-        let next = markFilesSynced(current, pendingFiles);
-        next = markFilesDeleted(next, deletedPaths);
-        return next;
-      });
+        const pendingFiles = hydrated;
+        const deletedPaths = batchDeleted;
+        await this.opts.index.updateIndex((current) => {
+          let next = markFilesSynced(current, pendingFiles);
+          next = markFilesDeleted(next, deletedPaths);
+          return next;
+        });
+      }
     }
+  }
+
+  private async hydratePendingFiles(
+    files: LocalFileSnapshot[]
+  ): Promise<LocalFileSnapshot[]> {
+    return Promise.all(
+      files.map(async (file) => {
+        const hasPayload =
+          file.kind === "text"
+            ? file.content !== undefined
+            : file.bytes !== undefined;
+        return hasPayload
+          ? file
+          : this.opts.vault.snapshot(file.path, this.opts.textExtensions);
+      })
+    );
   }
 
   private async pushPendingWithHeadMismatchRetry(

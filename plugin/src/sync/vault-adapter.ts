@@ -18,8 +18,13 @@ export interface VaultAdapter {
   snapshot(path: string, textExtensions: Set<string>): Promise<LocalFileSnapshot>;
   scan(
     textExtensions: Set<string>,
-    previousIndex?: LocalIndex
+    previousIndex?: LocalIndex,
+    options?: VaultScanOptions
   ): Promise<LocalFileSnapshot[]>;
+}
+
+export interface VaultScanOptions {
+  retainPayload?: boolean;
 }
 
 export class ObsidianVaultAdapter implements VaultAdapter {
@@ -109,7 +114,8 @@ export class ObsidianVaultAdapter implements VaultAdapter {
 
   async scan(
     textExtensions: Set<string>,
-    previousIndex?: LocalIndex
+    previousIndex?: LocalIndex,
+    options?: VaultScanOptions
   ): Promise<LocalFileSnapshot[]> {
     const files = this.listFiles().filter((file) => shouldSyncPath(file.path));
     const out: LocalFileSnapshot[] = [];
@@ -122,10 +128,13 @@ export class ObsidianVaultAdapter implements VaultAdapter {
       for (const [batchIndex, result] of results.entries()) {
         if (result.status === "rejected") throw result.reason;
         const snapshot = result.value;
-        // Bound memory on mobile: an unchanged file only needs its metadata
-        // for the pending diff (push re-reads content for changed files), so
-        // drop the loaded content instead of holding every file in RAM at once.
-        if (previousIndex?.files[snapshot.path]?.lastSyncedHash === snapshot.hash) {
+        // The initial scan can contain thousands of changed files. Let the
+        // caller retain only metadata and hydrate each bounded push batch
+        // immediately before upload instead of keeping every payload in RAM.
+        if (
+          options?.retainPayload === false ||
+          previousIndex?.files[snapshot.path]?.lastSyncedHash === snapshot.hash
+        ) {
           delete snapshot.content;
           delete snapshot.bytes;
         }

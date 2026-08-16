@@ -12,7 +12,11 @@ class FakeVault {
 
   constructor(public files: LocalFileSnapshot[]) {}
 
-  async scan(): Promise<LocalFileSnapshot[]> {
+  async scan(
+    _textExtensions?: Set<string>,
+    _previousIndex?: LocalIndex,
+    _options?: { retainPayload?: boolean }
+  ): Promise<LocalFileSnapshot[]> {
     return this.files;
   }
 
@@ -53,6 +57,34 @@ class FakeVault {
   async trash(path: string): Promise<void> {
     this.deletions.push(path);
     this.files = this.files.filter((file) => file.path !== path);
+  }
+}
+
+class MetadataBatchVault extends FakeVault {
+  scanOptions: unknown;
+  snapshotCalls: string[] = [];
+
+  async scan(
+    _textExtensions?: Set<string>,
+    _previousIndex?: LocalIndex,
+    options?: { retainPayload?: boolean }
+  ): Promise<LocalFileSnapshot[]> {
+    this.scanOptions = options;
+    return this.files.map(({ content: _content, bytes: _bytes, ...metadata }) => metadata);
+  }
+
+  async snapshot(
+    path: string,
+    _textExtensions: Set<string>
+  ): Promise<LocalFileSnapshot> {
+    this.snapshotCalls.push(path);
+    const file = this.files.find((entry) => entry.path === path);
+    if (!file) throw new Error(`not found: ${path}`);
+    return {
+      ...file,
+      content: file.kind === "text" ? `content-${path}` : undefined,
+      bytes: file.kind === "blob" ? new Uint8Array([1, 2, 3]).buffer : undefined
+    };
   }
 }
 
@@ -184,6 +216,58 @@ describe("SyncEngine push", () => {
     ], "d");
     expect(idx.saved?.lastSyncedCommit).toBe("c1");
     expect(idx.saved?.files["a.md"].lastSyncedHash).toBe("h");
+  });
+
+  it("hydrates and pushes an initial sync in batches", async () => {
+    const fileCount = 1001;
+    const idx = new FakeIndex({ lastSyncedCommit: null, files: {} });
+    const vault = new MetadataBatchVault(
+      Array.from({ length: fileCount }, (_, index) => ({
+        path: `note-${index}.md`,
+        hash: `hash-${index}`,
+        size: 1,
+        kind: "text" as const
+      }))
+    );
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c2",
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn()
+        .mockResolvedValueOnce({ new_commit: "c1", files_changed: 1000 })
+        .mockResolvedValueOnce({ new_commit: "c2", files_changed: 1 }),
+      downloadBlob: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    expect(vault.scanOptions).toEqual({ retainPayload: false });
+    expect(vault.snapshotCalls).toHaveLength(fileCount);
+    expect(api.push).toHaveBeenCalledTimes(2);
+    expect(api.push.mock.calls[0][1]).toBeNull();
+    expect(api.push.mock.calls[0][2]).toHaveLength(1000);
+    expect(api.push.mock.calls[1][1]).toBe("c1");
+    expect(api.push.mock.calls[1][2]).toEqual([
+      { kind: "text", path: "note-1000.md", content: "content-note-1000.md" }
+    ]);
+    expect(idx.saved?.lastSyncedCommit).toBe("c2");
+    expect(Object.keys(idx.saved?.files ?? {})).toHaveLength(fileCount);
   });
 
   it("reuses the unchanged pull scan when pushing pending files", async () => {
