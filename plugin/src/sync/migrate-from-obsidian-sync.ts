@@ -1,8 +1,7 @@
 import { TFile, TFolder } from "obsidian";
 import type { VaultSummary } from "../api/types";
-import { sha256Bytes, sha256Text } from "./hash";
+import { sha256Bytes, sha256TextWithLength } from "./hash";
 import { guessMime } from "./mime";
-import { textByteLength } from "./text-encoding";
 import type { LocalFileSnapshot, LocalIndex, PushChange, PushResponse, StateResponse } from "./types";
 import { errorToMessage, isTextPath } from "../util";
 import { HARD_EXCLUDE_GLOBS, createExcludeMatcher, isHiddenPath } from "./exclude";
@@ -306,10 +305,11 @@ async function snapshotMigrationFile(
 
   if (isTextPath(path, textExtensions)) {
     const content = await vault.read(file);
+    const { hash, byteLength } = await sha256TextWithLength(content);
     return {
       path,
-      hash: await sha256Text(content),
-      size: textByteLength(content),
+      hash,
+      size: byteLength,
       kind: "text",
       content
     };

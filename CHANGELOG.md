@@ -121,6 +121,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Performance
 
+- Text snapshot hashing now uses `sha256TextWithLength`, producing the SHA-256
+  and the UTF-8 byte length from a single `TextEncoder.encode` instead of two
+  encodings; identical hash/size/payload semantics (PERF-PLUGIN-HASH-WITH-LENGTH).
 - Push batch index updates now apply file upserts and deletions in a single
   index copy instead of two (`markBatch`), halving the per-batch O(N) files
   map copy that a large initial sync (issue #2) hits hardest. Benchmark on a

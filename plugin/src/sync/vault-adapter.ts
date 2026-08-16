@@ -1,7 +1,6 @@
 import { TFile, TFolder, type Vault } from "obsidian";
 import { isConflictPath } from "./conflict-files";
-import { sha256Bytes, sha256Text } from "./hash";
-import { textByteLength } from "./text-encoding";
+import { sha256Bytes, sha256TextWithLength } from "./hash";
 import type { LocalFileSnapshot, LocalIndex } from "./types";
 import { isTextPath } from "../util";
 
@@ -92,10 +91,11 @@ export class ObsidianVaultAdapter implements VaultAdapter {
     const file = this.requireFile(path);
     if (isTextPath(path, textExtensions)) {
       const content = await this.readText(path);
+      const { hash, byteLength } = await sha256TextWithLength(content);
       return {
         path,
-        hash: await sha256Text(content),
-        size: textByteLength(content),
+        hash,
+        size: byteLength,
         mtime: file.stat.mtime,
         kind: "text",
         content
