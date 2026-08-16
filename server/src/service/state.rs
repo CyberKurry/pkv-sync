@@ -15,12 +15,42 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, Notify, RwLock};
+use tokio::sync::{watch, Mutex, Notify, RwLock};
 
 type VaultPushLocks = Arc<DashMap<String, Arc<Mutex<()>>>>;
 type VaultPathFilterCache = Arc<DashMap<String, CachedVaultPathFilter>>;
 const DEFAULT_SSE_PER_USER_LIMIT: usize = 16;
 const DEFAULT_SSE_GLOBAL_CEILING: usize = 1024;
+
+/// Broadcast flag for graceful shutdown. Long-lived handlers (SSE streams)
+/// select on it so `axum::serve(...).with_graceful_shutdown(...)` can finish
+/// instead of waiting forever for connections that would otherwise never
+/// close (BUG-R3-11).
+#[derive(Clone)]
+pub struct ShutdownSignal {
+    tx: Arc<watch::Sender<bool>>,
+}
+
+impl ShutdownSignal {
+    pub fn new() -> Self {
+        let (tx, _rx) = watch::channel(false);
+        Self { tx: Arc::new(tx) }
+    }
+
+    pub fn trigger(&self) {
+        let _ = self.tx.send(true);
+    }
+
+    pub fn subscribe(&self) -> watch::Receiver<bool> {
+        self.tx.subscribe()
+    }
+}
+
+impl Default for ShutdownSignal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct CachedVaultPathFilter {
@@ -75,6 +105,7 @@ pub struct AppState {
     pub setup_limiter: crate::middleware::rate_limit::RequestRateLimiter,
     pub update_status: Arc<RwLock<Option<UpdateStatus>>>,
     pub update_check_runtime_changed: Arc<Notify>,
+    pub shutdown: ShutdownSignal,
     /// Wall-clock Unix timestamp of the most recent update check attempt that
     /// returned an HTTP-level success (regardless of whether a new version was
     /// found). `None` means the server hasn't reached the first scheduled tick
@@ -155,6 +186,7 @@ impl AppState {
             ),
             update_status: Arc::new(RwLock::new(None)),
             update_check_runtime_changed: Arc::new(Notify::new()),
+            shutdown: ShutdownSignal::new(),
             last_update_check_at: Arc::new(RwLock::new(None)),
             setup_state: Arc::new(RwLock::new(setup_state)),
             git_available,

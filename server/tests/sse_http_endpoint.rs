@@ -14,12 +14,14 @@ struct TestServer {
     addr: SocketAddr,
     key: String,
     _tmp: tempfile::TempDir,
-    handle: tokio::task::JoinHandle<()>,
+    handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Drop for TestServer {
     fn drop(&mut self) {
-        self.handle.abort();
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
     }
 }
 
@@ -114,7 +116,7 @@ async fn start_test_server_with_sse_limit(
         addr,
         key,
         _tmp: tmp,
-        handle,
+        handle: Some(handle),
     };
 
     for _ in 0..50 {
@@ -471,4 +473,36 @@ async fn sse_records_subscribed_activity() {
     .unwrap();
 
     assert_eq!(row.0, "sse_subscribed");
+}
+
+#[tokio::test]
+async fn graceful_shutdown_closes_open_sse_connections() {
+    let (mut ts, state, raw, vid) = start_test_server().await;
+
+    let sse_resp = auth_headers(
+        client()
+            .get(format!("http://{}/api/vaults/{}/events", ts.addr, vid))
+            .bearer_auth(&raw),
+        &ts.key,
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(sse_resp.status(), reqwest::StatusCode::OK);
+
+    // Keep the SSE connection open and ask the server to shut down. Without
+    // the shutdown signal reaching the SSE loop the server task never
+    // completes (axum waits for the live connection), so this times out.
+    let handle = ts.handle.take().expect("server handle present");
+    let server_exit = tokio::spawn(async move {
+        let _ = handle.await;
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    state.shutdown.trigger();
+
+    tokio::time::timeout(Duration::from_secs(5), server_exit)
+        .await
+        .expect("server task must exit within the timeout despite open SSE connections")
+        .unwrap();
+    let _ = sse_resp;
 }

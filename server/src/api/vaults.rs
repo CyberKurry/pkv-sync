@@ -633,12 +633,17 @@ async fn run_vault_sse_stream<S>(
     S: tokio_stream::Stream<Item = Result<Event, Infallible>> + Unpin,
 {
     let mut auth_interval = tokio::time::interval(Duration::from_secs(15));
+    let mut shutdown = state.shutdown.subscribe();
     loop {
         if tx.is_closed() {
             break;
         }
         tokio::select! {
             _ = tx.closed() => {
+                break;
+            }
+            _ = shutdown.changed() => {
+                // Graceful shutdown: close the stream so the server can exit.
                 break;
             }
             _ = auth_interval.tick() => {

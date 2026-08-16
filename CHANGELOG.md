@@ -53,6 +53,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Graceful shutdown now reaches long-lived SSE connections: the server
+  broadcasts a shutdown signal that vault and embedded-MCP SSE streams
+  select on, so `axum::serve(...).with_graceful_shutdown(...)` completes
+  instead of hanging forever on live EventSource connections (previously
+  the process could only be killed with SIGKILL while any client held an
+  SSE stream open) (BUG-R3-11).
 - Obsidian plugin: conflict-file deletion and server-deletion propagation
   now move files to the system trash instead of deleting them permanently;
   the bulk "Delete conflicts" action (settings tab and command palette)

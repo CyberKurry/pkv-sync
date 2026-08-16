@@ -406,12 +406,13 @@ pub async fn run_with_listener_and_state(
         }
     });
 
+    let shutdown_state = state.clone();
     let app = build_app(state, &cfg, limiter);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(shutdown_signal(shutdown_state))
     .await
     .map_err(|e| crate::Error::Internal(format!("server error: {e}")))?;
     cleanup_handle.abort();
@@ -495,22 +496,36 @@ pub async fn run(cfg: Arc<Config>) -> crate::Result<()> {
     run_with_listener_and_state(cfg, listener, state, limiter).await
 }
 
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+async fn shutdown_signal(state: AppState) {
+    let mut shutdown_rx = state.shutdown.subscribe();
+    if *shutdown_rx.borrow() {
+        return;
+    }
+    let signal = async {
+        let ctrl_c = async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to install Ctrl+C handler");
+        };
+        #[cfg(unix)]
+        let terminate = async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler")
+                .recv()
+                .await;
+        };
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+        tokio::select! { _ = ctrl_c => {}, _ = terminate => {} }
+        // Tell long-lived SSE streams to close so graceful shutdown can
+        // finish instead of waiting on connections that never end (BUG-R3-11).
+        state.shutdown.trigger();
     };
-    #[cfg(unix)]
-    let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
-    };
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-    tokio::select! { _ = ctrl_c => {}, _ = terminate => {} }
+    tokio::pin!(signal);
+    tokio::select! {
+        _ = signal => {}
+        _ = shutdown_rx.changed() => {}
+    }
 }
 
 #[cfg(test)]

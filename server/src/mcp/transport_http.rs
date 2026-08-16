@@ -295,6 +295,7 @@ async fn get_mcp_sse(
     auth_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     auth_interval.tick().await;
     let (tx, rx) = mpsc::channel(16);
+    let shutdown_rx = state.shutdown.subscribe();
     tokio::spawn(run_mcp_sse_stream(
         McpSseState {
             app: state,
@@ -304,6 +305,7 @@ async fn get_mcp_sse(
             replay_items,
             streams,
             auth_interval,
+            shutdown_rx,
             _guard: sse_guard,
         },
         tx,
@@ -321,6 +323,7 @@ struct McpSseState {
     replay_items: VecDeque<McpSseItem>,
     streams: tokio_stream::StreamMap<String, BroadcastStream<crate::service::events::VaultEvent>>,
     auth_interval: Interval,
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
     _guard: crate::service::state::SseSubscriberGuard,
 }
 
@@ -364,6 +367,9 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
         }
         tokio::select! {
             _ = tx.closed() => {
+                break;
+            }
+            _ = sse.shutdown_rx.changed() => {
                 break;
             }
             _ = sse.auth_interval.tick() => {
