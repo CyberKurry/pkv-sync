@@ -9,6 +9,8 @@ import {
   type VaultSummary
 } from "./types";
 
+const REQUEST_TIMEOUT_MS = 120_000;
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -174,12 +176,15 @@ export class ApiClient {
       requestBody = JSON.stringify(body);
     }
 
-    const params: RequestUrlParam = {
+    // Blob uploads can reach 100MB; RequestUrlParam in obsidian.d.ts does
+    // not declare requestTimeout yet, but the runtime honours it.
+    const params: RequestUrlParam & { requestTimeout: number } = {
       url: `${this.opts.serverUrl}${path}`,
       method,
       headers,
       body: requestBody,
-      throw: false
+      throw: false,
+      requestTimeout: REQUEST_TIMEOUT_MS
     };
     const response = await requestUrl(params);
     if (response.status < 200 || response.status >= 300) {

@@ -48,7 +48,8 @@ describe("ApiClient helpers", () => {
         device_id: "dev_123",
         device_name: "Laptop"
       }),
-      throw: false
+      throw: false,
+      requestTimeout: 120_000
     });
 
     mockResponse(
@@ -57,6 +58,7 @@ describe("ApiClient helpers", () => {
     await client.me();
     expect(requestUrlMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
+        requestTimeout: 120_000,
         headers: expect.objectContaining({
           Authorization: "Bearer existing"
         })
@@ -68,6 +70,23 @@ describe("ApiClient helpers", () => {
     expect(
       tryParseError('{"error":{"code":"bad","message":"No"}}', 400)
     ).toEqual({ code: "bad", message: "No" });
+  });
+
+  it("sends every request with a bounded timeout", async () => {
+    mockResponse(
+      '{"server_name":"s","history":true,"diff":true,"push_debounce_ms":null,"supported_text_extensions":[]}'
+    );
+    const client = new ApiClient({
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      pluginVersion: "0.1.0"
+    });
+
+    await client.config();
+
+    expect(requestUrlMock).toHaveBeenCalledWith(
+      expect.objectContaining({ requestTimeout: 120_000 })
+    );
   });
 
   it("falls back when structured error fields are not strings", () => {

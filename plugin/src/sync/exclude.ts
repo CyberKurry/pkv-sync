@@ -46,7 +46,7 @@ function isHardExcluded(path: string, hardExclude: PathMatcher): boolean {
     || path.includes("/.conflict-");
 }
 
-function isHiddenPath(path: string): boolean {
+export function isHiddenPath(path: string): boolean {
   return path.startsWith(".") || path.includes("/.");
 }
 

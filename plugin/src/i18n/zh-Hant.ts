@@ -115,6 +115,11 @@ export const zhHant = {
   conflictFilesSummary: "目前筆記庫中有 {count} 個衝突檔案",
   deleteConflictsButton: "刪除衝突檔案",
   deletedConflictFiles: "已刪除 {count} 個衝突檔案",
+  deleteConflictsConfirmTitle: "刪除衝突檔案",
+  deleteConflictsConfirmMessage:
+    "要將 {count} 個衝突檔案移到系統回收筒嗎？原始筆記會保留。",
+  deleteConflictsConfirmButton: "刪除",
+  deleteConflictsCancelButton: "取消",
   refreshedVaults: "PKV Sync：已重新整理 {count} 個筆記庫",
   refreshFailed: "重新整理失敗",
   statusConnected: "已連線",

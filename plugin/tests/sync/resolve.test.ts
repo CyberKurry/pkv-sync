@@ -15,7 +15,7 @@ function tfile(path: string): TFile {
 }
 
 class FakeVault implements ConflictResolveVault {
-  deleted: string[] = [];
+  trashed: Array<{ path: string; system: boolean }> = [];
   modified: Array<{ path: string; content: string }> = [];
   created: Array<{ path: string; content: string }> = [];
   conflictFile = tfile("note.md.conflict-2026-05-16-143000-abc.md");
@@ -32,8 +32,8 @@ class FakeVault implements ConflictResolveVault {
     return this.options.conflictContent ?? "remote content";
   }
 
-  async delete(file: TFile): Promise<void> {
-    this.deleted.push(file.path);
+  async trash(file: TFile, system: boolean): Promise<void> {
+    this.trashed.push({ path: file.path, system });
   }
 
   async modify(file: TFile, content: string): Promise<void> {
@@ -65,10 +65,10 @@ describe("acceptLocal", () => {
     const pair = conflictPair("remote_copy");
     const vault = new FakeVault();
     await acceptLocal(vault, pair);
-    expect(vault.deleted).toContain(
+    expect(vault.trashed.map((t) => t.path)).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
-    expect(vault.deleted).toHaveLength(1);
+    expect(vault.trashed.map((t) => t.path)).toHaveLength(1);
   });
 });
 
@@ -81,7 +81,7 @@ describe("acceptRemote", () => {
     });
     await acceptRemote(vault, pair);
     expect(vault.modified).toHaveLength(1);
-    expect(vault.deleted).toContain(
+    expect(vault.trashed.map((t) => t.path)).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
   });
@@ -95,7 +95,7 @@ describe("acceptRemote", () => {
     await acceptRemote(vault, pair);
     expect(vault.created).toHaveLength(1);
     expect(vault.created[0].path).toBe("note.md");
-    expect(vault.deleted).toContain(
+    expect(vault.trashed.map((t) => t.path)).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
   });
@@ -116,7 +116,7 @@ describe("markMergeMarkersResolved", () => {
 
     await expect(markMergeMarkersResolved(vault, pair)).resolves.toBe(false);
     expect(vault.modified).toHaveLength(0);
-    expect(vault.deleted).toHaveLength(0);
+    expect(vault.trashed.map((t) => t.path)).toHaveLength(0);
   });
 
   it("copies resolved conflict content to original and deletes conflict file", async () => {
@@ -130,7 +130,7 @@ describe("markMergeMarkersResolved", () => {
     expect(vault.modified).toEqual([
       { path: "note.md", content: "resolved content" }
     ]);
-    expect(vault.deleted).toContain(
+    expect(vault.trashed.map((t) => t.path)).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
   });

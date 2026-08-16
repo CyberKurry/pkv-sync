@@ -2,7 +2,7 @@ import type { TFile } from "obsidian";
 
 export interface ConflictFileVault {
   getFiles(): TFile[];
-  delete(file: TFile): Promise<void>;
+  trash(file: TFile, system: boolean): Promise<void>;
 }
 
 interface ConflictFileReader {
@@ -29,7 +29,7 @@ export async function deleteConflictFiles(
 ): Promise<number> {
   const files = listConflictFiles(vault);
   for (const file of files) {
-    await vault.delete(file);
+    await vault.trash(file, true);
   }
   return files.length;
 }

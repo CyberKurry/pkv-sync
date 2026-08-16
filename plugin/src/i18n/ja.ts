@@ -117,6 +117,11 @@ export const ja = {
   conflictFilesSummary: "この Vault には {count} 件の競合ファイルがあります",
   deleteConflictsButton: "競合を削除",
   deletedConflictFiles: "{count} 件の競合ファイルを削除しました",
+  deleteConflictsConfirmTitle: "競合ファイルを削除",
+  deleteConflictsConfirmMessage:
+    "{count} 件の競合ファイルをシステムのごみ箱へ移動しますか？元のノートは保持されます。",
+  deleteConflictsConfirmButton: "削除",
+  deleteConflictsCancelButton: "キャンセル",
   refreshedVaults: "PKV Sync: {count} 件の Vault を更新しました",
   refreshFailed: "更新に失敗しました",
   statusConnected: "接続済み",

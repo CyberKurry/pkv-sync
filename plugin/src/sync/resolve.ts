@@ -3,7 +3,7 @@ import { hasMergeMarkers, type ConflictPair } from "./conflict-files";
 
 export interface ConflictResolveVault {
   read(file: TFile): Promise<string>;
-  delete(file: TFile): Promise<void>;
+  trash(file: TFile, system: boolean): Promise<void>;
   getAbstractFileByPath(path: string): unknown;
   modify(file: TFile, content: string): Promise<void>;
   create(path: string, content: string): Promise<TFile>;
@@ -27,10 +27,10 @@ async function writeOriginal(
 }
 
 export async function acceptLocal(
-  vault: Pick<ConflictResolveVault, "delete">,
+  vault: Pick<ConflictResolveVault, "trash">,
   pair: ConflictPair
 ): Promise<void> {
-  await vault.delete(pair.conflictFile);
+  await vault.trash(pair.conflictFile, true);
 }
 
 export async function acceptRemote(
@@ -39,7 +39,7 @@ export async function acceptRemote(
 ): Promise<void> {
   const remoteContent = await vault.read(pair.conflictFile);
   await writeOriginal(vault, pair, remoteContent);
-  await vault.delete(pair.conflictFile);
+  await vault.trash(pair.conflictFile, true);
 }
 
 export async function markMergeMarkersResolved(
@@ -49,6 +49,6 @@ export async function markMergeMarkersResolved(
   const resolvedContent = await vault.read(pair.conflictFile);
   if (hasMergeMarkers(resolvedContent)) return false;
   await writeOriginal(vault, pair, resolvedContent);
-  await vault.delete(pair.conflictFile);
+  await vault.trash(pair.conflictFile, true);
   return true;
 }

@@ -69,7 +69,7 @@ class FakeVault {
     throw new Error("not needed for convergence tests");
   }
 
-  async delete(path: string): Promise<void> {
+  async trash(path: string): Promise<void> {
     this.deletions.push(path);
     this.files = this.files.filter((f) => f.path !== path);
   }

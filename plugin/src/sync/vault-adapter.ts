@@ -13,7 +13,7 @@ export interface VaultAdapter {
   readBinary(path: string): Promise<ArrayBuffer>;
   writeText(path: string, content: string): Promise<void>;
   writeBinary(path: string, bytes: ArrayBuffer): Promise<void>;
-  delete(path: string): Promise<void>;
+  trash(path: string): Promise<void>;
   exists(path: string): boolean;
   snapshot(path: string, textExtensions: Set<string>): Promise<LocalFileSnapshot>;
   scan(
@@ -57,10 +57,10 @@ export class ObsidianVaultAdapter implements VaultAdapter {
     }
   }
 
-  async delete(path: string): Promise<void> {
+  async trash(path: string): Promise<void> {
     const safePath = requireSafeVaultPath(path);
     const file = this.vault.getAbstractFileByPath(safePath);
-    if (file) await this.vault.delete(file);
+    if (file) await this.vault.trash(file, true);
   }
 
   exists(path: string): boolean {

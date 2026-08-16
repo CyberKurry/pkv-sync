@@ -38,6 +38,21 @@ export function parseServerUrl(input: string, fallbackKey = ""): ParsedServerUrl
   return { serverUrl: base, deploymentKey };
 }
 
+export function isFetchableServerUrl(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed) return false;
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return false;
+  }
+
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  return isLocalHttpAllowed(url);
+}
+
 export function isLocalHttpAllowed(url: URL): boolean {
   return url.protocol !== "http:" || isLoopbackHost(url.hostname);
 }

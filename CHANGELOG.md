@@ -40,9 +40,24 @@ and this project adheres to semantic versioning starting at v1.0.0.
   `materialize` on a Windows host write files outside the output directory
   (SEC-R3-02); materialize also gained a 256-level tree-depth cap matching
   `pkvsyncd verify` (SEC-R3-25).
+- Obsidian plugin: the "Migrate from Obsidian Sync" flow now defaults to
+  denying hidden paths instead of uploading everything. Other plugins'
+  `data.json` files (which commonly hold plaintext API tokens) and `.env*`
+  files are excluded; only a safe `.obsidian` core allowlist (app,
+  appearance, core-plugins, hotkeys, graph, bookmarks, community-plugins)
+  plus non-hidden files sync (SEC-R3-06). The connection fields no longer
+  trigger network requests carrying the deployment key over unvalidated
+  URLs — `http` to a non-loopback host is refused before any request is
+  sent (SEC-R3-08), and every API request now has a 120s timeout so a
+  stalled server cannot hang the sync engine forever (BUG-R3-16).
 
 ### Fixed
 
+- Obsidian plugin: conflict-file deletion and server-deletion propagation
+  now move files to the system trash instead of deleting them permanently;
+  the bulk "Delete conflicts" action (settings tab and command palette)
+  requires an explicit confirmation dialog showing the file count
+  (BUG-R3-15/17).
 - Blob upload bookkeeping now expires: `blob_uploads` rows older than the GC
   grace period (7 days by default) are dropped during the scheduled blob GC,
   so blobs that were uploaded but never referenced by a push become

@@ -35,6 +35,7 @@ class FakeVault {
   folders = new Map<string, TFolder>();
   createdFolders: string[] = [];
   createdFiles = new Map<string, string>();
+  trashed: Array<{ path: string; system: boolean }> = [];
 
   getFiles(): TFile[] {
     return this.files;
@@ -46,6 +47,11 @@ class FakeVault {
       this.folders.get(path) ??
       null
     );
+  }
+
+  async trash(file: TFile, system: boolean): Promise<void> {
+    this.trashed.push({ path: file.path, system });
+    this.files = this.files.filter((candidate) => candidate.path !== file.path);
   }
 
   async createFolder(path: string): Promise<TFolder> {
@@ -377,6 +383,27 @@ describe("ObsidianVaultAdapter", () => {
 
     expect(vault.createdFolders).toEqual([]);
     expect(vault.createdFiles.size).toBe(0);
+  });
+
+  it("trashes deletions with the system trash instead of deleting permanently", async () => {
+    const vault = new FakeVault();
+    const adapter = new ObsidianVaultAdapter(vault as any);
+
+    await adapter.trash("note.md");
+
+    expect(vault.trashed).toEqual([{ path: "note.md", system: true }]);
+    expect(vault.files.map((file) => file.path)).not.toContain("note.md");
+  });
+
+  it("rejects unsafe trash paths and ignores already-removed files", async () => {
+    const vault = new FakeVault();
+    const adapter = new ObsidianVaultAdapter(vault as any);
+
+    await expect(adapter.trash("../outside.md")).rejects.toThrow(
+      /Unsafe sync path/
+    );
+    await expect(adapter.trash("missing.md")).resolves.toBeUndefined();
+    expect(vault.trashed).toEqual([]);
   });
 
   it("allows writing generated conflict files without making them syncable", async () => {

@@ -5,7 +5,7 @@ import { guessMime } from "./mime";
 import { textByteLength } from "./text-encoding";
 import type { LocalFileSnapshot, LocalIndex, PushChange, PushResponse, StateResponse } from "./types";
 import { errorToMessage, isTextPath } from "../util";
-import { HARD_EXCLUDE_GLOBS, createExcludeMatcher } from "./exclude";
+import { HARD_EXCLUDE_GLOBS, createExcludeMatcher, isHiddenPath } from "./exclude";
 
 const COMMUNITY_PLUGINS_PATH = ".obsidian/community-plugins.json";
 const SYNC_DIR_PATH = ".obsidian/sync";
@@ -259,8 +259,21 @@ const MIGRATION_EXTRA_GLOBS = [
   ".obsidian/cache",
   ".obsidian/sync/**",
   ".obsidian/plugins/pkv-sync/**",
+  ".obsidian/plugins/**",
+  "**/.env*",
   "**/.DS_Store",
   "**/Thumbs.db"
+];
+
+const MIGRATION_OBSIDIAN_CORE_GLOBS = [
+  ".obsidian/app.json",
+  ".obsidian/appearance.json",
+  ".obsidian/core-plugins.json",
+  ".obsidian/core-plugins-migration.json",
+  ".obsidian/hotkeys.json",
+  ".obsidian/graph.json",
+  ".obsidian/bookmarks.json",
+  ".obsidian/community-plugins.json"
 ];
 
 const migrationExcludeMatcher = createExcludeMatcher([
@@ -268,8 +281,15 @@ const migrationExcludeMatcher = createExcludeMatcher([
   ...MIGRATION_EXTRA_GLOBS
 ]);
 
+const migrationObsidianCoreMatcher = createExcludeMatcher(
+  MIGRATION_OBSIDIAN_CORE_GLOBS
+);
+
 function isMigrationExcluded(path: string): boolean {
-  return migrationExcludeMatcher(path.replace(/\\/g, "/"));
+  const normalized = path.replace(/\\/g, "/");
+  if (migrationExcludeMatcher(normalized)) return true;
+  if (migrationObsidianCoreMatcher(normalized)) return false;
+  return isHiddenPath(normalized);
 }
 
 function fileSize(file: TFile): number {

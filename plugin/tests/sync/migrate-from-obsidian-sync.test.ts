@@ -192,6 +192,63 @@ describe("scanVaultForMigration", () => {
     expect(result.skippedCount).toBe(13);
     expect(result.totalBytes).toBe(46);
   });
+
+  it("excludes other plugins' plaintext credentials from migration uploads", () => {
+    const vault = new FakeVault();
+    vault.addFile(".obsidian/plugins/other-plugin/data.json", 40);
+    vault.addFile(".obsidian/plugins/other-plugin/main.js", 20);
+    vault.addFile(".obsidian/app.json", 30);
+    vault.addFile("notes/x.md", 10);
+
+    const result = scanVaultForMigration(vault);
+
+    expect(result.files.map((file) => file.path)).toEqual([
+      ".obsidian/app.json",
+      "notes/x.md"
+    ]);
+    expect(result.skippedCount).toBe(2);
+  });
+
+  it("excludes root and nested .env files from migration uploads", () => {
+    const vault = new FakeVault();
+    vault.addFile(".env", 10);
+    vault.addFile(".env.local", 10);
+    vault.addFile("config/.env.production", 10);
+    vault.addFile("notes/keep.md", 10);
+
+    const result = scanVaultForMigration(vault);
+
+    expect(result.files.map((file) => file.path)).toEqual(["notes/keep.md"]);
+    expect(result.skippedCount).toBe(3);
+  });
+
+  it("default-denies hidden paths outside the safe .obsidian core allowlist", () => {
+    const vault = new FakeVault();
+    vault.addFile(".obsidian/appearance.json", 10);
+    vault.addFile(".obsidian/core-plugins.json", 10);
+    vault.addFile(".obsidian/core-plugins-migration.json", 10);
+    vault.addFile(".obsidian/hotkeys.json", 10);
+    vault.addFile(".obsidian/graph.json", 10);
+    vault.addFile(".obsidian/bookmarks.json", 10);
+    vault.addFile(".obsidian/community-plugins.json", 10);
+    vault.addFile(".obsidian/templates/daily.md", 10);
+    vault.addFile(".obsidian/themes/minus.css", 10);
+    vault.addFile(".vscode/settings.json", 10);
+    vault.addFile("notes/.hidden.md", 10);
+
+    const result = scanVaultForMigration(vault);
+
+    expect(result.files.map((file) => file.path)).toEqual([
+      ".obsidian/appearance.json",
+      ".obsidian/core-plugins.json",
+      ".obsidian/core-plugins-migration.json",
+      ".obsidian/hotkeys.json",
+      ".obsidian/graph.json",
+      ".obsidian/bookmarks.json",
+      ".obsidian/community-plugins.json"
+    ]);
+    expect(result.skippedCount).toBe(4);
+  });
 });
 
 describe("migrateToPkv", () => {

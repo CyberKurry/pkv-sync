@@ -125,6 +125,11 @@ export const ko = {
   conflictFilesSummary: "이 vault에 충돌 파일 {count}개가 있습니다",
   deleteConflictsButton: "충돌 삭제",
   deletedConflictFiles: "충돌 파일 {count}개를 삭제했습니다",
+  deleteConflictsConfirmTitle: "충돌 파일 삭제",
+  deleteConflictsConfirmMessage:
+    "충돌 파일 {count}개를 시스템 휴지통으로 이동할까요? 원본 노트는 유지됩니다.",
+  deleteConflictsConfirmButton: "삭제",
+  deleteConflictsCancelButton: "취소",
   refreshedVaults: "PKV Sync: vault {count}개를 새로 고쳤습니다",
   refreshFailed: "새로 고침 실패",
   statusConnected: "연결됨",

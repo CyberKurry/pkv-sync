@@ -115,6 +115,11 @@ export const zh = {
   conflictFilesSummary: "当前库中有 {count} 个冲突文件",
   deleteConflictsButton: "删除冲突文件",
   deletedConflictFiles: "已删除 {count} 个冲突文件",
+  deleteConflictsConfirmTitle: "删除冲突文件",
+  deleteConflictsConfirmMessage:
+    "将 {count} 个冲突文件移入系统回收站？原始笔记会保留。",
+  deleteConflictsConfirmButton: "删除",
+  deleteConflictsCancelButton: "取消",
   refreshedVaults: "PKV Sync：已刷新 {count} 个库",
   refreshFailed: "刷新失败",
   statusConnected: "已连接",

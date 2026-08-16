@@ -467,7 +467,7 @@ export class SyncEngine {
         if (isLocalDirty(local, indexed?.lastSyncedHash)) {
           await this.writeConflict(path, local);
         }
-        await this.opts.vault.delete(path);
+        await this.opts.vault.trash(path);
         deleted.push(path);
       }
     } catch (error) {
@@ -636,7 +636,7 @@ export class SyncEngine {
           return index;
         }
       }
-      await this.opts.vault.delete(path);
+      await this.opts.vault.trash(path);
       return markDeleted(index, commit, [path]);
     });
   }

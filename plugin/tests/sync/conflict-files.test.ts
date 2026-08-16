@@ -18,6 +18,7 @@ function tfile(path: string): TFile {
 
 class FakeVault {
   deleted: string[] = [];
+  trashed: Array<{ path: string; system: boolean }> = [];
 
   constructor(
     private files: TFile[],
@@ -28,8 +29,8 @@ class FakeVault {
     return this.files;
   }
 
-  async delete(file: TFile): Promise<void> {
-    this.deleted.push(file.path);
+  async trash(file: TFile, system: boolean): Promise<void> {
+    this.trashed.push({ path: file.path, system });
     this.files = this.files.filter(
       (candidate) => candidate.path !== file.path
     );
@@ -52,7 +53,7 @@ describe("conflict file helpers", () => {
     expect(isConflictPath("folder.conflict-backup/note.md")).toBe(false);
   });
 
-  it("lists and deletes conflict files in one pass", async () => {
+  it("lists and trashes conflict files in one pass", async () => {
     const vault = new FakeVault([
       tfile("note.md"),
       tfile("note.conflict-2026-04-29-143022-laptop.md"),
@@ -66,10 +67,11 @@ describe("conflict file helpers", () => {
     ]);
 
     await expect(deleteConflictFiles(vault)).resolves.toBe(2);
-    expect(vault.deleted).toEqual([
-      "note.conflict-2026-04-29-143022-laptop.md",
-      "folder/image.conflict-2026-04-29-120000-phone.png"
+    expect(vault.trashed).toEqual([
+      { path: "note.conflict-2026-04-29-143022-laptop.md", system: true },
+      { path: "folder/image.conflict-2026-04-29-120000-phone.png", system: true }
     ]);
+    expect(listConflictFiles(vault)).toHaveLength(0);
   });
 });
 

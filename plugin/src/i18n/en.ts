@@ -115,6 +115,11 @@ export const en = {
   conflictFilesSummary: "{count} conflict file(s) in this vault",
   deleteConflictsButton: "Delete conflicts",
   deletedConflictFiles: "Deleted {count} conflict file(s)",
+  deleteConflictsConfirmTitle: "Delete conflict files",
+  deleteConflictsConfirmMessage:
+    "Move {count} conflict file(s) to the system trash? Original notes are kept.",
+  deleteConflictsConfirmButton: "Delete",
+  deleteConflictsCancelButton: "Cancel",
   refreshedVaults: "PKV Sync: refreshed {count} vault(s)",
   refreshFailed: "refresh failed",
   statusConnected: "connected",

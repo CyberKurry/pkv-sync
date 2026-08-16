@@ -59,7 +59,7 @@ class FakeVault {
       });
   }
 
-  async delete(path: string): Promise<void> {
+  async trash(path: string): Promise<void> {
     this.deletions.push(path);
     this.files = this.files.filter((file) => file.path !== path);
   }

@@ -37,6 +37,7 @@ import {
   deleteConflictFiles,
   findConflictPairsForPath,
   findConflictPairsForPathWithKinds,
+  listConflictFiles,
   type ConflictPair
 } from "./sync/conflict-files";
 import { registerCommands } from "./commands";
@@ -54,9 +55,11 @@ import { SyncStatusModal } from "./ui/sync-modal";
 import { addConflictResolveMenuItem } from "./ui/conflict-menu";
 import { ConflictsListModal } from "./ui/conflicts-list-modal";
 import { ConflictResolveModal } from "./ui/conflict-resolve-modal";
+import { DeleteConflictsConfirmModal } from "./ui/delete-conflicts-confirm";
 import { MigrateModal } from "./ui/migrate-modal";
 import { SyncStatusBar } from "./ui/status-bar";
 import { formatRelativeUnixSeconds, formatUnixSeconds } from "./time";
+import { isFetchableServerUrl } from "./url";
 import { SerializedPluginDataStore } from "./plugin-store";
 import {
   recoverPendingUpdate,
@@ -372,7 +375,10 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   private async refreshServerCapabilities(): Promise<void> {
-    if (!this.settings.serverUrl || !this.settings.deploymentKey) {
+    if (
+      !isFetchableServerUrl(this.settings.serverUrl) ||
+      !this.settings.deploymentKey
+    ) {
       this.serverCapabilities = null;
       return;
     }
@@ -834,11 +840,34 @@ export default class PKVSyncPlugin extends Plugin {
   async deleteConflictFiles(): Promise<number> {
     const t = this.text();
     try {
+      const count = listConflictFiles(this.app.vault).length;
+      if (count === 0) {
+        new Notice(t.noConflictFiles);
+        return 0;
+      }
+      return await new Promise<number>((resolve) => {
+        new DeleteConflictsConfirmModal({
+          app: this.app,
+          count,
+          labels: t,
+          onConfirm: async () => {
+            resolve(await this.trashConflictFiles());
+          },
+          onClose: () => resolve(0)
+        }).open();
+      });
+    } catch (error) {
+      new Notice(errorToMessage(error));
+      return 0;
+    }
+  }
+
+  private async trashConflictFiles(): Promise<number> {
+    const t = this.text();
+    try {
       const count = await deleteConflictFiles(this.app.vault);
       new Notice(
-        count
-          ? format(t.deletedConflictFiles, { count })
-          : t.noConflictFiles
+        count ? format(t.deletedConflictFiles, { count }) : t.noConflictFiles
       );
       return count;
     } catch (error) {

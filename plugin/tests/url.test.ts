@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ServerUrlError, parseServerUrl } from "../src/url";
+import {
+  ServerUrlError,
+  isFetchableServerUrl,
+  parseServerUrl
+} from "../src/url";
 
 describe("parseServerUrl", () => {
   it("parses share URL with key path", () => {
@@ -57,5 +61,36 @@ describe("parseServerUrl", () => {
 
   it("rejects invalid URL", () => {
     expect(() => parseServerUrl("not url", "k")).toThrow(ServerUrlError);
+  });
+});
+
+describe("isFetchableServerUrl", () => {
+  it("accepts https URLs", () => {
+    expect(isFetchableServerUrl("https://sync.example.com")).toBe(true);
+    expect(isFetchableServerUrl("https://example.com/pkv")).toBe(true);
+  });
+
+  it("accepts http only for loopback hosts", () => {
+    expect(isFetchableServerUrl("http://localhost:6710")).toBe(true);
+    expect(isFetchableServerUrl("http://127.0.0.1:6710")).toBe(true);
+    expect(isFetchableServerUrl("http://[::1]:6710")).toBe(true);
+    expect(isFetchableServerUrl("http://[::ffff:127.0.0.1]:6710")).toBe(true);
+  });
+
+  it("rejects http for LAN hosts", () => {
+    expect(isFetchableServerUrl("http://192.168.1.10:6710")).toBe(false);
+    expect(isFetchableServerUrl("http://sync.example.com")).toBe(false);
+  });
+
+  it("rejects non-http protocols", () => {
+    expect(isFetchableServerUrl("javascript:alert(1)")).toBe(false);
+    expect(isFetchableServerUrl("file:///etc/passwd")).toBe(false);
+    expect(isFetchableServerUrl("ftp://example.com")).toBe(false);
+  });
+
+  it("rejects garbage and empty input", () => {
+    expect(isFetchableServerUrl("not a url")).toBe(false);
+    expect(isFetchableServerUrl("")).toBe(false);
+    expect(isFetchableServerUrl("   ")).toBe(false);
   });
 });
