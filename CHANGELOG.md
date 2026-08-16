@@ -55,6 +55,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
   owner could push a near-`max_file_size` text file and have the admin
   "View" page allocate several hundred MB per request (SEC-R3-09).
 
+- `pkvsyncd` now prunes unreachable git objects with a two-week grace
+  instead of `--prune=now`, matching git's own recommendation so a
+  concurrently-written object is never deleted out from under a ref
+  (SEC-R3-07). The deployment hardening guide now documents the
+  single-process-per-`data_dir` requirement.
+
 ### Fixed
 
 - MCP Streamable HTTP SSE reconnect now subscribes to live events BEFORE

@@ -362,6 +362,13 @@ Use SQLite online backup or stop the service before copying the database. Keep
 the database, Git vault repositories, and blobs from the same point in time when
 possible.
 
+Run at most **one `pkvsyncd` process per `data_dir`**. Vault push coordination
+and the blob GC rely on in-process locks; two server processes sharing one
+`data_dir` can race (a concurrent push can overwrite a sibling's commit, and
+`git gc` can prune an object another process just referenced). Run one instance
+per data directory and scale with a single process — SQLite and git here are
+not multi-writer.
+
 The built-in backup and restore helpers do not follow symlinks. Symlink entries
 under `vaults/` or `blobs/` are skipped during backup and removed as links
 during restore cleanup without touching their targets.

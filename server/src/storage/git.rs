@@ -220,6 +220,12 @@ impl Git2VaultStore {
         .map_err(|_| GitStoreError::Panic)?
     }
 
+    /// Expire reflogs immediately and prune unreachable objects.
+    ///
+    /// The prune cutoff uses a two-week grace (as `git gc` itself recommends)
+    /// rather than `--prune=now`: an object written or resurrected by a
+    /// concurrent writer between gc's reachability mark and sweep must never
+    /// be deleted out from under a ref (SEC-R3-07).
     pub async fn gc_prune_unreachable(&self, vault_id: &str) -> Result<(), GitStoreError> {
         let p = self.repo_path(vault_id)?;
         tokio::task::spawn_blocking(move || -> Result<(), GitStoreError> {
@@ -234,7 +240,7 @@ impl Git2VaultStore {
                     "--all",
                 ],
             )?;
-            run_git_command(&p, "gc", &["gc", "--prune=now"])?;
+            run_git_command(&p, "gc", &["gc", "--prune=2.weeks.ago"])?;
             Ok(())
         })
         .await
