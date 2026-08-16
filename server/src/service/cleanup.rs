@@ -340,7 +340,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cleanup_prunes_unreachable_git_commits() {
+    async fn cleanup_keeps_recent_unreachable_git_commits_within_prune_grace() {
         let (state, _tmp) = state_for_cleanup().await;
         let user = state
             .users
@@ -396,11 +396,14 @@ mod tests {
 
         let _report = run_scheduled_cleanup(&state).await;
 
+        // gc_prune_unreachable uses --prune=2.weeks.ago so a just-written
+        // object is never deleted out from under a concurrent writer
+        // (SEC-R3-07); a recent unreachable commit must survive cleanup.
         let repo = Repository::open_bare(&repo_path).unwrap();
-        let err = repo
-            .find_commit(orphan_oid)
-            .expect_err("scheduled cleanup should prune orphan git commits");
-        assert_eq!(err.code(), git2::ErrorCode::NotFound);
+        assert!(
+            repo.find_commit(orphan_oid).is_ok(),
+            "recent unreachable commits must survive the two-week prune grace"
+        );
     }
 
     #[test]
