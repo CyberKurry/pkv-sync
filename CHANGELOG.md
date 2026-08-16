@@ -9,6 +9,24 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Security
 
+- Docker self-upgrade overlay hardening: the `updater` network is now
+  `internal` (the socket proxy is unreachable from outside and has no
+  egress path), the updater container drops all Linux capabilities and
+  sets `no-new-privileges`, and `ALLOW_START` is granted explicitly —
+  without it the proxy rejected the `POST /containers/{id}/start` call
+  `docker compose up` makes, so the profile could never complete. The
+  overlay now documents the residual scope of the global `POST` switch
+  inherent to docker-socket-proxy (SEC-R3-03). Runtime validation on a
+  Linux + Docker host is still required before relying on the profile.
+- Privileged updaters (systemd `pkv-sync-update.sh` and Docker
+  `docker-updater.sh`) now refuse downgrades and same-version reinstalls:
+  the upgrade marker lives in a directory the unprivileged server user
+  can write, so a compromised app could previously have root install /
+  pin a known-vulnerable old release (SEC-R3-04). The Docker updater also
+  moved its previous-tag bookkeeping out of the read-only data mount
+  (which made every run abort with EROFS before `compose pull`, i.e. the
+  Docker self-upgrade never worked) and validates the recorded tag
+  strictly (BUG-R3-10).
 - Vault path normalization and `pkvsyncd materialize` tree validation now
   reject Windows-unsafe path components: drive-letter/colon components
   (`C:`, `C:evil.md`), DOS reserved device names (`CON`, `NUL`,

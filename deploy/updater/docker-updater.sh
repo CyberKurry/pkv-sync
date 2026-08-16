@@ -14,7 +14,10 @@ set -eu
 
 DATA_DIR="${PKV_DATA_DIR:-/var/lib/pkv-sync}"
 MARKER="$DATA_DIR/upgrade-request.json"
-PREV_TAG_FILE="$DATA_DIR/upgrade-previous-tag"
+# Container-local (writable, ephemeral) state: the data dir is mounted :ro, and
+# a data-dir location would let the unprivileged server user pre-seed the
+# rollback target tag.
+PREV_TAG_FILE="/tmp/pkv-sync-upgrade-previous-tag"
 HEALTH_URL="${PKV_HEALTH_URL:-http://pkv-sync:6710/api/health}"
 SERVICE="${PKV_TARGET_SERVICE:-pkv-sync}"
 # Compose files (mounted read-only into the updater) used to recreate the service.
@@ -34,8 +37,34 @@ if [ -z "$TARGET" ]; then
   exit 1
 fi
 
-# Record the tag we are upgrading FROM so we can roll back.
-PREV_TAG="$(cat "$PREV_TAG_FILE" 2>/dev/null || echo "${PKV_SYNC_TAG:-latest}")"
+# Refuse downgrades/same-version reinstalls. The marker lives in a directory
+# the unprivileged pkv-sync user can write, so the privileged side must not
+# trust it: an attacker with app-level code execution could otherwise have
+# this updater pin a known-vulnerable old release tag.
+version_lte() {
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    n = split(a, x, "."); m = split(b, y, ".")
+    if (n > m) m = n
+    for (i = 1; i <= m; i++) {
+      if ((x[i] + 0) < (y[i] + 0)) exit 0
+      if ((x[i] + 0) > (y[i] + 0)) exit 1
+    }
+    exit 0
+  }'
+}
+RUNNING_IMAGE="$(docker ps --filter "name=$SERVICE" --format '{{.Image}}' 2>/dev/null | head -n1)"
+CUR_TAG="${RUNNING_IMAGE##*:}"
+if echo "$CUR_TAG" | grep -Eq '^[0-9]+(\.[0-9]+)+$' && version_lte "$TARGET" "$CUR_TAG"; then
+  echo "docker-updater: refusing non-upgrade $CUR_TAG -> $TARGET; clearing marker"
+  rm -f "$MARKER"
+  exit 1
+fi
+
+# Record the tag we are upgrading FROM so we can roll back. Only accept an
+# existing record when it is a strict dotted version; otherwise fall back to
+# the deployment default.
+PREV_TAG="$(sed -n 's/^\([0-9][0-9.]*\)$/\1/p' "$PREV_TAG_FILE" 2>/dev/null | head -n1)"
+[ -n "$PREV_TAG" ] || PREV_TAG="${PKV_SYNC_TAG:-latest}"
 echo "$PREV_TAG" >"$PREV_TAG_FILE"
 
 # Pull the requested pinned image and recreate just the pkv-sync service.

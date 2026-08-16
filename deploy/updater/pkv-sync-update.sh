@@ -21,6 +21,28 @@ if [ -z "$TARGET" ]; then
   exit 1
 fi
 
+# Refuse downgrades/same-version reinstalls. The marker lives in a directory
+# the unprivileged pkv-sync user can write, so the privileged side must not
+# trust it: an attacker with app-level code execution could otherwise have
+# root install a known-vulnerable old release.
+version_lte() {
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    n = split(a, x, "."); m = split(b, y, ".")
+    if (n > m) m = n
+    for (i = 1; i <= m; i++) {
+      if ((x[i] + 0) < (y[i] + 0)) exit 0
+      if ((x[i] + 0) > (y[i] + 0)) exit 1
+    }
+    exit 0
+  }'
+}
+CUR="$("$BIN" --version 2>/dev/null | awk '{print $2}')"
+if [ -n "$CUR" ] && version_lte "$TARGET" "$CUR"; then
+  echo "pkv-sync-update: refusing non-upgrade $CUR -> $TARGET; clearing marker"
+  rm -f "$MARKER"
+  exit 1
+fi
+
 # Stage + verify via the existing CLI (writes <bin>.new, SHA256-checked).
 "$BIN" upgrade --yes --version "$TARGET"
 NEW="$BIN.new"
