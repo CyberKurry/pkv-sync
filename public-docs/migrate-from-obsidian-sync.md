@@ -42,13 +42,23 @@ OS-junk files, and local runtime files, including:
 - `.obsidian/workspace-mobile.json`
 - `.obsidian/workspaces.json`
 - `.obsidian/cache/**`
-- `.obsidian/plugins/pkv-sync/` (the plugin's own settings and token store stay local-only)
+- `.obsidian/plugins/**` (all plugins, including their `data.json` files which
+  can contain plaintext API tokens; PKV Sync's own state stays local-only)
+- `.env` and `.env.*` files
 - `.trash/**`
 - `.git/**`
 - `.DS_Store` (macOS)
 - `Thumbs.db` (Windows)
 - temporary files such as `*.tmp` and `*.lock`
 - device-specific workspace, cache, trash, and temporary files
+- every other hidden path (names starting with `.`) unless it is on the safe
+  `.obsidian` core allowlist below
+
+The importer keeps a small safe set of `.obsidian` files: `app.json`,
+`appearance.json`, `core-plugins.json`, `core-plugins-migration.json`,
+`hotkeys.json`, `graph.json`, `bookmarks.json`, and
+`community-plugins.json`. Anything else under `.obsidian` is skipped;
+plugin binaries and per-plugin configuration can be reinstalled locally.
 
 Selected `.obsidian` configuration files may be synced later through the
 per-vault `.obsidian` allowlist. See the `.obsidian` configuration sync guide

@@ -172,7 +172,9 @@ edits are handled depends on the kind of overlap:
 
 When a `.conflict-*` file is generated it is excluded from future sync.
 Review both files in Obsidian, merge the content you want to keep, then
-delete the conflict file.
+delete the conflict file. Conflict files are the only local copy of the
+unsynced edit, so the delete actions move them to the system trash and
+ask for confirmation first.
 
 You can manage generated conflict files from:
 
@@ -182,6 +184,8 @@ You can manage generated conflict files from:
 
 The delete action only targets PKV Sync generated conflict filenames. Normal
 files such as `my.conflict-resolution-notes.md` remain eligible for sync.
+When the server tells a device a file was deleted, the local copy also moves
+to the system trash instead of being deleted permanently.
 
 ## Delete a Remote Vault
 
