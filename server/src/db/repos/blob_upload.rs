@@ -19,6 +19,7 @@ pub trait BlobUploadRepo: Send + Sync {
         hashes: &[String],
     ) -> Result<HashSet<String>, sqlx::Error>;
     async fn all_hashes(&self) -> Result<HashSet<String>, sqlx::Error>;
+    async fn delete_older_than(&self, cutoff: i64) -> Result<u64, sqlx::Error>;
 }
 
 pub struct SqliteBlobUploadRepo {
@@ -87,6 +88,14 @@ impl BlobUploadRepo for SqliteBlobUploadRepo {
             .fetch_all(&self.pool)
             .await?;
         Ok(rows.into_iter().map(|t| t.0).collect())
+    }
+
+    async fn delete_older_than(&self, cutoff: i64) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM blob_uploads WHERE uploaded_at < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected())
     }
 }
 

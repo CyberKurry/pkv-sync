@@ -12,6 +12,7 @@ pub struct GcReport {
     pub kept_referenced: usize,
     pub candidates: usize,
     pub freed_bytes: u64,
+    pub expired_uploads: u64,
 }
 
 const DEFAULT_GRACE_SECONDS: u64 = 7 * 24 * 60 * 60;
@@ -25,6 +26,20 @@ pub async fn run_blob_gc_with_grace(
     grace_seconds: u64,
 ) -> Result<GcReport, ApiError> {
     let _storage_guard = crate::service::acquire_storage_mutation_guard(state).await?;
+    let now = SystemTime::now();
+    let grace = Duration::from_secs(grace_seconds);
+    // Upload bookkeeping is only meant to cover the upload->push window; a
+    // record that was never followed by a push must not protect its blob
+    // forever. Expire old rows first so their hashes drop out of the
+    // protected set; the files still get the mtime-based grace below.
+    let now_secs = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0) as i64;
+    let expired_uploads = state
+        .blob_uploads
+        .delete_older_than(now_secs.saturating_sub(grace_seconds as i64))
+        .await?;
     let store = state.blob_store();
     let on_disk = store
         .list_hashes_with_mtime()
@@ -32,8 +47,6 @@ pub async fn run_blob_gc_with_grace(
         .map_err(|e| ApiError::internal(e.to_string()))?;
     let mut protected: HashSet<String> = state.blob_refs.all_hashes().await?;
     protected.extend(state.blob_uploads.all_hashes().await?);
-    let now = SystemTime::now();
-    let grace = Duration::from_secs(grace_seconds);
     let mut deleted = 0;
     let mut candidates = 0;
     let mut freed_bytes = 0u64;
@@ -73,9 +86,10 @@ pub async fn run_blob_gc_with_grace(
     }
     Ok(GcReport {
         deleted,
-        candidates,
         kept_referenced: protected.len(),
+        candidates,
         freed_bytes,
+        expired_uploads,
     })
 }
 
@@ -171,10 +185,51 @@ mod tests {
             .await
             .unwrap();
 
-        let report = run_blob_gc_with_grace(&state, 0).await.unwrap();
+        let report = run_blob_gc_with_grace(&state, 3600).await.unwrap();
 
         assert_eq!(report.deleted, 0);
+        assert_eq!(report.expired_uploads, 0);
         assert!(store.has(&hash).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn gc_expires_stale_upload_rows_and_reclaims_blob() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = crate::db::pool::connect(&tmp.path().join("metadata.db"))
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+        let user = state
+            .users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let vault = state.vaults.create(&user.id, "main").await.unwrap();
+        let store = LocalFsBlobStore::new(state.default_blob_root());
+        let data = Bytes::from_static(b"abandoned upload");
+        let hash = LocalFsBlobStore::sha256(&data);
+        store.put_verified(&hash, data).await.unwrap();
+        let stale = chrono::Utc::now().timestamp() - 30 * 24 * 60 * 60;
+        state
+            .blob_uploads
+            .record_upload(&vault.id, &hash, stale)
+            .await
+            .unwrap();
+
+        let report = run_blob_gc_with_grace(&state, 0).await.unwrap();
+
+        assert_eq!(report.expired_uploads, 1);
+        assert!(
+            !store.has(&hash).await.unwrap(),
+            "a blob uploaded but never pushed must become reclaimable after the grace period"
+        );
     }
 
     #[tokio::test]

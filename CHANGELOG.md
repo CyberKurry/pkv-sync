@@ -43,6 +43,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Blob upload bookkeeping now expires: `blob_uploads` rows older than the GC
+  grace period (7 days by default) are dropped during the scheduled blob GC,
+  so blobs that were uploaded but never referenced by a push become
+  reclaimable instead of being protected forever (disk could previously be
+  filled without bound by abandoned uploads) (BUG-R3-14). The GC report now
+  includes an `expired_uploads` count.
 - Vault metadata reconcile no longer deletes `blob_refs` rows for blobs
   that are still referenced by ancestor commits: blob retention now
   follows git object retention, so per-file history restore and vault
