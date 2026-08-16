@@ -26,7 +26,18 @@ export class ObsidianVaultAdapter implements VaultAdapter {
   constructor(private vault: Vault) {}
 
   listFiles(): TFile[] {
-    return this.vault.getFiles();
+    const files = this.vault.getFiles();
+    // Obsidian's vault.getFiles() reads the file cache, which does not index
+    // the .obsidian directory. Walk that folder subtree directly so allowlisted
+    // .obsidian paths (themes, snippets, plugin configs) are discoverable for
+    // sync. Paths already returned by getFiles() are deduplicated.
+    const known = new Set(files.map((file) => file.path));
+    const obsidian = this.vault.getAbstractFileByPath(".obsidian");
+    const extra: TFile[] = [];
+    if (obsidian instanceof TFolder) {
+      collectFilesRecursive(obsidian, known, extra);
+    }
+    return extra.length === 0 ? files : files.concat(extra);
   }
 
   async readText(path: string): Promise<string> {
@@ -98,7 +109,7 @@ export class ObsidianVaultAdapter implements VaultAdapter {
 
   async scan(
     textExtensions: Set<string>,
-    _previousIndex?: LocalIndex
+    previousIndex?: LocalIndex
   ): Promise<LocalFileSnapshot[]> {
     const files = this.listFiles().filter((file) => shouldSyncPath(file.path));
     const out: LocalFileSnapshot[] = [];
@@ -110,7 +121,15 @@ export class ObsidianVaultAdapter implements VaultAdapter {
       );
       for (const [batchIndex, result] of results.entries()) {
         if (result.status === "rejected") throw result.reason;
-        out[batch[batchIndex].index] = result.value;
+        const snapshot = result.value;
+        // Bound memory on mobile: an unchanged file only needs its metadata
+        // for the pending diff (push re-reads content for changed files), so
+        // drop the loaded content instead of holding every file in RAM at once.
+        if (previousIndex?.files[snapshot.path]?.lastSyncedHash === snapshot.hash) {
+          delete snapshot.content;
+          delete snapshot.bytes;
+        }
+        out[batch[batchIndex].index] = snapshot;
       }
     }
     return out;
@@ -139,6 +158,17 @@ export class ObsidianVaultAdapter implements VaultAdapter {
 
 export function shouldSyncPath(path: string): boolean {
   return normalizeSyncPath(path) !== null;
+}
+
+function collectFilesRecursive(folder: TFolder, known: Set<string>, out: TFile[]): void {
+  for (const child of folder.children) {
+    if (child instanceof TFolder) {
+      collectFilesRecursive(child, known, out);
+    } else if (child instanceof TFile && !known.has(child.path)) {
+      known.add(child.path);
+      out.push(child);
+    }
+  }
 }
 
 export function shouldAcceptRemoteConflictPath(path: string): boolean {

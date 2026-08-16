@@ -1,5 +1,6 @@
 import { TFile, TFolder } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
+import { sha256Text } from "../../src/sync/hash";
 import {
   ObsidianVaultAdapter,
   shouldAcceptRemoteConflictPath,
@@ -26,6 +27,15 @@ function tfolder(path: string): TFolder {
   return folder;
 }
 
+function folderWithChildren(
+  path: string,
+  children: (TFile | TFolder)[]
+): TFolder {
+  const folder = tfolder(path);
+  folder.children = children;
+  return folder;
+}
+
 class FakeVault {
   files = [
     tfile("note.md"),
@@ -42,11 +52,24 @@ class FakeVault {
   }
 
   getAbstractFileByPath(path: string): TFile | TFolder | null {
-    return (
-      this.files.find((file) => file.path === path) ??
-      this.folders.get(path) ??
-      null
-    );
+    const direct =
+      this.files.find((file) => file.path === path) ?? this.folders.get(path);
+    if (direct) return direct;
+    const tree = new Map<string, TFile | TFolder>();
+    for (const folder of this.folders.values()) {
+      tree.set(folder.path, folder);
+      this.indexTree(folder, tree);
+    }
+    return tree.get(path) ?? null;
+  }
+
+  private indexTree(node: TFolder, out: Map<string, TFile | TFolder>): void {
+    for (const child of node.children) {
+      if (child instanceof TFile || child instanceof TFolder) {
+        out.set(child.path, child);
+      }
+      if (child instanceof TFolder) this.indexTree(child, out);
+    }
   }
 
   async trash(file: TFile, system: boolean): Promise<void> {
@@ -91,6 +114,63 @@ describe("ObsidianVaultAdapter", () => {
       "note.md",
       ".obsidian/themes/custom.css"
     ]);
+  });
+
+  it("enumerates .obsidian files even when vault.getFiles() excludes them", async () => {
+    const vault = new FakeVault();
+    vault.files = [tfile("note.md")];
+    vault.folders.set(
+      ".obsidian",
+      folderWithChildren(".obsidian", [
+        folderWithChildren(".obsidian/plugins", [
+          tfile(".obsidian/plugins/pkv-sync/main.js")
+        ]),
+        tfile(".obsidian/community-plugins.json")
+      ])
+    );
+
+    const adapter = new ObsidianVaultAdapter(vault as any);
+    const snapshots = await adapter.scan(new Set(["md", "json"]));
+
+    const paths = snapshots.map((snapshot) => snapshot.path);
+    expect(paths).toContain("note.md");
+    expect(paths).toContain(".obsidian/plugins/pkv-sync/main.js");
+    expect(paths).toContain(".obsidian/community-plugins.json");
+  });
+
+  it("drops content for files whose hash matches the previous index to bound memory", async () => {
+    const unchanged = tfile("unchanged.md", { size: 3 });
+    const changed = tfile("changed.md", { size: 8 });
+    const vault = new FakeVault();
+    vault.files = [unchanged, changed];
+    vi.spyOn(vault, "read").mockImplementation(async (file: TFile) =>
+      file.path === "unchanged.md" ? "abc" : "changed!"
+    );
+    const unchangedHash = await sha256Text("abc");
+    const adapter = new ObsidianVaultAdapter(vault as any);
+
+    const snapshots = await adapter.scan(new Set(["md"]), {
+      lastSyncedCommit: "commit-1",
+      files: {
+        "unchanged.md": {
+          lastSyncedHash: unchangedHash,
+          lastSyncedAt: 0,
+          lastSyncedMtime: unchanged.stat.mtime,
+          kind: "text",
+          size: unchanged.stat.size
+        }
+      }
+    });
+
+    const unchangedSnapshot = snapshots.find(
+      (snapshot) => snapshot.path === "unchanged.md"
+    )!;
+    expect(unchangedSnapshot.content).toBeUndefined();
+    expect(unchangedSnapshot.hash).toBe(unchangedHash);
+    const changedSnapshot = snapshots.find(
+      (snapshot) => snapshot.path === "changed.md"
+    )!;
+    expect(changedSnapshot.content).toBe("changed!");
   });
 
   it("creates parent folders before writing a missing nested text file", async () => {
