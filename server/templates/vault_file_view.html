@@ -26,6 +26,9 @@
   {% if binary %}
   <p class="empty-state">{{ t.binary_file_preview_unavailable }}</p>
   {% else %}
+  {% if truncated %}
+  <p class="warning">{{ t.large_file_preview_truncated }}</p>
+  {% endif %}
   <pre class="file-preview">{{ content }}</pre>
   {% endif %}
 </section>

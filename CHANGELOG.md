@@ -50,6 +50,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
   URLs — `http` to a non-loopback host is refused before any request is
   sent (SEC-R3-08), and every API request now has a 120s timeout so a
   stalled server cannot hang the sync engine forever (BUG-R3-16).
+- Admin vault file previews are now capped at 1 MiB (truncated on a UTF-8
+  boundary, with a notice in all five admin languages). Previously a vault
+  owner could push a near-`max_file_size` text file and have the admin
+  "View" page allocate several hundred MB per request (SEC-R3-09).
 
 ### Fixed
 

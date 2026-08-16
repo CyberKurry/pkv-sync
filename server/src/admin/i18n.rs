@@ -236,6 +236,7 @@ pub struct AdminText {
     pub binary_file_preview_unavailable: &'static str,
     pub binary_diff_preview_unavailable: &'static str,
     pub large_diff_truncated: &'static str,
+    pub large_file_preview_truncated: &'static str,
 }
 
 impl AdminLang {
@@ -506,6 +507,7 @@ impl AdminText {
             binary_file_preview_unavailable: "Binary file preview is not available.",
             binary_diff_preview_unavailable: "Binary file. Diff preview is not available.",
             large_diff_truncated: "Large diff truncated to keep the page responsive.",
+            large_file_preview_truncated: "Large file preview truncated to keep the page responsive.",
         }
     }
 
@@ -735,6 +737,7 @@ impl AdminText {
             binary_file_preview_unavailable: "二进制文件无法预览。",
             binary_diff_preview_unavailable: "二进制文件无法预览 diff。",
             large_diff_truncated: "Diff 较大，已截断以保持页面响应。",
+            large_file_preview_truncated: "文件预览较大，已截断以保持页面响应。",
         }
     }
 
@@ -965,6 +968,7 @@ impl AdminText {
             binary_file_preview_unavailable: "二進位檔案無法預覽。",
             binary_diff_preview_unavailable: "二進位檔案無法預覽 diff。",
             large_diff_truncated: "Diff 較大，已截斷以保持頁面回應。",
+            large_file_preview_truncated: "檔案預覽較大，已截斷以保持頁面回應。",
         }
     }
 
@@ -1196,6 +1200,7 @@ impl AdminText {
             binary_file_preview_unavailable: "バイナリファイルはプレビューできません。",
             binary_diff_preview_unavailable: "バイナリファイルの diff はプレビューできません。",
             large_diff_truncated: "ページの応答性を保つため、大きな diff は切り詰められました。",
+            large_file_preview_truncated: "ページの応答性を保つため、大きなファイルのプレビューは切り詰められました。",
         }
     }
 
@@ -1426,6 +1431,7 @@ impl AdminText {
             binary_file_preview_unavailable: "바이너리 파일은 미리 볼 수 없습니다.",
             binary_diff_preview_unavailable: "바이너리 파일은 diff 미리 보기를 사용할 수 없습니다.",
             large_diff_truncated: "페이지 응답성을 유지하기 위해 큰 diff를 잘랐습니다.",
+            large_file_preview_truncated: "페이지 응답성을 유지하기 위해 큰 파일 미리 보기를 잘랐습니다.",
         }
     }
 }

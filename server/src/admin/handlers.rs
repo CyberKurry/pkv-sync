@@ -1461,7 +1461,7 @@ async fn vault_file_view_html(
             ApiError::bad_request("bad_commit", "invalid commit")
         })?
         .ok_or_else(|| ApiError::not_found("file not found"))?;
-    let (binary, content, size_bytes) = file_preview(file);
+    let (binary, content, size_bytes, truncated) = file_preview(file);
     let to_commit = query.at.clone().or(store
         .head(&id)
         .await
@@ -1497,6 +1497,7 @@ async fn vault_file_view_html(
         size_display: crate::human::format_bytes(size_bytes),
         binary,
         content,
+        truncated,
         history_url,
         diff_url,
         enable_diff_endpoint: cfg.enable_diff_endpoint,
@@ -1876,15 +1877,27 @@ fn file_entry_view(vault_id: &str, entry: TreeEntry) -> VaultFileEntryView {
     }
 }
 
-fn file_preview(file: StoredFile) -> (bool, String, u64) {
+const MAX_FILE_PREVIEW_BYTES: usize = 1024 * 1024;
+
+fn file_preview(file: StoredFile) -> (bool, String, u64, bool) {
     match file {
         StoredFile::Text { bytes } => {
             let size = bytes.len() as u64;
-            (false, String::from_utf8_lossy(&bytes).into_owned(), size)
+            let mut content = String::from_utf8_lossy(&bytes).into_owned();
+            let mut truncated = false;
+            if content.len() > MAX_FILE_PREVIEW_BYTES {
+                let mut cutoff = MAX_FILE_PREVIEW_BYTES;
+                while !content.is_char_boundary(cutoff) {
+                    cutoff -= 1;
+                }
+                content.truncate(cutoff);
+                truncated = true;
+            }
+            (false, content, size, truncated)
         }
         StoredFile::BlobPointer { hash, size, mime } => {
             let mime = mime.unwrap_or_else(|| "application/octet-stream".into());
-            (true, format!("{mime}\n{hash}"), size)
+            (true, format!("{mime}\n{hash}"), size, false)
         }
     }
 }
@@ -2138,6 +2151,34 @@ mod tests {
         let response = render_html(FailingTemplate);
 
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn file_preview_truncates_large_text_on_utf8_boundary() {
+        let big = "héllo".repeat(300_000);
+        let (binary, content, size, truncated) = file_preview(StoredFile::Text {
+            bytes: big.clone().into_bytes(),
+        });
+        assert!(!binary);
+        assert!(truncated, "large text preview must be flagged truncated");
+        assert!(content.len() <= 1024 * 1024);
+        assert!(
+            content.is_char_boundary(content.len()),
+            "truncation must not split a UTF-8 character"
+        );
+        assert_eq!(size, big.len() as u64);
+    }
+
+    #[test]
+    fn file_preview_keeps_small_text_untouched() {
+        let small = "hello world";
+        let (binary, content, size, truncated) = file_preview(StoredFile::Text {
+            bytes: small.as_bytes().to_vec(),
+        });
+        assert_eq!(
+            (binary, truncated, content.as_str(), size),
+            (false, false, small, small.len() as u64)
+        );
     }
 
     #[test]
