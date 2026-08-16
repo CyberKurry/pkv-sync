@@ -138,6 +138,11 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
   const scan = scanVaultForMigration(options.vault);
   const batchSize = normalizeBatchSize(options.batchSize);
   const totalBatches = Math.ceil(scan.files.length / batchSize);
+  // Blob classification is purely path-based, so the total blob count is
+  // known before any content is read.
+  const totalBlobs = scan.files.filter(
+    (file) => !isTextPath(file.path, options.textExtensions)
+  ).length;
   const progressBase = {
     totalFiles: scan.files.length,
     processedFiles: 0,
@@ -145,51 +150,68 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
     skippedCount: scan.skippedCount,
     totalBytes: scan.totalBytes,
     uploadedBlobs: 0,
-    totalBlobs: 0,
+    totalBlobs,
     currentBatch: 0,
     totalBatches
   };
 
   options.onProgress?.({ stage: "scanning", ...progressBase });
-
-  const snapshots: LocalFileSnapshot[] = [];
-  for (const file of scan.files) {
-    snapshots.push(await snapshotMigrationFile(options.vault, file.path, options.textExtensions));
-  }
-
-  const blobFiles = snapshots.filter((file) => file.kind === "blob");
-  let uploadedBlobs = 0;
-  const withBlobTotals = { ...progressBase, totalBlobs: blobFiles.length };
-
-  options.onProgress?.({ stage: "creating_vault", ...withBlobTotals });
+  options.onProgress?.({ stage: "creating_vault", ...progressBase });
   const created = await options.api.createVault(options.vaultName.trim());
   const initialState = await options.api.state(created.id, null);
   let head = initialState.current_head;
 
-  if (blobFiles.length > 0) {
-    const hashes = blobFiles.map((file) => file.hash);
-    const missing = await options.api.uploadCheck(created.id, hashes);
-    const missingSet = new Set(missing.missing);
-    for (const file of blobFiles) {
-      if (!missingSet.has(file.hash)) continue;
-      if (!file.bytes) throw new Error(`Missing bytes for blob ${file.path}`);
-      await options.api.uploadBlob(created.id, file.hash, file.bytes);
-      uploadedBlobs += 1;
-      options.onProgress?.({
-        stage: "uploading_blobs",
-        ...withBlobTotals,
-        uploadedBlobs
-      });
-    }
-  } else {
+  const withBlobTotals = { ...progressBase, totalBlobs };
+  if (totalBlobs === 0) {
     options.onProgress?.({ stage: "uploading_blobs", ...withBlobTotals });
   }
 
+  // Snapshot, upload and push per batch, releasing each batch's payloads
+  // before reading the next, so peak memory is one batch instead of the whole
+  // vault. The index needs only metadata, accumulated here.
+  const indexMetadata: LocalFileSnapshot[] = [];
+  let uploadedBlobs = 0;
   let pushedFiles = 0;
-  for (let offset = 0; offset < snapshots.length; offset += batchSize) {
+
+  for (let offset = 0; offset < scan.files.length; offset += batchSize) {
     const batchIndex = Math.floor(offset / batchSize) + 1;
-    const batch = snapshots.slice(offset, offset + batchSize);
-    const changes = batch.map(snapshotToPushChange);
+    const batchFiles = scan.files.slice(offset, offset + batchSize);
+    const batchSnapshots: LocalFileSnapshot[] = [];
+    for (const file of batchFiles) {
+      const snapshot = await snapshotMigrationFile(
+        options.vault,
+        file.path,
+        options.textExtensions
+      );
+      indexMetadata.push({
+        path: snapshot.path,
+        hash: snapshot.hash,
+        size: snapshot.size,
+        kind: snapshot.kind
+      });
+      batchSnapshots.push(snapshot);
+    }
+
+    const batchBlobs = batchSnapshots.filter((file) => file.kind === "blob");
+    if (batchBlobs.length > 0) {
+      const hashes = batchBlobs.map((file) => file.hash);
+      const missing = await options.api.uploadCheck(created.id, hashes);
+      const missingSet = new Set(missing.missing);
+      for (const file of batchBlobs) {
+        if (!missingSet.has(file.hash)) continue;
+        if (!file.bytes) throw new Error(`Missing bytes for blob ${file.path}`);
+        await options.api.uploadBlob(created.id, file.hash, file.bytes);
+        uploadedBlobs += 1;
+        options.onProgress?.({
+          stage: "uploading_blobs",
+          ...withBlobTotals,
+          uploadedBlobs,
+          currentBatch: batchIndex
+        });
+      }
+    }
+
+    const changes = batchSnapshots.map(snapshotToPushChange);
     try {
       const response = await options.api.push(
         created.id,
@@ -206,7 +228,7 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
         error
       );
     }
-    pushedFiles += batch.length;
+    pushedFiles += batchSnapshots.length;
     options.onProgress?.({
       stage: "pushing",
       ...withBlobTotals,
@@ -217,7 +239,7 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
     });
   }
 
-  const index = buildMigrationIndex(snapshots, head);
+  const index = buildMigrationIndex(indexMetadata, head);
   const result: MigrationResult = {
     vaultId: created.id,
     vaultName: created.name,

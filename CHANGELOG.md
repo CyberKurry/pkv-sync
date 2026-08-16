@@ -121,6 +121,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Performance
 
+- The Obsidian Sync migration now snapshots, uploads and pushes per batch,
+  releasing each batch's payloads before reading the next, so peak memory is
+  one batch instead of the whole vault (previously all file contents and blob
+  bytes were held in RAM for the entire migration). Progress stages/counts,
+  batch error reporting and the final index are preserved; blob totals are
+  derived from path classification before any content is read
+  (PERF-PLUGIN-MIGRATION-STREAM).
 - MCP `search` and `link_graph` read candidate files in batches of 64
   through a single repo open per batch instead of opening the bare repo and
   spawning a blocking task once per file (N opens -> ceil(N/64)). Budget,

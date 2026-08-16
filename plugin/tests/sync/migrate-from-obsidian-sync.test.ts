@@ -319,6 +319,37 @@ describe("migrateToPkv", () => {
     });
   });
 
+  it("snapshots per batch, interleaving reads with pushes to bound memory", async () => {
+    const vault = new FakeVault();
+    for (let i = 0; i < 6; i++) vault.addFile(`note-${i}.md`, 1, `n${i}`);
+    const api = new FakeMigrationApi();
+    const reads: string[] = [];
+    const pushes: number[] = [];
+    const origRead = vault.read.bind(vault);
+    vi.spyOn(vault, "read").mockImplementation(async (file) => {
+      reads.push(file.path);
+      return origRead(file);
+    });
+    const origPush = api.push.bind(api);
+    vi.spyOn(api, "push").mockImplementation(async (...args) => {
+      pushes.push(reads.length);
+      return origPush(...args);
+    });
+
+    const result = await migrateToPkv({
+      vault,
+      api,
+      vaultName: "Streamed vault",
+      deviceName: "Laptop",
+      textExtensions: new Set(["md"]),
+      batchSize: 2
+    });
+
+    expect(result.batches).toBe(3);
+    expect(pushes).toEqual([2, 4, 6]);
+    expect(reads).toHaveLength(6);
+  });
+
   it("uploads binary blobs before pushing blob changes", async () => {
     const vault = new FakeVault();
     vault.addBinaryFile("image.png", new Uint8Array([1, 2, 3]));
