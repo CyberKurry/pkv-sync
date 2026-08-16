@@ -195,7 +195,7 @@ async fn upload_blob(
         .get("content-hash")
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| ApiError::bad_request("missing_hash", "Content-Hash header required"))?;
-    let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
+    let max_file_size = state.runtime_cfg.max_file_size().await;
     let body = axum::body::to_bytes(body, max_body_bytes(max_file_size))
         .await
         .map_err(|_| {
@@ -379,7 +379,7 @@ async fn commits(
     Path(id): Path<String>,
     Query(q): Query<CommitsQuery>,
 ) -> Result<Json<Vec<crate::service::history::CommitSummary>>, ApiError> {
-    if !state.runtime_cfg.snapshot().await.enable_history_ui {
+    if !state.runtime_cfg.enable_history_ui().await {
         return Err(ApiError::not_found("history disabled"));
     }
     let path = match q.path.as_deref() {
@@ -405,7 +405,7 @@ async fn commit_detail(
     client_ip: Option<Extension<ClientIp>>,
     headers: HeaderMap,
 ) -> Result<Json<crate::service::history::CommitDetail>, ApiError> {
-    if !state.runtime_cfg.snapshot().await.enable_history_ui {
+    if !state.runtime_cfg.enable_history_ui().await {
         return Err(ApiError::not_found("history disabled"));
     }
     let out = crate::service::history::commit_detail(&state, &user.user_id, &id, &commit).await?;
@@ -433,7 +433,7 @@ async fn file_history(
     client_ip: Option<Extension<ClientIp>>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<crate::service::history::CommitSummary>>, ApiError> {
-    if !state.runtime_cfg.snapshot().await.enable_history_ui {
+    if !state.runtime_cfg.enable_history_ui().await {
         return Err(ApiError::not_found("history disabled"));
     }
     let path = q
@@ -473,7 +473,7 @@ async fn diff(
     client_ip: Option<Extension<ClientIp>>,
     headers: HeaderMap,
 ) -> Result<Json<crate::service::diff::UnifiedDiff>, ApiError> {
-    if !state.runtime_cfg.snapshot().await.enable_diff_endpoint {
+    if !state.runtime_cfg.enable_diff_endpoint().await {
         return Err(ApiError::not_found("diff disabled"));
     }
     let path = q

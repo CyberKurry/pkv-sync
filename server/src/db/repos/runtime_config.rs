@@ -577,6 +577,28 @@ impl RuntimeConfigCache {
         self.0.read().await.clone()
     }
 
+    /// Field-level accessors avoid cloning the whole `RuntimeConfig` (its
+    /// text classifier, globs and vectors) for a single scalar read.
+    pub async fn max_file_size(&self) -> u64 {
+        self.0.read().await.max_file_size
+    }
+
+    pub async fn enable_history_ui(&self) -> bool {
+        self.0.read().await.enable_history_ui
+    }
+
+    pub async fn enable_diff_endpoint(&self) -> bool {
+        self.0.read().await.enable_diff_endpoint
+    }
+
+    pub async fn enable_metrics(&self) -> bool {
+        self.0.read().await.enable_metrics
+    }
+
+    pub async fn timezone(&self) -> String {
+        self.0.read().await.timezone.clone()
+    }
+
     pub async fn replace(&self, mut cfg: RuntimeConfig) {
         cfg.rebuild_text_classifier();
         *self.0.write().await = cfg;

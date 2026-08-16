@@ -10,7 +10,7 @@ pub async fn metrics(
     State(state): State<AppState>,
     _admin: AdminUser,
 ) -> Result<Response, ApiError> {
-    if !state.runtime_cfg.snapshot().await.enable_metrics {
+    if !state.runtime_cfg.enable_metrics().await {
         return Err(ApiError::not_found("metrics disabled"));
     }
     state

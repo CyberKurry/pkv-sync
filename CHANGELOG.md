@@ -121,6 +121,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Performance
 
+- Hot handlers read individual runtime-config scalars (`max_file_size`,
+  `enable_history_ui`, `enable_diff_endpoint`, `enable_metrics`, `timezone`)
+  via field-level getters instead of cloning the whole `RuntimeConfig` with
+  its text classifier and glob vectors (PERF-SERVER-RUNTIME-CONFIG-SNAPSHOT).
+- The push preflight collects blob-change candidates in a single pass instead
+  of an `any` scan plus a `filter_map` pass (PERF-SERVER-BLOB-CANDIDATES-SINGLE-PASS).
+- Conflict resolution for a file now reads kinds only for that file's matched
+  conflict pairs and queries once instead of scanning the vault twice
+  (PERF-PLUGIN-CONFLICT-SCAN-DUPLICATE).
 - The sync engine compiles the exclude/allowlist path matcher once per
   settings value (exact-key cache, no TTL) instead of recompiling globs on
   every pass, folds the scan-pending diff into a single traversal, and defers

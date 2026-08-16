@@ -56,7 +56,7 @@ pub async fn upload_blob(
     if !crate::storage::blob::is_sha256_hex(hash) {
         return Err(ApiError::bad_request("invalid_hash", "invalid hash"));
     }
-    let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
+    let max_file_size = state.runtime_cfg.max_file_size().await;
     if body.len() as u64 > max_file_size {
         return Err(ApiError::bad_request(
             "file_too_large",

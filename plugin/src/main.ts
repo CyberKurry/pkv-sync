@@ -35,7 +35,6 @@ import {
 } from "./sync/migrate-from-obsidian-sync";
 import {
   deleteConflictFiles,
-  findConflictPairsForPath,
   findConflictPairsForPathWithKinds,
   listConflictFiles,
   type ConflictPair
@@ -458,18 +457,13 @@ export default class PKVSyncPlugin extends Plugin {
   private openConflictResolutionFor(file: TFile): void {
     const pairsProvider = (): Promise<ConflictPair[]> =>
       findConflictPairsForPathWithKinds(this.app.vault, file.path);
-    const pairs = findConflictPairsForPath(this.app.vault, file.path);
-    if (pairs.length === 0) {
-      new Notice(this.text().conflictsListEmpty);
-      return;
-    }
-    if (pairs.length === 1) {
-      void pairsProvider().then((pairsWithKinds) => {
-        const pair = pairsWithKinds[0];
-        if (!pair) {
-          new Notice(this.text().conflictsListEmpty);
-          return;
-        }
+    void pairsProvider().then((pairs) => {
+      if (pairs.length === 0) {
+        new Notice(this.text().conflictsListEmpty);
+        return;
+      }
+      if (pairs.length === 1) {
+        const pair = pairs[0];
         new ConflictResolveModal(
           this.app,
           pair,
@@ -478,10 +472,10 @@ export default class PKVSyncPlugin extends Plugin {
             this.pushDebouncer?.trigger();
           }
         ).open();
-      });
-      return;
-    }
-    this.openConflictsList(pairsProvider);
+        return;
+      }
+      this.openConflictsList(pairsProvider);
+    });
   }
 
   historyEnabled(): boolean {

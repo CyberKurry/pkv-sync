@@ -823,7 +823,7 @@ pub async fn write_file(
 ) -> Result<WriteToolOutput> {
     let path = normalize_mcp_path(input.path)?;
     let size_bytes = input.content.len();
-    let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
+    let max_file_size = state.runtime_cfg.max_file_size().await;
     if size_bytes as u64 > max_file_size {
         bail!("file exceeds max_file_size of {max_file_size} bytes");
     }
@@ -879,7 +879,7 @@ pub async fn write_files(
         bail!("batch_too_large: {total} changes exceeds limit of {WRITE_FILES_MAX_FILES}");
     }
 
-    let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
+    let max_file_size = state.runtime_cfg.max_file_size().await;
     let mut changes = Vec::with_capacity(total);
     let mut total_bytes = 0usize;
     let mut write_paths = HashSet::new();

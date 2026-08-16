@@ -147,7 +147,7 @@ async fn post_mcp(
     if !is_json_content_type(&headers) {
         return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
     }
-    let max_file_size = state.runtime_cfg.snapshot().await.max_file_size;
+    let max_file_size = state.runtime_cfg.max_file_size().await;
     let body = match to_bytes(body, mcp_json_body_limit_bytes(max_file_size)).await {
         Ok(body) => body,
         Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),

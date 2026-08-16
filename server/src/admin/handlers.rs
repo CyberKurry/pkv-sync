@@ -802,7 +802,7 @@ async fn users_page(
     _session: AdminSession,
     Query(filters): Query<UserFilters>,
 ) -> Result<Response, ApiError> {
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let timezone = state.runtime_cfg.timezone().await;
     let query = filters.q.unwrap_or_default().trim().to_string();
     let status = match filters.status.as_deref() {
         Some("active" | "inactive" | "admin") => filters.status.unwrap_or_default(),
@@ -945,7 +945,7 @@ async fn user_detail(
         .find_by_id(&id)
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let timezone = state.runtime_cfg.timezone().await;
     let stats = user_admin_stats(&state, &id).await?;
     let tokens = state
         .tokens
@@ -1012,7 +1012,7 @@ async fn create_token_form(
         })
         .await?;
     tracing::info!(user_id = %id, device_name = %device_name, "admin created device token");
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let timezone = state.runtime_cfg.timezone().await;
     let stats = user_admin_stats(&state, &id).await?;
     let tokens = state
         .tokens
@@ -1127,7 +1127,7 @@ async fn user_detail_error(
         .find_by_id(id)
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let timezone = state.runtime_cfg.timezone().await;
     let stats = user_admin_stats(state, id).await?;
     let tokens = state
         .tokens
@@ -1269,7 +1269,7 @@ async fn revoke_device_token_form(
 }
 
 async fn list_admin_device_tokens(state: &AppState) -> Result<Vec<DeviceTokenAdminView>, ApiError> {
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let timezone = state.runtime_cfg.timezone().await;
     let rows: Vec<DeviceTokenAdminRow> = sqlx::query_as(
         "SELECT tok.id, tok.user_id, u.username, tok.device_id, tok.device_name,
                 tok.created_at, tok.last_used_at, tok.revoked_at
@@ -1514,7 +1514,7 @@ async fn vault_file_history_html(
     let (vault, vault_view) = admin_vault(&state, &id).await?;
     let path = crate::storage::path::normalize(path)
         .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let timezone = state.runtime_cfg.timezone().await;
     let commits =
         crate::service::history::file_history(&state, &vault.user_id, &id, &path, 100).await?;
     let entries = commits
@@ -1595,7 +1595,7 @@ async fn vault_diff_page(
 }
 
 async fn ensure_admin_history_enabled(state: &AppState) -> Result<(), ApiError> {
-    if state.runtime_cfg.snapshot().await.enable_history_ui {
+    if state.runtime_cfg.enable_history_ui().await {
         Ok(())
     } else {
         Err(ApiError::not_found("history disabled"))
@@ -1786,7 +1786,7 @@ async fn reconcile_vault_form(
 }
 
 async fn list_admin_vaults(state: &AppState) -> Result<Vec<VaultAdminView>, ApiError> {
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let timezone = state.runtime_cfg.timezone().await;
     let rows: Vec<VaultAdminRow> = sqlx::query_as(
         "SELECT v.id, v.user_id, u.username, v.name, v.created_at, v.last_sync_at,
                 v.size_bytes, v.file_count
@@ -2702,7 +2702,7 @@ async fn invites_page(
     cookies: Cookies,
     _session: AdminSession,
 ) -> Result<Response, ApiError> {
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let timezone = state.runtime_cfg.timezone().await;
     let invites: Vec<InviteAdminView> = state
         .invites
         .list_active(chrono::Utc::now().timestamp())
@@ -2735,7 +2735,7 @@ async fn create_invite_form(
     session: AdminSession,
     Form(form): Form<InviteForm>,
 ) -> Result<Redirect, ApiError> {
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let timezone = state.runtime_cfg.timezone().await;
     let expires_at = parse_invite_expires_at(form.expires_at.as_deref(), &timezone)?;
     state.invites.create(&session.user.id, expires_at).await?;
     Ok(Redirect::to("/admin/invites"))
@@ -2869,7 +2869,7 @@ async fn list_admin_activities(
         query = query.bind(action);
     }
     let rows: Vec<ActivityRow> = query.bind(limit).fetch_all(&state.pool).await?;
-    let timezone = state.runtime_cfg.snapshot().await.timezone;
+    let timezone = state.runtime_cfg.timezone().await;
     Ok(rows
         .into_iter()
         .map(
