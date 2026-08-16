@@ -1,8 +1,8 @@
-﻿# LLM Wiki workflow with PKV Sync
+# LLM Wiki workflow with PKV Sync
 
 English | [绠€浣撲腑鏂嘳(./llm-wiki-howto.zh-CN.md) | [绻侀珨涓枃](./llm-wiki-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./llm-wiki-howto.ja.md) | [頃滉淡鞏碷(./llm-wiki-howto.ko.md)
 
-Document version: v1.4.5.
+Document version: v1.5.0.
 
 PKV Sync provides the storage, history, and MCP substrate for an LLM-maintained wiki. Your own MCP-capable agent runs the LLM, reads and writes through a normal PKV Sync device token, and commits every accepted change into the vault's git history.
 

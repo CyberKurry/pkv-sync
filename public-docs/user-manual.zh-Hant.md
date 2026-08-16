@@ -1,8 +1,8 @@
-﻿# PKV Sync 浣跨敤鑰呮墜鍐?
+# PKV Sync 浣跨敤鑰呮墜鍐?
 
 [English](./user-manual.md) | [绠€浣撲腑鏂嘳(./user-manual.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./user-manual.ja.md) | [頃滉淡鞏碷(./user-manual.ko.md)
 
-鏂囦欢鐗堟湰锛歷1.4.5銆?
+鏂囦欢鐗堟湰锛歷1.5.0銆?
 
 鏈墜鍐婇潰鍚戦€ｆ帴鏃㈡湁 PKV Sync 浼烘湇鍣ㄧ殑 Obsidian 浣跨敤鑰呫€傞枊濮嬩箣鍓嶏紝璜嬪悜浼烘湇鍣ㄧ鐞嗗摗鍙栧緱浼烘湇鍣ㄥ垎浜?URL锛屼互鍙婂赋铏熸垨閭€璜嬬⒓銆?
 

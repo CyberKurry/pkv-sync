@@ -9,7 +9,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-ドキュメントバージョン: v1.4.5。
+ドキュメントバージョン: v1.5.0。
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | 日本語 | [한국어](./README.ko.md)
 
@@ -153,7 +153,7 @@ Git-native な PKV を有用にしている機能（履歴 diff、三者自動�
 
 ## ステータス
 
-PKV Sync 1.4.5 は全リポジトリ再監査後にセキュリティと信頼性を強化します：ストレージロックと認証レートリミットロックは poisoning から回復しプロセスを落とさず、vault restore エンドポイントはタイミングベースの IDOR を閉じ、push の冪等性はリトライ時に 500 への競合を起こさず、ライブ SSE イベント時刻は epoch 0 の代わりに壁時計へフォールバックし、インラインテキスト適用は TOCTOU 窓を閉じ、TLS デプロイで `public_host` が未設定なら起動時に警告します。
+PKV Sync 1.5.0 は 2026-08-16 の全リポジトリ再監査の修正とパフォーマンス改善を出荷します：blob の保持は git オブジェクトの存続に追従するため、ロールバックやファイル単位の履歴復元の添付ファイルが失われません。Windows 上で危険なパスコンポーネントは `materialize` に届く前に拒否され、特権アップデータはダウングレードを拒否し、Docker 自己アップグレードのオーバーレイは強化されました。register と blob アップロード経路に欠けていたレート制限を追加し、常駐 SSE 接続はグレースフルシャットダウンを妨げなくなりました。プラグインは allowlist 内の `.obsidian` パスを同期し、初回同期をメモリ有界なバッチでストリーム処理します（モバイル）。バッチ git 読み取りと単一コピーのインデックス更新で MCP 検索と大規模 vault の同期が高速化されます。
 
 PKV Sync 1.0 は最初の安定版リリースです。公開 REST API、CLI サーフェス、
 ストレージレイアウト、プラグインパッケージ、Docker イメージは同じ semver で

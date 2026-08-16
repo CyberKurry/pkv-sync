@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-08-16
+
 ### Removed
 
 - Removed confirmed dead code: the unused `EMPTY_INDEX` constant, the

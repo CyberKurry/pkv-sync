@@ -1,8 +1,8 @@
-﻿# 璺ㄨ澶囧悓姝?`.obsidian` 閰嶇疆
+# 璺ㄨ澶囧悓姝?`.obsidian` 閰嶇疆
 
 [English](./dot-obsidian-sync-howto.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./dot-obsidian-sync-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./dot-obsidian-sync-howto.ja.md) | [頃滉淡鞏碷(./dot-obsidian-sync-howto.ko.md)
 
-鏂囨。鐗堟湰锛歷1.4.5銆?
+鏂囨。鐗堟湰锛歷1.5.0銆?
 
 PKV Sync 榛樿閬垮紑闅愯棌璺緞銆傚畠鎻愪緵鎸夌瑪璁板簱閰嶇疆鐨?allowlist锛岃浣犲彲浠ラ€夋嫨鎬у悓姝?`.obsidian` 閰嶇疆鏂囦欢锛岃€屼笉鏄悓姝ユ暣涓?Obsidian 鍐呴儴鐩綍銆?
 

@@ -5,7 +5,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文件版本：v1.4.5。
+文件版本：v1.5.0。
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | 繁體中文 | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -101,7 +101,7 @@ PKV Sync 1.0 **暫不**提供原生端到端加密——伺服器能讀到筆記
 
 ## 狀態
 
-PKV Sync 1.4.5 在全倉庫複審後加固安全與可靠性：儲存鎖與認證限流鎖從 poisoning 中恢復而非拖垮進程，vault restore 端點關閉基於時序的 IDOR，push 冪等在重試時不再競態至 500，即時 SSE 事件時間回退到牆鐘而非 epoch 0，內聯文字 apply 關閉 TOCTOU 視窗，並在 TLS 部署缺失 `public_host` 時於啟動告警。
+PKV Sync 1.5.0 交付 2026-08-16 全倉庫複審的全部修復與一輪效能優化：blob 保留現在跟隨 git 物件存活性，回滾與依檔案歷史復原的附件不再遺失；Windows 不安全的路徑元件在進入 `materialize` 前即被拒絕；特權更新器拒絕降級，Docker 自升級覆蓋已加固；註冊與 blob 上傳路徑補齊了缺失的限流；常駐 SSE 連線不再阻塞優雅關機；外掛可同步 allowlist 內的 `.obsidian` 路徑，並以記憶體有界的批次串流完成首次同步（行動裝置）；批次 git 讀取與單次拷貝的索引更新加快了 MCP 搜尋與大型 vault 同步。
 
 PKV Sync 1.0 是第一個穩定版。公開 REST API、CLI、儲存布局、外掛包、Docker 映像作為一組同步發版，遵循 semver：1.X.Y 在公開表面保持向後相容，OpenAPI 規範是這個相容契約的權威來源。0.x 建立的 SQLite 資料庫**不支援**就地升級到 1.0.0——請依[1.0 升級說明](./public-docs/upgrade-notes-v1.0.zh-Hant.md)操作。
 

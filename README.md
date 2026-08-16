@@ -8,7 +8,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.4.5.
+Document version: v1.5.0.
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -154,7 +154,7 @@ For real deployments, also run behind HTTPS, restrict
 
 ## Status
 
-PKV Sync 1.4.5 hardens security and reliability after a full repository re-audit: the storage and auth rate-limit locks recover from poisoning instead of crashing the process, the vault restore endpoint closes a timing-based IDOR, push idempotency no longer races to a 500 on retries, live SSE event times fall back to the wall clock instead of epoch 0, inline-text apply closes a TOCTOU window, and startup warns when a TLS deployment is missing `public_host`.
+PKV Sync 1.5.0 ships the full 2026-08-16 repository audit remediation plus a performance pass: blob retention now follows git object liveness so rollback and per-file history restores keep their attachments, Windows-hostile path components are rejected before they reach `materialize`, privileged updaters refuse downgrades and the Docker self-upgrade overlay is hardened, registration and blob-upload paths gained the missing rate limits, long-lived SSE connections no longer block graceful shutdown, the plugin syncs allowlisted `.obsidian` paths and streams initial syncs in memory-bounded batches for mobile, and batched git reads with single-copy index updates speed up MCP search and large vaults.
 
 PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
 storage layout, plugin package, and Docker image are versioned together

@@ -1,8 +1,8 @@
-﻿# 浠?Obsidian Sync 杩佺Щ
+# 浠?Obsidian Sync 杩佺Щ
 
 [English](./migrate-from-obsidian-sync.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./migrate-from-obsidian-sync.zh-Hant.md) | [鏃ユ湰瑾瀅(./migrate-from-obsidian-sync.ja.md) | [頃滉淡鞏碷(./migrate-from-obsidian-sync.ko.md)
 
-鏂囨。鐗堟湰锛歷1.4.5銆?
+鏂囨。鐗堟湰锛歷1.5.0銆?
 
 鏈枃璇存槑濡備綍鎶婂凡缁忎娇鐢?Obsidian Sync 鐨?Obsidian 绗旇搴撳綋鍓嶆枃浠跺鍏ュ埌鏂扮殑 PKV Sync 绗旇搴撱€?
 

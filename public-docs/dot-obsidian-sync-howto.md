@@ -1,8 +1,8 @@
-﻿# Sync `.obsidian` configuration across devices
+# Sync `.obsidian` configuration across devices
 
 English | [绠€浣撲腑鏂嘳(./dot-obsidian-sync-howto.zh-CN.md) | [绻侀珨涓枃](./dot-obsidian-sync-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./dot-obsidian-sync-howto.ja.md) | [頃滉淡鞏碷(./dot-obsidian-sync-howto.ko.md)
 
-Document version: v1.4.5.
+Document version: v1.5.0.
 
 PKV Sync normally avoids hidden paths. It adds a per-vault allowlist so you
 can opt in to selected `.obsidian` configuration files without syncing the

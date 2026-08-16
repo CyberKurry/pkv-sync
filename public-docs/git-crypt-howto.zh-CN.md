@@ -1,8 +1,8 @@
-﻿# 鍦?PKV Sync 涓娇鐢?git-crypt
+# 鍦?PKV Sync 涓娇鐢?git-crypt
 
 [English](./git-crypt-howto.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./git-crypt-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./git-crypt-howto.ja.md) | [頃滉淡鞏碷(./git-crypt-howto.ko.md)
 
-鏂囨。鐗堟湰锛歷1.4.5銆?
+鏂囨。鐗堟湰锛歷1.5.0銆?
 
 > **娉ㄦ剰锛?* 杩欐槸鍘熺敓绔埌绔姞瀵嗭紙E2EE锛夊彂甯冨墠鐨勮繃娓℃柟妗堛€侾KV Sync 鏈嶅姟鍣ㄤ粛鐒跺彲浠ョ湅鍒版枃浠跺悕鍜屾彁浜ゅ厓鏁版嵁銆?
 

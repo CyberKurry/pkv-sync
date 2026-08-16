@@ -9,7 +9,7 @@ Obsidian 볼트를 휴대폰, 태블릿, 데스크톱 사이에서 동기화합�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-문서 버전: v1.4.5.
+문서 버전: v1.5.0.
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | 한국어
 
@@ -152,7 +152,7 @@ E2EE 가 도입되기 전에 필요하다면, 볼트에
 
 ## 상태
 
-PKV Sync 1.4.5는 전체 저장소 재감사 후 보안과 신뢰성을 강화합니다: 저장소 잠금과 인증 속도 제한 잠금은 poisoning에서 회복하여 프로세스를 종료하지 않고, vault restore 엔드포인트는 타이밍 기반 IDOR을 닫으며, push 멱등성은 재시도 시 500으로 경쟁하지 않고, 라이브 SSE 이벤트 시간은 epoch 0 대신 벽시계로 폴백하고, 인라인 텍스트 적용은 TOCTOU 창을 닫으며, TLS 배포에서 `public_host`가 누락되면 시작 시 경고합니다.
+PKV Sync 1.5.0은 2026-08-16 전체 저장소 재감사의 수정 사항과 성능 개선을 제공합니다. blob 보존은 이제 git 객체의 존속을 따르므로 롤백 및 파일 단위 기록 복원의 첨부 파일이 유지되며, Windows에서 위험한 경로 구성 요소는 `materialize`에 도달하기 전에 거부됩니다. 특권 업데이터는 다운그레이드를 거부하고 Docker 자체 업그레이드 오버레이가 강화되었으며, register와 blob 업로드 경로에 누락된 속도 제한을 추가했습니다. 상주 SSE 연결은 우아한 종료를 막지 않습니다. 플러그인은 allowlist의 `.obsidian` 경로를 동기화하고 초기 동기화를 메모리 제한 배치로 스트리밍합니다(모바일). 배치 git 읽기와 단일 복사 인덱스 업데이트로 MCP 검색과 대규모 vault 동기화가 빨라집니다.
 
 PKV Sync 1.0 은 첫 안정 릴리스입니다. 공개 REST API, CLI 표면, 저장소
 레이아웃, 플러그인 패키지, Docker 이미지는 같은 semver 로 관리됩니다.

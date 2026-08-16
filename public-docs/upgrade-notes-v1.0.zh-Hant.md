@@ -1,8 +1,8 @@
-﻿# 鍗囩礆瑾槑锛?.x 鍒?1.0
+# 鍗囩礆瑾槑锛?.x 鍒?1.0
 
 [English](./upgrade-notes-v1.0.md) | [绠€浣撲腑鏂嘳(./upgrade-notes-v1.0.zh-CN.md) | 绻侀珨涓枃 | [鏃ユ湰瑾瀅(./upgrade-notes-v1.0.ja.md) | [頃滉淡鞏碷(./upgrade-notes-v1.0.ko.md)
 
-鏂囦欢鐗堟湰锛歷1.4.5銆?
+鏂囦欢鐗堟湰锛歷1.5.0銆?
 
 PKV Sync 1.0 鏄涓€鍊嬬┅瀹氱増銆傚畠涔熺偤寰岀簩 1.x 缍閲嶇疆浜?SQLite migration 鍩虹窔銆?
 

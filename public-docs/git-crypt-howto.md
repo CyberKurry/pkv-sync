@@ -1,8 +1,8 @@
-﻿# Using git-crypt with PKV Sync
+# Using git-crypt with PKV Sync
 
 English | [绠€浣撲腑鏂嘳(./git-crypt-howto.zh-CN.md) | [绻侀珨涓枃](./git-crypt-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./git-crypt-howto.ja.md) | [頃滉淡鞏碷(./git-crypt-howto.ko.md)
 
-Document version: v1.4.5.
+Document version: v1.5.0.
 
 > **Note:** This is a stop-gap guide for end-to-end encryption (E2EE) before
 > native E2EE ships. The PKV Sync server can still see filenames and commit
