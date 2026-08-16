@@ -102,6 +102,11 @@ describe("index-store", () => {
       upserts
     );
 
+    // markBatch records one batch-wide Date.now(); the old pair recorded two
+    // (one per call), so normalize timestamps before comparing structure.
+    for (const index of [batch, sequential]) {
+      for (const entry of Object.values(index.files)) entry.lastSyncedAt = 0;
+    }
     expect(batch).toEqual(sequential);
     expect(batch.lastSyncedCommit).toBe("c1");
     expect(Object.keys(batch.files).sort()).toEqual(["a.md", "b.md", "keep.md"]);
