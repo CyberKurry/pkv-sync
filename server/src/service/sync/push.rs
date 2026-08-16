@@ -618,6 +618,7 @@ pub(super) async fn push_stats_delta(
 ) -> Result<PushStatsDelta, GitStoreError> {
     let mut old_sizes = BTreeMap::<String, Option<u64>>::new();
     let mut final_sizes = BTreeMap::<String, Option<u64>>::new();
+    let mut unique_paths: Vec<&str> = Vec::new();
 
     for change in changes {
         let (path, new_size) = match change {
@@ -625,13 +626,19 @@ pub(super) async fn push_stats_delta(
             FileChange::Delete { path } => (path, None),
         };
         if !old_sizes.contains_key(path) {
-            let old_size = match parent {
-                Some(parent) => git.file_size_at(vault_id, path, Some(parent)).await?,
-                None => None,
-            };
-            old_sizes.insert(path.clone(), old_size);
+            unique_paths.push(path);
+            old_sizes.insert(path.to_string(), None);
         }
-        final_sizes.insert(path.clone(), new_size);
+        final_sizes.insert(path.to_string(), new_size);
+    }
+
+    if let Some(parent) = parent {
+        let sizes = git
+            .file_sizes_at(vault_id, Some(parent), &unique_paths)
+            .await?;
+        for (path, size) in unique_paths.into_iter().zip(sizes) {
+            old_sizes.insert(path.to_string(), size);
+        }
     }
 
     let mut delta = PushStatsDelta::default();

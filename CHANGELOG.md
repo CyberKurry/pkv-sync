@@ -121,6 +121,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Performance
 
+- MCP `search` and `link_graph` read candidate files in batches of 64
+  through a single repo open per batch instead of opening the bare repo and
+  spawning a blocking task once per file (N opens -> ceil(N/64)). Budget,
+  limit, UTF-8-skip and error decision points are unchanged. Benchmark on a
+  200-file repo: 18.7ms batch vs 441ms per-file loop, 23.6x
+  (PERF-SERVER-MCP-BATCH-READ).
+- Push stats now resolve the parent-commit sizes of all changed paths in one
+  repo open (`file_sizes_at`) instead of one open per unique path
+  (PERF-SERVER-PUSH-STATS-BATCH).
 - Text snapshot hashing now uses `sha256TextWithLength`, producing the SHA-256
   and the UTF-8 byte length from a single `TextEncoder.encode` instead of two
   encodings; identical hash/size/payload semantics (PERF-PLUGIN-HASH-WITH-LENGTH).

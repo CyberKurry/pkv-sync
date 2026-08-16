@@ -18,6 +18,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 const SEARCH_MAX_TREE_FILES: usize = 5000;
+const MCP_READ_BATCH_SIZE: usize = 64;
 #[cfg(test)]
 const SEARCH_MAX_TOTAL_BYTES: usize = 64 * 1024;
 #[cfg(not(test))]
@@ -351,40 +352,61 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     let mut matches = Vec::new();
     let mut searched_bytes = 0usize;
 
-    for entry in tree
+    // Read candidate files in batches of MCP_READ_BATCH_SIZE through a single
+    // repo open each, instead of opening the bare repo once per file. The
+    // budget/limit/UTF-8 decision points match the per-file loop exactly.
+    let mut iter = tree
         .into_iter()
-        .filter(|entry| sync::path_visible_on_read(&filter, &entry.path))
-    {
-        if matches.len() >= limit {
+        .filter(|entry| sync::path_visible_on_read(&filter, &entry.path));
+    loop {
+        let mut chunk: Vec<(String, usize)> = Vec::new();
+        for entry in iter.by_ref() {
+            if matches.len() >= limit {
+                break;
+            }
+            if entry.is_blob_pointer || !classifier.is_text_path(&entry.path) {
+                continue;
+            }
+            chunk.push((
+                entry.path,
+                usize::try_from(entry.size).unwrap_or(usize::MAX),
+            ));
+            if chunk.len() >= MCP_READ_BATCH_SIZE {
+                break;
+            }
+        }
+        if chunk.is_empty() {
             break;
         }
-        if entry.is_blob_pointer || !classifier.is_text_path(&entry.path) {
-            continue;
-        }
-        let entry_size = usize::try_from(entry.size).unwrap_or(usize::MAX);
-        searched_bytes = searched_bytes.saturating_add(entry_size);
-        if searched_bytes > SEARCH_MAX_TOTAL_BYTES {
-            bail!("search content budget exceeded");
-        }
-        let Some(StoredFile::Text { bytes }) = git
-            .read_file(&input.vault_id, &entry.path, input.at.as_deref())
-            .await?
-        else {
-            continue;
-        };
-        let Ok(text) = String::from_utf8(bytes) else {
-            continue;
-        };
-        for (idx, line) in text.lines().enumerate() {
-            if contains_ascii_case_insensitive(line, &needle) {
-                let line = line.to_string();
-                matches.push(SearchMatch {
-                    path: entry.path.clone(),
-                    line,
-                    line_number: idx + 1,
-                });
-                if matches.len() >= limit {
-                    break;
+        let paths: Vec<&str> = chunk.iter().map(|(path, _)| path.as_str()).collect();
+        let files = git
+            .read_files(&input.vault_id, input.at.as_deref(), &paths)
+            .await?;
+        for ((path, size), file) in chunk.into_iter().zip(files) {
+            if matches.len() >= limit {
+                break;
+            }
+            searched_bytes = searched_bytes.saturating_add(size);
+            if searched_bytes > SEARCH_MAX_TOTAL_BYTES {
+                bail!("search content budget exceeded");
+            }
+            let Some(StoredFile::Text { bytes }) = file else {
+                continue;
+            };
+            let Ok(text) = String::from_utf8(bytes) else {
+                continue;
+            };
+            for (idx, line) in text.lines().enumerate() {
+                if contains_ascii_case_insensitive(line, &needle) {
+                    let line = line.to_string();
+                    matches.push(SearchMatch {
+                        path: path.clone(),
+                        line,
+                        line_number: idx + 1,
+                    });
+                    if matches.len() >= limit {
+                        break;
+                    }
                 }
             }
         }
@@ -419,28 +441,53 @@ pub async fn link_graph(
     let mut graph_files = Vec::new();
     let mut scanned_bytes = 0usize;
     let mut truncated = false;
-    for entry in tree.into_iter().filter(|entry| {
+    let mut iter = tree.into_iter().filter(|entry| {
         !entry.is_blob_pointer
             && classifier.is_text_path(&entry.path)
             && entry.path.starts_with(&prefix)
             && !crate::service::exclude::is_hidden_path(&entry.path)
             && sync::path_visible_on_read(&filter, &entry.path)
-    }) {
-        if graph_files.len() >= limit {
-            truncated = true;
+    });
+    loop {
+        let mut chunk: Vec<String> = Vec::new();
+        for entry in iter.by_ref() {
+            if graph_files.len() >= limit {
+                truncated = true;
+                break;
+            }
+            chunk.push(entry.path);
+            if chunk.len() >= MCP_READ_BATCH_SIZE {
+                break;
+            }
+        }
+        if chunk.is_empty() {
             break;
         }
-        let Some(text) =
-            read_text_bytes(&git, &input.vault_id, &entry.path, input.at.as_deref()).await?
-        else {
-            continue;
-        };
-        scanned_bytes = scanned_bytes.saturating_add(text.len());
-        if scanned_bytes > LINK_GRAPH_MAX_TOTAL_BYTES {
-            truncated = true;
+        let paths: Vec<&str> = chunk.iter().map(|path| path.as_str()).collect();
+        let files = git
+            .read_files(&input.vault_id, input.at.as_deref(), &paths)
+            .await?;
+        for (path, file) in chunk.into_iter().zip(files) {
+            if graph_files.len() >= limit {
+                truncated = true;
+                break;
+            }
+            let Some(text) = (match file {
+                Some(StoredFile::Text { bytes }) => String::from_utf8(bytes).ok(),
+                _ => None,
+            }) else {
+                continue;
+            };
+            scanned_bytes = scanned_bytes.saturating_add(text.len());
+            if scanned_bytes > LINK_GRAPH_MAX_TOTAL_BYTES {
+                truncated = true;
+                break;
+            }
+            graph_files.push((path.clone(), text));
+        }
+        if truncated {
             break;
         }
-        graph_files.push((entry.path.clone(), text));
     }
 
     let paths_by_path = graph_files
@@ -767,18 +814,6 @@ fn normalize_markdown_relative_path(raw: &str, from_path: &str) -> std::result::
     }
     let joined = parts.join("/");
     path::normalize(&joined).map_err(|_| ())
-}
-
-async fn read_text_bytes(
-    git: &Git2VaultStore,
-    vault_id: &str,
-    path: &str,
-    at: Option<&str>,
-) -> Result<Option<String>> {
-    let Some(StoredFile::Text { bytes }) = git.read_file(vault_id, path, at).await? else {
-        return Ok(None);
-    };
-    Ok(String::from_utf8(bytes).ok())
 }
 
 pub async fn write_file(

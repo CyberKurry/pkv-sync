@@ -204,6 +204,42 @@ impl Git2VaultStore {
         Self { root }
     }
 
+    /// Read many files from the same commit in a single repo open + blocking
+    /// task. Paths that do not resolve return `None`; decode and error
+    /// semantics mirror `read_file` exactly.
+    pub async fn read_files(
+        &self,
+        vault_id: &str,
+        at: Option<&str>,
+        paths: &[&str],
+    ) -> Result<Vec<Option<StoredFile>>, GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let at = at.map(|s| s.to_string());
+        let paths: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+        tokio::task::spawn_blocking(move || -> Result<Vec<Option<StoredFile>>, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let oid = match at {
+                Some(h) => Oid::from_str(&h)?,
+                None => main_ref_target(&repo)?.ok_or(GitStoreError::NotFound)?,
+            };
+            let commit = repo.find_commit(oid)?;
+            let tree = commit.tree()?;
+            let mut out = Vec::with_capacity(paths.len());
+            for path in &paths {
+                let Ok(entry) = tree.get_path(Path::new(path)) else {
+                    out.push(None);
+                    continue;
+                };
+                let blob = repo.find_blob(entry.id())?;
+                let bytes = blob.content().to_vec();
+                out.push(Some(decode_file(path, bytes)));
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
     pub async fn commit_time_seconds(
         &self,
         vault_id: &str,
@@ -279,16 +315,16 @@ impl Git2VaultStore {
         Ok([map0, map1])
     }
 
-    pub async fn file_size_at(
+    pub async fn file_sizes_at(
         &self,
         vault_id: &str,
-        path: &str,
         at: Option<&str>,
-    ) -> Result<Option<u64>, GitStoreError> {
+        paths: &[&str],
+    ) -> Result<Vec<Option<u64>>, GitStoreError> {
         let p = self.repo_path(vault_id)?;
-        let path = path.to_string();
         let at = at.map(str::to_string);
-        tokio::task::spawn_blocking(move || -> Result<Option<u64>, GitStoreError> {
+        let paths: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+        tokio::task::spawn_blocking(move || -> Result<Vec<Option<u64>>, GitStoreError> {
             let repo = Repository::open_bare(&p)?;
             let oid = match at {
                 Some(h) => Oid::from_str(&h)?,
@@ -296,20 +332,26 @@ impl Git2VaultStore {
             };
             let commit = repo.find_commit(oid)?;
             let tree = commit.tree()?;
-            let Ok(entry) = tree.get_path(Path::new(&path)) else {
-                return Ok(None);
-            };
-            if entry.kind() != Some(ObjectType::Blob) {
-                return Ok(None);
+            let mut out = Vec::with_capacity(paths.len());
+            for path in &paths {
+                let Ok(entry) = tree.get_path(Path::new(path)) else {
+                    out.push(None);
+                    continue;
+                };
+                if entry.kind() != Some(ObjectType::Blob) {
+                    out.push(None);
+                    continue;
+                }
+                let blob = repo.find_blob(entry.id())?;
+                let pointer = parse_blob_pointer_if_candidate(&blob)
+                    .and_then(|pointer| pointer.into_file_for_path(path));
+                let size = match pointer {
+                    Some(StoredFile::BlobPointer { size, .. }) => size,
+                    _ => blob.size() as u64,
+                };
+                out.push(Some(size));
             }
-            let blob = repo.find_blob(entry.id())?;
-            let pointer = parse_blob_pointer_if_candidate(&blob)
-                .and_then(|pointer| pointer.into_file_for_path(&path));
-            let size = match pointer {
-                Some(StoredFile::BlobPointer { size, .. }) => size,
-                _ => blob.size() as u64,
-            };
-            Ok(Some(size))
+            Ok(out)
         })
         .await
         .map_err(|_| GitStoreError::Panic)?
@@ -1904,6 +1946,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn read_files_batch_matches_read_file_per_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let head = store
+            .commit_changes(
+                "v1",
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "a.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"alpha".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "dir/b.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"beta".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "img.png".into(),
+                        file: StoredFile::BlobPointer {
+                            hash: "a".repeat(64),
+                            size: 12,
+                            mime: Some("image/png".into()),
+                        },
+                    },
+                ],
+                "c",
+            )
+            .await
+            .unwrap();
+
+        let paths = ["a.md", "dir/b.md", "img.png", "missing.md"];
+        let batch = store.read_files("v1", Some(&head), &paths).await.unwrap();
+        assert_eq!(batch.len(), paths.len());
+        for (path, batch_file) in paths.iter().zip(batch.iter()) {
+            let single = store.read_file("v1", path, Some(&head)).await.unwrap();
+            assert_eq!(batch_file.as_ref(), single.as_ref(), "mismatch for {path}");
+        }
+        assert!(batch[3].is_none(), "missing path must read as None");
+    }
+
+    #[tokio::test]
     async fn text_json_with_blob_shape_stays_text() {
         let dir = tempfile::tempdir().unwrap();
         let store = Git2VaultStore::new(dir.path().to_path_buf());
@@ -1968,7 +2055,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn file_size_at_reports_target_file_size_without_directory_errors() {
+    async fn file_sizes_at_reports_target_file_size_without_directory_errors() {
         let dir = tempfile::tempdir().unwrap();
         let store = Git2VaultStore::new(dir.path().to_path_buf());
         let commit = store
@@ -2004,31 +2091,14 @@ mod tests {
 
         assert_eq!(
             store
-                .file_size_at("v1", "note.md", Some(&commit))
+                .file_sizes_at(
+                    "v1",
+                    Some(&commit),
+                    &["note.md", "img.png", "dir", "missing.md", "note.md"]
+                )
                 .await
                 .unwrap(),
-            Some(5)
-        );
-        assert_eq!(
-            store
-                .file_size_at("v1", "img.png", Some(&commit))
-                .await
-                .unwrap(),
-            Some(12)
-        );
-        assert_eq!(
-            store
-                .file_size_at("v1", "dir", Some(&commit))
-                .await
-                .unwrap(),
-            None
-        );
-        assert_eq!(
-            store
-                .file_size_at("v1", "missing.md", Some(&commit))
-                .await
-                .unwrap(),
-            None
+            vec![Some(5), Some(12), None, None, Some(5)]
         );
     }
 
