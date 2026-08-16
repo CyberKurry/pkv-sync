@@ -95,16 +95,6 @@ impl SyncPathFilter {
         }
     }
 
-    pub fn compile(
-        user_exclude_globs: &[String],
-        vault_allowlist_globs: &[String],
-    ) -> Result<Self, ExcludeError> {
-        Ok(Self {
-            user_excludes: EffectiveExcludes::compile(user_exclude_globs)?,
-            vault_allowlist: EffectiveExcludes::compile(vault_allowlist_globs)?,
-        })
-    }
-
     pub fn path_accepts(&self, path: &str) -> bool {
         if is_hard_excluded(path) {
             return false;

@@ -3,7 +3,7 @@ import { fillDiffCell } from "../../src/ui/diff-cells";
 
 describe("fillDiffCell", () => {
   it("renders changed words as marked spans on modify rows", () => {
-    const cell = new MockElement("div");
+    const cell = new MockElement();
 
     fillDiffCell(
       cell as unknown as HTMLElement,
@@ -24,7 +24,7 @@ describe("fillDiffCell", () => {
   });
 
   it("renders plain text for context rows", () => {
-    const cell = new MockElement("div");
+    const cell = new MockElement();
 
     fillDiffCell(
       cell as unknown as HTMLElement,
@@ -48,10 +48,10 @@ class MockElement {
   private text = "";
   private readonly classes = new Set<string>();
 
-  constructor(private readonly tag: string) {}
+  constructor() {}
 
   createSpan(options: { cls?: string; text?: string } = {}): MockElement {
-    const child = new MockElement("span");
+    const child = new MockElement();
     child.addClassNames(options.cls);
     child.text = options.text ?? "";
     this.children.push(child);
@@ -80,7 +80,7 @@ class MockElement {
   }
 
   private static textNode(text: string): MockElement {
-    const node = new MockElement("#text");
+    const node = new MockElement();
     node.text = text;
     return node;
   }

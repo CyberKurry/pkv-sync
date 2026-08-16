@@ -9,7 +9,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeVaultEvents } from "../../src/api/events-client";
-import { ApiError } from "../../src/api/client";
 import {
   SyncEngine,
   type IndexPersistence,

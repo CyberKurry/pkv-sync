@@ -7,6 +7,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Removed
+
+- Removed confirmed dead code: the unused `EMPTY_INDEX` constant, the
+  test-only `SyncPathFilter::compile` constructor, and several unused test
+  imports; the `normalizeSyncPath` export is now module-private. No
+  behavior change (DC-PLUGIN-001 / DC-SERVER-API-001 / DC-TEST-001-003).
+
 ### Security
 
 - Idempotency request hashing uses byte-string literals instead of

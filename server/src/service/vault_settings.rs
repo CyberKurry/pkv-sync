@@ -94,7 +94,10 @@ mod tests {
     #[tokio::test]
     async fn save_invalidates_cached_vault_path_filter() {
         let (state, vault_id, _tmp) = state_and_vault().await;
-        let filter = crate::service::exclude::SyncPathFilter::compile(&[], &[]).unwrap();
+        let filter = crate::service::exclude::SyncPathFilter::new(
+            crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap(),
+            crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap(),
+        );
         state.cache_vault_path_filter(&vault_id, &[], filter);
         assert!(state
             .cached_vault_path_filter(&vault_id, &[], std::time::Duration::from_secs(300))

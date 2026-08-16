@@ -26,11 +26,6 @@ function normalizeFiles(raw: unknown): LocalIndex["files"] {
   return files;
 }
 
-const EMPTY_INDEX: LocalIndex = {
-  lastSyncedCommit: null,
-  files: createFilesMap()
-};
-
 export function normalizeIndex(raw: unknown): LocalIndex {
   if (!raw || typeof raw !== "object") {
     return { lastSyncedCommit: null, files: createFilesMap() };

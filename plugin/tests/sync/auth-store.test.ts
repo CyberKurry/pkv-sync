@@ -4,7 +4,6 @@ import {
   authFromSettings,
   migrateAuth,
   type AuthData,
-  type MigrationResult,
   type SafeStorageLike
 } from "../../src/sync/auth-store";
 

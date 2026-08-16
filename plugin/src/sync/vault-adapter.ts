@@ -189,7 +189,7 @@ export function shouldAcceptRemoteConflictPath(path: string): boolean {
   );
 }
 
-export function normalizeSyncPath(path: string): string | null {
+function normalizeSyncPath(path: string): string | null {
   const normalized = normalizeVaultPath(path);
   if (normalized === null) return null;
   if (isConflictPath(normalized)) return null;
