@@ -1,16 +1,16 @@
-# PKV vault毳?Git clone頃橁赴
+# PKV vault를 Git clone하기
 
-[English](./git-clone-howto.md) | [绠€浣撲腑鏂嘳(./git-clone-howto.zh-CN.md) | [绻侀珨涓枃](./git-clone-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./git-clone-howto.ja.md) | 頃滉淡鞏?
+[English](./git-clone-howto.md) | [简体中文](./git-clone-howto.zh-CN.md) | [繁體中文](./git-clone-howto.zh-Hant.md) | [日本語](./git-clone-howto.ja.md) | 한국어
 
-氍胳劀 氩勳爠: v1.5.0.
+문서 버전: v1.5.0.
 
-PKV Sync電?臧?vault毳?HTTPS毳?韱淀暅 read-only Git repository搿?雲胳稖頃?靾?鞛堨姷雼堧嫟.
+PKV Sync는 각 vault를 HTTPS를 통한 read-only Git repository로 노출할 수 있습니다.
 
 ## Prerequisites
 
-- Server admin鞚?Sync & Storage settings鞐愳劀 鈥淕it smart HTTP鈥濍ゼ 頇滌劚頇旐枅鞀惦媹雼?
-- Server鞐愳劀 `git` binary毳?靷毄頃?靾?鞛堨姷雼堧嫟.
-- 鞙犿毃頃?device token鞚?鞛堨姷雼堧嫟.
+- Server admin이 Sync & Storage settings에서 “Git smart HTTP”를 활성화했습니다.
+- Server에서 `git` binary를 사용할 수 있습니다.
+- 유효한 device token이 있습니다.
 
 ## Clone
 
@@ -18,30 +18,30 @@ PKV Sync電?臧?vault毳?HTTPS毳?韱淀暅 read-only Git repository搿?雲胳�
 git clone https://_:<token>@your-server/git/<vault-id>
 ```
 
-旖滊 鞎烄潣 underscore電?username鞛呺媹雼? 鞏措枻 臧掛澊鞏措弰 霅╇媹雼? password 鞙勳箻鞚?token毵?靷毄霅╇媹雼?
+콜론 앞의 underscore는 username입니다. 어떤 값이어도 됩니다. password 위치의 token만 사용됩니다.
 
 ### Example
 
-server臧€ `sync.example.com`, vault ID臧€ `6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`, device token鞚?`pks_0f1e2d3c4b5a6978...`霛茧┐ 雼れ潓鞚?鞁ろ枆頃╇媹雼?
+server가 `sync.example.com`, vault ID가 `6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`, device token이 `pks_0f1e2d3c4b5a6978...`라면 다음을 실행합니다.
 
 ```bash
 git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 ```
 
-Vault ID電?32鞛?靻岆鞛?hex鞛呺媹雼?雽€鞁?鞐嗢潓). Admin WebUI鞕€ `pkvsyncd user list`臧€ 鞙犿毃頃?ID毳?氤挫棳欷嶋媹雼? `abc123` 臧欖潃 placeholder電?`400 invalid_vault_id`搿?瓯半秬霅╇媹雼?
+Vault ID는 32자 소문자 hex입니다(대시 없음). Admin WebUI와 `pkvsyncd user list`가 유효한 ID를 보여줍니다. `abc123` 같은 placeholder는 `400 invalid_vault_id`로 거부됩니다.
 
 ## Materialize
 
-clone 頉勳棎電?PKV Sync server臧€ 韥?韺岇澕鞚?氤勲弰搿?鞝€鞛ロ晿旮?霑岆鞐?blob files臧€ pointer JSON鞙茧 氤挫瀰雼堧嫟. 雼れ潓鞚?鞁ろ枆頃╇媹雼?
+clone 후에는 PKV Sync server가 큰 파일을 별도로 저장하기 때문에 blob files가 pointer JSON으로 보입니다. 다음을 실행합니다.
 
 ```bash
 pkvsyncd materialize <vault-id> -o ./output
 ```
 
-pointer files毳?鞁れ牅 binary content搿?氚旉靖鞏?鞕勳爠頌?靷毄頃?靾?鞛堧姅 搿滌滑 vault copy毳?毵岆摥雼堧嫟.
+pointer files를 실제 binary content로 바꾸어 완전히 사용할 수 있는 로컬 vault copy를 만듭니다.
 
 ## Notes
 
-- HTTP毳?韱淀暅 repository電?**read-only**鞛呺媹雼? Git鞙茧 氤€瓴届偓頃潉 push頃?靾?鞐嗢姷雼堧嫟.
-- 氤€瓴届潃 PKV Sync plugin鞐愳劀 靾橅枆頃橁碃 鞚茧皹 sync API搿?push頃橃劯鞖?
-- Server admin鞚?Git smart HTTP毳?牍勴櫆靹表檾頃橂┐ clone 霕愲姅 fetch臧€ HTTP 503鞚?氚橅櫂頃╇媹雼?
+- HTTP를 통한 repository는 **read-only**입니다. Git으로 변경사항을 push할 수 없습니다.
+- 변경은 PKV Sync plugin에서 수행하고 일반 sync API로 push하세요.
+- Server admin이 Git smart HTTP를 비활성화하면 clone 또는 fetch가 HTTP 503을 반환합니다.

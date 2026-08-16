@@ -1,14 +1,14 @@
-# 鞐煬 旮瓣赴鞐愳劀 `.obsidian` 靹れ爼 霃欔赴頇?
+# 여러 기기에서 `.obsidian` 설정 동기화
 
-[English](./dot-obsidian-sync-howto.md) | [绠€浣撲腑鏂嘳(./dot-obsidian-sync-howto.zh-CN.md) | [绻侀珨涓枃](./dot-obsidian-sync-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./dot-obsidian-sync-howto.ja.md) | 頃滉淡鞏?
+[English](./dot-obsidian-sync-howto.md) | [简体中文](./dot-obsidian-sync-howto.zh-CN.md) | [繁體中文](./dot-obsidian-sync-howto.zh-Hant.md) | [日本語](./dot-obsidian-sync-howto.ja.md) | 한국어
 
-氍胳劀 氩勳爠: v1.5.0.
+문서 버전: v1.5.0.
 
-PKV Sync電?旮半掣鞝侅溂搿?hidden path毳?頂柬暕雼堧嫟. vault氤?allowlist毳?鞝滉车頃橂瘈搿?鞝勳泊 Obsidian 雮措秬 霐旊爥韯半Μ臧€ 鞎勲媹霛?靹犿儩頃?`.obsidian` 靹れ爼 韺岇澕毵?opt in頃?靾?鞛堨姷雼堧嫟.
+PKV Sync는 기본적으로 hidden path를 피합니다. vault별 allowlist를 제공하므로 전체 Obsidian 내부 디렉터리가 아니라 선택한 `.obsidian` 설정 파일만 opt in할 수 있습니다.
 
-## 靸?vault臧€ 旮半掣鞙茧 霃欔赴頇旐晿電?頃
+## 새 vault가 기본으로 동기화하는 항목
 
-靸?vault鞐愲姅 雼れ潓 starter allowlist臧€ 鞝侅毄霅╇媹雼?
+새 vault에는 다음 starter allowlist가 적용됩니다.
 
 - Themes: `.obsidian/themes/**`
 - CSS snippets: `.obsidian/snippets/**`
@@ -18,18 +18,18 @@ PKV Sync電?旮半掣鞝侅溂搿?hidden path毳?頂柬暕雼堧嫟. vault氤?al
 - Enabled community plugin list: `.obsidian/community-plugins.json`
 - Enabled core plugin list: `.obsidian/core-plugins.json`
 
-韽暔霅橂姅 瓴冹潃 enabled plugin list肟愳瀰雼堧嫟. plugin code鞕€ plugin settings電?旮半掣鞙茧 霃欔赴頇旊悩歆€ 鞎婌姷雼堧嫟.
+포함되는 것은 enabled plugin list뿐입니다. plugin code와 plugin settings는 기본으로 동기화되지 않습니다.
 
-旮办〈 vault電?starter list毳?鞝侅毄頃橁赴 鞝勱箤歆€ 牍?allowlist毳?鞙犾頃╇媹雼?
+기존 vault는 starter list를 적용하기 전까지 빈 allowlist를 유지합니다.
 
-- **Admin WebUI: Vaults -> Settings -> Apply starter allowlist**電?鞙勳潣 7-glob starter list 鞝勳泊毳?旮半頃╇媹雼?
-- **Obsidian plugin: Settings -> PKV Sync -> Apply recommended starter list**電?臧€鞛?鞎堨爠頃?霊?glob(`.obsidian/themes/**`鞕€ `.obsidian/snippets/**`)毵?旮半頃╇媹雼? themes鞕€ CSS snippets電?氤错喌 鞐煬 旮瓣赴鞐愳劀 瓿奠湢頃措弰 鞎堨爠頃?氚橂┐, 雮橂ǜ歆€ 雼れ劘 glob鞚€ 靷毄鞛愲硠 app state鞐?雼筷赴 霑岆鞐?plugin鞚€ 氇呾嫓鞝侅澑 瓴办爼 鞐嗢澊電?頇滌劚頇旐晿歆€ 鞎婌姷雼堧嫟.
+- **Admin WebUI: Vaults -> Settings -> Apply starter allowlist**는 위의 7-glob starter list 전체를 기록합니다.
+- **Obsidian plugin: Settings -> PKV Sync -> Apply recommended starter list**는 가장 안전한 두 glob(`.obsidian/themes/**`와 `.obsidian/snippets/**`)만 기록합니다. themes와 CSS snippets는 보통 여러 기기에서 공유해도 안전한 반면, 나머지 다섯 glob은 사용자별 app state에 닿기 때문에 plugin은 명시적인 결정 없이는 활성화하지 않습니다.
 
-7-glob starter 鞝勳泊毳?鞝侅毄頃橂牑氅?Admin WebUI 氩勴娂鞚?靷毄頃橁卑雮?plugin鞚?allowlist editor鞐?歆侅爲 glob鞚?攵欖棳雱ｌ溂靹胳殧.
+7-glob starter 전체를 적용하려면 Admin WebUI 버튼을 사용하거나 plugin의 allowlist editor에 직접 glob을 붙여넣으세요.
 
-## 鞝堧寑 霃欔赴頇旐晿歆€ 鞎婋姅 頃
+## 절대 동기화하지 않는 항목
 
-雼れ潓 hard exclusions電?allowlist鞐?於旉皜頃措弰 頃儊 鞖办劆頃╇媹雼?
+다음 hard exclusions는 allowlist에 추가해도 항상 우선합니다.
 
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`
@@ -43,13 +43,13 @@ PKV Sync電?旮半掣鞝侅溂搿?hidden path毳?頂柬暕雼堧嫟. vault氤?al
 
 ## Advanced opt-in
 
-於旉皜 glob鞚?靹れ爼頃?靾?鞛堨毵?鞙勴棙鞚€ 靷毄鞛愱皜 臧愳垬頃挫暭 頃╇媹雼?
+추가 glob을 설정할 수 있지만 위험은 사용자가 감수해야 합니다.
 
-- `.obsidian/plugins/*/data.json`: plugin settings鞛呺媹雼? API key, OAuth token, LLM key臧€ 霌れ柎 鞛堨潉 靾?鞛堨姷雼堧嫟. native E2EE臧€ 鞝滉车霅橁赴 鞝勱箤歆€ 霃欔赴頇旊悳 雮挫毄鞚€ server鞐?plaintext搿?鞝€鞛ル惄雼堧嫟.
-- `.obsidian/plugins/**`: plugin code鞛呺媹雼? Git history臧€ 牍犽ゴ瓴?旎れ 靾?鞛堦碃, desktop-only plugin鞚?mobile鞐愳劀 旯 靾?鞛堨姷雼堧嫟.
-- `.claude/**` 霕愲姅 `.codex/**` 臧欖潃 雼るジ hidden directories: agent state鞐?氙缄皭頃?搿滌滑 context臧€ 韽暔霅?靾?鞛堨姷雼堧嫟.
+- `.obsidian/plugins/*/data.json`: plugin settings입니다. API key, OAuth token, LLM key가 들어 있을 수 있습니다. native E2EE가 제공되기 전까지 동기화된 내용은 server에 plaintext로 저장됩니다.
+- `.obsidian/plugins/**`: plugin code입니다. Git history가 빠르게 커질 수 있고, desktop-only plugin이 mobile에서 깨질 수 있습니다.
+- `.claude/**` 또는 `.codex/**` 같은 다른 hidden directories: agent state에 민감한 로컬 context가 포함될 수 있습니다.
 
-## 攴滌箼鞚?韼胳頃橂姅 鞙勳箻
+## 규칙을 편집하는 위치
 
-- Obsidian: **Settings -> PKV Sync**鞐愳劀 順勳灛 vault毳?靹犿儩頃橁碃 **.obsidian sync rules**毳?韼胳頃?霋?鞝€鞛ロ暕雼堧嫟.
-- Admin WebUI: **Vaults**毳?鞐搓碃 vault鞚?**Settings**毳?靹犿儩頃?allowlist毳?韼胳頃?霋?鞝€鞛ロ暕雼堧嫟.
+- Obsidian: **Settings -> PKV Sync**에서 현재 vault를 선택하고 **.obsidian sync rules**를 편집한 뒤 저장합니다.
+- Admin WebUI: **Vaults**를 열고 vault의 **Settings**를 선택해 allowlist를 편집한 뒤 저장합니다.

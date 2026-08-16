@@ -1,57 +1,57 @@
-# PKV Sync 氚绊彫 臧曧檾 臧€鞚措摐
+# PKV Sync 배포 강화 가이드
 
-[English](./deployment-hardening.md) | [绠€浣撲腑鏂嘳(./deployment-hardening.zh-CN.md) | [绻侀珨涓枃](./deployment-hardening.zh-Hant.md) | [鏃ユ湰瑾瀅(./deployment-hardening.ja.md) | 頃滉淡鞏?
+[English](./deployment-hardening.md) | [简体中文](./deployment-hardening.zh-CN.md) | [繁體中文](./deployment-hardening.zh-Hant.md) | [日本語](./deployment-hardening.ja.md) | 한국어
 
-氍胳劀 氩勳爠: v1.5.0.
+문서 버전: v1.5.0.
 
-鞚?氍胳劀電?旮瓣硠 氩堨棴鞙茧 毵岆摖 齑堦赴 氩勳爠鞛呺媹雼? 瓿店皽 鞝勳棎 鞗愳柎氙?瓴€韱犽ゼ 甓岇灔頃╇媹雼?
+이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
 
-鞚?臧€鞚措摐電?氤胳澑, 臧€臁? 韺€ 霕愲姅 鞁犽頃橂姅 旃滉惮 攴鸽９鞚?鞙勴暅 靻岅窚氇?鞛愳泊 順胳姢韺?氚绊彫毳?臧€鞝曧暕雼堧嫟. PKV Sync電?鞖挫榿鞚?雼垳頃橃毵?靹滊矂鞐?鞚届潉 靾?鞛堧姅 vault 雮挫毄鞚?鞝€鞛ロ晿氙€搿?順胳姢韸胳檧 氚膘梾 鞙勳儩鞚?欷戩殧頃╇媹雼?
+이 가이드는 본인, 가족, 팀 또는 신뢰하는 친구 그룹을 위한 소규모 자체 호스팅 배포를 가정합니다. PKV Sync는 운영이 단순하지만 서버에 읽을 수 있는 vault 내용을 저장하므로 호스트와 백업 위생이 중요합니다.
 
-## 鞙勴槕 氇嵏
+## 위협 모델
 
-PKV Sync電?膦呺嫧 臧?鞎旐樃頇旊ゼ 鞝滉车頃橃 鞎婌姷雼堧嫟. vault 雮挫毄 氤错樃電?瓿勳傅頇旊悳 鞝滌柎鞐?鞚橃〈頃╇媹雼?
+PKV Sync는 종단 간 암호화를 제공하지 않습니다. vault 내용 보호는 계층화된 제어에 의존합니다.
 
 1. HTTPS transport encryption
 2. Deployment key pre-authentication
-3. Username/password login 氚?靷毄 鞁?臧膘嫚霅橂姅 bearer device tokens
-4. 靷毄鞛愲硠 vault authorization checks
-5. Admin session 氚?CSRF protections
-6. OS 霕愲姅 provider disk encryption
-7. 雲胳稖 靹滊箘鞀?斓滌唽頇?
-8. 鞎旐樃頇旊悩瓿?氤奠洂 韰岇姢韸鸽悳 backups
+3. Username/password login 및 사용 시 갱신되는 bearer device tokens
+4. 사용자별 vault authorization checks
+5. Admin session 및 CSRF protections
+6. OS 또는 provider disk encryption
+7. 노출 서비스 최소화
+8. 암호화되고 복원 테스트된 backups
 
-靹滊矂 甏€毽瀽鞕€ 靹滊矂 韺岇澕 鞁滌姢韰滌潃 韽夒 vault 雮挫毄鞚?鞁犽頃?靾?鞛堧姅 瓴疥硠搿?旆笁頃橃劯鞖?
+서버 관리자와 서버 파일 시스템은 평문 vault 내용을 신뢰할 수 있는 경계로 취급하세요.
 
-1.2.1 patch電?雲胳稖 瓴疥硠霃?雿?臁办瀰雼堧嫟. Git HTTP Basic 鞁ろ尐電?鞚茧皹 氅旍嫓歆€搿?觳橂Μ霅橁碃, MCP JSON body 靸來暅鞚€ 100 MiB鞚措┌, blob metadata checks電?鞁臣毽?毵來伂霅?blob paths毳?霐半澕臧€歆€ 鞎婈碃 瓯半秬頃╇媹雼?
+1.2.1 patch는 노출 경계도 더 조입니다. Git HTTP Basic 실패는 일반 메시지로 처리되고, MCP JSON body 상한은 100 MiB이며, blob metadata checks는 심볼릭 링크된 blob paths를 따라가지 않고 거부합니다.
 
-## 甓岇灔 韱犿彺搿滌
+## 권장 토폴로지
 
 ```text
 Internet -> HTTPS reverse proxy -> 127.0.0.1:6710 pkvsyncd
 ```
 
-鞎炿嫧鞐?氇呾嫓鞝侅澑 雱ろ姼鞗岉伂 鞝滌柎 瓿勳傅鞚?鞐嗢溂氅?`pkvsyncd`毳?鞚疙劙雱缝棎 歆侅爲 雲胳稖頃橃 毵堨劯鞖?
+앞단에 명시적인 네트워크 제어 계층이 없으면 `pkvsyncd`를 인터넷에 직접 노출하지 마세요.
 
-## 靹れ箻 鞛呺牓臧?
+## 설치 입력값
 
-欷€牍?頃:
+준비 항목:
 
-- `sync.example.com` 臧欖潃 霃勲鞚?
-- `pkvsyncd genkey`搿?毵岆摖 deployment key
+- `sync.example.com` 같은 도메인
+- `pkvsyncd genkey`로 만든 deployment key
 - `/etc/pkv-sync/config.toml`
-- 鞓侁惮 雿办澊韯?霐旊爥韯半Μ. 氤错喌 `/var/lib/pkv-sync`
-- 鞙犿毃頃?TLS 鞚胳靹滉皜 鞛堧姅 reverse proxy
+- 영구 데이터 디렉터리. 보통 `/var/lib/pkv-sync`
+- 유효한 TLS 인증서가 있는 reverse proxy
 
-靹滊矂 瓿奠湢 URL 順曥嫕:
+서버 공유 URL 형식:
 
 ```text
 https://sync.example.com/k_xxx/
 ```
 
-牍勱车臧滊 鞙犾頃橃劯鞖? deployment key電?API 韸鸽灅頂届潣 靷爠 鞚胳 甏€氍胳澊氅?靷毄鞛?牍勲皜氩堩樃毳?雽€觳错晿歆€ 鞎婌姷雼堧嫟.
+비공개로 유지하세요. deployment key는 API 트래픽의 사전 인증 관문이며 사용자 비밀번호를 대체하지 않습니다.
 
-## 鞁滌姢韰?靷毄鞛?
+## 시스템 사용자
 
 ```bash
 sudo useradd --system --home /var/lib/pkv-sync --shell /usr/sbin/nologin pkv-sync
@@ -60,11 +60,11 @@ sudo chown -R pkv-sync:pkv-sync /var/lib/pkv-sync
 sudo chmod 750 /var/lib/pkv-sync
 ```
 
-`config.toml`鞚?`/etc/pkv-sync/config.toml`鞐?鞝€鞛ロ晿瓿?靹滊箘鞀?靷毄鞛愳檧 甏€毽瀽毵?鞚届潉 靾?鞛堦矊 頃橃劯鞖?
+`config.toml`을 `/etc/pkv-sync/config.toml`에 저장하고 서비스 사용자와 관리자만 읽을 수 있게 하세요.
 
-## 氚╉檾氩?
+## 방화벽
 
-鞚茧皹鞝侅澑 順胳姢韸胳棎靹滊姅 SSH鞕€ HTTPS毵?雲胳稖頃╇媹雼?
+일반적인 호스트에서는 SSH와 HTTPS만 노출합니다.
 
 ```bash
 sudo ufw allow OpenSSH
@@ -72,20 +72,20 @@ sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
-Caddy 霕愲姅 雼るジ ACME HTTP-01 韥措澕鞚挫柛韸戈皜 鞚胳靹滊ゼ 甏€毽暅雼る┐ 瓴€歃濌臣 毽敂霠夓厴 韸鸽灅頂届潉 鞙勴暣 port `80`霃?雲胳稖頃╇媹雼?
+Caddy 또는 다른 ACME HTTP-01 클라이언트가 인증서를 관리한다면 검증과 리디렉션 트래픽을 위해 port `80`도 노출합니다.
 
 ```bash
 sudo ufw allow 80/tcp
 ```
 
-順胳姢韸胳棎靹?歆侅爲 鞁ろ枆頃?霑岆姅 `pkvsyncd`毳?localhost鞐?bind頃╇媹雼?
+호스트에서 직접 실행할 때는 `pkvsyncd`를 localhost에 bind합니다.
 
 ```toml
 [server]
 bind_addr = "127.0.0.1:6710"
 ```
 
-Docker Compose鞐愳劀電?鞎膘潉 氇摖 旎厡鞚措剤 鞚疙劙韼橃澊鞀れ棎 bind頃橁碃, 順胳姢韸?霐旊矂旯呾澊 頃勳殧頃?霑岆 順胳姢韸?port毳?localhost鞐?瓴岇嫓頃╇媹雼?
+Docker Compose에서는 앱을 모든 컨테이너 인터페이스에 bind하고, 호스트 디버깅이 필요할 때만 호스트 port를 localhost에 게시합니다.
 
 ```toml
 [server]
@@ -99,21 +99,21 @@ ports:
 
 ## Docker Compose With Caddy
 
-Caddy臧€ HTTPS 鞚胳靹滊ゼ 鞖旍箔頃橁碃 臧膘嫚頃橁矊 頃橂牑氅?鞚?瓴诫毳?靷毄頃橃劯鞖?
+Caddy가 HTTPS 인증서를 요청하고 갱신하게 하려면 이 경로를 사용하세요.
 
-1. DNS毳?靹滊矂搿?歆€鞝曧暕雼堧嫟.
+1. DNS를 서버로 지정합니다.
 
    ```text
    sync.example.com A    <server IPv4>
    sync.example.com AAAA <server IPv6, optional>
    ```
 
-2. `docker-compose.yml` 鞓嗢棎 `config.toml`鞚?毵岆摥雼堧嫟.
+2. `docker-compose.yml` 옆에 `config.toml`을 만듭니다.
 
    ```toml
    [server]
    bind_addr = "0.0.0.0:6710"
-   deployment_key = "k_0123456789abcdef0123456789abcdef"  # genkey 於滊牓鞙茧 氚旉靖靹胳殧
+   deployment_key = "k_0123456789abcdef0123456789abcdef"  # genkey 출력으로 바꾸세요
    public_host = "sync.example.com"
 
    [storage]
@@ -128,25 +128,25 @@ Caddy臧€ HTTPS 鞚胳靹滊ゼ 鞖旍箔頃橁碃 臧膘嫚頃橁矊 頃�
    format = "json"
    ```
 
-3. `deploy/caddy/Caddyfile`鞚?`sync.example.com`鞚?氚旉繅雼堧嫟.
-4. 鞀ろ儩鞚?鞁滌瀾頃╇媹雼?
+3. `deploy/caddy/Caddyfile`의 `sync.example.com`을 바꿉니다.
+4. 스택을 시작합니다.
 
    ```bash
    docker compose up -d
    docker compose logs -f pkv-sync
    ```
 
-5. 靸?雿办澊韯半矤鞚挫姢毳?觳橃潓 鞁滌瀾頃?霋?setup wizard毳?鞐挫柎 觳?甏€毽瀽 瓿勳爼鞚?毵岆摥雼堧嫟.
+5. 새 데이터베이스를 처음 시작한 뒤 setup wizard를 열어 첫 관리자 계정을 만듭니다.
 
    ```text
    https://sync.example.com/setup
    ```
 
-   臧€電ロ晿氅?setup 雼硠電?靷劋 雱ろ姼鞗岉伂 霕愲姅 鞛勳嫓 reverse-proxy allowlist 霋れ棎靹?鞕勲頃橁碃, 鞕勲 頉?歃夓嫓 瓿店皽 鞝戧芳鞚?欷勳澊靹胳殧. 鞚茧皹 甏€毽瀽 搿滉犯鞚胳棎電?`https://sync.example.com/admin/login`鞚?靷毄頃╇媹雼?
+   가능하면 setup 단계는 사설 네트워크 또는 임시 reverse-proxy allowlist 뒤에서 완료하고, 완료 후 즉시 공개 접근을 줄이세요. 일반 관리자 로그인에는 `https://sync.example.com/admin/login`을 사용합니다.
 
-`./data`, `config.toml`, Caddy鞚?named volumes毳?氚膘梾頃╇媹雼?
+`./data`, `config.toml`, Caddy의 named volumes를 백업합니다.
 
-鞐呹犯霠堨澊霌?
+업그레이드:
 
 ```bash
 docker compose pull
@@ -154,7 +154,7 @@ docker compose up -d
 docker compose logs -f pkv-sync
 ```
 
-雽€鞁滊炒霌滊姅 24鞁滉皠毵堧嫟 GitHub releases毳?頇曥澑頃橁碃 靸?PKV Sync 毽措Μ鞀り皜 鞛堨溂氅?氚半剤毳?響滌嫓頃╇媹雼? 靸?雿办澊韯半矤鞚挫姢鞚?觳?鞁滌瀾 霑?`enabled`鞕€ `interval_seconds`電?霟绊儉鞛?靹れ爼鞙茧 seed霅╇媹雼? 鞚错泟鞐愲姅 Admin WebUI Settings鞐愳劀 鞛嫓鞛?鞐嗢澊 氤€瓴巾暊 靾?鞛堨姷雼堧嫟. 靻岇姢 鞝€鞛レ唽電?鞐愳柎臧?mirror 氚绊彫毳?鞙勴暅 鞝曥爜 `config.toml` 頃勲摐搿?鞙犾霅╇媹雼?
+대시보드는 24시간마다 GitHub releases를 확인하고 새 PKV Sync 릴리스가 있으면 배너를 표시합니다. 새 데이터베이스의 첫 시작 때 `enabled`와 `interval_seconds`는 런타임 설정으로 seed됩니다. 이후에는 Admin WebUI Settings에서 재시작 없이 변경할 수 있습니다. 소스 저장소는 에어갭 mirror 배포를 위한 정적 `config.toml` 필드로 유지됩니다.
 
 ```toml
 [update_check]
@@ -163,39 +163,39 @@ interval_seconds = 86400                # first-boot seed only
 repo = "cyberkurry/pkv-sync"            # static GitHub repo to query
 ```
 
-靹れ爼 頉?鞐愳柎臧?host毳?臁办毄頌?鞙犾頃橂牑氅?Admin WebUI 霟绊儉鞛?靹れ爼鞐愳劀 鞐呺嵃鞚错姼 頇曥澑鞚?雭勱卑雮? 靸?氚绊彫鞚?seed搿?`enabled = false`毳?靹れ爼頃橃劯鞖?
+설정 후 에어갭 host를 조용히 유지하려면 Admin WebUI 런타임 설정에서 업데이트 확인을 끄거나, 새 배포의 seed로 `enabled = false`를 설정하세요.
 
-## public_host(admin POST 頃勳垬)
+## public_host(admin POST 필수)
 
-`[server].public_host`毳?scheme 鞐嗢澊, 鞖挫榿鞛愱皜 admin panel鞐?鞝戧芳頃橂姅 鞕鸽秬鞐愳劀 氤挫澊電?hostname(牍勴憸欷€鞚措┐ port 韽暔)鞙茧 靹れ爼頃╇媹雼? 鞓? `sync.example.com` 霕愲姅 `pkv.local:8443`. admin CSRF 瓴€靷姅 鞚?臧掛棎靹?鞓堨儊 origin鞚?霃勳稖頃╇媹雼? `public_host`臧€ 靹れ爼霅?瓴届毎 鞓堨儊 origin鞚€ `https://<public_host>`搿?瓿犾爼霅橂┌, reverse proxy臧€ 氤措偞電?`X-Forwarded-Proto`臧€ admin CSRF 瓴€靷ゼ backend HTTP搿?downgrade頃橃 鞎婌姷雼堧嫟.
+`[server].public_host`를 scheme 없이, 운영자가 admin panel에 접근하는 외부에서 보이는 hostname(비표준이면 port 포함)으로 설정합니다. 예: `sync.example.com` 또는 `pkv.local:8443`. admin CSRF 검사는 이 값에서 예상 origin을 도출합니다. `public_host`가 설정된 경우 예상 origin은 `https://<public_host>`로 고정되며, reverse proxy가 보내는 `X-Forwarded-Proto`가 admin CSRF 검사를 backend HTTP로 downgrade하지 않습니다.
 
-`public_host`臧€ 牍勳柎 鞛堨溂氅?氇摖 admin POST臧€ `403 csrf validation failed`鞕€ `tracing::warn` 搿滉犯 頄夓溂搿?瓯半秬霅╇媹雼? 鞚措姅 鞚橂弰鞝侅澑 fail-closed 霃欖瀾鞛呺媹雼? 雽€鞎堨溂搿?鞖旍箔 鞛愳泊鞚?`Host` header鞐?fallback頃橂┐ 鞚胳鞚?瓿店博鞛愱皜 鞓來枼鞚?欷?靾?鞛堧姅 header鞕€ 瓴绊暕霅橁碃, proxy臧€ 鞚缄磤霅橃 鞎婌潃 host毳?鞝勲嫭頃?霑?旯雼堧嫟.
+`public_host`가 비어 있으면 모든 admin POST가 `403 csrf validation failed`와 `tracing::warn` 로그 행으로 거부됩니다. 이는 의도적인 fail-closed 동작입니다. 대안으로 요청 자체의 `Host` header에 fallback하면 인증이 공격자가 영향을 줄 수 있는 header와 결합되고, proxy가 일관되지 않은 host를 전달할 때 깨집니다.
 
-`public_host`電?雼れ潓霃?甑彊頃╇媹雼?
+`public_host`는 다음도 구동합니다.
 
-- 靹れ爼 鞁?頂勲雿曥厴 鞀ろ儉鞚?admin cookies(`Secure`, `SameSite=Strict`)
-- admin 鞎堨潣 "share server URL" 毵來伂鞐?雽€頃?`https://` 靸濎劚
-- `/api/plugin-manifest`臧€ 氚橅櫂頃橂姅 plugin asset URLs鞚?`https://` 鞕鸽秬 host
+- 설정 시 프로덕션 스타일 admin cookies(`Secure`, `SameSite=Strict`)
+- admin 안의 "share server URL" 링크에 대한 `https://` 생성
+- `/api/plugin-manifest`가 반환하는 plugin asset URLs의 `https://` 외부 host
 
-Plugin manifest URL 靸濎劚鞚€ 韥措澕鞚挫柛韸戈皜 氤措偢 `X-Forwarded-Proto`毳?鞁犽頃橃 鞎婌姷雼堧嫟. 頂勲雿曥厴鞐愳劀電?`public_host`毳?靹れ爼頃?self-update clients臧€ 鞁れ牅 鞕鸽秬 host毳?臧€毽偆電?鞎堨爼鞝侅澑 asset URLs毳?氚涬弰搿?頃橃劯鞖?
+Plugin manifest URL 생성은 클라이언트가 보낸 `X-Forwarded-Proto`를 신뢰하지 않습니다. 프로덕션에서는 `public_host`를 설정해 self-update clients가 실제 외부 host를 가리키는 안정적인 asset URLs를 받도록 하세요.
 
-SSE鞚?瓴届毎 臧欖潃 靹れ爼鞚?reverse proxy臧€ 頃措嫻 route毳?鞚茧皹鞝侅澑 歆ъ潃 鞖旍箔鞚?鞎勲媹霛?keep-alive event stream鞙茧 鞚胳嫕頃橂姅 雿?霃勳泙鞚?霅╇媹雼?
+SSE의 경우 같은 설정이 reverse proxy가 해당 route를 일반적인 짧은 요청이 아니라 keep-alive event stream으로 인식하는 데 도움이 됩니다.
 
 ## Security Response Headers
 
-PKV Sync電?頂勲雿曥厴 server stack鞐?雼れ潓 response headers毳?於旉皜頃╇媹雼?
+PKV Sync는 프로덕션 server stack에 다음 response headers를 추가합니다.
 
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: same-origin`
 - `Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'`
-- `public_host` 靹れ爼 鞁?`Strict-Transport-Security: max-age=31536000; includeSubDomains`
+- `public_host` 설정 시 `Strict-Transport-Security: max-age=31536000; includeSubDomains`
 
-TLS termination瓿?`public_host`毳?鞚检箻鞁滍偆靹胳殧. HSTS電?server臧€ HTTPS public deployment搿?靹れ爼霅?瓴届毎鞐愲 鞝勳啞霅╇媹雼?
+TLS termination과 `public_host`를 일치시키세요. HSTS는 server가 HTTPS public deployment로 설정된 경우에만 전송됩니다.
 
-### 膦呺嫧 臧?鞎旐樃頇?鞎堧偞
+### 종단 간 암호화 안내
 
-PKV Sync 1.0鞚€ 膦呺嫧 臧?鞎旐樃頇旉皜 鞎勲嫏雼堧嫟. 靹滊矂 甏€毽瀽鞕€ 靹滊矂 韺岇澕 鞁滌姢韰?鞝戧芳 甓岉暅鞚?鞛堧姅 雸勱惮雮?霃欔赴頇旊悳 vault 雮挫毄鞚?鞚届潉 靾?鞛堨姷雼堧嫟. 雱れ澊韹半笇 vault氤?E2EE電?1.x 搿滊摐毵奠棎 鞛堨姷雼堧嫟. 鞓る姌 靹滊矂搿滊秬韯办潣 旮半皜靹膘澊 頃勳殧頃?鞖挫榿鞛愲姅 鞛勳嫓 vault氤?鞎旐樃頇?瓿勳傅鞙茧 [`git-crypt-howto.md`](./git-crypt-howto.md)毳?霐半ゴ靹胳殧. 鞚?氇摐鞐愳劀電?韺岇澕 鞚措鞚?靹滊矂鞐?攴鸽寑搿?氤挫澊氅? 韺岇澕 雮挫毄毵?韥措澕鞚挫柛韸?旄§棎靹?鞎旐樃頇旊惄雼堧嫟.
+PKV Sync 1.0은 종단 간 암호화가 아닙니다. 서버 관리자와 서버 파일 시스템 접근 권한이 있는 누구나 동기화된 vault 내용을 읽을 수 있습니다. 네이티브 vault별 E2EE는 1.x 로드맵에 있습니다. 오늘 서버로부터의 기밀성이 필요한 운영자는 임시 vault별 암호화 계층으로 [`git-crypt-howto.md`](./git-crypt-howto.md)를 따르세요. 이 모드에서는 파일 이름이 서버에 그대로 보이며, 파일 내용만 클라이언트 측에서 암호화됩니다.
 
 ## Reverse Proxy Notes
 
@@ -209,9 +209,9 @@ sync.example.com {
 
 ### Nginx
 
-鞝€鞛レ唽鞐愲姅 `deploy/nginx/pkv-sync.conf`臧€ 韽暔霅橃柎 鞛堨姷雼堧嫟. HTTP毳?HTTPS搿?毽敂霠夓厴頃橁碃, `client_max_body_size 110m`毳?靹れ爼頃橂┌, 響滌 敫岆澕鞖办爛 hardening headers毳?於旉皜頃橁碃, PKV Sync臧€ host鞕€ client IP 觳橂Μ鞐?靷毄頃橂姅 headers毳?鞝勲嫭頃╇媹雼?
+저장소에는 `deploy/nginx/pkv-sync.conf`가 포함되어 있습니다. HTTP를 HTTPS로 리디렉션하고, `client_max_body_size 110m`를 설정하며, 표준 브라우저 hardening headers를 추가하고, PKV Sync가 host와 client IP 처리에 사용하는 headers를 전달합니다.
 
-斓滌唽 順曧儨:
+최소 형태:
 
 ```nginx
 server {
@@ -247,93 +247,93 @@ server {
 
 ### Traefik
 
-鞝€鞛レ唽電?`deploy/traefik/docker-compose.traefik.yml`鞐?Traefik 鞓堨嫓毳?鞝滉车頃╇媹雼? `trusted_proxies`毳?Traefik鞚?靷毄頃橂姅 Docker network CIDR搿?靹れ爼頃橁碃 鞓堨嫓 霃勲鞚戈臣 ACME email鞚?氚旉靖靹胳殧.
+저장소는 `deploy/traefik/docker-compose.traefik.yml`에 Traefik 예시를 제공합니다. `trusted_proxies`를 Traefik이 사용하는 Docker network CIDR로 설정하고 예시 도메인과 ACME email을 바꾸세요.
 
 ## trusted_proxies
 
-reverse proxy鞐愳劀 鞓?`X-Forwarded-For`毵?鞁犽頃橃劯鞖? proxy鞕€ app鞚?臧欖潃 順胳姢韸胳棎靹?鞁ろ枆霅橂姅 瓴届毎:
+reverse proxy에서 온 `X-Forwarded-For`만 신뢰하세요. proxy와 app이 같은 호스트에서 실행되는 경우:
 
 ```toml
 [network]
 trusted_proxies = ["127.0.0.1/32", "::1/128"]
 ```
 
-Docker bridge networking鞚?靷毄頃橂姅 瓴届毎:
+Docker bridge networking을 사용하는 경우:
 
 ```toml
 [network]
 trusted_proxies = ["172.16.0.0/12"]
 ```
 
-雱撿潃 public range毳?於旉皜頃橃 毵堨劯鞖? 韥措澕鞚挫柛韸戈皜 `X-Forwarded-For`毳?鞙勳“頃?靾?鞛堨溂氅?rate-limit鞕€ audit data臧€ 鞎巾暣歆戨媹雼?
+넓은 public range를 추가하지 마세요. 클라이언트가 `X-Forwarded-For`를 위조할 수 있으면 rate-limit와 audit data가 약해집니다.
 
-## 霟绊儉鞛?氤挫晥 靹れ爼
+## 런타임 보안 설정
 
-Admin WebUI鞐愳劀 頇曥澑頃橃劯鞖?
+Admin WebUI에서 확인하세요.
 
-- Registration mode: private deployments鞐愳劀電?`disabled` 霕愲姅 `invite_only`毳?鞙犾頃╇媹雼?
+- Registration mode: private deployments에서는 `disabled` 또는 `invite_only`를 유지합니다.
 - Login rate-limit threshold, window, lock duration.
-- Maximum file size, 旮半掣臧?`100 MiB`.
+- Maximum file size, 기본값 `100 MiB`.
 - Supported text extensions.
-- Timezone, 旮半掣臧?`Asia/Shanghai`.
+- Timezone, 기본값 `Asia/Shanghai`.
 
-霌彪瓿?搿滉犯鞚?鞁ろ尐電?rate limited鞛呺媹雼? Setup, 瓿店皽 霌彪, 靷毄鞛?self-service 牍勲皜氩堩樃 氤€瓴? 攴鸽Μ瓿?甏€毽瀽臧€ 靸濎劚頃橁卑雮?鞛劋鞝曧晿電?牍勲皜氩堩樃電?12鞛?鞚挫儊鞚措┌ 雽€氍胳瀽, 靻岆鞛? 靾瀽毳?韽暔頃挫暭 頃╇媹雼? CLI搿?毵岆摖 靷毄鞛愲弰 臧曧暅 牍勲皜氩堩樃臧€ 頃勳殧頃╇媹雼?
+등록과 로그인 실패는 rate limited입니다. Setup, 공개 등록, 사용자 self-service 비밀번호 변경, 그리고 관리자가 생성하거나 재설정하는 비밀번호는 12자 이상이며 대문자, 소문자, 숫자를 포함해야 합니다. CLI로 만든 사용자도 강한 비밀번호가 필요합니다.
 
-鞚胳霅?霃欔赴頇?API routes霃?route, method, client IP, bearer token氤勲 60齑堧嫻 600臧?鞖旍箔鞚?瓿犾爼 彀?鞝滍暅鞚?氚涭姷雼堧嫟. 鞁ろ尐頃?bearer token 鞚胳鞚€ 氤勲弰搿?client IP氤?60齑堧嫻 120須岅箤歆€ 鞝滍暅霅╇媹雼? limiter鞕€ audit log臧€ 鞁れ牅 client IP毳?氤措弰搿?`trusted_proxies`毳?鞝曧檿頌?鞙犾頃橃劯鞖?
+인증된 동기화 API routes도 route, method, client IP, bearer token별로 60초당 600개 요청의 고정 창 제한을 받습니다. 실패한 bearer token 인증은 별도로 client IP별 60초당 120회까지 제한됩니다. limiter와 audit log가 실제 client IP를 보도록 `trusted_proxies`를 정확히 유지하세요.
 
-Blob upload request body電?`max_file_size`搿?鞝滍暅霅橂┌ hard blob cap(頂勲雿曥厴 `512 MiB`)鞙茧霃?頃儊 clamp霅╇媹雼? Main SSE streams電?鞐措Π 霃欖晥 bearer token鞚?鞛瞼歃濏暕雼堧嫟. MCP read/search tools鞐愲姅 response鞕€ total-search budgets臧€ 鞛堨柎 韥?vault臧€ 氍挫牅頃?JSON response搿?頇曥灔霅橃 鞎婈矊 頃╇媹雼?
+Blob upload request body는 `max_file_size`로 제한되며 hard blob cap(프로덕션 `512 MiB`)으로도 항상 clamp됩니다. Main SSE streams는 열린 동안 bearer token을 재검증합니다. MCP read/search tools에는 response와 total-search budgets가 있어 큰 vault가 무제한 JSON response로 확장되지 않게 합니다.
 
-Pull/tree traversal瓿?rollback reachability checks電?bounded鞛呺媹雼? 順勳灛 霃欔赴頇?頃勴劙鞐愳劀 瓯半秬霅?瓴诫電?read, history, diff, commit-list surfaces鞐愳劀 靾波歆戨媹雼?
+Pull/tree traversal과 rollback reachability checks는 bounded입니다. 현재 동기화 필터에서 거부된 경로는 read, history, diff, commit-list surfaces에서 숨겨집니다.
 
 ## Prometheus Metrics
 
-`/metrics`電?旮半掣鞝侅溂搿?牍勴櫆靹表檾霅橃柎 鞛堨姷雼堧嫟. `enable_metrics` runtime setting鞚?true鞚措┐ endpoint電?Prometheus text exposition鞚?氚橅櫂頃橃毵? 氇摖 頂勲雿曥厴 甏€氍胳澑 deployment key middleware, plugin User-Agent guard, admin bearer token鞚?瓿勳啀 頃勳殧頃╇媹雼?
+`/metrics`는 기본적으로 비활성화되어 있습니다. `enable_metrics` runtime setting이 true이면 endpoint는 Prometheus text exposition을 반환하지만, 모든 프로덕션 관문인 deployment key middleware, plugin User-Agent guard, admin bearer token이 계속 필요합니다.
 
-scrape clients臧€ `X-PKVSync-Deployment-Key`, 項堨毄霅?PKV Sync User-Agent, `Authorization: Bearer <admin-token>`鞚?氤措偞霃勲 靹れ爼頃橃劯鞖? metrics毳?鞚胳霅橃 鞎婌潃 雱ろ姼鞗岉伂鞐?雲胳稖頃橃 毵堨劯鞖?
+scrape clients가 `X-PKVSync-Deployment-Key`, 허용된 PKV Sync User-Agent, `Authorization: Bearer <admin-token>`을 보내도록 설정하세요. metrics를 인증되지 않은 네트워크에 노출하지 마세요.
 
-## 氚膘梾
+## 백업
 
-雼れ潓鞚?頃粯 氚膘梾頃╇媹雼?
+다음을 함께 백업합니다.
 
 - `/var/lib/pkv-sync/metadata.db`
 - `/var/lib/pkv-sync/vaults/`
 - `/var/lib/pkv-sync/blobs/`
 - `/etc/pkv-sync/config.toml`
 
-雿办澊韯半矤鞚挫姢毳?氤奠偓頃?霑岆姅 SQLite online backup鞚?靷毄頃橁卑雮?靹滊箘鞀るゼ 欷戩頃橃劯鞖? 臧€電ロ晿氅?database, Git vault repositories, blobs臧€ 臧欖潃 鞁滌爯鞚?瓴冹澊 霅橁矊 頃╇媹雼?
+데이터베이스를 복사할 때는 SQLite online backup을 사용하거나 서비스를 중지하세요. 가능하면 database, Git vault repositories, blobs가 같은 시점의 것이 되게 합니다.
 
-雮挫灔 backup/restore helpers電?symlink毳?霐半澕臧€歆€ 鞎婌姷雼堧嫟. `vaults/` 霕愲姅 `blobs/` 鞎勲灅鞚?symlink entries電?backup 欷?skip霅橁碃 restore cleanup 欷戩棎電?link 鞛愳泊毵?鞝滉卑頃橂┌ target鞚€ 瓯措摐毽 鞎婌姷雼堧嫟.
+내장 backup/restore helpers는 symlink를 따라가지 않습니다. `vaults/` 또는 `blobs/` 아래의 symlink entries는 backup 중 skip되고 restore cleanup 중에는 link 자체만 제거하며 target은 건드리지 않습니다.
 
-restic 鞓堨嫓:
+restic 예시:
 
 ```bash
 restic -r sftp:user@backup.example.com:/repo backup /var/lib/pkv-sync /etc/pkv-sync
 ```
 
-氚膘梾鞚?毹胳嫚鞚?霒犽倶旮?鞝勳棎 鞎旐樃頇旐晿瓿?欤缄赴鞝侅溂搿?氤奠洂鞚?韰岇姢韸疙晿靹胳殧.
+백업이 머신을 떠나기 전에 암호화하고 주기적으로 복원을 테스트하세요.
 
-## 霐旍姢韥?鞎旐樃頇?
+## 디스크 암호화
 
-臧€電ロ晿氅?LUKS, BitLocker, FileVault 霕愲姅 provider-managed disk encryption鞚?靷毄頃橃劯鞖? VPS 瓿店笁鞛愱皜 root disk毳?鞎旐樃頇旐暊 靾?鞐嗠嫟氅?鞎旐樃頇旊悳 offsite backups電?靹犿儩 靷暛鞚?鞎勲媹霛?頃勳垬鞛呺媹雼?
+가능하면 LUKS, BitLocker, FileVault 또는 provider-managed disk encryption을 사용하세요. VPS 공급자가 root disk를 암호화할 수 없다면 암호화된 offsite backups는 선택 사항이 아니라 필수입니다.
 
 ## Token Hygiene
 
-鞛レ箻 bearer token鞚€ 鞚胳霅?靷毄 鞁?臧膘嫚霅橁碃, 90鞚?霃欖晥 鞙犿湸鞚措┐ 毵岆霅橂┌, 臧?token鞐愲姅 365鞚检潣 鞝堧寑 靾橂獏鞚?鞛堦碃, 靷毄鞛?霕愲姅 甏€毽瀽臧€ 觳犿殞頃?靾?鞛堨姷雼堧嫟. 毵岆霅橁卑雮?觳犿殞霅?霑岅箤歆€ 頇滌劚 token鞚?鞛愱博 歃濍獏鞙茧 旆笁頃橃劯鞖?
+장치 bearer token은 인증된 사용 시 갱신되고, 90일 동안 유휴이면 만료되며, 각 token에는 365일의 절대 수명이 있고, 사용자 또는 관리자가 철회할 수 있습니다. 만료되거나 철회될 때까지 활성 token을 자격 증명으로 취급하세요.
 
-Obsidian鞚€ 頂岆煬攴胳澑鞚?頇滌劚 token, deployment key, 搿滉犯鞚?靸來儨, 鞎堨爼鞝侅澑 鞛レ箻 ID毳?旮瓣赴 搿滌滑 鞝€鞛レ唽鞐?鞝€鞛ロ暕雼堧嫟. Vault-local 頂岆煬攴胳澑 `data.json`鞚€ 氙缄皭頃橃 鞎婌潃 靹れ爼瓿?霃欔赴頇?鞚鸽嵄鞀る 氤搓磤頃╇媹雼? 順勳灛 牍岆摐電?霃欔赴頇?鞚鸽嵄鞀?key鞐?deployment key毳?韽暔頃橃 鞎婌溂氅? 鞚挫爠 氩勳爠鞚?氙缄皭 鞝曤炒臧€ 韽暔霅?鞚鸽嵄鞀?頃鞚€ 雼れ潓 頂岆煬攴胳澑 雿办澊韯?鞊瓣赴 霑?韽愱赴霅╇媹雼? 靷毄鞛愳棎瓴?Obsidian 旮瓣赴 搿滌滑 鞝€鞛レ唽, 瓿奠湢 鞎勳勾鞚措笇, 鞁犽頃?靾?鞐嗠姅 霃欔赴頇?雽€靸? 韽夒 氚膘梾, 鞚挫爠 `data.json` 靷掣鞚?氤错樃頃橂澕瓿?鞎堧偞頃橃劯鞖? 鞚措煬頃?鞝€鞛レ唽臧€ 鞙犾稖霅橃棃鞚?靾?鞛堨溂氅?鞓來枼鞚?氚涭潃 鞛レ箻 token鞚?觳犿殞頃橁碃, deployment key臧€ 雲胳稖霅橃棃雼る┐ deployment key霃?甑愳泊頃橃劯鞖?
+Obsidian은 플러그인의 활성 token, deployment key, 로그인 상태, 안정적인 장치 ID를 기기 로컬 저장소에 저장합니다. Vault-local 플러그인 `data.json`은 민감하지 않은 설정과 동기화 인덱스만 보관합니다. 현재 빌드는 동기화 인덱스 key에 deployment key를 포함하지 않으며, 이전 버전의 민감 정보가 포함된 인덱스 항목은 다음 플러그인 데이터 쓰기 때 폐기됩니다. 사용자에게 Obsidian 기기 로컬 저장소, 공유 아카이브, 신뢰할 수 없는 동기화 대상, 평문 백업, 이전 `data.json` 사본을 보호하라고 안내하세요. 이러한 저장소가 유출되었을 수 있으면 영향을 받은 장치 token을 철회하고, deployment key가 노출되었다면 deployment key도 교체하세요.
 
-甓岇灔 氚╈嫕:
+권장 방식:
 
-- Admin WebUI device pages鞐愳劀 攵勳嫟頃?鞛レ箻毳?觳犿殞頃╇媹雼?
-- 頃?鞛レ箻毵?鞛冹柎氩勲牳雼る┐ 鞝勳泊 瓿勳爼 鞛劋鞝曤炒雼?頃措嫻 鞛レ箻 token 觳犿殞毳?鞖办劆頃╇媹雼?
-- 鞛愱博 歃濍獏 旃暣臧€ 鞚橃嫭霅?霑?靷毄鞛?牍勲皜氩堩樃毳?rotate頃╇媹雼?
-- 鞝曣赴 鞙犾氤挫垬 欷?鞓る灅霅?token瓿?觳犿殞霅?token鞚?瓴€韱犿暕雼堧嫟.
+- Admin WebUI device pages에서 분실한 장치를 철회합니다.
+- 한 장치만 잃어버렸다면 전체 계정 재설정보다 해당 장치 token 철회를 우선합니다.
+- 자격 증명 침해가 의심될 때 사용자 비밀번호를 rotate합니다.
+- 정기 유지보수 중 오래된 token과 철회된 token을 검토합니다.
 
-## 頇滊彊瓿?搿滉犯
+## 활동과 로그
 
-PKV Sync電?霃欔赴頇? vault 靾橂獏 欤缄赴, 鞚疥赴 鞝勳毄 韮愳儔 頇滊彊鞚?user, vault, action, device name, file count, size, IP, User-Agent, details, timestamp鞕€ 頃粯 旮半頃╇媹雼? vault 靾橂獏 欤缄赴 頄夓棎電?Admin WebUI, 頂岆煬攴胳澑 霕愲姅 API 鞛戩梾鞚?`create_vault`鞕€ `delete_vault`臧€ 韽暔霅╇媹雼? Admin WebUI activity filters搿?users 霕愲姅 action types毳?頇曥澑頃?靾?鞛堨姷雼堧嫟.
+PKV Sync는 동기화, vault 수명 주기, 읽기 전용 탐색 활동을 user, vault, action, device name, file count, size, IP, User-Agent, details, timestamp와 함께 기록합니다. vault 수명 주기 행에는 Admin WebUI, 플러그인 또는 API 작업의 `create_vault`와 `delete_vault`가 포함됩니다. Admin WebUI activity filters로 users 또는 action types를 확인할 수 있습니다.
 
-鞎犿攲毽紑鞚挫厴瓿?reverse-proxy logs鞐愳劀 氚橂车霅橂姅 雼れ潓鞚?臧愳嫓頃橃劯鞖?
+애플리케이션과 reverse-proxy logs에서 반복되는 다음을 감시하세요.
 
 - `401`: invalid or expired credentials
 - `403`: disabled account or forbidden operation
@@ -343,14 +343,14 @@ PKV Sync電?霃欔赴頇? vault 靾橂獏 欤缄赴, 鞚疥赴 鞝勳毄 韮愳�
 
 ## Release Hygiene
 
-頂勲雿曥厴 鞐呹犯霠堨澊霌?鞝?
+프로덕션 업그레이드 전:
 
-1. `CHANGELOG.md`毳?鞚届姷雼堧嫟.
-2. release tag臧€ server, plugin, OpenAPI, Docker, docs versions鞕€ 鞚检箻頃橂姅歆€ 頇曥澑頃╇媹雼?
-3. GitHub release鞐?Linux amd64, Linux arm64, Windows x64, plugin zip, `SHA256SUMS`臧€ 韽暔霅橃柎 鞛堧姅歆€ 頇曥澑頃╇媹雼?
-4. GHCR image臧€ 頃措嫻 tag鞕€ `latest`鞐?臁挫灛頃橂姅歆€ 頇曥澑頃╇媹雼?
-5. 順勳灛 data毳?氚膘梾頃╇媹雼?
-6. 順勳灛 氚绊彫臧€ 0.x霛茧┐ 1.0 binary 霕愲姅 image毳?鞁滌瀾頃橁赴 鞝勳棎 [`upgrade-notes-v1.0.ko.md`](./upgrade-notes-v1.0.ko.md)毳?鞚届溂靹胳殧. 1.0鞚?旮办〈 0.x `metadata.db`鞐?鞐瓣舶頃橃 毵堨劯鞖?
-7. 靸?binary搿?migrations毳?鞁ろ枆頃╇媹雼?
+1. `CHANGELOG.md`를 읽습니다.
+2. release tag가 server, plugin, OpenAPI, Docker, docs versions와 일치하는지 확인합니다.
+3. GitHub release에 Linux amd64, Linux arm64, Windows x64, plugin zip, `SHA256SUMS`가 포함되어 있는지 확인합니다.
+4. GHCR image가 해당 tag와 `latest`에 존재하는지 확인합니다.
+5. 현재 data를 백업합니다.
+6. 현재 배포가 0.x라면 1.0 binary 또는 image를 시작하기 전에 [`upgrade-notes-v1.0.ko.md`](./upgrade-notes-v1.0.ko.md)를 읽으세요. 1.0을 기존 0.x `metadata.db`에 연결하지 마세요.
+7. 새 binary로 migrations를 실행합니다.
 
-PKV Sync 1.0鞚€ 雼澕 v1 SQLite baseline鞚?靷毄頃╇媹雼? 鞚?baseline 鞚错泟 瓴岇嫓霅橂姅 1.x migrations電?旮办〈 1.x 氚绊彫鞐?雽€頃?append-only鞛呺媹雼?
+PKV Sync 1.0은 단일 v1 SQLite baseline을 사용합니다. 이 baseline 이후 게시되는 1.x migrations는 기존 1.x 배포에 대해 append-only입니다.

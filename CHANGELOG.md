@@ -7,6 +7,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Restored all non-English public docs (zh-CN/zh-Hant/ja/ko) that had been
+  double-encoded into unreadable mojibake since the 1.4.4 release bump;
+  content is recovered losslessly from the last clean revision and version
+  headers realigned to v1.5.0.
 ## [1.5.0] - 2026-08-16
 
 ### Removed

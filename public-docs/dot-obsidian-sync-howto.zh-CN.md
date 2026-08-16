@@ -1,35 +1,35 @@
-# 璺ㄨ澶囧悓姝?`.obsidian` 閰嶇疆
+# 跨设备同步 `.obsidian` 配置
 
-[English](./dot-obsidian-sync-howto.md) | 绠€浣撲腑鏂?| [绻侀珨涓枃](./dot-obsidian-sync-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./dot-obsidian-sync-howto.ja.md) | [頃滉淡鞏碷(./dot-obsidian-sync-howto.ko.md)
+[English](./dot-obsidian-sync-howto.md) | 简体中文 | [繁體中文](./dot-obsidian-sync-howto.zh-Hant.md) | [日本語](./dot-obsidian-sync-howto.ja.md) | [한국어](./dot-obsidian-sync-howto.ko.md)
 
-鏂囨。鐗堟湰锛歷1.5.0銆?
+文档版本：v1.5.0。
 
-PKV Sync 榛樿閬垮紑闅愯棌璺緞銆傚畠鎻愪緵鎸夌瑪璁板簱閰嶇疆鐨?allowlist锛岃浣犲彲浠ラ€夋嫨鎬у悓姝?`.obsidian` 閰嶇疆鏂囦欢锛岃€屼笉鏄悓姝ユ暣涓?Obsidian 鍐呴儴鐩綍銆?
+PKV Sync 默认避开隐藏路径。它提供按笔记库配置的 allowlist，让你可以选择性同步 `.obsidian` 配置文件，而不是同步整个 Obsidian 内部目录。
 
-## 鏂扮瑪璁板簱榛樿鍚屾浠€涔?
+## 新笔记库默认同步什么
 
-鏂扮瑪璁板簱浼氬緱鍒拌繖缁勮捣姝?allowlist锛?
+新笔记库会得到这组起步 allowlist：
 
-- 涓婚锛歚.obsidian/themes/**`
-- CSS snippets锛歚.obsidian/snippets/**`
-- 蹇嵎閿細`.obsidian/hotkeys.json`
-- 搴旂敤鍋忓ソ锛歚.obsidian/app.json`
-- 澶栬鍋忓ソ锛歚.obsidian/appearance.json`
-- 宸插惎鐢ㄧぞ鍖烘彃浠跺垪琛細`.obsidian/community-plugins.json`
-- 宸插惎鐢ㄦ牳蹇冩彃浠跺垪琛細`.obsidian/core-plugins.json`
+- 主题：`.obsidian/themes/**`
+- CSS snippets：`.obsidian/snippets/**`
+- 快捷键：`.obsidian/hotkeys.json`
+- 应用偏好：`.obsidian/app.json`
+- 外观偏好：`.obsidian/appearance.json`
+- 已启用社区插件列表：`.obsidian/community-plugins.json`
+- 已启用核心插件列表：`.obsidian/core-plugins.json`
 
-杩欓噷浠呭寘鍚凡鍚敤鎻掍欢鍒楄〃銆傛彃浠朵唬鐮佸拰鎻掍欢璁剧疆榛樿涓嶄細鍚屾銆?
+这里仅包含已启用插件列表。插件代码和插件设置默认不会同步。
 
-宸叉湁绗旇搴撲細淇濇寔绌?allowlist锛岀洿鍒颁綘搴旂敤璧锋娓呭崟銆?
+已有笔记库会保持空 allowlist，直到你应用起步清单。
 
-- **Admin WebUI锛歏aults -> Settings -> Apply starter allowlist** 浼氬啓鍏ヤ笂杩板畬鏁寸殑 7 鏉?glob 璧锋娓呭崟銆?
-- **Obsidian 鎻掍欢锛歋ettings -> PKV Sync -> Apply recommended starter list** 鍙啓鍏ユ渶瀹夊叏鐨勪袱鏉?glob锛坄.obsidian/themes/**` 鍜?`.obsidian/snippets/**`锛夆€斺€斾富棰樺拰 CSS snippet 璺ㄨ澶囧叡浜€氬父鏄畨鍏ㄧ殑锛岃€屽彟澶栦簲鏉?glob 娑夊強鐢ㄦ埛鐗瑰畾鐨勫簲鐢ㄧ姸鎬侊紝鎻掍欢涓嶄細鍦ㄦ病鏈夋槑纭喅瀹氱殑鎯呭喌涓嬪惎鐢ㄥ畠浠€?
+- **Admin WebUI：Vaults -> Settings -> Apply starter allowlist** 会写入上述完整的 7 条 glob 起步清单。
+- **Obsidian 插件：Settings -> PKV Sync -> Apply recommended starter list** 只写入最安全的两条 glob（`.obsidian/themes/**` 和 `.obsidian/snippets/**`）——主题和 CSS snippet 跨设备共享通常是安全的，而另外五条 glob 涉及用户特定的应用状态，插件不会在没有明确决定的情况下启用它们。
 
-濡傛灉鎯宠瀹屾暣鐨?7 鏉?glob 璧锋娓呭崟锛岃浣跨敤 Admin WebUI 鎸夐挳锛屾垨鑰呮妸杩欎簺 glob 鎵嬪姩绮樿创鍒版彃浠剁殑 allowlist 缂栬緫鍣ㄤ腑銆?
+如果想要完整的 7 条 glob 起步清单，请使用 Admin WebUI 按钮，或者把这些 glob 手动粘贴到插件的 allowlist 编辑器中。
 
-## 姘镐笉鍚屾
+## 永不同步
 
-浠ヤ笅纭帓闄ゅ缁堜紭鍏堬紝鍗充娇浣犳妸瀹冧滑鍔犲叆 allowlist 涔熶笉浼氬悓姝ワ細
+以下硬排除始终优先，即使你把它们加入 allowlist 也不会同步：
 
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`
@@ -41,15 +41,15 @@ PKV Sync 榛樿閬垮紑闅愯棌璺緞銆傚畠鎻愪緵鎸夌瑪璁板�
 - `*.lock`
 - `*.tmp`
 
-## 杩涢樁 opt-in
+## 进阶 opt-in
 
-浣犲彲浠ユ坊鍔犻澶?glob锛屼絾闇€瑕佽嚜琛屾壙鎷呴闄╋細
+你可以添加额外 glob，但需要自行承担风险：
 
-- `.obsidian/plugins/*/data.json`锛氭彃浠惰缃€傝繖閲屽彲鑳藉寘鍚?API key銆丱Auth token 鎴?LLM key銆傚湪绔埌绔姞瀵嗚惤鍦板墠锛屽悓姝ュ唴瀹逛細浠ユ槑鏂囧瓨鏀惧湪鏈嶅姟绔€?
-- `.obsidian/plugins/**`锛氭彃浠朵唬鐮併€傝繖浼氳 Git 鍘嗗彶蹇€熻啫鑳€锛屽苟涓旀闈笓鐢ㄦ彃浠跺悓姝ュ埌绉诲姩绔椂鍙兘鏃犳硶杩愯銆?
-- 鍏朵粬闅愯棌鐩綍锛屼緥濡?`.claude/**` 鎴?`.codex/**`锛歛gent 鐘舵€佸彲鑳藉寘鍚晱鎰熺殑鏈湴涓婁笅鏂囥€?
+- `.obsidian/plugins/*/data.json`：插件设置。这里可能包含 API key、OAuth token 或 LLM key。在端到端加密落地前，同步内容会以明文存放在服务端。
+- `.obsidian/plugins/**`：插件代码。这会让 Git 历史快速膨胀，并且桌面专用插件同步到移动端时可能无法运行。
+- 其他隐藏目录，例如 `.claude/**` 或 `.codex/**`：agent 状态可能包含敏感的本地上下文。
 
-## 鍦ㄥ摢閲岀紪杈戣鍒?
+## 在哪里编辑规则
 
-- Obsidian锛氭墦寮€ **璁剧疆 -> PKV Sync**锛岄€夋嫨褰撳墠绗旇搴擄紝缂栬緫 **.obsidian 鍚屾瑙勫垯**锛岀劧鍚庝繚瀛樸€?
-- Admin WebUI锛氭墦寮€ **Vaults**锛岀偣鍑绘煇涓瑪璁板簱鐨?**Settings**锛岀紪杈?allowlist锛岀劧鍚庝繚瀛樸€?
+- Obsidian：打开 **设置 -> PKV Sync**，选择当前笔记库，编辑 **.obsidian 同步规则**，然后保存。
+- Admin WebUI：打开 **Vaults**，点击某个笔记库的 **Settings**，编辑 allowlist，然后保存。
