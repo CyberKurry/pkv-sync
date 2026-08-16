@@ -9,6 +9,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Security
 
+- Vault path normalization and `pkvsyncd materialize` tree validation now
+  reject Windows-unsafe path components: drive-letter/colon components
+  (`C:`, `C:evil.md`), DOS reserved device names (`CON`, `NUL`,
+  `COM1`-`COM9`, `LPT1`-`LPT9`, with or without extension), and components
+  with trailing dots or spaces. Previously a crafted vault could make
+  `materialize` on a Windows host write files outside the output directory
+  (SEC-R3-02); materialize also gained a 256-level tree-depth cap matching
+  `pkvsyncd verify` (SEC-R3-25).
+
 ### Fixed
 
 - Vault metadata reconcile no longer deletes `blob_refs` rows for blobs

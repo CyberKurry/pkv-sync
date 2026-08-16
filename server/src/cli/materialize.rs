@@ -59,7 +59,7 @@ pub fn run(config: &Config, vault_id: &str, output: &Path, at: Option<&str>) -> 
         .unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
     let staging = create_staging_dir(parent, output)?;
-    if let Err(err) = walk_tree(&repo, &tree, &staging, &blobs_dir, Path::new("")) {
+    if let Err(err) = walk_tree(&repo, &tree, &staging, &blobs_dir, Path::new(""), 0) {
         let _ = fs::remove_dir_all(&staging);
         return Err(err);
     }
@@ -101,6 +101,8 @@ fn validate_vault_id(vault_id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+const MATERIALIZE_MAX_TREE_DEPTH: usize = 256;
+
 /// Recursively walk a git tree, writing entries to the output directory.
 ///
 /// For blob entries that are `pkvsync_pointer` JSON, the actual binary content
@@ -112,7 +114,11 @@ fn walk_tree(
     out_root: &Path,
     blobs_dir: &Path,
     rel: &Path,
+    depth: usize,
 ) -> anyhow::Result<()> {
+    if depth > MATERIALIZE_MAX_TREE_DEPTH {
+        anyhow::bail!("tree depth exceeds {MATERIALIZE_MAX_TREE_DEPTH}");
+    }
     for entry in tree.iter() {
         let name = entry
             .name()
@@ -122,7 +128,7 @@ fn walk_tree(
         match entry.kind() {
             Some(git2::ObjectType::Tree) => {
                 let sub = repo.find_tree(entry.id())?;
-                walk_tree(repo, &sub, out_root, blobs_dir, &entry_rel)?;
+                walk_tree(repo, &sub, out_root, blobs_dir, &entry_rel, depth + 1)?;
             }
             Some(git2::ObjectType::Blob) => {
                 let blob = repo.find_blob(entry.id())?;
@@ -155,6 +161,7 @@ fn validate_tree_entry_name(name: &str) -> anyhow::Result<()> {
         || name.contains('/')
         || name.contains('\\')
         || name.contains('\0')
+        || crate::storage::path::is_windows_unsafe_component(name)
     {
         anyhow::bail!("unsafe git tree entry name: {name:?}");
     }
@@ -273,5 +280,23 @@ mod tests {
         }
         assert!(validate_tree_entry_name("note.md").is_ok());
         assert!(validate_tree_entry_name("PKV Sync.md").is_ok());
+    }
+
+    #[test]
+    fn validate_tree_entry_name_rejects_windows_unsafe_components() {
+        for name in [
+            "C:",
+            "C:evil.md",
+            "c/x.md",
+            "CON",
+            "con.txt",
+            "NUL.md",
+            "note.md.",
+        ] {
+            let err = validate_tree_entry_name(name).unwrap_err();
+            assert!(err.to_string().contains("unsafe git tree entry name"));
+        }
+        assert!(validate_tree_entry_name("com10.md").is_ok());
+        assert!(validate_tree_entry_name("note.md").is_ok());
     }
 }

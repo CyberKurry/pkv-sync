@@ -14,10 +14,30 @@ pub enum PathError {
     GitDir,
     #[error("path is too long")]
     TooLong,
+    #[error("path is not representable on Windows")]
+    WindowsUnsafe,
 }
 
 const MAX_PATH_LEN: usize = 512;
 const MAX_PATH_COMPONENT_LEN: usize = 255;
+
+/// DOS device names that Windows resolves specially regardless of directory,
+/// including when used with an extension (`CON.txt`).
+const WINDOWS_RESERVED_NAMES: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+pub(crate) fn is_windows_unsafe_component(part: &str) -> bool {
+    if part.contains(':') {
+        return true;
+    }
+    if part.ends_with('.') || part.ends_with(' ') {
+        return true;
+    }
+    let stem = part.split('.').next().unwrap_or(part);
+    WINDOWS_RESERVED_NAMES.contains(&stem.to_ascii_uppercase().as_str())
+}
 
 /// Normalize a vault-relative path for protocol/Git storage.
 pub fn normalize(input: &str) -> Result<String, PathError> {
@@ -47,6 +67,9 @@ pub fn normalize(input: &str) -> Result<String, PathError> {
         }
         if part.eq_ignore_ascii_case(".git") {
             return Err(PathError::GitDir);
+        }
+        if is_windows_unsafe_component(part) {
+            return Err(PathError::WindowsUnsafe);
         }
         if part.len() > MAX_PATH_COMPONENT_LEN {
             return Err(PathError::TooLong);
@@ -122,5 +145,43 @@ mod tests {
             normalize(&format!("{}/note.md", "a".repeat(256))).unwrap_err(),
             PathError::TooLong
         );
+    }
+
+    #[test]
+    fn rejects_windows_drive_letter_components() {
+        assert_eq!(normalize("C:/x.md").unwrap_err(), PathError::WindowsUnsafe);
+        assert_eq!(normalize("c:").unwrap_err(), PathError::WindowsUnsafe);
+        assert_eq!(
+            normalize("notes/C:evil.md").unwrap_err(),
+            PathError::WindowsUnsafe
+        );
+        assert_eq!(
+            normalize(r"\\srv\share\file.md").unwrap_err(),
+            PathError::Absolute
+        );
+    }
+
+    #[test]
+    fn rejects_windows_reserved_device_names() {
+        assert_eq!(normalize("CON").unwrap_err(), PathError::WindowsUnsafe);
+        assert_eq!(normalize("con.txt").unwrap_err(), PathError::WindowsUnsafe);
+        assert_eq!(
+            normalize("notes/NUL.md").unwrap_err(),
+            PathError::WindowsUnsafe
+        );
+        assert_eq!(normalize("note.md ").unwrap_err(), PathError::WindowsUnsafe);
+        assert_eq!(normalize("lpt1.png").unwrap_err(), PathError::WindowsUnsafe);
+        assert_eq!(normalize("notes/com10.md").unwrap(), "notes/com10.md");
+    }
+
+    #[test]
+    fn rejects_trailing_dot_or_space_components() {
+        assert_eq!(normalize("note.md.").unwrap_err(), PathError::WindowsUnsafe);
+        assert_eq!(normalize("note.md ").unwrap_err(), PathError::WindowsUnsafe);
+        assert_eq!(
+            normalize("dir /note.md").unwrap_err(),
+            PathError::WindowsUnsafe
+        );
+        assert_eq!(normalize("note.md"), Ok("note.md".into()));
     }
 }
