@@ -121,6 +121,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Performance
 
+- The sync engine compiles the exclude/allowlist path matcher once per
+  settings value (exact-key cache, no TTL) instead of recompiling globs on
+  every pass, folds the scan-pending diff into a single traversal, and defers
+  copying the pull path map until the first write (PERF-PLUGIN-MATCHER-CACHE,
+  PERF-PLUGIN-SCAN-PENDING-PASSES, PERF-PLUGIN-APPLY-PULL-MAP-COPY).
 - The Obsidian Sync migration now snapshots, uploads and pushes per batch,
   releasing each batch's payloads before reading the next, so peak memory is
   one batch instead of the whole vault (previously all file contents and blob

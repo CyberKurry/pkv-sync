@@ -14,8 +14,7 @@ import {
   markDeleted,
   markFilesDeleted,
   markFilesSynced,
-  markSynced,
-  pendingFiles
+  markSynced
 } from "./index-store";
 import type { PushChange } from "./types";
 import type { LocalFileSnapshot, LocalIndex, PullFile, PullResponse } from "./types";
@@ -214,21 +213,36 @@ export class SyncEngine {
     current: LocalFileSnapshot[]
   ): PendingScan {
     const pathAccepted = this.currentPathMatcher();
-    const filtered = current.filter((f) => pathAccepted(f.path));
-    const currentPaths = new Set(filtered.map((f) => f.path));
-    const deletedFromIndex = Object.keys(index.files).filter((p) => !currentPaths.has(p));
-    return {
-      pending: pendingFiles(index, filtered),
-      deleted: deletedFromIndex.filter((p) => pathAccepted(p)),
-      index
-    };
+    const currentPaths = new Set<string>();
+    const pending: LocalFileSnapshot[] = [];
+    for (const file of current) {
+      if (!pathAccepted(file.path)) continue;
+      currentPaths.add(file.path);
+      if (index.files[file.path]?.lastSyncedHash !== file.hash) {
+        pending.push(file);
+      }
+    }
+    const deleted = Object.keys(index.files).filter(
+      (p) => !currentPaths.has(p) && pathAccepted(p)
+    );
+    return { pending, deleted, index };
   }
+
+  private matcherCache = new Map<string, (path: string) => boolean>();
 
   private currentPathMatcher(): (path: string) => boolean {
     const userExcludes = this.opts.extraExcludeGlobs ?? [];
     const userAllowlist =
       this.vaultSettingsCache.get(this.opts.vaultId)?.extra_sync_globs ?? [];
-    return createPathMatcher({ userExcludes, userAllowlist });
+    // Compile the glob matcher once per settings value (exact key, no TTL) so
+    // the same exclude/allowlist sets are not recompiled on every sync pass.
+    const key = JSON.stringify([userExcludes, userAllowlist]);
+    let matcher = this.matcherCache.get(key);
+    if (!matcher) {
+      matcher = createPathMatcher({ userExcludes, userAllowlist });
+      this.matcherCache.set(key, matcher);
+    }
+    return matcher;
   }
 
   private async syncInner(): Promise<void> {
@@ -431,7 +445,10 @@ export class SyncEngine {
     let index = await this.opts.index.loadIndex();
     const current = await this.opts.vault.scan(this.opts.textExtensions, index);
     const currentByPath = new Map(current.map((file) => [file.path, file]));
-    const nextCurrentByPath = new Map(currentByPath);
+    // Copy lazily: if the pull applies nothing, the original map is reused.
+    let nextCurrentByPath: Map<string, LocalFileSnapshot> | null = null;
+    const copyCurrentByPath = (): Map<string, LocalFileSnapshot> =>
+      (nextCurrentByPath ??= new Map(currentByPath));
     const pathAccepted = this.currentPathMatcher();
     const pulledText = new Map<string, string>();
     const touched: LocalFileSnapshot[] = [];
@@ -520,13 +537,13 @@ export class SyncEngine {
     index = appliedIndex ?? index;
     for (const file of touched) {
       if (shouldSyncPath(file.path)) {
-        nextCurrentByPath.set(file.path, file);
+        copyCurrentByPath().set(file.path, file);
       }
     }
     for (const path of deleted) {
-      nextCurrentByPath.delete(path);
+      copyCurrentByPath().delete(path);
     }
-    return this.scanPendingFrom(index, [...nextCurrentByPath.values()]);
+    return this.scanPendingFrom(index, [...(nextCurrentByPath ?? currentByPath).values()]);
   }
 
   private async pulledTextContent(
