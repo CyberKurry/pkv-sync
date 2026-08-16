@@ -708,7 +708,7 @@ async fn debug_pause_from_env_for_tests(marker_key: &str, pause_key: &str) {
 }
 
 #[cfg(debug_assertions)]
-async fn debug_pause_after_subscribe_for_tests() {
+pub(crate) async fn debug_pause_after_subscribe_for_tests() {
     debug_pause_from_env_for_tests(
         "PKVSYNC_TEST_SSE_PAUSE_AFTER_SUBSCRIBE_MARKER",
         "PKVSYNC_TEST_SSE_PAUSE_AFTER_SUBSCRIBE_MS",
@@ -717,7 +717,7 @@ async fn debug_pause_after_subscribe_for_tests() {
 }
 
 #[cfg(debug_assertions)]
-async fn debug_pause_after_replay_for_tests() {
+pub(crate) async fn debug_pause_after_replay_for_tests() {
     debug_pause_from_env_for_tests(
         "PKVSYNC_TEST_SSE_PAUSE_AFTER_REPLAY_MARKER",
         "PKVSYNC_TEST_SSE_PAUSE_AFTER_REPLAY_MS",
@@ -726,10 +726,10 @@ async fn debug_pause_after_replay_for_tests() {
 }
 
 #[cfg(not(debug_assertions))]
-async fn debug_pause_after_subscribe_for_tests() {}
+pub(crate) async fn debug_pause_after_subscribe_for_tests() {}
 
 #[cfg(not(debug_assertions))]
-async fn debug_pause_after_replay_for_tests() {}
+pub(crate) async fn debug_pause_after_replay_for_tests() {}
 
 fn request_metadata_parts(
     client_ip: Option<Extension<ClientIp>>,

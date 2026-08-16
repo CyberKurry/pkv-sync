@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use serde_json::Value;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -262,35 +262,56 @@ async fn get_mcp_sse(
         )
             .into_response();
     };
-    let replay_events = match mcp_last_event_id(&headers) {
-        Some(commit) => match mcp_replay_events_after(&state, &vaults, &commit).await {
-            Ok(events) => events,
-            Err(err) => {
-                return mcp_internal_error_response(err);
-            }
-        },
-        _ => McpReplayEvents::Events(Vec::new()),
-    };
+    // Subscribe BEFORE replaying: a commit landing between the history
+    // snapshot and the live subscription would otherwise be neither replayed
+    // nor delivered (BUG-R3-12). Overlapping commits are suppressed below by
+    // id, mirroring the vault SSE handler.
     let mut streams = tokio_stream::StreamMap::new();
-    for vault in vaults {
-        let vault_id = vault.id;
+    for vault in &vaults {
+        let vault_id = vault.id.clone();
         streams.insert(
             vault_id.clone(),
             BroadcastStream::new(state.events.subscribe(&vault_id)),
         );
     }
-    let replay_items: VecDeque<McpSseItem> = match replay_events {
-        McpReplayEvents::Events(events) => events
-            .into_iter()
-            .filter_map(|(_vault_id, event)| {
-                let commit = event.commit.clone();
-                let notification = crate::mcp::notifications::vault_changed(commit.clone(), event);
-                let data = serde_json::to_string(&notification).ok()?;
-                Some(McpSseItem::VaultChanged { commit, data })
-            })
-            .collect(),
-        McpReplayEvents::Lagged => VecDeque::from([McpSseItem::Lagged]),
+    crate::api::vaults::debug_pause_after_subscribe_for_tests().await;
+
+    let replay_items: VecDeque<McpSseItem> = match mcp_last_event_id(&headers) {
+        Some(commit) => match mcp_replay_events_after(&state, &vaults, &commit).await {
+            Ok((McpReplayEvents::Events(events), unmatched_vaults)) => {
+                let mut items: VecDeque<McpSseItem> = events
+                    .into_iter()
+                    .filter_map(|(_vault_id, event)| {
+                        let commit = event.commit.clone();
+                        let notification =
+                            crate::mcp::notifications::vault_changed(commit.clone(), event);
+                        let data = serde_json::to_string(&notification).ok()?;
+                        Some(McpSseItem::VaultChanged { commit, data })
+                    })
+                    .collect();
+                // A single Last-Event-ID only identifies one vault's position;
+                // every other vault's missed commits are unknowable, so tell
+                // the client to resync (BUG-R3-13).
+                if unmatched_vaults {
+                    items.push_back(McpSseItem::Lagged);
+                }
+                items
+            }
+            Ok((McpReplayEvents::Lagged, _)) => VecDeque::from([McpSseItem::Lagged]),
+            Err(err) => {
+                return mcp_internal_error_response(err);
+            }
+        },
+        None => VecDeque::new(),
     };
+    let replay_commit_ids: HashSet<String> = replay_items
+        .iter()
+        .filter_map(|item| match item {
+            McpSseItem::VaultChanged { commit, .. } => Some(commit.clone()),
+            McpSseItem::Lagged => None,
+        })
+        .collect();
+    crate::api::vaults::debug_pause_after_replay_for_tests().await;
     let mut auth_interval = tokio::time::interval(Duration::from_secs(15));
     auth_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     auth_interval.tick().await;
@@ -303,6 +324,7 @@ async fn get_mcp_sse(
             user,
             validity_cache: TokenValidityCache::default(),
             replay_items,
+            replay_commit_ids,
             streams,
             auth_interval,
             shutdown_rx,
@@ -321,6 +343,7 @@ struct McpSseState {
     user: AuthenticatedUser,
     validity_cache: TokenValidityCache,
     replay_items: VecDeque<McpSseItem>,
+    replay_commit_ids: HashSet<String>,
     streams: tokio_stream::StreamMap<String, BroadcastStream<crate::service::events::VaultEvent>>,
     auth_interval: Interval,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
@@ -385,6 +408,9 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
             event = sse.streams.next() => {
                 let item = match event {
                     Some((_vault_id, Ok(event))) => {
+                        if sse.replay_commit_ids.contains(&event.commit) {
+                            continue;
+                        }
                         let commit = event.commit.clone();
                         let notification = crate::mcp::notifications::vault_changed(
                             commit.clone(),
@@ -429,25 +455,26 @@ async fn mcp_replay_events_after(
     state: &AppState,
     vaults: &[crate::db::repos::Vault],
     commit: &str,
-) -> anyhow::Result<McpReplayEvents> {
+) -> anyhow::Result<(McpReplayEvents, bool)> {
+    let mut events_all: Vec<(String, crate::service::events::VaultEvent)> = Vec::new();
     for vault in vaults {
         let events =
             crate::service::events::replay_events_after(state.vault_root(), &vault.id, commit)
                 .await?;
         match events {
-            crate::service::events::ReplayEvents::Events(events) if !events.is_empty() => {
-                return Ok(McpReplayEvents::Events(
-                    events
-                        .into_iter()
-                        .map(|event| (vault.id.clone(), event))
-                        .collect(),
-                ));
+            crate::service::events::ReplayEvents::Events(events) => {
+                events_all.extend(events.into_iter().map(|event| (vault.id.clone(), event)));
             }
-            crate::service::events::ReplayEvents::Events(_) => {}
-            crate::service::events::ReplayEvents::Lagged => return Ok(McpReplayEvents::Lagged),
+            crate::service::events::ReplayEvents::Lagged => {
+                return Ok((McpReplayEvents::Lagged, false));
+            }
         }
     }
-    Ok(McpReplayEvents::Events(Vec::new()))
+    // Only the vault whose history contains `commit` yields events; with more
+    // than one vault the others' positions are unknown and the caller appends
+    // a lagged signal (BUG-R3-13).
+    let unmatched_vaults = vaults.len() > 1;
+    Ok((McpReplayEvents::Events(events_all), unmatched_vaults))
 }
 
 fn mcp_last_event_id(headers: &HeaderMap) -> Option<String> {

@@ -53,6 +53,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- MCP Streamable HTTP SSE reconnect now subscribes to live events BEFORE
+  replaying history (previously a commit landing between the history
+  snapshot and the live subscription was lost), and deduplicates commits
+  seen by both the replay and the live stream. Reconnecting with a
+  `Last-Event-ID` for a multi-vault user now also emits a `lagged` signal
+  so the client resyncs vaults whose position a single commit id cannot
+  identify (BUG-R3-12/13).
 - Graceful shutdown now reaches long-lived SSE connections: the server
   broadcasts a shutdown signal that vault and embedded-MCP SSE streams
   select on, so `axum::serve(...).with_graceful_shutdown(...)` completes
