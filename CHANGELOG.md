@@ -9,6 +9,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Security
 
+- Idempotency request hashing uses byte-string literals instead of
+  one-element char arrays, satisfying the newer stable clippy's
+  `byte_char_slices` lint so `cargo clippy -D warnings` stays green on
+  current toolchains (behavior unchanged).
 - Build-only devDependency advisories cleared: `nanoid` pinned to a patched
   version and `postcss` bumped to a patched release (both transitive via the
   vitest/vite toolchain; no runtime impact, no lockfile regeneration).

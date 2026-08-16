@@ -743,7 +743,7 @@ fn push_request_hash(if_match: Option<&str>, req: &PushReq) -> Result<String, Ap
     for change in &req.changes {
         match change {
             PushChange::Text { path, content } => {
-                hasher.update([b'T']);
+                hasher.update(b"T");
                 hash_len_prefixed(&mut hasher, path);
                 hash_len_prefixed(&mut hasher, content);
             }
@@ -753,7 +753,7 @@ fn push_request_hash(if_match: Option<&str>, req: &PushReq) -> Result<String, Ap
                 size,
                 mime,
             } => {
-                hasher.update([b'B']);
+                hasher.update(b"B");
                 hash_len_prefixed(&mut hasher, path);
                 hash_len_prefixed(&mut hasher, blob_hash);
                 hasher.update(size.to_be_bytes());
@@ -766,7 +766,7 @@ fn push_request_hash(if_match: Option<&str>, req: &PushReq) -> Result<String, Ap
                 }
             }
             PushChange::Delete { path } => {
-                hasher.update([b'D']);
+                hasher.update(b"D");
                 hash_len_prefixed(&mut hasher, path);
             }
         }
