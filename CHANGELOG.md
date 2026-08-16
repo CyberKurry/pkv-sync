@@ -27,6 +27,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
   (which made every run abort with EROFS before `compose pull`, i.e. the
   Docker self-upgrade never worked) and validates the recorded tag
   strictly (BUG-R3-10).
+- `POST /api/auth/register` now carries its own per-IP request rate limit
+  (10/min). The login failure limiter only spends budget on failures, so
+  open-registration deployments previously allowed unlimited successful
+  account creation - each costing an Argon2 hash and DB writes - from a
+  single IP (SEC-R3-05).
 - Vault path normalization and `pkvsyncd materialize` tree validation now
   reject Windows-unsafe path components: drive-letter/colon components
   (`C:`, `C:evil.md`), DOS reserved device names (`CON`, `NUL`,

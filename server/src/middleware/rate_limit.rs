@@ -15,6 +15,7 @@ pub const SYNC_API_REQUESTS_PER_WINDOW: u32 = 600;
 pub const MCP_HTTP_REQUESTS_PER_WINDOW: u32 = 120;
 pub const GIT_HTTP_REQUESTS_PER_WINDOW: u32 = 120;
 pub const API_AUTH_REQUESTS_PER_WINDOW: u32 = 120;
+pub const AUTH_REGISTER_REQUESTS_PER_WINDOW: u32 = 10;
 pub const PASSWORD_CHANGE_REQUESTS_PER_WINDOW: u32 = 10;
 pub const ADMIN_WEB_REQUESTS_PER_WINDOW: u32 = 300;
 
@@ -66,6 +67,13 @@ impl RequestRateLimiter {
     pub fn api_auth() -> Self {
         Self::new(
             API_AUTH_REQUESTS_PER_WINDOW,
+            Duration::from_secs(WINDOW_SECS),
+        )
+    }
+
+    pub fn auth_register() -> Self {
+        Self::new(
+            AUTH_REGISTER_REQUESTS_PER_WINDOW,
             Duration::from_secs(WINDOW_SECS),
         )
     }
@@ -163,6 +171,18 @@ pub async fn api_auth_middleware(
     next: Next,
 ) -> Response {
     let key = request_key("api_auth", &req);
+    if limiter.check(key).is_err() {
+        return rate_limited_response();
+    }
+    next.run(req).await
+}
+
+pub async fn auth_register_middleware(
+    State(limiter): State<RequestRateLimiter>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let key = request_key("auth_register", &req);
     if limiter.check(key).is_err() {
         return rate_limited_response();
     }

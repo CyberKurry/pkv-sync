@@ -9,9 +9,26 @@ use axum::routing::post;
 use axum::{Json, Router};
 
 pub fn router() -> Router<AppState> {
+    router_with_rate_limiters(crate::middleware::rate_limit::RequestRateLimiter::auth_register())
+}
+
+fn router_with_rate_limiters(
+    register_limiter: crate::middleware::rate_limit::RequestRateLimiter,
+) -> Router<AppState> {
+    // The register route carries its own request-level limiter: the login
+    // failure limiter only spends budget on failures, so otherwise an open
+    // registration deployment allows unlimited successful account creation
+    // (each costing an Argon2 hash + DB writes) from a single IP.
     Router::new()
         .route("/api/auth/login", post(login_handler))
-        .route("/api/auth/register", post(register_handler))
+        .merge(
+            Router::new()
+                .route("/api/auth/register", post(register_handler))
+                .route_layer(axum::middleware::from_fn_with_state(
+                    register_limiter,
+                    crate::middleware::rate_limit::auth_register_middleware,
+                )),
+        )
 }
 
 async fn login_handler(
@@ -159,6 +176,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn register_success_path_is_rate_limited_per_ip() {
+        let app = make_app(RegistrationMode::Open).await;
+        let mut created = 0;
+        let mut too_many = 0;
+        for i in 0..15 {
+            let resp = app
+                .clone()
+                .oneshot(json(
+                    "/api/auth/register",
+                    serde_json::json!({
+                        "username": format!("user{i}"),
+                        "password": "Passw0rdStrong",
+                        "device_id": format!("device-{i}"),
+                        "device_name": "d"
+                    }),
+                ))
+                .await
+                .unwrap();
+            match resp.status() {
+                StatusCode::CREATED => created += 1,
+                StatusCode::TOO_MANY_REQUESTS => too_many += 1,
+                other => panic!("unexpected status {other:?}"),
+            }
+        }
+        assert!(
+            created > 0 && too_many > 0,
+            "successful registrations must be rate limited per IP; created={created} too_many={too_many}"
+        );
+    }
+
+    #[tokio::test]
     async fn register_open_returns_201() {
         let app = make_app(RegistrationMode::Open).await;
         let resp = app
@@ -200,7 +248,7 @@ mod tests {
         // limiter, so an honest user mistyping their username can still
         // recover and register correctly afterwards.
         let app = make_app(RegistrationMode::Open).await;
-        for _ in 0..10 {
+        for _ in 0..5 {
             let resp = app
                 .clone()
                 .oneshot(json(
