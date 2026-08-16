@@ -3,8 +3,16 @@
 #   docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
 #
 # The pkv-sync server stays unprivileged and never gets the Docker socket. Only
-# the socket-proxy touches /var/run/docker.sock, scoped to the minimum verbs
-# needed to pull an image and recreate the pkv-sync service.
+# the socket-proxy touches /var/run/docker.sock.
+#
+# Scope note (audited 2026-08-16): the proxy cannot filter per-endpoint, only
+# per API section + a global POST switch. `docker compose pull/up` needs
+# POST /images/create, POST /containers/create and POST /containers/{id}/start,
+# so POST must stay enabled and "any container in the `updater` network can
+# create containers" is inherent to this design. Two mitigations limit that
+# blast radius: the `updater` network is internal (unreachable from outside
+# and no egress) and only the updater container + proxy are attached to it.
+# MUST be re-validated on a Linux + Docker host when changing anything here.
 services:
   socket-proxy:
     image: tecnativa/docker-socket-proxy:0.4.2
@@ -14,6 +22,7 @@ services:
       IMAGES: 1
       CONTAINERS: 1
       POST: 1
+      ALLOW_START: 1
       INFO: 1
       VERSION: 1
       NETWORKS: 1
@@ -27,6 +36,8 @@ services:
     profiles: ["updater"]
     depends_on: [socket-proxy]
     entrypoint: ["/bin/sh", "/compose/deploy/updater/docker-updater.sh"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     environment:
       DOCKER_HOST: tcp://socket-proxy:2375
       PKV_DATA_DIR: /var/lib/pkv-sync
@@ -41,3 +52,4 @@ services:
 
 networks:
   updater:
+    internal: true
