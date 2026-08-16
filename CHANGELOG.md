@@ -11,6 +11,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Vault metadata reconcile no longer deletes `blob_refs` rows for blobs
+  that are still referenced by ancestor commits: blob retention now
+  follows git object retention, so per-file history restore and vault
+  rollback keep working after the scheduled blob GC (previously the
+  attachment content was permanently lost once the blob left the HEAD
+  tree and the 7-day GC grace elapsed) (BUG-R3-01).
+
 ### Performance
 
 ## [1.4.5] - 2026-06-16

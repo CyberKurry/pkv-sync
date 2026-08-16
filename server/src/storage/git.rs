@@ -3,7 +3,7 @@ use crate::storage::text_kind::TextClassifier;
 use async_trait::async_trait;
 use git2::{Delta, DiffFindOptions, ObjectType, Oid, Repository, Signature, Tree};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -358,6 +358,29 @@ impl Git2VaultStore {
                 }
             }
             Ok(false)
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
+    pub async fn existing_commits(
+        &self,
+        vault_id: &str,
+        commits: &[String],
+    ) -> Result<HashSet<String>, GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let commits = commits.to_vec();
+        tokio::task::spawn_blocking(move || -> Result<HashSet<String>, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let mut existing = HashSet::new();
+            for commit in &commits {
+                if let Ok(oid) = Oid::from_str(commit) {
+                    if repo.find_commit(oid).is_ok() {
+                        existing.insert(commit.clone());
+                    }
+                }
+            }
+            Ok(existing)
         })
         .await
         .map_err(|_| GitStoreError::Panic)?

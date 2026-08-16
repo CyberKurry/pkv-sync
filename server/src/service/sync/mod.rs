@@ -903,10 +903,70 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn reconcile_and_gc_keep_blob_referenced_by_ancestor_commit() {
+        let (state, user, vid, _tmp) = setup().await;
+        let data = Bytes::from_static(b"attachment-v1");
+        let hash = LocalFsBlobStore::sha256(&data);
+        upload_blob(&state, &user.user_id, &vid, &hash, data)
+            .await
+            .unwrap();
+        let base = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("base".into()),
+                changes: vec![PushChange::Blob {
+                    path: "image.png".into(),
+                    blob_hash: hash.clone(),
+                    size: 13,
+                    mime: Some("image/png".into()),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("edit".into()),
+                changes: vec![PushChange::Delete {
+                    path: "image.png".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let report = reconcile_vault_metadata(&state, &vid).await.unwrap();
+        assert_eq!(report.blob_refs, 0);
+
+        let gc = crate::service::gc::run_blob_gc_with_grace(&state, 0)
+            .await
+            .unwrap();
+        assert_eq!(
+            gc.deleted, 0,
+            "blob referenced by an ancestor commit must survive GC"
+        );
+        let store = LocalFsBlobStore::new(state.default_blob_root());
+        assert!(
+            store.has(&hash).await.unwrap(),
+            "blob referenced by an ancestor commit must survive GC"
+        );
+    }
+
+    #[tokio::test]
     async fn reconcile_vault_metadata_removes_stale_blob_refs_for_vault() {
         let (state, _user, vid, _tmp) = setup().await;
         let old_hash = "a".repeat(64);
         let current_hash = "b".repeat(64);
+        let ghost_hash = "c".repeat(64);
         let git = Git2VaultStore::new(state.default_vault_root());
         let old_commit = git
             .commit_changes(
@@ -945,8 +1005,9 @@ mod integration_tests {
             )
             .await
             .unwrap();
+        let pruned_commit = "0".repeat(40);
         sqlx::query(
-            "INSERT INTO blob_refs (blob_hash, vault_id, commit_hash) VALUES (?, ?, ?), (?, ?, ?)",
+            "INSERT INTO blob_refs (blob_hash, vault_id, commit_hash) VALUES (?, ?, ?), (?, ?, ?), (?, ?, ?)",
         )
         .bind(&old_hash)
         .bind(&vid)
@@ -954,6 +1015,9 @@ mod integration_tests {
         .bind(&current_hash)
         .bind(&vid)
         .bind(&current_commit)
+        .bind(&ghost_hash)
+        .bind(&vid)
+        .bind(&pruned_commit)
         .execute(&state.pool)
         .await
         .unwrap();
@@ -961,15 +1025,26 @@ mod integration_tests {
         let report = reconcile_vault_metadata(&state, &vid).await.unwrap();
 
         assert_eq!(report.blob_refs, 1);
-        assert!(!state
-            .blob_refs
-            .is_referenced_by_vault(&vid, &old_hash)
-            .await
-            .unwrap());
+        assert!(
+            state
+                .blob_refs
+                .is_referenced_by_vault(&vid, &old_hash)
+                .await
+                .unwrap(),
+            "blob referenced by a still-existing ancestor commit must stay protected"
+        );
         assert!(state
             .blob_refs
             .is_referenced_by_vault(&vid, &current_hash)
             .await
             .unwrap());
+        assert!(
+            !state
+                .blob_refs
+                .is_referenced_by_vault(&vid, &ghost_hash)
+                .await
+                .unwrap(),
+            "blob attributed to a pruned commit must be dropped"
+        );
     }
 }

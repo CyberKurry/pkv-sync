@@ -903,6 +903,30 @@ async fn insert_blob_refs_in_tx(
     Ok(())
 }
 
+async fn delete_blob_refs_by_commits_in_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    vault_id: &str,
+    commits: &[String],
+) -> Result<(), sqlx::Error> {
+    const SHARED_BINDS: usize = 1;
+    if commits.is_empty() {
+        return Ok(());
+    }
+    let chunk_size = SQLITE_SAFE_BIND_LIMIT - SHARED_BINDS;
+    for chunk in commits.chunks(chunk_size) {
+        let mut query = QueryBuilder::<Sqlite>::new("DELETE FROM blob_refs WHERE vault_id = ");
+        query.push_bind(vault_id);
+        query.push(" AND commit_hash IN (");
+        let mut separated = query.separated(", ");
+        for commit in chunk {
+            separated.push_bind(commit);
+        }
+        separated.push_unseparated(")");
+        query.build().execute(&mut **tx).await?;
+    }
+    Ok(())
+}
+
 async fn delete_blob_uploads_in_tx(
     tx: &mut sqlx::Transaction<'_, Sqlite>,
     vault_id: &str,
@@ -968,16 +992,36 @@ pub(crate) async fn reconcile_vault_metadata_unlocked(
     };
     let (size_bytes, file_count) = tree_stats(&tree);
     let now = chrono::Utc::now().timestamp();
+
+    // Blob retention follows git object retention: ancestors of every live
+    // commit stay reachable for `git gc`, and per-file history / rollback
+    // restore must keep working for them. Keep blob_refs rows whose commit
+    // still exists in the repository; only rows whose introducing commit was
+    // pruned are dropped, letting those blobs enter the normal GC grace.
+    let known_commits = state
+        .blob_refs
+        .commit_hashes_for_vault(vault_id)
+        .await
+        .map_err(ApiError::from)?;
+    let pruned_commits: Vec<String> = if known_commits.is_empty() {
+        Vec::new()
+    } else {
+        let existing = git
+            .existing_commits(vault_id, &known_commits)
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+        known_commits
+            .into_iter()
+            .filter(|commit| !existing.contains(commit))
+            .collect()
+    };
+
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    sqlx::query("DELETE FROM blob_refs WHERE vault_id = ?")
-        .bind(vault_id)
-        .execute(&mut *tx)
+    delete_blob_refs_by_commits_in_tx(&mut tx, vault_id, &pruned_commits)
         .await
         .map_err(ApiError::from)?;
     if let Some(head) = head.as_deref() {
-        insert_blob_refs_in_tx(&mut tx, vault_id, head, &blob_hashes)
-            .await
-            .map_err(ApiError::from)?;
+        insert_blob_refs_in_tx(&mut tx, vault_id, head, &blob_hashes).await?;
     }
     let last_sync_at = head.as_ref().map(|_| now);
     sqlx::query("UPDATE vaults SET size_bytes = ?, file_count = ?, last_sync_at = ? WHERE id = ?")

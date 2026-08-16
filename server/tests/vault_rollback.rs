@@ -283,12 +283,14 @@ async fn rollback_refreshes_vault_stats_and_current_blob_refs() {
         .is_referenced_by_vault(&ctx.vault_id, &old_hash)
         .await
         .unwrap());
-    assert!(!ctx
-        .state
-        .blob_refs
-        .is_referenced_by_vault(&ctx.vault_id, &new_hash)
-        .await
-        .unwrap());
+    assert!(
+        ctx.state
+            .blob_refs
+            .is_referenced_by_vault(&ctx.vault_id, &new_hash)
+            .await
+            .unwrap(),
+        "the rollback source commit is kept alive by its protection ref, so its blob must stay referenced for roll-forward"
+    );
 }
 
 #[tokio::test]

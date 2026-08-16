@@ -15,6 +15,7 @@ pub trait BlobRefRepo: Send + Sync {
         vault_id: &str,
         hashes: &[String],
     ) -> Result<HashSet<String>, sqlx::Error>;
+    async fn commit_hashes_for_vault(&self, vault_id: &str) -> Result<Vec<String>, sqlx::Error>;
 }
 
 pub struct SqliteBlobRefRepo {
@@ -108,6 +109,15 @@ impl BlobRefRepo for SqliteBlobRefRepo {
             found.extend(rows.into_iter().map(|t| t.0));
         }
         Ok(found)
+    }
+
+    async fn commit_hashes_for_vault(&self, vault_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT DISTINCT commit_hash FROM blob_refs WHERE vault_id = ?")
+                .bind(vault_id)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows.into_iter().map(|t| t.0).collect())
     }
 }
 
