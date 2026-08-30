@@ -1,20 +1,20 @@
 /*
- * PKV Sync — Obsidian Plugin stylesheet
- * Design language: "Working Paper" — terracotta seal accent on Obsidian's
- * native palette. Mostly inherits from Obsidian CSS variables so the plugin
- * blends with the user's chosen theme; only adds a distinctive PKV accent.
+ * PKV Sync — Obsidian Plugin Stylesheet
+ * Design System: Modern Slate & Terracotta ("Precision Studio")
+ * Integrates natively with Obsidian CSS variables across all themes.
+ * Zero declaration overrides for complete Obsidian Store compliance.
  */
 
 /* =====================================================================
- * 1. Settings tab scope + tokens
+ * 1. Settings Tab Scope & Tokens
  * =================================================================== */
 
 .pkv-sync-settings-host {
-  --pkv-mark: #b0593b;
-  --pkv-mark-hover: #95442c;
-  --pkv-mark-soft: rgba(176, 89, 59, 0.16);
-  --pkv-mark-faint: rgba(176, 89, 59, 0.08);
-  --pkv-mark-ink: #fbf9f3;
+  --pkv-mark: #df5b35;
+  --pkv-mark-hover: #c84924;
+  --pkv-mark-soft: rgba(223, 91, 53, 0.14);
+  --pkv-mark-faint: rgba(223, 91, 53, 0.07);
+  --pkv-mark-ink: #ffffff;
 
   --pkv-bg-page: var(--background-secondary);
   --pkv-bg-panel: var(--background-primary);
@@ -31,18 +31,18 @@
   --pkv-disabled: var(--text-faint);
   --pkv-placeholder: var(--text-faint);
 
-  --pkv-ok: var(--color-green, #3f6b3f);
-  --pkv-warn: var(--color-orange, #a87a1f);
-  --pkv-err: var(--color-red, #9b3434);
+  --pkv-ok: var(--color-green, #10b981);
+  --pkv-warn: var(--color-orange, #f59e0b);
+  --pkv-err: var(--color-red, #ef4444);
 
   --pkv-control-h: 36px;
   --pkv-control-h-sm: 30px;
 
-  --pkv-radius-1: 4px;
-  --pkv-radius-2: 6px;
-  --pkv-radius-3: 10px;
+  --pkv-radius-1: 5px;
+  --pkv-radius-2: 8px;
+  --pkv-radius-3: 12px;
 
-  --pkv-tracking-meta: 0.08em;
+  --pkv-tracking-meta: 0.06em;
   --pkv-font-meta: var(--font-monospace);
   --pkv-font-body: var(--font-interface);
 
@@ -56,50 +56,54 @@
   color: var(--pkv-text);
 }
 
-/* Doubled class outranks Obsidian's own `.vertical-tab-content` padding
-   without raising declaration importance. */
+/* Doubled class outranks Obsidian's default padding with higher specificity */
 .pkv-sync-settings-host.pkv-sync-settings-host {
   padding: 0;
 }
 
-/* Hard light override (user picked "light" in plugin settings) */
+/* Hard light override (user selected light mode) */
 .pkv-sync-settings-host.is-light-override {
-  --pkv-bg-page: #f7f4ed;
-  --pkv-bg-panel: #fbf9f3;
-  --pkv-bg-control: #efeadf;
-  --pkv-bg-soft: rgba(26, 24, 18, 0.06);
-  --pkv-border: rgba(26, 24, 18, 0.14);
-  --pkv-border-subtle: rgba(26, 24, 18, 0.09);
-  --pkv-text: #1a1812;
-  --pkv-text-strong: #1a1812;
-  --pkv-label: #1a1812;
-  --pkv-muted: #4a4538;
-  --pkv-faint: #7a7568;
-  --pkv-disabled: #b8b1a0;
-  --pkv-placeholder: #b8b1a0;
+  --pkv-bg-page: #f8fafc;
+  --pkv-bg-panel: #ffffff;
+  --pkv-bg-control: #f1f5f9;
+  --pkv-bg-soft: rgba(15, 23, 42, 0.04);
+  --pkv-border: rgba(15, 23, 42, 0.1);
+  --pkv-border-subtle: rgba(15, 23, 42, 0.06);
+  --pkv-mark: #df5b35;
+  --pkv-mark-hover: #c84924;
+  --pkv-mark-soft: rgba(223, 91, 53, 0.12);
+  --pkv-mark-faint: rgba(223, 91, 53, 0.06);
+  --pkv-mark-ink: #ffffff;
+  --pkv-text: #0f172a;
+  --pkv-text-strong: #0f172a;
+  --pkv-label: #0f172a;
+  --pkv-muted: #64748b;
+  --pkv-faint: #94a3b8;
+  --pkv-disabled: #cbd5e1;
+  --pkv-placeholder: #94a3b8;
   color-scheme: light;
 }
 
-/* Hard dark override */
+/* Hard dark override (user selected dark mode) */
 .pkv-sync-settings-host.is-dark-override {
-  --pkv-bg-page: #13110d;
-  --pkv-bg-panel: #1a1814;
-  --pkv-bg-control: #22201a;
-  --pkv-bg-soft: rgba(235, 229, 211, 0.07);
-  --pkv-border: rgba(235, 229, 211, 0.16);
-  --pkv-border-subtle: rgba(235, 229, 211, 0.1);
-  --pkv-mark: #d68565;
-  --pkv-mark-hover: #e5997c;
-  --pkv-mark-soft: rgba(214, 133, 101, 0.16);
-  --pkv-mark-faint: rgba(214, 133, 101, 0.08);
-  --pkv-mark-ink: #1a1814;
-  --pkv-text: #ebe5d3;
-  --pkv-text-strong: #ebe5d3;
-  --pkv-label: #ebe5d3;
-  --pkv-muted: #8e8876;
-  --pkv-faint: #4f4a3e;
-  --pkv-disabled: #4f4a3e;
-  --pkv-placeholder: #4f4a3e;
+  --pkv-bg-page: #0b0f17;
+  --pkv-bg-panel: #131a24;
+  --pkv-bg-control: #1a2230;
+  --pkv-bg-soft: rgba(241, 245, 249, 0.06);
+  --pkv-border: rgba(241, 245, 249, 0.12);
+  --pkv-border-subtle: rgba(241, 245, 249, 0.07);
+  --pkv-mark: #ff7043;
+  --pkv-mark-hover: #ff8a65;
+  --pkv-mark-soft: rgba(255, 112, 67, 0.16);
+  --pkv-mark-faint: rgba(255, 112, 67, 0.08);
+  --pkv-mark-ink: #0b0f17;
+  --pkv-text: #f1f5f9;
+  --pkv-text-strong: #f1f5f9;
+  --pkv-label: #f1f5f9;
+  --pkv-muted: #8295ab;
+  --pkv-faint: #475569;
+  --pkv-disabled: #334155;
+  --pkv-placeholder: #475569;
   color-scheme: dark;
 }
 
@@ -108,7 +112,7 @@
 }
 
 /* =====================================================================
- * 2. App shell
+ * 2. App Shell
  * =================================================================== */
 
 .pkv-sync-app {
@@ -125,7 +129,7 @@
   border-radius: 0;
   background: var(--pkv-bg-panel);
   color: var(--pkv-text);
-  padding: 32px 28px 40px;
+  padding: 32px 32px 48px;
   font-family: var(--pkv-font-body);
   font-size: 14px;
   line-height: 1.55;
@@ -135,7 +139,7 @@
 }
 
 /* =====================================================================
- * 3. Header / wordmark
+ * 3. Header & Wordmark
  * =================================================================== */
 
 .pkv-sync-header {
@@ -191,6 +195,7 @@
   letter-spacing: var(--pkv-tracking-meta);
   text-transform: uppercase;
   color: var(--pkv-muted);
+  font-weight: 550;
   margin: 0;
   flex: 1;
 }
@@ -208,8 +213,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
-  background: transparent;
+  padding: 4px 10px;
+  background: var(--pkv-bg-soft);
   border: 1px solid var(--pkv-border-subtle);
   border-radius: var(--pkv-radius-1);
   font-family: var(--pkv-font-meta);
@@ -219,7 +224,13 @@
   color: var(--pkv-muted);
   cursor: pointer;
   box-shadow: none;
-  transition: border-color 80ms ease, color 80ms ease;
+  transition: all 120ms ease;
+}
+
+.pkv-sync-time-toggle:hover,
+.pkv-sync-settings-host button.pkv-sync-time-toggle:hover {
+  border-color: var(--pkv-mark);
+  color: var(--pkv-text);
 }
 
 .pkv-sync-time-toggle span:first-child {
@@ -228,10 +239,10 @@
 
 .pkv-sync-time-caret {
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-right: 1px solid currentColor;
-  border-bottom: 1px solid currentColor;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
   transform: rotate(45deg);
   transition: transform 140ms ease;
 }
@@ -248,14 +259,14 @@
 }
 
 /* =====================================================================
- * 4. Layout primitives
+ * 4. Layout Primitives
  * =================================================================== */
 
 .pkv-sync-divider {
   height: 1px;
   background: var(--pkv-border-subtle);
   border: 0;
-  margin: 12px 0 4px;
+  margin: 14px 0 6px;
 }
 
 .pkv-sync-inline-field {
@@ -269,11 +280,11 @@
   display: block;
   font-family: var(--pkv-font-meta);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: var(--pkv-tracking-meta);
   text-transform: uppercase;
   color: var(--pkv-muted);
-  margin: 4px 0 6px;
+  margin: 6px 0 6px;
 }
 
 .pkv-sync-field {
@@ -284,14 +295,14 @@
 
 .pkv-sync-label {
   display: block;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 550;
   color: var(--pkv-label);
   margin-bottom: 2px;
 }
 
 /* =====================================================================
- * 5. Form controls
+ * 5. Form Controls
  * =================================================================== */
 
 .pkv-sync-input,
@@ -307,7 +318,7 @@
   font-family: var(--pkv-font-body);
   font-size: 14px;
   box-sizing: border-box;
-  transition: border-color 80ms ease;
+  transition: all 120ms ease;
 }
 
 .pkv-sync-input::placeholder {
@@ -333,8 +344,8 @@
   top: 50%;
   width: 6px;
   height: 6px;
-  border-right: 1px solid var(--pkv-muted);
-  border-bottom: 1px solid var(--pkv-muted);
+  border-right: 1.5px solid var(--pkv-muted);
+  border-bottom: 1.5px solid var(--pkv-muted);
   transform: translateY(-75%) rotate(45deg);
   pointer-events: none;
 }
@@ -366,14 +377,16 @@
   border-radius: var(--pkv-radius-2);
   font-family: var(--pkv-font-body);
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   box-shadow: none;
-  transition: border-color 80ms ease;
+  transition: all 120ms ease;
 }
 
 .pkv-sync-theme-button:hover,
 .pkv-sync-settings-host button.pkv-sync-theme-button:hover {
   border-color: var(--pkv-mark);
+  background: var(--pkv-bg-soft);
 }
 
 .pkv-sync-theme-button[data-theme-mode="light"],
@@ -382,14 +395,14 @@
 }
 
 .pkv-sync-theme-button.is-dark {
-  /* informational class only */
+  /* informational class */
 }
 
 .pkv-sync-theme-icon,
 .pkv-sync-theme-icon svg {
   width: 14px;
   height: 14px;
-  color: var(--pkv-muted);
+  color: var(--pkv-mark);
 }
 
 .pkv-sync-theme-label {
@@ -398,6 +411,7 @@
   letter-spacing: var(--pkv-tracking-meta);
   text-transform: uppercase;
   color: var(--pkv-muted);
+  font-weight: 600;
 }
 
 /* =====================================================================
@@ -428,14 +442,14 @@
   padding: 0 14px;
   font-family: var(--pkv-font-body);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 550;
   border: 1px solid var(--pkv-border);
   background: var(--pkv-bg-panel);
   color: var(--pkv-text);
   border-radius: var(--pkv-radius-2);
   cursor: pointer;
   box-shadow: none;
-  transition: background 80ms ease, border-color 80ms ease, color 80ms ease;
+  transition: all 120ms ease;
   white-space: nowrap;
 }
 
@@ -455,7 +469,8 @@
 .pkv-sync-button.is-primary {
   background: var(--pkv-mark);
   color: var(--pkv-mark-ink);
-  border-color: var(--pkv-mark);
+  border-color: var(--pkv-mark-hover);
+  box-shadow: 0 2px 4px var(--pkv-mark-soft);
 }
 
 .pkv-sync-button.is-secondary {
@@ -500,7 +515,7 @@
 }
 
 /* =====================================================================
- * 7. Sync status body
+ * 7. Sync Status & User Cards
  * =================================================================== */
 
 .pkv-sync-synced-body {
@@ -522,23 +537,23 @@
   grid-template-columns: auto 1fr;
   gap: 12px;
   align-items: center;
-  padding: 12px;
+  padding: 12px 14px;
   background: var(--pkv-bg-control);
   border: 1px solid var(--pkv-border-subtle);
   border-radius: var(--pkv-radius-3);
 }
 
 .pkv-sync-avatar {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--pkv-mark);
+  background: linear-gradient(135deg, var(--pkv-mark), var(--pkv-mark-hover));
   color: var(--pkv-mark-ink);
   font-family: var(--pkv-font-meta);
-  font-weight: 600;
+  font-weight: 700;
   font-size: 13px;
   flex-shrink: 0;
 }
@@ -573,15 +588,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
 }
 
 .pkv-sync-checkbox-label {
   font-size: 13px;
   color: var(--pkv-text);
+  font-weight: 500;
 }
 
 /* =====================================================================
- * 8. Vault rows
+ * 8. Vault Rows & Settings
  * =================================================================== */
 
 .pkv-sync-vault-row {
@@ -593,7 +610,7 @@
   border: 1px solid var(--pkv-border-subtle);
   border-radius: var(--pkv-radius-3);
   background: var(--pkv-bg-panel);
-  transition: border-color 80ms ease, background 80ms ease;
+  transition: all 120ms ease;
 }
 
 .pkv-sync-vault-row.is-active {
@@ -660,14 +677,14 @@
 }
 
 .pkv-sync-vault-actions .pkv-sync-button.is-primary {
-  /* primary stays terracotta */
+  /* primary terracotta */
 }
 
 .pkv-sync-vault-settings {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
+  padding: 14px;
   background: var(--pkv-bg-control);
   border: 1px solid var(--pkv-border-subtle);
   border-radius: var(--pkv-radius-3);
@@ -712,7 +729,7 @@
 }
 
 /* =====================================================================
- * 9. Sync now action
+ * 9. Sync Now
  * =================================================================== */
 
 .pkv-sync-sync-now,
@@ -721,7 +738,7 @@
 }
 
 /* =====================================================================
- * 10. Conflicts (settings)
+ * 10. Conflicts (Settings View)
  * =================================================================== */
 
 .pkv-sync-conflict-row {
@@ -763,7 +780,7 @@
 }
 
 /* =====================================================================
- * 11. Update card
+ * 11. Update Card
  * =================================================================== */
 
 .pkv-sync-update-card {
@@ -798,6 +815,7 @@
   color: var(--pkv-mark);
   letter-spacing: var(--pkv-tracking-meta);
   text-transform: uppercase;
+  font-weight: 600;
 }
 
 .pkv-sync-vault-settings .pkv-sync-textarea,
@@ -816,7 +834,7 @@
 }
 
 /* =====================================================================
- * 12. Devices
+ * 12. Device List
  * =================================================================== */
 
 .pkv-sync-device-list {
@@ -862,19 +880,21 @@
   letter-spacing: var(--pkv-tracking-meta);
   text-transform: uppercase;
   color: var(--pkv-muted);
+  font-weight: 600;
 }
 
 /* =====================================================================
- * 13. State helpers
+ * 13. State Helpers
  * =================================================================== */
 
 .pkv-sync-error {
   padding: 8px 12px;
-  background: rgba(155, 52, 52, 0.1);
-  border-left: 2px solid var(--pkv-err);
+  background: rgba(239, 68, 68, 0.1);
+  border-left: 3px solid var(--pkv-err);
   color: var(--pkv-err);
   font-size: 12px;
   border-radius: 0 var(--pkv-radius-1) var(--pkv-radius-1) 0;
+  font-weight: 500;
 }
 
 .pkv-sync-error-action {
@@ -888,27 +908,28 @@
 
 .pkv-sync-success {
   padding: 8px 12px;
-  background: rgba(63, 107, 63, 0.1);
-  border-left: 2px solid var(--pkv-ok);
+  background: rgba(16, 185, 129, 0.1);
+  border-left: 3px solid var(--pkv-ok);
   color: var(--pkv-ok);
   font-size: 12px;
   border-radius: 0 var(--pkv-radius-1) var(--pkv-radius-1) 0;
+  font-weight: 500;
 }
 
 /* =====================================================================
- * 14. Modals — history / diff / restore / conflict / delete
+ * 14. Modals — History, Diff, Conflict Resolution, Migration
  * =================================================================== */
 
 .pkvsync-history-modal,
 .pkvsync-diff-modal,
 .pkvsync-restore-modal {
-  --pkv-mark: #b0593b;
-  --pkv-mark-hover: #95442c;
-  --pkv-mark-soft: rgba(176, 89, 59, 0.16);
-  --pkv-mark-faint: rgba(176, 89, 59, 0.08);
-  --pkv-mark-ink: #fbf9f3;
+  --pkv-mark: #df5b35;
+  --pkv-mark-hover: #c84924;
+  --pkv-mark-soft: rgba(223, 91, 53, 0.14);
+  --pkv-mark-faint: rgba(223, 91, 53, 0.07);
+  --pkv-mark-ink: #ffffff;
   --pkv-font-meta: var(--font-monospace);
-  --pkv-tracking-meta: 0.08em;
+  --pkv-tracking-meta: 0.06em;
   padding: 4px 2px 8px;
   display: flex;
   flex-direction: column;
@@ -920,11 +941,11 @@
 body.theme-dark .pkvsync-history-modal,
 body.theme-dark .pkvsync-diff-modal,
 body.theme-dark .pkvsync-restore-modal {
-  --pkv-mark: #d68565;
-  --pkv-mark-hover: #e5997c;
-  --pkv-mark-soft: rgba(214, 133, 101, 0.18);
-  --pkv-mark-faint: rgba(214, 133, 101, 0.08);
-  --pkv-mark-ink: #1a1814;
+  --pkv-mark: #ff7043;
+  --pkv-mark-hover: #ff8a65;
+  --pkv-mark-soft: rgba(255, 112, 67, 0.18);
+  --pkv-mark-faint: rgba(255, 112, 67, 0.08);
+  --pkv-mark-ink: #0b0f17;
 }
 
 .modal.pkvsync-modal-history {
@@ -978,7 +999,7 @@ body.theme-dark .pkvsync-restore-modal {
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 12px;
-  padding: 6px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--background-modifier-border);
   transition: background 80ms ease;
 }
@@ -1008,7 +1029,7 @@ body.theme-dark .pkvsync-restore-modal {
 
 .pkvsync-history-title {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 550;
   color: var(--text-normal);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1018,7 +1039,7 @@ body.theme-dark .pkvsync-restore-modal {
   display: inline-flex;
   font-family: var(--pkv-font-meta);
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: var(--pkv-tracking-meta);
   text-transform: uppercase;
   padding: 2px 6px;
@@ -1028,18 +1049,18 @@ body.theme-dark .pkvsync-restore-modal {
 }
 
 .pkvsync-history-change.is-added {
-  background: rgba(63, 107, 63, 0.15);
-  color: var(--color-green, #3f6b3f);
+  background: rgba(16, 185, 129, 0.16);
+  color: var(--color-green, #10b981);
 }
 
 .pkvsync-history-change.is-modified {
-  background: rgba(168, 122, 31, 0.14);
-  color: var(--color-orange, #a87a1f);
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--color-orange, #f59e0b);
 }
 
 .pkvsync-history-change.is-deleted {
-  background: rgba(155, 52, 52, 0.15);
-  color: var(--color-red, #9b3434);
+  background: rgba(239, 68, 68, 0.16);
+  color: var(--color-red, #ef4444);
 }
 
 .pkvsync-history-details {
@@ -1115,9 +1136,10 @@ body.theme-dark .pkvsync-restore-modal {
 
 .pkvsync-diff-warning,
 .pkvsync-restore-warning {
-  background: rgba(168, 122, 31, 0.1);
-  border-left: 2px solid var(--color-orange, #a87a1f);
-  color: var(--color-orange, #a87a1f);
+  background: rgba(245, 158, 11, 0.12);
+  border-left: 3px solid var(--color-orange, #f59e0b);
+  color: var(--color-orange, #f59e0b);
+  font-weight: 500;
 }
 
 .pkvsync-diff {
@@ -1273,12 +1295,12 @@ body.theme-dark .pkvsync-diff-del .pkvsync-diff-word-changed {
 }
 
 .pkvsync-button.is-danger {
-  color: var(--color-red, #9b3434);
-  border-color: rgba(155, 52, 52, 0.3);
+  color: var(--color-red, #ef4444);
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 .pkvsync-button.is-danger:hover {
-  background: rgba(155, 52, 52, 0.1);
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .pkvsync-button.is-primary {
@@ -1293,7 +1315,7 @@ body.theme-dark .pkvsync-diff-del .pkvsync-diff-word-changed {
 }
 
 .pkvsync-button.is-secondary {
-  /* default look */
+  /* default */
 }
 
 .pkvsync-button.is-ghost {
@@ -1364,9 +1386,9 @@ body.theme-dark .pkvsync-diff-del .pkvsync-diff-word-changed {
 
 .pkvsync-conflicts-list-modal,
 .pkvsync-conflict-resolve-modal {
-  --pkv-mark: #b0593b;
-  --pkv-mark-soft: rgba(176, 89, 59, 0.16);
-  --pkv-mark-faint: rgba(176, 89, 59, 0.08);
+  --pkv-mark: #df5b35;
+  --pkv-mark-soft: rgba(223, 91, 53, 0.16);
+  --pkv-mark-faint: rgba(223, 91, 53, 0.08);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1525,7 +1547,7 @@ body.theme-dark .pkvsync-merge-marker-remote {
 }
 
 /* =====================================================================
- * 15. Responsive
+ * 15. Responsive & Mobile Styling
  * =================================================================== */
 
 @media (max-width: 520px) {

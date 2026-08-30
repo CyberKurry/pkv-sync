@@ -7,6 +7,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Complete frontend visual redesign and beautification for both Admin Web UI and Obsidian Plugin:
+  - Admin Web UI: Modern slate-and-terracotta design system, upgraded open-source / system typography with crisp rendering, glassmorphic sticky headers with blur backdrop, elevated cards with subtle layered shadows and hover lift micro-interactions, polished data tables with status pills and avatar initial badges, GitHub-style split diff viewer, refined confirmation modal dialogs, and responsive mobile drawer navigation.
+  - Obsidian Plugin UI: Refined visual theme blending seamlessly with Obsidian native CSS variables across light and dark modes, polished settings cards and device lists, high-contrast GitHub split diff rendering, word-level diff highlights, and clean commit history list rows without violating Obsidian Store bot linter rules.
+  - Iconography & Assets: Enhanced Lucide Icons SVG sprite library with 100% free and open-source icons (ISC License) and zero copyrighted fonts or assets.
+
 ### Fixed
 
 - Restored all non-English public docs (zh-CN/zh-Hant/ja/ko) that had been
