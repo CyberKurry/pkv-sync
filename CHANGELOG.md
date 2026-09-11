@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-11
+
 ### Changed
 
 - Complete frontend visual redesign and beautification for both Admin Web UI and Obsidian Plugin:
@@ -47,13 +49,18 @@ and this project adheres to semantic versioning starting at v1.0.0.
     `Config.inline_content_max_bytes` (that ceiling is an Admin Web form
     constraint, not enforced by the runtime loader); corrected
     `PluginManifest.styles_css_sha256` to non-nullable.
+- Version bookkeeping aligned across the repo: bumped the workspace, plugin, and
+  OpenAPI versions to `1.5.1`, added the `1.4.4`/`1.4.5`/`1.5.0`/`1.5.1` entries
+  to `plugin/versions.json`, and corrected the compose default image tags
+  (`docker-compose.yml`, `deploy/traefik/…`) from the stale `1.4.1` to `1.5.1`,
+  updating the `ops_cli.rs` assertions that pinned them.
 
 ### Fixed
 
 - Restored all non-English public docs (zh-CN/zh-Hant/ja/ko) that had been
   double-encoded into unreadable mojibake since the 1.4.4 release bump;
   content is recovered losslessly from the last clean revision and version
-  headers realigned to v1.5.0.
+  headers realigned to v1.5.1.
 - Repaired the English public docs and `public-docs/openapi.yaml`, which the
   same double-encoding had corrupted: every language switcher row on the 12
   English `public-docs/*.md` files rendered as mojibake (now real

@@ -5,7 +5,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.5.0。
+文档版本：v1.5.1。
 
 [English](./README.md) | 简体中文 | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -100,6 +100,10 @@ PKV Sync 1.0 **暂不**提供原生端到端加密——服务端能读到笔记
 | 发布记录 | [CHANGELOG.md](./CHANGELOG.md) |
 
 ## 状态
+
+PKV Sync 1.5.1 交付管理后台与 Obsidian 插件的全量视觉美化——石板色与陶红色的设计体系、玻璃拟态的管理导航、现代卡片与数据表格、与 Obsidian 原生主题贴合的插件外观；同时完成了一轮文档全量对齐，修复了 1.4.4 发版时损坏的多语言公开文档（编码错乱），并把文档里记录的每项设置、CLI 参数、MCP 工具与 OpenAPI 结构逐条校对到与代码一致的实况。新的 CI 文档守卫能在文档编码损坏、版本号漂移或链接断裂时让构建失败，不再静默流出。
+
+PKV Sync 1.5.1 交付管理后台与 Obsidian 插件的全量视觉美化：石板色与陶红色的设计体系、玻璃拟态的管理导航、现代卡片与数据表格、与 Obsidian 原生主题贴合的插件外观；同时完成一轮文档对齐，修复了 1.4.4 发版时损坏的多语言公开文档（编码错乱），并把文档里记录的每项设置、CLI 参数、MCP 工具与 OpenAPI 结构逐条校对到与代码一致的实况。新的 CI 文档守卫会在文档编码损坏、版本号漂移或链接断裂时让构建失败，不再静默流出。
 
 PKV Sync 1.5.0 交付 2026-08-16 全仓库复审的全部修复与一轮性能优化：blob 保留现在跟随 git 对象存活性，回滚与按文件历史恢复的附件不再丢失；Windows 不安全的路径组件在进入 `materialize` 前即被拒绝；特权更新器拒绝降级，Docker 自升级覆盖已加固；注册与 blob 上传路径补齐了缺失的限流；常驻 SSE 连接不再阻塞优雅关机；插件可同步 allowlist 内的 `.obsidian` 路径，并以内存有界的批次流式完成首次同步（移动端）；批量 git 读取与单次拷贝的索引更新加快了 MCP 搜索与大型 vault 同步。
 

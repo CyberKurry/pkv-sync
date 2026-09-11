@@ -9,7 +9,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-ドキュメントバージョン: v1.5.0。
+ドキュメントバージョン: v1.5.1。
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | 日本語 | [한국어](./README.ko.md)
 
@@ -152,6 +152,8 @@ Git-native な PKV を有用にしている機能（履歴 diff、三者自動�
 | リリース履歴 | [CHANGELOG.md](./CHANGELOG.md) |
 
 ## ステータス
+
+PKV Sync 1.5.1 は、Admin Web 管理パネルと Obsidian プラグインの全面的なビジュアルリニューアルを出荷します：スレートとテラコッタのデザインシステム、ガラスモーフィズムの管理ナビゲーション、モダンなカードとデータテーブル、Obsidian ネイティブのテーマに馴染むプラグイン UI。あわせて 1.4.4 のバンプ時に壊れた多言語公開ドキュメント（文字化け）を修復し、各設定・CLI フラグ・MCP ツール・OpenAPI スキーマをコードの実状に合わせて全文校正しました。新しい CI のドキュメントガードは、エンコーディング破損・バージョン漂移・リンク切れを検出してビルドを失敗させ、静かに流出しなくなります。
 
 PKV Sync 1.5.0 は 2026-08-16 の全リポジトリ再監査の修正とパフォーマンス改善を出荷します：blob の保持は git オブジェクトの存続に追従するため、ロールバックやファイル単位の履歴復元の添付ファイルが失われません。Windows 上で危険なパスコンポーネントは `materialize` に届く前に拒否され、特権アップデータはダウングレードを拒否し、Docker 自己アップグレードのオーバーレイは強化されました。register と blob アップロード経路に欠けていたレート制限を追加し、常駐 SSE 接続はグレースフルシャットダウンを妨げなくなりました。プラグインは allowlist 内の `.obsidian` パスを同期し、初回同期をメモリ有界なバッチでストリーム処理します（モバイル）。バッチ git 読み取りと単一コピーのインデックス更新で MCP 検索と大規模 vault の同期が高速化されます。
 

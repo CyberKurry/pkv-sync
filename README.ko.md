@@ -9,7 +9,7 @@ Obsidian 볼트를 휴대폰, 태블릿, 데스크톱 사이에서 동기화합�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-문서 버전: v1.5.0.
+문서 버전: v1.5.1.
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | 한국어
 
@@ -151,6 +151,8 @@ E2EE 가 도입되기 전에 필요하다면, 볼트에
 | 릴리스 이력 | [CHANGELOG.md](./CHANGELOG.md) |
 
 ## 상태
+
+PKV Sync 1.5.1은 Admin Web 패널과 Obsidian 플러그인의 전면적인 시각 리뉴얼을 제공합니다: 슬레이트와 테라코타 디자인 시스템, 글래스모피즘 관리 내비게이션, 모던한 카드와 데이터 테이블, Obsidian 네이티브 테마에 어울리는 플러그인 UI. 아울러 1.4.4 범프 때 깨진 다국어 공개 문서(한자/일본어 인코딩 깨짐)를 복구하고 각 설정・CLI 플래그・MCP 도구・OpenAPI 스키마를 코드 실제와 일치하도록 전체 교정했습니다. 새 CI 문서 가드가 인코딩 손상・버전 표류・깨진 링크를 감지해 빌드가 실패하게 하므로, 조용히 유출되지 않습니다.
 
 PKV Sync 1.5.0은 2026-08-16 전체 저장소 재감사의 수정 사항과 성능 개선을 제공합니다. blob 보존은 이제 git 객체의 존속을 따르므로 롤백 및 파일 단위 기록 복원의 첨부 파일이 유지되며, Windows에서 위험한 경로 구성 요소는 `materialize`에 도달하기 전에 거부됩니다. 특권 업데이터는 다운그레이드를 거부하고 Docker 자체 업그레이드 오버레이가 강화되었으며, register와 blob 업로드 경로에 누락된 속도 제한을 추가했습니다. 상주 SSE 연결은 우아한 종료를 막지 않습니다. 플러그인은 allowlist의 `.obsidian` 경로를 동기화하고 초기 동기화를 메모리 제한 배치로 스트리밍합니다(모바일). 배치 git 읽기와 단일 복사 인덱스 업데이트로 MCP 검색과 대규모 vault 동기화가 빨라집니다.
 

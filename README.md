@@ -8,7 +8,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.5.0.
+Document version: v1.5.1.
 
 English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -153,6 +153,15 @@ For real deployments, also run behind HTTPS, restrict
 | Release history | [CHANGELOG.md](./CHANGELOG.md) |
 
 ## Status
+
+PKV Sync 1.5.1 ships a comprehensive visual redesign of the Admin Web panel and
+the Obsidian plugin — a slate-and-terracotta design system, glassmorphic admin
+navigation, modern cards and data tables, and an Obsidian-native plugin theme —
+alongside a full alignment pass that repaired corrupted multi-lingual public
+docs (encoding damage from the 1.4.4 bump) and brought every documented setting,
+CLI flag, MCP tool, and OpenAPI schema in line with the shipped code. A new CI
+docs guard now blocks encoding corruption, version drift, and broken doc links
+from landing silently.
 
 PKV Sync 1.5.0 ships the full 2026-08-16 repository audit remediation plus a performance pass: blob retention now follows git object liveness so rollback and per-file history restores keep their attachments, Windows-hostile path components are rejected before they reach `materialize`, privileged updaters refuse downgrades and the Docker self-upgrade overlay is hardened, registration and blob-upload paths gained the missing rate limits, long-lived SSE connections no longer block graceful shutdown, the plugin syncs allowlisted `.obsidian` paths and streams initial syncs in memory-bounded batches for mobile, and batched git reads with single-copy index updates speed up MCP search and large vaults.
 
