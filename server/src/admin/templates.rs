@@ -630,10 +630,11 @@ mod tests {
         assert!(css.contains("fill: none;"));
         assert!(css.contains("stroke-width: 2;"));
         assert!(css.contains(".nav-icon {\n    width: 18px;"));
-        assert!(css.contains(".metric-head .admin-icon {\n    width: 30px;"));
-        assert!(css.contains(".page-bar h1 {\n    font-family: var(--pkv-font-body);"));
-        assert!(css.contains(".panel-header h2 {\n    font-family: var(--pkv-font-body);"));
-        assert!(css.contains("letter-spacing: 0;"));
+        assert!(css.contains(".metric-head .admin-icon {\n    width: 32px;"));
+        assert!(css.contains(".page-bar h1 {\n    font-family: var(--pkv-font-display);"));
+        assert!(css.contains(".panel-header h2 {\n    font-family: var(--pkv-font-display);"));
+        assert!(css.contains("letter-spacing: var(--pkv-tracking-meta);"));
+        assert!(css.contains("--pkv-tracking-tight:"));
         assert!(css.contains(".activity-panel .panel-header"));
         assert!(css.contains(".theme-toggle-button span"));
         assert!(css.contains(".user-card .icon-button"));
@@ -643,7 +644,7 @@ mod tests {
         assert!(!css.contains(".field-search::before"));
         assert!(css.contains(".field-search .admin-icon"));
         assert!(css.contains(
-            ".settings-section .panel-header h2 {\n    font-family: var(--pkv-font-body);"
+            ".settings-section .panel-header h2 {\n    font-family: var(--pkv-font-display);"
         ));
         assert!(!css.contains(".settings-section:first-of-type {\n    padding-top: 0;"));
         assert!(css.contains(".danger-row {\n    display: flex;"));
@@ -668,9 +669,9 @@ mod tests {
         assert!(css.contains("input:disabled,\nselect:disabled,\ntextarea:disabled"));
         assert!(css.contains(".danger-row .danger"));
         assert!(css.contains(".sidebar-close {\n        display: inline-flex;"));
-        assert!(css.contains("width: 44px;\n        height: 44px;"));
+        assert!(css.contains("width: 40px;\n        height: 40px;"));
         assert!(css.contains("min-height: 44px;"));
-        assert!(css.contains(".table-panel {\n    padding: 0;\n    overflow: visible;"));
+        assert!(css.contains(".table-panel {\n    background: var(--pkv-paper-raised);"));
         assert!(css.contains(".table-scroll {\n    overflow-x: auto;"));
         assert!(css.contains(".panel-warning {"));
         assert!(css.contains(".file-link {"));
@@ -682,10 +683,10 @@ mod tests {
     #[test]
     fn admin_css_keeps_page_header_actions_from_crushing_title() {
         let css = include_str!("../../static/admin.css").replace("\r\n", "\n");
-        assert!(css.contains(".page-bar {\n    display: grid;"));
+        assert!(css.contains(".page-bar {\n    position: sticky;\n    top: 0;\n    z-index: 10;\n    display: grid;"));
         assert!(css.contains("grid-template-columns: minmax(0, 1fr) auto;"));
         assert!(css.contains(".page-title-row {\n    display: flex;"));
-        assert!(css.contains(".page-bar h1 {\n    font-family: var(--pkv-font-body);"));
+        assert!(css.contains(".page-bar h1 {\n    font-family: var(--pkv-font-display);"));
         assert!(css.contains("overflow-wrap: anywhere;"));
         assert!(css.contains(".page-actions {\n    display: flex;"));
         assert!(css.contains("justify-content: flex-end;"));
