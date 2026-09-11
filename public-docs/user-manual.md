@@ -1,6 +1,6 @@
 # PKV Sync User Manual
 
-English | [绠€浣撲腑鏂嘳(./user-manual.zh-CN.md) | [绻侀珨涓枃](./user-manual.zh-Hant.md) | [鏃ユ湰瑾瀅(./user-manual.ja.md) | [頃滉淡鞏碷(./user-manual.ko.md)
+English | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
 Document version: v1.5.0.
 
@@ -68,9 +68,9 @@ Public and invite-based registration use the same strong password policy as
 setup: at least 12 characters with uppercase, lowercase, and a digit.
 
 After login, select an existing remote vault or create a new one. When you
-connect a local vault that is already identical to the selected remote vault,
-PKV Sync adopts the matching files into its local sync index instead of
-creating a full-vault set of conflict files.
+connect a local vault whose files already match the selected remote vault, the
+first sync records them as clean instead of generating a vault-wide set of
+conflict files.
 
 ## Sync Behavior
 
@@ -88,9 +88,9 @@ Keep Obsidian open while large attachments upload. The plugin reads the server
 configuration after connecting and uses the server-provided text extension list
 and maximum file size rules.
 
-Version 1.2.1 reduces redundant plugin work during sync: pull and push phases
-reuse the same scan when possible, conditional pull avoids an extra request,
-and changed-file snapshots are processed with bounded parallelism.
+Version 1.2.1 reduced redundant plugin work during sync: pull and push phases
+reuse the same scan when possible, and changed-file snapshots are processed
+with bounded parallelism.
 
 ## Selective `.obsidian` Sync
 
@@ -100,8 +100,8 @@ hotkeys, app preferences, appearance preferences, and enabled plugin lists.
 
 Existing remote vaults keep an empty allowlist until you opt in. In
 **Settings -> PKV Sync**, select the current vault, edit **.obsidian sync
-rules**, then save. The recommended starter list button fills the same starter
-rules used for new vaults.
+allowlist**, then click **Save**. The **Apply recommended starter list** button
+fills the same starter rules used for new vaults.
 
 Plugin code and plugin settings are not synced by default. See
 [`dot-obsidian-sync-howto.md`](./dot-obsidian-sync-howto.md) before adding
@@ -109,23 +109,44 @@ advanced rules such as `.obsidian/plugins/**` or plugin `data.json` files.
 
 ## Last Sync Time
 
-The settings page shows the last successful sync as relative time. Use the small
-expander next to it to show the exact timestamp in this format:
+The settings page shows the last successful sync as relative time. Click the
+last-sync text to expand the exact timestamp in this format:
 
 ```text
 YYYY/MM/DD HH:MM:SS
 ```
 
-The plugin uses the selected IANA timezone, defaulting to `Asia/Shanghai`.
+The plugin uses the selected IANA timezone, defaulting to `Asia/Shanghai`. The
+**Timezone** dropdown offers 10 IANA zones: `Asia/Shanghai`, `UTC`,
+`Asia/Tokyo`, `Asia/Hong_Kong`, `Asia/Singapore`, `America/Los_Angeles`,
+`America/New_York`, `Europe/London`, `Europe/Berlin`, and `Australia/Sydney`.
+
+## Language and Device Identity
+
+The settings page also provides:
+
+- **Language**: Auto (follow Obsidian), English, Simplified Chinese, Traditional
+  Chinese, Japanese, or Korean. Community translations that have not had a
+  native review are marked "(needs review)", and a **Help translate** link opens
+  the project issue tracker.
+- **Device name**: a human-readable label for this device. It is stored with
+  each token so the settings **Devices** list — and the admin device pages —
+  show which device a token belongs to. The list marks the current device.
+
+Obsidian's status bar also shows a PKV Sync item reporting the current state as
+connected, not configured, syncing, offline, or error.
 
 ## Theme
 
-The plugin settings page has a **Theme** dropdown with three options:
+The plugin settings page has a **Theme** button that cycles through three
+options:
 
 - **Auto** (default): follow the current Obsidian app theme.
 - **Light** / **Dark**: force a specific theme for the PKV Sync settings UI regardless of the app theme.
 
-The setting only affects the plugin's own modals (settings, sync status, conflict resolver, file/vault history). It does not change the Obsidian app theme.
+The setting only affects the PKV Sync settings page: it never changes the
+Obsidian app theme or the plugin's modals (sync status, conflict resolver,
+file/vault history, diff), which follow the app theme.
 
 ## History, Diff, and Restore
 
@@ -143,9 +164,19 @@ be listed and restored, but PKV Sync does not render binary diffs.
 Paths rejected by the active sync filter are hidden from file history, vault
 history summaries, diff views, and file-read surfaces.
 
-The vault-history modal lists the most recent commits across the whole vault
-with time, device, change count, and commit id. Open a commit to see its
-per-file change summary.
+The vault-history view is a read-only status panel listing the 50 most recent
+vault commits as `<short-commit> <time> <device> <message>`. The plugin does not
+offer a per-commit drill-down yet.
+
+### Viewing and restoring versions
+
+- **View this version** in the file-history modal opens the file's content at
+  that commit in a read-only panel.
+- The diff modal offers **Restore left** and **Restore right** to restore either
+  side of a comparison to the current file.
+- **Rollback to here** in the file-history modal rolls the whole vault back to a
+  selected commit. It asks you to type the exact vault name to confirm, calls
+  `POST /api/vaults/:id/restore`, and then triggers a sync.
 
 Restoring a version reads the selected historical content from the server,
 writes it back to the local Obsidian vault, and lets the normal sync engine push
@@ -161,12 +192,12 @@ diff views require the server to be reachable.
 PKV Sync uses a push-first sync protocol with auto-merge. How concurrent
 edits are handled depends on the kind of overlap:
 
-- **Different lines, same file** 鈥?edits are auto-merged on both devices.
+- **Different lines, same file** — edits are auto-merged on both devices.
   No conflict file is generated.
-- **Same line, same file** 鈥?one `.conflict-*` file is generated alongside
+- **Same line, same file** — one `.conflict-*` file is generated alongside
   the original, containing the conflicting content with standard merge
   markers.
-- **Delete vs. modify** 鈥?the file survives with the modification. The side
+- **Delete vs. modify** — the file survives with the modification. The side
   that deleted the file receives a conflict notification so it can decide
   whether to re-delete or keep it.
 
@@ -181,11 +212,26 @@ You can manage generated conflict files from:
 - **Settings -> PKV Sync -> Conflict files**
 - **PKV Sync: List conflict files**
 - **PKV Sync: Delete conflict files**
+- **PKV Sync: Resolve conflict files**, or the file right-click menu item
+  **PKV Sync: Resolve conflict**
 
 The delete action only targets PKV Sync generated conflict filenames. Normal
 files such as `my.conflict-resolution-notes.md` remain eligible for sync.
 When the server tells a device a file was deleted, the local copy also moves
 to the system trash instead of being deleted permanently.
+
+### Resolving a conflict
+
+**PKV Sync: Resolve conflict files** opens a list of the current conflict
+files. Selecting one opens a side-by-side comparison of the local and remote
+content with these actions:
+
+- **Keep local**: keeps your local version and removes the conflict file.
+- **Accept remote**: takes the remote version; the next sync pushes it.
+- **Open in editor** / **Later**: leave the conflict in place for manual work.
+- **Mark resolved**: offered only once the `<<<<<<< local` merge markers have
+  been removed from the conflict file. The plugin refuses to mark a file
+  resolved while markers remain, so partial edits are not silently accepted.
 
 ## Delete a Remote Vault
 
@@ -231,9 +277,10 @@ device token, then connect again. Rotate the deployment key if it was exposed.
 If your administrator enables MCP, either embedded at `/mcp` on the main server
 or through the `pkvsyncd mcp` command, AI tools can access your vault using a
 bearer device token. MCP offers vault listing, file listing, file reads at HEAD
-or a commit, simple text search, and explicit write/delete tools guarded by
-optimistic concurrency. See [`mcp-howto.md`](./mcp-howto.md) for stdio and
-Streamable HTTP setup examples.
+or a commit, simple text search, link-graph and changes-since queries, plus
+explicit write/delete tools — including atomic multi-file writes and
+history-preserving moves — guarded by optimistic concurrency. See
+[`mcp-howto.md`](./mcp-howto.md) for stdio and Streamable HTTP setup examples.
 
 ## Commands
 

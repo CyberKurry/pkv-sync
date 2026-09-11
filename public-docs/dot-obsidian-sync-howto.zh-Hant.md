@@ -23,7 +23,7 @@ PKV Sync 預設避開隱藏路徑。它提供按 vault 設定的 allowlist，讓
 既有 vault 會保持空 allowlist，直到你套用起步清單。
 
 - **Admin WebUI：Vaults -> Settings -> Apply starter allowlist** 會寫入上述完整 7 條 glob 起步清單。
-- **Obsidian 外掛：設定 -> PKV Sync -> Apply recommended starter list** 只寫入兩條最安全的 glob（`.obsidian/themes/**` 與 `.obsidian/snippets/**`）—— 主題與 CSS snippets 通常可以安全跨裝置共享；其餘 5 條 glob 會觸及使用者專屬的 app 狀態，外掛不會在沒有明確決定下啟用它們。
+- **Obsidian 外掛：設定 -> PKV Sync -> Apply recommended starter list** 只寫入兩條 glob（`.obsidian/themes/**` 與 `.obsidian/snippets/**`）—— 主題與 CSS snippets 通常可以安全跨裝置共享。
 
 要使用完整 7 條 glob 起步清單，請按 Admin WebUI 按鈕，或在外掛的 allowlist 編輯器中手動貼入這些 glob。
 
@@ -51,5 +51,5 @@ PKV Sync 預設避開隱藏路徑。它提供按 vault 設定的 allowlist，讓
 
 ## 在哪裡編輯規則
 
-- Obsidian：開啟 **設定 -> PKV Sync**，選擇目前 vault，編輯 **.obsidian sync rules**，然後儲存。
+- Obsidian：開啟 **設定 -> PKV Sync**，選擇目前 vault，編輯 **.obsidian 同步允許清單**，然後點選 **儲存**。
 - Admin WebUI：開啟 **Vaults**，選擇 vault 的 **Settings**，編輯 allowlist，然後儲存。

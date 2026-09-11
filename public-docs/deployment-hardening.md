@@ -1,6 +1,6 @@
 # PKV Sync Deployment Hardening Guide
 
-English | [绠€浣撲腑鏂嘳(./deployment-hardening.zh-CN.md) | [绻侀珨涓枃](./deployment-hardening.zh-Hant.md) | [鏃ユ湰瑾瀅(./deployment-hardening.ja.md) | [頃滉淡鞏碷(./deployment-hardening.ko.md)
+English | [简体中文](./deployment-hardening.zh-CN.md) | [繁體中文](./deployment-hardening.zh-Hant.md) | [日本語](./deployment-hardening.ja.md) | [한국어](./deployment-hardening.ko.md)
 
 Document version: v1.5.0.
 
@@ -186,7 +186,7 @@ Admin WebUI Runtime Settings page, or seed a fresh deployment with
 ## public_host (required for admin POST)
 
 Set `[server].public_host` to the externally-visible hostname without a scheme
-(and port, if non-standard) that operators use to reach the admin panel 鈥?for
+(and port, if non-standard) that operators use to reach the admin panel — for
 example `sync.example.com` or `pkv.local:8443`. The admin CSRF check derives its
 expected origin from this value. When `public_host` is configured, that expected
 origin is `https://<public_host>`; reverse-proxy `X-Forwarded-Proto` headers
@@ -194,8 +194,8 @@ cannot downgrade the admin CSRF check to backend HTTP.
 
 If `public_host` is empty, every admin POST is rejected with `403 csrf
 validation failed` and a `tracing::warn` log line. This is intentional
-fail-closed behaviour: the alternative 鈥?falling back to the request's own
-`Host` header 鈥?couples authentication to attacker-influenceable headers and
+fail-closed behaviour: the alternative — falling back to the request's own
+`Host` header — couples authentication to attacker-influenceable headers and
 breaks when proxies forward an inconsistent host.
 
 `public_host` also drives:

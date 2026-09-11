@@ -1,6 +1,6 @@
 # CLI Reference
 
-English | [绠€浣撲腑鏂嘳(./cli-reference.zh-CN.md) | [绻侀珨涓枃](./cli-reference.zh-Hant.md) | [鏃ユ湰瑾瀅(./cli-reference.ja.md) | [頃滉淡鞏碷(./cli-reference.ko.md)
+English | [简体中文](./cli-reference.zh-CN.md) | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
 Document version: v1.5.0.
 
@@ -22,7 +22,7 @@ pkvsyncd -c /opt/pkv-sync/config.toml serve
 
 ## Subcommands
 
-`pkvsyncd` exposes nine subcommands. The most common operational flows are
+`pkvsyncd` exposes ten subcommands. The most common operational flows are
 `serve`, `genkey`, `migrate up`, `user add`, `backup`, and `restore`.
 
 ## pkvsyncd serve
@@ -258,7 +258,7 @@ pkvsyncd verify [--data-dir <DIR>] [--no-fail]
 
 For each vault under `data_dir/vaults/`:
 
-- Runs `git fsck --strict` on the bare repository.
+- Opens the bare repository with `git2` and walks it, reporting repository and object-level read errors.
 - Walks the HEAD tree and verifies every `pkvsync_pointer` resolves to a blob whose on-disk SHA-256 matches its filename.
 
 Reports per-vault error counts. Exits non-zero when any vault has errors,
@@ -298,10 +298,11 @@ multi-page wiki edits and `move_file` for history-preserving renames or
 archival moves. Write tools are rate-limited at 60 writes per minute per
 `(token, vault)`, and a `write_files` batch spends one write record.
 Search requests scan at most 5000 visible tree files, return at most 500
-matches, and stop after 256 MiB of searched text in production. `link_graph`
-scans at most 5000 visible text files with the same production text budget, and
-`changes_since` returns at most 5000 visible change entries. Binary/blob read
-responses above 64 MiB are rejected instead of being base64-expanded into JSON.
+matches, and abort with an error after 256 MiB of searched text in production.
+`link_graph` scans at most 5000 visible text files with the same production text
+budget and reports `truncated` instead of failing, and `changes_since` returns
+at most 5000 visible change entries. Binary/blob read responses above 64 MiB are
+rejected instead of being base64-expanded into JSON.
 
 `http` mode requires every request to carry the server deployment key header,
 just like the regular sync API.

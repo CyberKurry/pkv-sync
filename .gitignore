@@ -24,6 +24,7 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+__pycache__/
 /plugin/release/
 /plugin/coverage/
 /plugin/pkv-sync-plugin.zip

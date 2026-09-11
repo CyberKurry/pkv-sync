@@ -20,7 +20,7 @@ PKV Sync 可以通过 MCP server 暴露笔记库内容。服务端在返回文�
 - `write_files {vault_id, parent_commit, writes?, deletes?}`：在一个 commit 中原子地创建、更新和／或删除多个文本文件。`writes[]` 包含 `{path, content}` 对象；`deletes[]` 包含路径。
 - `move_file {vault_id, parent_commit, from, to}`：在一个 commit 中移动或重命名文本文件，并保留 git rename 历史。目标路径不能已经存在。
 
-所有 MCP 读取工具都会遵守当前的 SyncPathFilter。被内置隐藏路径规则或运行时 exclude glob 拒绝的路径，不会被列出、搜索、读取、纳入链接图，也不会作为变更报告。
+被当前 `SyncPathFilter` 拒绝的路径不会被列出、搜索、读取，也不会纳入链接图或变更报告。读取类工具（`list_files`、`read_file`、`read_file_at_commit`、`search`）会接受被按库 allowlist 重新纳入的隐藏路径，并可能返回自动生成的 `.conflict-*` 旁路文件。`link_graph`、`changes_since` 以及所有写入类工具采用更严格的策略，直接拒绝隐藏路径，因此 agent 无法对隐藏文件执行操作。
 
 ## stdio transport
 
@@ -66,13 +66,13 @@ Authorization: Bearer pks_xxx
 MCP HTTP 使用固定窗口限流，每 60 秒最多 120 次请求。超限时，服务端返回 HTTP `429`，并返回 code 为 `-32029` 的 JSON-RPC error。
 失败的 MCP bearer-token 认证也会在进程内限流，stdio 和 HTTP transport 合计每 60 秒最多 30 次失败尝试。
 
-POST 承载 JSON-RPC 工具调用并返回 JSON 响应。GET 携带 `Accept: text/event-stream` 时订阅 `vault_changed` notification。事件 id 使用 `<vault-id>:<commit-sha>`，客户端重连时可作为 `Last-Event-ID` 传回，以 replay 断线期间错过的 commit。Replay 有上限；如果服务端无法覆盖错过的历史，会发送 `lagged`，客户端应通过同步 API 刷新。
+POST 承载 JSON-RPC 工具调用并返回 JSON 响应。GET 携带 `Accept: text/event-stream` 时订阅 `vault_changed` notification。每个事件的 id 就是 commit SHA 本身，客户端重连时可作为 `Last-Event-ID` 传回，以 replay 该 vault 错过的 commit。Replay 有上限；如果服务端无法覆盖错过的历史，会发送 `lagged`，客户端应通过同步 API 刷新。包含 `:` 的值不会被当作续传位置；当令牌可见多个 vault 时，只有正在续传的那个 vault 位置已知，因此服务端也会为其他 vault 发送 `lagged`。
 
 除非放在可信网络控制之后，否则请将 HTTP 绑定到 loopback。bearer token 会授予该用户所有笔记库的读写访问权限。
 
 ## 读取和搜索上限
 
-`search` 最多扫描 5000 个可见 tree 文件，最多返回 500 条匹配，并在生产环境搜索文本累计达到 256 MiB 后停止。`link_graph` 最多扫描 5000 个可见文本文件，并使用相同的生产环境文本预算。`changes_since` 最多返回 5000 条可见变更项。`read_file` 和 `read_file_at_commit` 会在返回前解析 blob pointer；超过 64 MiB 的二进制/blob 响应会被拒绝，而不是被 base64 展开进 JSON。
+`search` 最多扫描 5000 个可见 tree 文件——当 vault 的可见文件超过 5000 个时，调用会以 `too many files to search` 失败，而不是只扫描一部分。它最多返回 500 条匹配（默认 100），并在生产环境已读取文本超过 256 MiB 后报错中止。`link_graph` 最多扫描 5000 个可见文本文件，并使用相同的生产环境文本预算，但会返回 `truncated: true` 而不是失败。`changes_since` 最多返回 5000 条可见变更项。`read_file` 和 `read_file_at_commit` 会在返回前解析 blob pointer；二进制内容以 base64 返回并带有 `encoding: "base64"`，超过 64 MiB 的二进制/blob 响应会被拒绝，而不是被 base64 展开进 JSON。
 
 ## 写入工具
 

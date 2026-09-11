@@ -94,6 +94,9 @@ jobs:
       - name: Check i18n coverage
         run: python scripts/i18n_check.py
 
+      - name: Check public docs
+        run: python scripts/docs_check.py
+
       - name: Lint OpenAPI contract
         run: npx --yes @redocly/cli lint public-docs/openapi.yaml
 

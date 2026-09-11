@@ -13,6 +13,40 @@ and this project adheres to semantic versioning starting at v1.0.0.
   - Admin Web UI: Modern slate-and-terracotta design system, upgraded open-source / system typography with crisp rendering, glassmorphic sticky headers with blur backdrop, elevated cards with subtle layered shadows and hover lift micro-interactions, polished data tables with status pills and avatar initial badges, GitHub-style split diff viewer, refined confirmation modal dialogs, and responsive mobile drawer navigation.
   - Obsidian Plugin UI: Refined visual theme blending seamlessly with Obsidian native CSS variables across light and dark modes, polished settings cards and device lists, high-contrast GitHub split diff rendering, word-level diff highlights, and clean commit history list rows without violating Obsidian Store bot linter rules.
   - Iconography & Assets: Enhanced Lucide Icons SVG sprite library with 100% free and open-source icons (ISC License) and zero copyrighted fonts or assets.
+- Aligned every public doc with shipped behavior after a code-vs-doc audit:
+  - `cli-reference`: `pkvsyncd` exposes **ten** subcommands, not nine; `verify`
+    walks the bare repo via the `git2` crate (it never shelled out to
+    `git fsck --strict`); MCP `search` **aborts** with `too many files to
+    search` when a vault has more than 5000 visible files and errors past the
+    256 MiB text budget, while `link_graph` reports `truncated` instead of
+    failing (all 5 languages).
+  - `mcp-howto`: SSE event ids are the **bare commit SHA**, not
+    `<vault-id>:<commit-sha>` — a value containing `:` is rejected as a resume
+    position, and a multi-vault token also gets `lagged` for the vaults whose
+    position is unknowable. Documented that read tools (`list_files`,
+    `read_file`, `read_file_at_commit`, `search`) honor `SyncPathFilter` and may
+    expose allowlisted hidden paths plus generated `.conflict-*` sidecars, while
+    `link_graph`/`changes_since`/write tools reject hidden paths outright;
+    binary reads return `encoding: "base64"`.
+  - `user-manual`: corrected the conflict-resolver, theme, and history
+    descriptions against the plugin source. The theme control is a **cycling
+    button** (not a dropdown) that only affects the settings page — modals
+    follow the app theme; the vault-history view is a 50-commit read-only
+    panel with no per-commit drill-down; the `.obsidian` control is labeled
+    **.obsidian sync allowlist**. Added the previously undocumented conflict
+    resolver ("Keep local" / "Accept remote" / "Mark resolved" with the
+    merge-marker guard), the version view/restore and vault-rollback flows, the
+    10-zone timezone dropdown, language and device-name settings, and the
+    status-bar item. Removed the "conditional pull avoids an extra request"
+    claim (no longer true) and the non-existent index "adoption" mechanism.
+  - `dot-obsidian-sync-howto`: named the real **Apply recommended starter
+    list** button and dropped invented rationale for why the plugin only seeds
+    two globs.
+  - `openapi.yaml`: added the always-serialized `expired_uploads` field to
+    `GcReport`; dropped the `maximum: 65536` on
+    `Config.inline_content_max_bytes` (that ceiling is an Admin Web form
+    constraint, not enforced by the runtime loader); corrected
+    `PluginManifest.styles_css_sha256` to non-nullable.
 
 ### Fixed
 
@@ -20,6 +54,21 @@ and this project adheres to semantic versioning starting at v1.0.0.
   double-encoded into unreadable mojibake since the 1.4.4 release bump;
   content is recovered losslessly from the last clean revision and version
   headers realigned to v1.5.0.
+- Repaired the English public docs and `public-docs/openapi.yaml`, which the
+  same double-encoding had corrupted: every language switcher row on the 12
+  English `public-docs/*.md` files rendered as mojibake (now real
+  `简体中文 / 繁體中文 / 日本語 / 한국어` labels), 16 em dashes had lost their
+  trailing space, and 5 characters in `openapi.yaml` were unrecoverable
+  replacement characters (restored to `—` and `≤`).
+
+### Added
+
+- `scripts/docs_check.py`, wired into CI next to the existing i18n check, so the
+  docs corruption cannot silently recur. It fails the build when any public doc
+  contains double-encoded mojibake, when an English language-switcher link is
+  missing or malformed, when a translation is absent, when a
+  `Document version` header or `openapi.yaml info.version` drifts from the
+  workspace version in `Cargo.toml`, or when a relative doc link is broken.
 ## [1.5.0] - 2026-08-16
 
 ### Removed

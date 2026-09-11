@@ -22,7 +22,7 @@ PKV Sync는 MCP server를 통해 vault 내용을 노출할 수 있습니다. 서
 - `write_files {vault_id, parent_commit, writes?, deletes?}`: 여러 텍스트 파일의 생성, 업데이트, 삭제를 하나의 commit으로 atomically 수행합니다. `writes[]`에는 `{path, content}` objects가 들어가고, `deletes[]`에는 paths가 들어갑니다.
 - `move_file {vault_id, parent_commit, from, to}`: 텍스트 파일을 하나의 commit에서 이동하거나 rename하며 git rename history를 보존합니다. target path는 이미 존재하면 안 됩니다.
 
-모든 MCP read tools는 현재 SyncPathFilter를 준수합니다. 기본 hidden-path rules 또는 runtime exclude globs에 의해 거부된 paths는 나열, 검색, 읽기, link graph 포함, 변경 사항 보고 대상에서 제외됩니다.
+현재 `SyncPathFilter`에서 거부된 paths는 나열, 검색, 읽기, link graph 및 변경 보고 대상에서 제외됩니다. 읽기 도구(`list_files`, `read_file`, `read_file_at_commit`, `search`)는 vault allowlist로 다시 허용된 hidden paths를 받아들이며, 자동 생성된 `.conflict-*` 사이드카를 반환할 수 있습니다. `link_graph`, `changes_since` 및 모든 쓰기 도구는 더 엄격한 정책을 적용해 hidden paths를 일괄 거부하므로, agent가 hidden files를 작업 대상으로 삼을 수 없습니다.
 
 ## stdio transport
 
@@ -67,13 +67,13 @@ Authorization: Bearer pks_xxx
 
 MCP HTTP는 고정 창 방식으로 60초당 120개 요청으로 제한됩니다. 제한을 초과하면 서버는 HTTP `429`와 JSON-RPC error code `-32029`를 반환합니다. 실패한 MCP bearer token 인증도 프로세스 내에서 제한되며, stdio와 HTTP transports 합산 60초당 최대 30회 실패 시도까지 허용됩니다.
 
-POST는 JSON-RPC tool calls를 담고 JSON responses를 반환합니다. `Accept: text/event-stream`이 있는 GET은 `vault_changed` notifications를 구독합니다. Event ids는 `<vault-id>:<commit-sha>`를 사용하며, 재연결 시 `Last-Event-ID`로 되돌려 보내 missed commits를 replay할 수 있습니다. Replay에는 상한이 있습니다. 서버가 missed history를 커버할 수 없으면 `lagged`를 내보내며, 클라이언트는 sync API에서 새로 고쳐야 합니다.
+POST는 JSON-RPC tool calls를 담고 JSON responses를 반환합니다. `Accept: text/event-stream`이 있는 GET은 `vault_changed` notifications를 구독합니다. 각 event의 id는 commit SHA 자체이며, 재연결 시 `Last-Event-ID`로 되돌려 보내 해당 vault의 missed commits를 replay할 수 있습니다. Replay에는 상한이 있습니다. 서버가 missed history를 커버할 수 없으면 `lagged`를 내보내며, 클라이언트는 sync API에서 새로 고쳐야 합니다. `:`를 포함한 값은 재개 위치로 허용되지 않습니다. 토큰이 여러 vault를 볼 수 있으면 재개하는 vault의 위치만 알 수 있으므로, 나머지 vault에 대해서도 `lagged`를 내보냅니다.
 
 신뢰할 수 있는 네트워크 제어 뒤에 두지 않는 한 HTTP를 loopback에 bind하세요. bearer token은 해당 사용자가 소유한 모든 vault에 대한 읽기 및 쓰기 접근 권한을 부여합니다.
 
 ## Read and search limits
 
-`search`는 최대 5000개 visible tree files를 스캔하고 최대 500 matches를 반환하며, 프로덕션에서는 검색한 text가 256 MiB에 도달하면 중단합니다. `link_graph`는 최대 5000개 visible text files를 스캔하고 동일한 프로덕션 text budget을 사용합니다. `changes_since`는 최대 5000개 visible change entries를 반환합니다. `read_file`과 `read_file_at_commit`은 응답 전에 blob pointer를 해석합니다. 64 MiB를 넘는 binary/blob response는 base64로 JSON에 확장되는 대신 거부됩니다.
+`search`는 최대 5000개 visible tree files를 스캔합니다. vault의 visible files가 5000개를 넘으면 일부만 스캔하는 대신 `too many files to search`로 실패합니다. 최대 500 matches(기본 100)를 반환하며, 프로덕션에서는 읽은 text가 256 MiB를 초과하면 오류로 중단합니다. `link_graph`는 최대 5000개 visible text files를 스캔하고 동일한 프로덕션 text budget을 사용하지만, 실패하지 않고 `truncated: true`를 반환합니다. `changes_since`는 최대 5000개 visible change entries를 반환합니다. `read_file`과 `read_file_at_commit`은 응답 전에 blob pointer를 해석합니다. binary 내용은 `encoding: "base64"`와 함께 base64로 반환되며, 64 MiB를 넘는 binary/blob response는 base64로 JSON에 확장되는 대신 거부됩니다.
 
 ## Write tools
 

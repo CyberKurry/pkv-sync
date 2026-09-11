@@ -22,7 +22,7 @@ PKV Sync は MCP server を通じて vault 内容を公開できます。サー�
 - `write_files {vault_id, parent_commit, writes?, deletes?}`: 複数のテキストファイルの作成、更新、削除を 1 つの commit として atomically に実行します。`writes[]` は `{path, content}` objects、`deletes[]` は paths を含みます。
 - `move_file {vault_id, parent_commit, from, to}`: テキストファイルを 1 つの commit で移動または rename し、git rename history を保ちます。target path は既存であってはいけません。
 
-すべての MCP read tools は現在の SyncPathFilter を尊重します。組み込みの hidden-path rules または runtime exclude globs に拒否された paths は、一覧表示、検索、読み取り、link graph への含有、change reporting の対象になりません。
+現在の `SyncPathFilter` に拒否された paths は、一覧表示、検索、読み取り、link graph や change report への含有の対象になりません。読み取り系ツール（`list_files`、`read_file`、`read_file_at_commit`、`search`）は、vault の allowlist で再び許可された hidden paths を受け入れ、自動生成された `.conflict-*` サイドカーを返すことがあります。`link_graph`、`changes_since`、およびすべての書き込み系ツールはより厳格なポリシーを適用し、hidden paths を一律に拒否するため、agent は hidden files を操作対象にできません。
 
 ## stdio transport
 
@@ -67,13 +67,13 @@ Authorization: Bearer pks_xxx
 
 MCP HTTP は固定ウィンドウで 60 秒あたり 120 リクエストに制限されます。制限を超えると、サーバーは HTTP `429` と JSON-RPC error code `-32029` を返します。失敗した MCP bearer token 認証もプロセス内で制限され、stdio と HTTP transports の合計で 60 秒あたり最大 30 回の失敗試行までです。
 
-POST は JSON-RPC tool calls を運び、JSON responses を返します。`Accept: text/event-stream` を持つ GET は `vault_changed` notifications を購読します。Event ids は `<vault-id>:<commit-sha>` を使用し、再接続時に `Last-Event-ID` として送り返すことで missed commits を replay できます。Replay には上限があります。サーバーが missed history をカバーできない場合は `lagged` を送信し、クライアントは sync API から更新する必要があります。
+POST は JSON-RPC tool calls を運び、JSON responses を返します。`Accept: text/event-stream` を持つ GET は `vault_changed` notifications を購読します。各 event の id は commit SHA そのもので、再接続時に `Last-Event-ID` として送り返すことで、その vault の missed commits を replay できます。Replay には上限があります。サーバーが missed history をカバーできない場合は `lagged` を送信し、クライアントは sync API から更新する必要があります。`:` を含む値は再開位置として受け付けられません。トークンから複数の vault が見える場合、再開する vault の位置しか分からないため、他の vault に対しても `lagged` を送信します。
 
 信頼できるネットワーク制御の背後に置かない限り、HTTP は loopback に bind してください。bearer token は、そのユーザーが所有するすべての vault への読み書きアクセスを与えます。
 
 ## Read and search limits
 
-`search` は最大 5000 個の visible tree files を走査し、最大 500 matches を返し、production では検索済み text が 256 MiB に達すると停止します。`link_graph` は最大 5000 個の visible text files を走査し、同じ production text budget を使用します。`changes_since` は最大 5000 個の visible change entries を返します。`read_file` と `read_file_at_commit` は応答前に blob pointer を解決します。64 MiB を超える binary/blob response は、base64 として JSON に展開される代わりに拒否されます。
+`search` は最大 5000 個の visible tree files を走査します。vault の visible files が 5000 個を超える場合、一部だけを走査するのではなく `too many files to search` で失敗します。最大 500 matches（既定 100）を返し、production では読み取った text が 256 MiB を超えるとエラーで中止します。`link_graph` は最大 5000 個の visible text files を走査し、同じ production text budget を使用しますが、失敗せず `truncated: true` を返します。`changes_since` は最大 5000 個の visible change entries を返します。`read_file` と `read_file_at_commit` は応答前に blob pointer を解決します。binary 内容は `encoding: "base64"` を伴って base64 で返され、64 MiB を超える binary/blob response は base64 として JSON に展開される代わりに拒否されます。
 
 ## Write tools
 

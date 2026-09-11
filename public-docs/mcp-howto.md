@@ -1,6 +1,6 @@
 # MCP access for AI tools
 
-English | [绠€浣撲腑鏂嘳(./mcp-howto.zh-CN.md) | [绻侀珨涓枃](./mcp-howto.zh-Hant.md) | [鏃ユ湰瑾瀅(./mcp-howto.ja.md) | [頃滉淡鞏碷(./mcp-howto.ko.md)
+English | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
 Document version: v1.5.0.
 
@@ -22,7 +22,12 @@ read-write tools, and requires a normal PKV Sync bearer device token.
 - `write_files {vault_id, parent_commit, writes?, deletes?}`: atomically create, update, and/or delete multiple text files in one commit. `writes[]` contains `{path, content}` objects; `deletes[]` contains paths.
 - `move_file {vault_id, parent_commit, from, to}`: move or rename a text file in one commit while preserving git rename history. The target must not already exist.
 
-All MCP read tools honor the current SyncPathFilter. Paths rejected by built-in hidden-path rules or runtime exclude globs are not listed, searched, read, included in link graphs, or reported as changes.
+Paths rejected by the active `SyncPathFilter` are not listed, searched, read, or
+included in link graphs or change reports. Read tools (`list_files`, `read_file`,
+`read_file_at_commit`, `search`) accept hidden paths that a per-vault allowlist
+re-admits, and can return generated `.conflict-*` sidecars. `link_graph`,
+`changes_since`, and every write tool apply a stricter policy and reject hidden
+paths outright, so an agent cannot address hidden files for actions.
 
 ## stdio transport
 
@@ -79,22 +84,29 @@ Failed MCP bearer-token authentication is also rate limited in-process at 30
 attempts per 60 seconds across stdio and HTTP transports.
 
 POST carries JSON-RPC tool calls and returns JSON responses. GET with
-`Accept: text/event-stream` subscribes to `vault_changed` notifications. Event
-ids use `<vault-id>:<commit-sha>` and can be sent back as `Last-Event-ID` to
-replay missed commits. Replay is capped; if the server cannot cover the missed
-history, it emits `lagged` and the client should refresh from the sync API.
+`Accept: text/event-stream` subscribes to `vault_changed` notifications. Each
+event's id is the bare commit SHA, and it can be sent back as `Last-Event-ID` to
+replay missed commits for that vault. Replay is capped; if the server cannot
+cover the missed history, it emits `lagged` and the client should refresh from
+the sync API. A value containing `:` is not accepted as a resume position, and
+when the token can see more than one vault only the resuming vault's position is
+known, so the stream also emits `lagged` for the others.
 
 Bind HTTP to loopback unless you put it behind trusted network controls. A
 bearer token gives read and write access to every vault owned by that user.
 
 ## Read and search limits
 
-`search` scans at most 5000 visible tree files, returns at most 500 matches,
-and stops after 256 MiB of searched text in production. `link_graph` scans at
-most 5000 visible text files and uses the same production text budget.
-`changes_since` returns at most 5000 visible change entries. `read_file` and
-`read_file_at_commit` resolve blob pointers before responding; binary/blob
-responses above 64 MiB are rejected instead of being base64-expanded into JSON.
+`search` scans at most 5000 visible tree files — a vault with more than 5000
+visible files makes the call fail with `too many files to search` rather than
+being partially scanned. It returns at most 500 matches (default 100), and
+aborts with an error once it has read more than 256 MiB of text in production.
+`link_graph` scans at most 5000 visible text files with the same production text
+budget, but reports `truncated: true` instead of failing. `changes_since`
+returns at most 5000 visible change entries. `read_file` and
+`read_file_at_commit` resolve blob pointers before responding; binary content is
+returned base64-encoded with `encoding: "base64"`, and binary/blob responses
+above 64 MiB are rejected instead of being base64-expanded into JSON.
 
 ## Write tools
 

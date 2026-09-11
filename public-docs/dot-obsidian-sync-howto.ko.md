@@ -23,7 +23,7 @@ PKV Sync는 기본적으로 hidden path를 피합니다. vault별 allowlist를 �
 기존 vault는 starter list를 적용하기 전까지 빈 allowlist를 유지합니다.
 
 - **Admin WebUI: Vaults -> Settings -> Apply starter allowlist**는 위의 7-glob starter list 전체를 기록합니다.
-- **Obsidian plugin: Settings -> PKV Sync -> Apply recommended starter list**는 가장 안전한 두 glob(`.obsidian/themes/**`와 `.obsidian/snippets/**`)만 기록합니다. themes와 CSS snippets는 보통 여러 기기에서 공유해도 안전한 반면, 나머지 다섯 glob은 사용자별 app state에 닿기 때문에 plugin은 명시적인 결정 없이는 활성화하지 않습니다.
+- **Obsidian plugin: Settings -> PKV Sync -> Apply recommended starter list**는 두 glob(`.obsidian/themes/**`와 `.obsidian/snippets/**`)만 기록합니다. themes와 CSS snippets는 보통 여러 기기에서 공유해도 안전합니다.
 
 7-glob starter 전체를 적용하려면 Admin WebUI 버튼을 사용하거나 plugin의 allowlist editor에 직접 glob을 붙여넣으세요.
 
@@ -51,5 +51,5 @@ PKV Sync는 기본적으로 hidden path를 피합니다. vault별 allowlist를 �
 
 ## 규칙을 편집하는 위치
 
-- Obsidian: **Settings -> PKV Sync**에서 현재 vault를 선택하고 **.obsidian sync rules**를 편집한 뒤 저장합니다.
+- Obsidian: **Settings -> PKV Sync**에서 현재 vault를 선택하고 **.obsidian 동기화 허용 목록**을 편집한 뒤 **저장**을 클릭합니다.
 - Admin WebUI: **Vaults**를 열고 vault의 **Settings**를 선택해 allowlist를 편집한 뒤 저장합니다.

@@ -20,7 +20,7 @@ pkvsyncd -c /opt/pkv-sync/config.toml serve
 
 ## 子命令
 
-`pkvsyncd` 提供九個子命令。最常用的維運流程是 `serve`、`genkey`、`migrate up`、`user add`、`backup` 與 `restore`。
+`pkvsyncd` 提供十個子命令。最常用的維運流程是 `serve`、`genkey`、`migrate up`、`user add`、`backup` 與 `restore`。
 
 ## pkvsyncd serve
 
@@ -231,7 +231,7 @@ pkvsyncd verify [--data-dir <DIR>] [--no-fail]
 
 對 `data_dir/vaults/` 之下的每個 vault：
 
-- 對 bare repository 執行 `git fsck --strict`。
+- 以 `git2` 開啟 bare repository 並遍歷，回報儲存庫與物件層級的讀取錯誤。
 - 走訪 HEAD 樹，並驗證每個 `pkvsync_pointer` 都可解析到對應 blob，且該 blob 在磁碟上的 SHA-256 與其檔名一致。
 
 按 vault 逐一回報錯誤數量。只要任一 vault 有錯誤，便以非零結束碼結束；除非加上 `--no-fail`。
@@ -261,7 +261,7 @@ pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>]
 
 ### 說明
 
-`stdio` 模式從 stdin 讀取 JSON-RPC，並向 stdout 寫入 JSON-RPC。`http` 模式在 `/mcp` 提供無狀態的 Streamable HTTP MCP endpoint。兩種模式皆暴露同一組工具：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files` 與 `move_file`。`write_files` 適合原子的多頁 wiki 編輯，`move_file` 適合保留歷史的重新命名或歸檔移動。寫入類工具有速率限制，每組 `(token, vault)` 每分鐘上限 60 次寫入，且一個 `write_files` 批次只消耗一次寫入記錄。搜尋請求最多掃描 5000 個可見 tree 檔案、返回 500 條匹配，並在生產環境搜尋文字累計達到 256 MiB 後停止。`link_graph` 最多掃描 5000 個可見文字檔，並使用同一個生產文字預算；`changes_since` 最多返回 5000 條可見變更。超過 64 MiB 的二進位/blob 讀取回應會被拒絕，而不是被 base64 展開進 JSON。
+`stdio` 模式從 stdin 讀取 JSON-RPC，並向 stdout 寫入 JSON-RPC。`http` 模式在 `/mcp` 提供無狀態的 Streamable HTTP MCP endpoint。兩種模式皆暴露同一組工具：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files` 與 `move_file`。`write_files` 適合原子的多頁 wiki 編輯，`move_file` 適合保留歷史的重新命名或歸檔移動。寫入類工具有速率限制，每組 `(token, vault)` 每分鐘上限 60 次寫入，且一個 `write_files` 批次只消耗一次寫入記錄。搜尋請求最多掃描 5000 個可見 tree 檔案、返回 500 條匹配，並在生產環境搜尋文字累計超過 256 MiB 後報錯中止。`link_graph` 最多掃描 5000 個可見文字檔，並使用同一個生產文字預算，但會返回 `truncated` 而不是失敗；`changes_since` 最多返回 5000 條可見變更。超過 64 MiB 的二進位/blob 讀取回應會被拒絕，而不是被 base64 展開進 JSON。
 
 `http` 模式要求每個 request 都必須帶上伺服器部署金鑰的 header，與一般同步 API 相同。
 

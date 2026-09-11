@@ -23,7 +23,7 @@ PKV Sync 默认避开隐藏路径。它提供按笔记库配置的 allowlist，�
 已有笔记库会保持空 allowlist，直到你应用起步清单。
 
 - **Admin WebUI：Vaults -> Settings -> Apply starter allowlist** 会写入上述完整的 7 条 glob 起步清单。
-- **Obsidian 插件：Settings -> PKV Sync -> Apply recommended starter list** 只写入最安全的两条 glob（`.obsidian/themes/**` 和 `.obsidian/snippets/**`）——主题和 CSS snippet 跨设备共享通常是安全的，而另外五条 glob 涉及用户特定的应用状态，插件不会在没有明确决定的情况下启用它们。
+- **Obsidian 插件：Settings -> PKV Sync -> Apply recommended starter list** 只写入两条 glob（`.obsidian/themes/**` 和 `.obsidian/snippets/**`）——主题和 CSS snippet 跨设备共享通常是安全的。
 
 如果想要完整的 7 条 glob 起步清单，请使用 Admin WebUI 按钮，或者把这些 glob 手动粘贴到插件的 allowlist 编辑器中。
 
@@ -51,5 +51,5 @@ PKV Sync 默认避开隐藏路径。它提供按笔记库配置的 allowlist，�
 
 ## 在哪里编辑规则
 
-- Obsidian：打开 **设置 -> PKV Sync**，选择当前笔记库，编辑 **.obsidian 同步规则**，然后保存。
+- Obsidian：打开 **设置 -> PKV Sync**，选择当前笔记库，编辑 **.obsidian 同步允许列表**，然后点击 **保存**。
 - Admin WebUI：打开 **Vaults**，点击某个笔记库的 **Settings**，编辑 allowlist，然后保存。
