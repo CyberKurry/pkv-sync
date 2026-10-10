@@ -1,10 +1,11 @@
+mod common;
+
 use axum::body::{to_bytes, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, Request, StatusCode};
-use pkv_sync_server::auth::{password, token};
-use pkv_sync_server::db::repos::{
-    NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
-};
+use common::{auth_for as authenticated_user, create_user_with_token, test_state};
+use pkv_sync_server::auth::token;
+use pkv_sync_server::db::repos::{NewToken, RuntimeConfigRepo, TokenRepo, VaultRepo};
 use pkv_sync_server::mcp::transport_http;
 use pkv_sync_server::service::events::MAX_SSE_REPLAY_COMMITS;
 use pkv_sync_server::service::sync::{self, PushChange, PushReq};
@@ -16,68 +17,6 @@ use std::time::Duration;
 use tower::ServiceExt;
 
 const DEPLOYMENT_KEY: &str = "k_mcp_http_test";
-
-async fn test_state() -> (AppState, tempfile::TempDir) {
-    let tmp = tempfile::tempdir().unwrap();
-    let p = pkv_sync_server::db::pool::connect(&tmp.path().join("test.db"))
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&p).await.unwrap();
-    let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
-        .await
-        .unwrap();
-    (state, tmp)
-}
-
-async fn create_user_with_token(state: &AppState, username: &str) -> (String, String) {
-    let user = state
-        .users
-        .create(NewUser {
-            username: username.into(),
-            password_hash: password::hash("passw0rd!!").unwrap(),
-            is_admin: false,
-        })
-        .await
-        .unwrap();
-    let raw = token::generate();
-    state
-        .tokens
-        .create(NewToken {
-            user_id: &user.id,
-            token_hash: &token::hash(&raw),
-            device_id: "http-device",
-            device_name: "http",
-        })
-        .await
-        .unwrap();
-    (user.id, raw)
-}
-
-async fn authenticated_user(
-    state: &AppState,
-    raw: &str,
-    username: &str,
-) -> pkv_sync_server::auth::AuthenticatedUser {
-    let user = state
-        .users
-        .find_by_username(username)
-        .await
-        .unwrap()
-        .unwrap();
-    let (token_row, _username) = state
-        .tokens
-        .find_by_hash(&token::hash(raw))
-        .await
-        .unwrap()
-        .unwrap();
-    pkv_sync_server::auth::AuthenticatedUser {
-        user_id: user.id,
-        username: user.username,
-        is_admin: user.is_admin,
-        token_id: token_row.id,
-        device_id: token_row.device_id,
-    }
-}
 
 async fn post_mcp(
     state: AppState,

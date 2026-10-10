@@ -1,6 +1,9 @@
+mod common;
+
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use bytes::Bytes;
+use common::test_state;
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::repos::{
     NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo, VaultRepo,
@@ -15,18 +18,6 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 const DEPLOYMENT_KEY: &str = "k_mcp_write_test";
-
-async fn test_state() -> (AppState, tempfile::TempDir) {
-    let tmp = tempfile::tempdir().unwrap();
-    let p = pkv_sync_server::db::pool::connect(&tmp.path().join("test.db"))
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&p).await.unwrap();
-    let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
-        .await
-        .unwrap();
-    (state, tmp)
-}
 
 async fn add_blob_refs(state: &AppState, vault_id: &str, commit_hash: &str, hashes: &[String]) {
     for hash in hashes {

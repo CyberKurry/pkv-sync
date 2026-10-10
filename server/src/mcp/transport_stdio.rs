@@ -165,36 +165,16 @@ impl StdioSession {
     }
 
     async fn listen(&self, id: Value, msg: Value, tx: &mut mpsc::Sender<String>) {
-        let requested: Vec<String> = msg
-            .pointer("/params/notifications/resourceSubscriptions")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let filter_json = msg
+            .pointer("/params/notifications")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let mut lr = crate::mcp::listen_filter::parse_listen_request(&filter_json);
         let scoped_uri = format!("pkv://vault/{}", self.vault_id);
-        let accepted = requested.contains(&scoped_uri);
-        let mut ack_notifications = serde_json::Map::new();
-        for switch in [
-            ("toolsListChanged", "/params/notifications/toolsListChanged"),
-            (
-                "promptsListChanged",
-                "/params/notifications/promptsListChanged",
-            ),
-            (
-                "resourcesListChanged",
-                "/params/notifications/resourcesListChanged",
-            ),
-        ] {
-            if msg.pointer(switch.1).and_then(Value::as_bool) == Some(true) {
-                ack_notifications.insert(switch.0.into(), Value::Bool(true));
-            }
-        }
-        if accepted {
-            ack_notifications.insert("resourceSubscriptions".into(), json!([scoped_uri.clone()]));
+        // stdio sessions are scoped to one vault: accept only that URI and
+        // drop everything else the client asked for.
+        lr.accepted_uris.retain(|uri| uri == &scoped_uri);
+        if !lr.accepted_uris.is_empty() {
             self.listens.lock().await.insert(
                 id.to_string(),
                 ListenEntry {
@@ -204,13 +184,7 @@ impl StdioSession {
                 },
             );
         }
-        let ack = crate::mcp::notifications::McpNotification {
-            method: "notifications/subscriptions/acknowledged".into(),
-            params: json!({
-                "notifications": ack_notifications,
-                "_meta": {crate::mcp::protocol::META_SUBSCRIPTION_ID: id},
-            }),
-        };
+        let ack = crate::mcp::listen_filter::acknowledged(&id, &lr);
         let _ = tx
             .send(serde_json::to_string(&ack).unwrap_or_default())
             .await;

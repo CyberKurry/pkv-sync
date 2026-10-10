@@ -1,4 +1,7 @@
+mod common;
+
 use bytes::Bytes;
+use common::test_state;
 use pkv_sync_server::db::repos::{NewUser, UserRepo, VaultRepo};
 use pkv_sync_server::mcp::tools::{
     list_files, read_file, search, ListFilesInput, ReadFileInput, SearchInput,
@@ -6,18 +9,6 @@ use pkv_sync_server::mcp::tools::{
 use pkv_sync_server::service::AppState;
 use pkv_sync_server::storage::blob::{BlobStore, LocalFsBlobStore};
 use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
-
-async fn test_state() -> (AppState, tempfile::TempDir) {
-    let tmp = tempfile::tempdir().unwrap();
-    let p = pkv_sync_server::db::pool::connect(&tmp.path().join("test.db"))
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&p).await.unwrap();
-    let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
-        .await
-        .unwrap();
-    (state, tmp)
-}
 
 async fn create_user(state: &AppState, username: &str) -> String {
     state

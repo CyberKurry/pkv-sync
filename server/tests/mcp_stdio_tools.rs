@@ -1,5 +1,8 @@
-use pkv_sync_server::auth::{password, token};
-use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo, VaultRepo};
+mod common;
+
+use common::{create_user_with_token, test_state};
+use pkv_sync_server::auth::token;
+use pkv_sync_server::db::repos::{TokenRepo, VaultRepo};
 use pkv_sync_server::mcp::transport_stdio::StdioSession;
 use pkv_sync_server::service::events::{EventKind, VaultEvent};
 use pkv_sync_server::service::AppState;
@@ -7,42 +10,6 @@ use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, S
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::sync::mpsc;
-
-async fn test_state() -> (AppState, tempfile::TempDir) {
-    let tmp = tempfile::tempdir().unwrap();
-    let p = pkv_sync_server::db::pool::connect(&tmp.path().join("test.db"))
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&p).await.unwrap();
-    let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
-        .await
-        .unwrap();
-    (state, tmp)
-}
-
-async fn create_user_with_token(state: &AppState, username: &str) -> (String, String) {
-    let user = state
-        .users
-        .create(NewUser {
-            username: username.into(),
-            password_hash: password::hash("passw0rd!!").unwrap(),
-            is_admin: false,
-        })
-        .await
-        .unwrap();
-    let raw = token::generate();
-    state
-        .tokens
-        .create(NewToken {
-            user_id: &user.id,
-            token_hash: &token::hash(&raw),
-            device_id: "stdio-device",
-            device_name: "stdio",
-        })
-        .await
-        .unwrap();
-    (user.id, raw)
-}
 
 fn modern_request(id: Value, method: &str) -> Value {
     json!({

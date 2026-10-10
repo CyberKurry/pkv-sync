@@ -22,8 +22,8 @@ use tokio_stream::StreamExt;
 use super::auth::{mcp_token_still_valid, TokenValidityCache};
 use super::protocol::{ERR_AUTH, ERR_RATE_LIMIT};
 use super::transport_stdio::{
-    authenticate_token, handle_jsonrpc, jsonrpc_error, GENERIC_MCP_AUTH_ERROR,
-    GENERIC_MCP_INTERNAL_ERROR,
+    authenticate_token, handle_jsonrpc, handle_modern_jsonrpc, jsonrpc_error,
+    GENERIC_MCP_AUTH_ERROR, GENERIC_MCP_INTERNAL_ERROR,
 };
 
 #[derive(Clone, Debug)]
@@ -198,7 +198,7 @@ async fn post_mcp(
                 let raw = bearer(&headers).expect("checked earlier");
                 return listen_response(state, user, crate::auth::token::hash(raw), request).await;
             }
-            handle_modern_jsonrpc(&state, &user, request).await
+            handle_modern_jsonrpc(&state, &user, None, request).await
         }
         Ok(super::protocol::Era::Legacy) => {
             // The header names the modern version but the body has no modern
@@ -229,16 +229,6 @@ async fn post_mcp(
         _ => StatusCode::OK,
     };
     (status, Json(response)).into_response()
-}
-
-// `subscriptions/listen` is intercepted in `post_mcp` before this runs — its
-// SSE response cannot be produced as a JSON-RPC value.
-async fn handle_modern_jsonrpc(
-    state: &AppState,
-    user: &AuthenticatedUser,
-    request: Value,
-) -> Value {
-    super::transport_stdio::handle_modern_jsonrpc(state, user, None, request).await
 }
 
 async fn mcp_rate_limit(
@@ -336,7 +326,7 @@ async fn get_mcp_sse(
 
     let replay_items: VecDeque<McpSseItem> = match mcp_last_event_id(&headers) {
         Some(commit) => match mcp_replay_events_after(&state, &vaults, &commit).await {
-            Ok((McpReplayEvents::Events(events), unmatched_vaults)) => {
+            Ok((Some(events), unmatched_vaults)) => {
                 let mut items: VecDeque<McpSseItem> = events
                     .into_iter()
                     .filter_map(|(vault_id, event)| {
@@ -359,7 +349,7 @@ async fn get_mcp_sse(
                 }
                 items
             }
-            Ok((McpReplayEvents::Lagged, _)) => VecDeque::from([McpSseItem::Lagged]),
+            Ok((None, _)) => VecDeque::from([McpSseItem::Lagged]),
             Err(err) => {
                 return mcp_internal_error_response(err);
             }
@@ -380,9 +370,7 @@ async fn get_mcp_sse(
         })
         .collect();
     crate::api::vaults::debug_pause_after_replay_for_tests().await;
-    let mut auth_interval = tokio::time::interval(Duration::from_secs(15));
-    auth_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    auth_interval.tick().await;
+    let auth_interval = auth_interval().await;
     let (tx, rx) = mpsc::channel(16);
     let shutdown_rx = state.shutdown.subscribe();
     tokio::spawn(run_mcp_sse_stream(
@@ -400,6 +388,22 @@ async fn get_mcp_sse(
         },
         tx,
     ));
+    sse_response(rx)
+}
+
+/// 15s revalidation cadence for authenticated SSE streams: skipped (never
+/// burst) after a long stall, with the immediate first tick consumed by the
+/// caller so the first revalidation lands one full period after connect.
+async fn auth_interval() -> Interval {
+    let mut interval = tokio::time::interval(Duration::from_secs(15));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    interval.tick().await;
+    interval
+}
+
+/// SSE response shared by both MCP streams: 15s keep-alive comment frames
+/// and `X-Accel-Buffering: no` so reverse proxies do not buffer events.
+fn sse_response(rx: mpsc::Receiver<Result<Event, Infallible>>) -> Response {
     let mut response = Sse::new(ReceiverStream::new(rx))
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
         .into_response();
@@ -537,67 +541,32 @@ async fn listen_response(
     request: Value,
 ) -> Response {
     let id = request.get("id").cloned().unwrap_or(Value::Null);
-    let requested_uris: Vec<String> = request
-        .pointer("/params/notifications/resourceSubscriptions")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let filter_json = request
+        .pointer("/params/notifications")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let mut lr = super::listen_filter::parse_listen_request(&filter_json);
     let vaults =
         match crate::db::repos::VaultRepo::list_for_user(&*state.vaults, &user.user_id).await {
             Ok(vaults) => vaults,
             Err(err) => return mcp_internal_error_response(err),
         };
     let owned: HashSet<String> = vaults.iter().map(|v| v.id.clone()).collect();
-    // One pass: strip the prefix, keep only vaults the token may see, and
-    // carry (vault_id, uri) so the ack echo and the subscription set cannot
-    // drift apart. Duplicated URIs are acked once (first occurrence order),
-    // matching the stdio transport's ack.
-    let mut seen: HashSet<String> = HashSet::new();
-    let accepted: Vec<(String, String)> = requested_uris
+    // Keep only vaults the token may see. URIs were deduplicated (first
+    // occurrence order) by the shared parse, so the ack echo and the
+    // subscription set cannot drift apart.
+    lr.accepted_uris.retain(|uri| {
+        uri.strip_prefix("pkv://vault/")
+            .is_some_and(|vault_id| owned.contains(vault_id))
+    });
+    let accepted: Vec<(String, String)> = lr
+        .accepted_uris
         .iter()
         .filter_map(|uri| {
             let vault_id = uri.strip_prefix("pkv://vault/")?;
-            if !seen.insert(uri.clone()) {
-                return None;
-            }
-            owned
-                .contains(vault_id)
-                .then(|| (vault_id.to_string(), uri.clone()))
+            Some((vault_id.to_string(), uri.clone()))
         })
         .collect();
-    let mut ack_notifications = serde_json::Map::new();
-    for switch in [
-        ("toolsListChanged", "/params/notifications/toolsListChanged"),
-        (
-            "promptsListChanged",
-            "/params/notifications/promptsListChanged",
-        ),
-        (
-            "resourcesListChanged",
-            "/params/notifications/resourcesListChanged",
-        ),
-    ] {
-        if request.pointer(switch.1).and_then(Value::as_bool) == Some(true) {
-            // Tool/prompt/resource lists are static; the switch is accepted
-            // (echoed) but no list-changed notification is ever emitted.
-            ack_notifications.insert(switch.0.into(), Value::Bool(true));
-        }
-    }
-    if !accepted.is_empty() {
-        ack_notifications.insert(
-            "resourceSubscriptions".into(),
-            serde_json::json!(accepted
-                .iter()
-                .map(|(_, uri)| uri)
-                .cloned()
-                .collect::<Vec<_>>()),
-        );
-    }
 
     let Some(sse_guard) = state.try_acquire_sse_subscriber(&user.user_id) else {
         return (
@@ -617,17 +586,9 @@ async fn listen_response(
             BroadcastStream::new(state.events.subscribe(vault_id)),
         );
     }
-    let ack = crate::mcp::notifications::McpNotification {
-        method: "notifications/subscriptions/acknowledged".into(),
-        params: serde_json::json!({
-            "notifications": ack_notifications,
-            "_meta": {super::protocol::META_SUBSCRIPTION_ID: id},
-        }),
-    };
+    let ack = super::listen_filter::acknowledged(&id, &lr);
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(16);
-    let mut auth_interval = tokio::time::interval(Duration::from_secs(15));
-    auth_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    auth_interval.tick().await;
+    let auth_interval = auth_interval().await;
     tokio::spawn(run_listen_stream(
         ListenState {
             app: state,
@@ -642,14 +603,7 @@ async fn listen_response(
         },
         tx,
     ));
-    let mut response = Sse::new(ReceiverStream::new(rx))
-        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
-        .into_response();
-    response.headers_mut().insert(
-        header::HeaderName::from_static("x-accel-buffering"),
-        header::HeaderValue::from_static("no"),
-    );
-    response
+    sse_response(rx)
 }
 
 struct ListenState {
@@ -749,16 +703,14 @@ async fn run_listen_stream(mut listen: ListenState, tx: mpsc::Sender<Result<Even
     }
 }
 
-enum McpReplayEvents {
-    Events(Vec<(String, crate::service::events::VaultEvent)>),
-    Lagged,
-}
-
 async fn mcp_replay_events_after(
     state: &AppState,
     vaults: &[crate::db::repos::Vault],
     commit: &str,
-) -> anyhow::Result<(McpReplayEvents, bool)> {
+) -> anyhow::Result<(
+    Option<Vec<(String, crate::service::events::VaultEvent)>>,
+    bool,
+)> {
     let mut events_all: Vec<(String, crate::service::events::VaultEvent)> = Vec::new();
     for vault in vaults {
         let events =
@@ -769,7 +721,7 @@ async fn mcp_replay_events_after(
                 events_all.extend(events.into_iter().map(|event| (vault.id.clone(), event)));
             }
             crate::service::events::ReplayEvents::Lagged => {
-                return Ok((McpReplayEvents::Lagged, false));
+                return Ok((None, false));
             }
         }
     }
@@ -777,7 +729,7 @@ async fn mcp_replay_events_after(
     // than one vault the others' positions are unknown and the caller appends
     // a lagged signal (BUG-R3-13).
     let unmatched_vaults = vaults.len() > 1;
-    Ok((McpReplayEvents::Events(events_all), unmatched_vaults))
+    Ok((Some(events_all), unmatched_vaults))
 }
 
 fn mcp_last_event_id(headers: &HeaderMap) -> Option<String> {
