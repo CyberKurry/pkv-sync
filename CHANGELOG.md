@@ -22,6 +22,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
   notifications are now acknowledged by silence instead of a spurious
   `-32600` error.
 
+### Changed
+
+- **Removed standalone MCP HTTP deployment** (`pkvsyncd mcp --transport http
+  --bind`): MCP HTTP now exists only embedded in `pkvsyncd serve`. `[mcp].
+  embed_in_serve` now defaults to `true` (set `false` to disable). Existing
+  standalone deployments should point clients at the main server's `/mcp`.
+- MCP JSON-RPC error codes moved out of the range the 2026-07-28 spec
+  freezes: rate limit `-32029` → `-63001`, auth `-32001` → `-63002` (HTTP
+  statuses unchanged).
+
 ### Security
 
 - Resolved all 12 open Dependabot alerts (8 distinct advisories, published

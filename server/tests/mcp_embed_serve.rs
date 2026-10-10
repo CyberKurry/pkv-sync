@@ -15,9 +15,9 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use tower::ServiceExt;
 
-const DEPLOYMENT_KEY: &str = "k_mcp_embed_test";
+const VALID_DEPLOYMENT_KEY: &str = "k_0123456789abcdef0123456789abcdef";
 
-async fn app(embed_in_serve: bool) -> (axum::Router, AppState, String) {
+async fn app(embed_in_serve: Option<bool>) -> (axum::Router, AppState, String) {
     let data_dir = tempfile::tempdir().unwrap().keep();
     let db_path = data_dir.join("metadata.db");
     let pool = pool::connect(&db_path).await.unwrap();
@@ -45,19 +45,47 @@ async fn app(embed_in_serve: bool) -> (axum::Router, AppState, String) {
         })
         .await
         .unwrap();
-    let cfg = Config {
-        server: ServerConfig {
-            bind_addr: "127.0.0.1:6710".parse().unwrap(),
-            deployment_key: DEPLOYMENT_KEY.into(),
-            public_host: None,
+    let cfg = match embed_in_serve {
+        Some(embed_in_serve) => Config {
+            server: ServerConfig {
+                bind_addr: "127.0.0.1:6710".parse().unwrap(),
+                deployment_key: VALID_DEPLOYMENT_KEY.into(),
+                public_host: None,
+            },
+            storage: StorageConfig {
+                data_dir: data_dir.clone(),
+                db_path: db_path.clone(),
+            },
+            network: NetworkConfig {
+                trusted_proxies: vec!["127.0.0.1/32".parse::<IpNet>().unwrap()],
+            },
+            logging: LoggingConfig::default(),
+            update_check: Default::default(),
+            mcp: McpConfig { embed_in_serve },
         },
-        storage: StorageConfig { data_dir, db_path },
-        network: NetworkConfig {
-            trusted_proxies: vec!["127.0.0.1/32".parse::<IpNet>().unwrap()],
-        },
-        logging: LoggingConfig::default(),
-        update_check: Default::default(),
-        mcp: McpConfig { embed_in_serve },
+        // No [mcp] section: the default (embed) must come from deserialization.
+        None => {
+            let mut file = tempfile::NamedTempFile::new().unwrap();
+            use std::io::Write;
+            write!(
+                file,
+                r#"
+                [server]
+                bind_addr = "127.0.0.1:6710"
+                deployment_key = "{VALID_DEPLOYMENT_KEY}"
+
+                [storage]
+                data_dir = {:?}
+                db_path = {:?}
+
+                [network]
+                trusted_proxies = []
+                "#,
+                data_dir, db_path
+            )
+            .unwrap();
+            Config::load(file.path()).unwrap()
+        }
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
     (server::build_app(state.clone(), &cfg, limiter), state, raw)
@@ -94,11 +122,29 @@ fn mcp_post(raw: &str, deployment_key: Option<&str>) -> Request<Body> {
 }
 
 #[tokio::test]
-async fn serve_router_omits_mcp_when_embed_disabled() {
-    let (app, _state, raw) = app(false).await;
+async fn serve_router_mounts_mcp_by_default() {
+    let (app, _state, raw) = app(None).await;
 
     let response = app
-        .oneshot(mcp_post(&raw, Some(DEPLOYMENT_KEY)))
+        .oneshot(mcp_post(&raw, Some(VALID_DEPLOYMENT_KEY)))
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers.get("mcp-session-id").is_none());
+    assert_eq!(json["result"]["serverInfo"]["name"], "cyberkurry pkv sync");
+}
+
+#[tokio::test]
+async fn serve_router_omits_mcp_when_embed_disabled() {
+    let (app, _state, raw) = app(Some(false)).await;
+
+    let response = app
+        .oneshot(mcp_post(&raw, Some(VALID_DEPLOYMENT_KEY)))
         .await
         .unwrap();
 
@@ -107,10 +153,10 @@ async fn serve_router_omits_mcp_when_embed_disabled() {
 
 #[tokio::test]
 async fn serve_router_mounts_mcp_when_embed_enabled() {
-    let (app, _state, raw) = app(true).await;
+    let (app, _state, raw) = app(Some(true)).await;
 
     let response = app
-        .oneshot(mcp_post(&raw, Some(DEPLOYMENT_KEY)))
+        .oneshot(mcp_post(&raw, Some(VALID_DEPLOYMENT_KEY)))
         .await
         .unwrap();
     let status = response.status();
@@ -125,7 +171,7 @@ async fn serve_router_mounts_mcp_when_embed_enabled() {
 
 #[tokio::test]
 async fn embedded_mcp_rejects_missing_deployment_key() {
-    let (app, _state, raw) = app(true).await;
+    let (app, _state, raw) = app(None).await;
 
     let response = app.oneshot(mcp_post(&raw, None)).await.unwrap();
 
@@ -134,13 +180,13 @@ async fn embedded_mcp_rejects_missing_deployment_key() {
 
 #[tokio::test]
 async fn embedded_mcp_rejects_admin_cookie_without_bearer() {
-    let (app, _state, _raw) = app(true).await;
+    let (app, _state, _raw) = app(None).await;
     let request = with_connect_info(
         Request::builder()
             .method(Method::POST)
             .uri("/mcp")
             .header(header::CONTENT_TYPE, "application/json")
-            .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
+            .header("x-pkvsync-deployment-key", VALID_DEPLOYMENT_KEY)
             .header(header::COOKIE, "pkv_admin_session=pretend-admin-session")
             .body(Body::from(
                 json!({
@@ -164,12 +210,12 @@ async fn embedded_mcp_rejects_admin_cookie_without_bearer() {
 
 #[tokio::test]
 async fn embedded_mcp_sse_keeps_streamable_http_headers_behavior() {
-    let (app, _state, raw) = app(true).await;
+    let (app, _state, raw) = app(None).await;
     let request = with_connect_info(
         Request::builder()
             .method(Method::GET)
             .uri("/mcp")
-            .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
+            .header("x-pkvsync-deployment-key", VALID_DEPLOYMENT_KEY)
             .header(header::AUTHORIZATION, format!("Bearer {raw}"))
             .header(header::ACCEPT, "text/event-stream")
             .body(Body::empty())

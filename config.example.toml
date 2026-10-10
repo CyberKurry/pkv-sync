@@ -21,11 +21,11 @@ db_path = "/var/lib/pkv-sync/metadata.db"
 trusted_proxies = ["127.0.0.1/32", "::1/128"]
 
 [mcp]
-# Optional: mount the MCP Streamable HTTP transport at /mcp on the main
-# pkvsyncd serve listener. The endpoint still requires the deployment key
-# and a bearer device token. Leave false to run MCP only through the
-# standalone `pkvsyncd mcp` subcommand.
-embed_in_serve = false
+# MCP Streamable HTTP is served only embedded in the main `pkvsyncd serve`
+# listener (at /mcp, still requiring the deployment key and a bearer device
+# token); the standalone `pkvsyncd mcp --transport http` deployment was
+# removed. Defaults to true; set false to disable the embedded endpoint.
+# embed_in_serve = true
 
 [logging]
 level = "info"

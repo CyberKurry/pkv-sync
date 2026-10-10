@@ -56,10 +56,18 @@ pub struct UpdateCheckConfig {
     pub repo: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct McpConfig {
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub embed_in_serve: bool,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            embed_in_serve: default_true(),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +110,10 @@ fn default_update_check_interval_seconds() -> u64 {
 
 fn default_update_check_repo() -> String {
     "cyberkurry/pkv-sync".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl<'de> Deserialize<'de> for LoggingFormat {
@@ -415,7 +427,7 @@ mod tests {
     }
 
     #[test]
-    fn config_defaults_mcp_embed_to_false_when_section_absent() {
+    fn config_defaults_mcp_embed_to_true_when_section_absent() {
         let f = write_temp(
             r#"
             [server]
@@ -428,6 +440,29 @@ mod tests {
 
             [network]
             trusted_proxies = []
+            "#,
+        );
+        let cfg = Config::load(f.path()).unwrap();
+        assert!(cfg.mcp.embed_in_serve);
+    }
+
+    #[test]
+    fn config_explicit_false_disables_mcp() {
+        let f = write_temp(
+            r#"
+            [server]
+            bind_addr = "127.0.0.1:6710"
+            deployment_key = "k_0123456789abcdef0123456789abcdef"
+
+            [storage]
+            data_dir = "/x"
+            db_path = "/x/y"
+
+            [network]
+            trusted_proxies = []
+
+            [mcp]
+            embed_in_serve = false
             "#,
         );
         let cfg = Config::load(f.path()).unwrap();

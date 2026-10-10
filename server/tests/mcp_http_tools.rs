@@ -248,7 +248,7 @@ async fn http_mcp_requires_bearer_auth_per_post() {
     .await;
 
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(body["error"]["code"], -32001);
+    assert_eq!(body["error"]["code"], -63002);
 }
 
 #[tokio::test]

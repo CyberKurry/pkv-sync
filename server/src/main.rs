@@ -164,7 +164,6 @@ fn main() -> anyhow::Result<()> {
             transport,
             vault,
             token,
-            bind,
         } => {
             let cfg = Config::load(&cli.config)?;
             pkv_sync_server::logging::init_with_config(&cfg.logging);
@@ -204,16 +203,11 @@ fn main() -> anyhow::Result<()> {
                             })?;
                         pkv_sync_server::mcp::McpTransport::Stdio { vault_id, token }
                     }
-                    "http" => pkv_sync_server::mcp::McpTransport::Http {
-                        bind: bind.parse()?,
-                        deployment_key: cfg.server.deployment_key.clone(),
-                        trusted_proxies:
-                            pkv_sync_server::middleware::real_ip::TrustedProxies::from_vec(
-                                cfg.network.trusted_proxies.clone(),
-                            ),
-                    },
+                    "http" => anyhow::bail!(
+                        "standalone MCP HTTP transport was removed; set [mcp].embed_in_serve (default true) and use `pkvsyncd serve`"
+                    ),
                     other => anyhow::bail!(
-                        "unsupported MCP transport '{other}', expected 'stdio' or 'http'"
+                        "unsupported MCP transport '{other}', expected 'stdio'"
                     ),
                 };
                 pkv_sync_server::mcp::run(state, transport).await

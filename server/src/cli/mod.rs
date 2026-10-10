@@ -88,18 +88,18 @@ pub enum Command {
     },
     /// Start the read-only MCP server.
     Mcp {
-        /// Transport: "stdio" or "http".
+        /// Transport: stdio (the only transport; "http" standalone mode was
+        /// removed — set [mcp].embed_in_serve (default true) and use
+        /// `pkvsyncd serve`).
         #[arg(long, default_value = "stdio")]
         transport: String,
-        /// Stdio only: vault ID to expose.
+        /// Vault ID to expose.
         #[arg(long)]
         vault: Option<String>,
-        /// Stdio only: bearer token. If omitted, PKV_TOKEN is used.
+        /// Bearer token. Preferred: export PKV_TOKEN instead of passing
+        /// --token so the token stays out of shell history.
         #[arg(long)]
         token: Option<String>,
-        /// HTTP only: bind address.
-        #[arg(long, default_value = "127.0.0.1:6711")]
-        bind: String,
     },
     /// Download a release binary next to the current executable.
     Upgrade {
@@ -337,34 +337,10 @@ mod tests {
                 transport,
                 vault,
                 token,
-                bind,
             } => {
                 assert_eq!(transport, "stdio");
                 assert_eq!(vault.as_deref(), Some("vault1"));
                 assert!(token.is_none());
-                assert_eq!(bind, "127.0.0.1:6711");
-            }
-            _ => panic!("wrong variant"),
-        }
-    }
-
-    #[test]
-    fn cli_parses_mcp_http_bind() {
-        let cli = Cli::try_parse_from([
-            "pkvsyncd",
-            "mcp",
-            "--transport",
-            "http",
-            "--bind",
-            "0.0.0.0:6711",
-        ])
-        .unwrap();
-        match cli.command {
-            Command::Mcp {
-                transport, bind, ..
-            } => {
-                assert_eq!(transport, "http");
-                assert_eq!(bind, "0.0.0.0:6711");
             }
             _ => panic!("wrong variant"),
         }

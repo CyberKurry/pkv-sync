@@ -9,6 +9,11 @@ pub const META_SERVER_INFO: &str = "io.modelcontextprotocol/serverInfo";
 pub const META_SUBSCRIPTION_ID: &str = "io.modelcontextprotocol/subscriptionId";
 pub const SERVER_NAME: &str = "cyberkurry pkv sync";
 
+// App-defined codes, kept outside the -32000..-32768 range the 2026-07-28
+// spec freezes for the protocol / reserved error space.
+pub const ERR_RATE_LIMIT: i64 = -63001;
+pub const ERR_AUTH: i64 = -63002;
+
 const META_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 const META_CLIENT_CAPS: &str = "io.modelcontextprotocol/clientCapabilities";
 
