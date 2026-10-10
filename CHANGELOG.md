@@ -14,7 +14,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
   `Mcp-Method`/`Mcp-Name` header validation (`-32020`), `server/discover`,
   `resultType`/`ttlMs`/`cacheScope` result envelopes, `202 Accepted` for
   notifications, `-32022` version negotiation with the supported list, and
-  legacy `initialize` that echoes the client's legacy version.
+  legacy `initialize` that echoes the client's legacy version;
+  `subscriptions/listen` on HTTP returning `notifications/resources/updated`
+  for `pkv://vault/<id>` URIs with ack-first ordering and connection-scoped
+  cancellation.
 
 ### Security
 

@@ -460,8 +460,8 @@ mod tests {
 
         assert_eq!(
             count_occurrences(http_source, "mcp_token_still_valid("),
-            3,
-            "HTTP SSE stream must call the shared MCP token validity helper"
+            4,
+            "HTTP SSE streams must call the shared MCP token validity helper"
         );
         assert_eq!(
             count_occurrences(stdio_source, "mcp_token_still_valid("),

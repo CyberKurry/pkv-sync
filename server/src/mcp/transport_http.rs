@@ -204,6 +204,10 @@ async fn post_mcp(
                 )
                     .into_response();
             }
+            if request.get("method").and_then(Value::as_str) == Some("subscriptions/listen") {
+                let raw = bearer(&headers).expect("checked earlier");
+                return listen_response(state, user, crate::auth::token::hash(raw), request).await;
+            }
             handle_modern_jsonrpc(&state, &user, request).await
         }
         Ok(super::protocol::Era::Legacy) => handle_jsonrpc(&state, &user, None, request).await,
@@ -220,8 +224,8 @@ async fn post_mcp(
     (status, Json(response)).into_response()
 }
 
-// `subscriptions/listen` deliberately falls through to the shared -32601:
-// HTTP serves subscriptions over the SSE endpoint, never POST.
+// `subscriptions/listen` is intercepted in `post_mcp` before this runs — its
+// SSE response cannot be produced as a JSON-RPC value.
 async fn handle_modern_jsonrpc(
     state: &AppState,
     user: &AuthenticatedUser,
@@ -375,9 +379,14 @@ async fn get_mcp_sse(
         },
         tx,
     ));
-    Sse::new(ReceiverStream::new(rx))
+    let mut response = Sse::new(ReceiverStream::new(rx))
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
-        .into_response()
+        .into_response();
+    response.headers_mut().insert(
+        header::HeaderName::from_static("x-accel-buffering"),
+        header::HeaderValue::from_static("no"),
+    );
+    response
 }
 
 struct McpSseState {
@@ -483,6 +492,208 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                     .is_err()
                 {
                     break;
+                }
+            }
+        }
+    }
+}
+
+async fn listen_response(
+    state: AppState,
+    user: AuthenticatedUser,
+    token_hash: String,
+    request: Value,
+) -> Response {
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let requested_uris: Vec<String> = request
+        .pointer("/params/notifications/resourceSubscriptions")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let vaults =
+        match crate::db::repos::VaultRepo::list_for_user(&*state.vaults, &user.user_id).await {
+            Ok(vaults) => vaults,
+            Err(err) => return mcp_internal_error_response(err),
+        };
+    let owned: HashSet<String> = vaults.iter().map(|v| v.id.clone()).collect();
+    // One pass: strip the prefix, keep only vaults the token may see, and
+    // carry (vault_id, uri) so the ack echo and the subscription set cannot
+    // drift apart.
+    let accepted: Vec<(String, String)> = requested_uris
+        .iter()
+        .filter_map(|uri| {
+            let vault_id = uri.strip_prefix("pkv://vault/")?;
+            owned
+                .contains(vault_id)
+                .then(|| (vault_id.to_string(), uri.clone()))
+        })
+        .collect();
+    let mut ack_notifications = serde_json::Map::new();
+    for switch in [
+        ("toolsListChanged", "/params/notifications/toolsListChanged"),
+        (
+            "promptsListChanged",
+            "/params/notifications/promptsListChanged",
+        ),
+        (
+            "resourcesListChanged",
+            "/params/notifications/resourcesListChanged",
+        ),
+    ] {
+        if request.pointer(switch.1).and_then(Value::as_bool) == Some(true) {
+            // Tool/prompt/resource lists are static; the switch is accepted
+            // (echoed) but no list-changed notification is ever emitted.
+            ack_notifications.insert(switch.0.into(), Value::Bool(true));
+        }
+    }
+    if !accepted.is_empty() {
+        ack_notifications.insert(
+            "resourceSubscriptions".into(),
+            serde_json::json!(accepted
+                .iter()
+                .map(|(_, uri)| uri)
+                .cloned()
+                .collect::<Vec<_>>()),
+        );
+    }
+
+    let Some(sse_guard) = state.try_acquire_sse_subscriber(&user.user_id) else {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(jsonrpc_error(
+                id,
+                -63001,
+                "too many concurrent SSE subscriptions",
+            )),
+        )
+            .into_response();
+    };
+    let mut streams = tokio_stream::StreamMap::new();
+    for (vault_id, _) in &accepted {
+        streams.insert(
+            vault_id.clone(),
+            BroadcastStream::new(state.events.subscribe(vault_id)),
+        );
+    }
+    let ack = crate::mcp::notifications::McpNotification {
+        method: "notifications/subscriptions/acknowledged".into(),
+        params: serde_json::json!({
+            "notifications": ack_notifications,
+            "_meta": {super::protocol::META_SUBSCRIPTION_ID: id},
+        }),
+    };
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(16);
+    let mut auth_interval = tokio::time::interval(Duration::from_secs(15));
+    auth_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    auth_interval.tick().await;
+    tokio::spawn(run_listen_stream(
+        ListenState {
+            app: state,
+            user,
+            token_hash,
+            id,
+            streams,
+            ack: Some(ack),
+            validity_cache: TokenValidityCache::default(),
+            auth_interval,
+            _guard: sse_guard,
+        },
+        tx,
+    ));
+    let mut response = Sse::new(ReceiverStream::new(rx))
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+        .into_response();
+    response.headers_mut().insert(
+        header::HeaderName::from_static("x-accel-buffering"),
+        header::HeaderValue::from_static("no"),
+    );
+    response
+}
+
+struct ListenState {
+    app: AppState,
+    user: AuthenticatedUser,
+    token_hash: String,
+    id: Value,
+    streams: tokio_stream::StreamMap<String, BroadcastStream<crate::service::events::VaultEvent>>,
+    ack: Option<crate::mcp::notifications::McpNotification>,
+    validity_cache: TokenValidityCache,
+    auth_interval: Interval,
+    // The GET handler selects on `shutdown_rx`; listen streams are purely
+    // connection-scoped (client disconnect ends them), so there is no
+    // equivalent subscription here.
+    _guard: crate::service::state::SseSubscriberGuard,
+}
+
+impl ListenState {
+    async fn token_still_valid(&mut self) -> bool {
+        mcp_token_still_valid(
+            &self.app,
+            &self.token_hash,
+            &self.user,
+            &mut self.validity_cache,
+        )
+        .await
+    }
+}
+
+async fn run_listen_stream(mut listen: ListenState, tx: mpsc::Sender<Result<Event, Infallible>>) {
+    loop {
+        if tx.is_closed() {
+            break;
+        }
+        if let Some(ack) = listen.ack.take() {
+            let Ok(data) = serde_json::to_string(&ack) else {
+                break;
+            };
+            if !listen.token_still_valid().await {
+                break;
+            }
+            if tx.send(Ok(Event::default().data(data))).await.is_err() {
+                break;
+            }
+            continue;
+        }
+        tokio::select! {
+            _ = tx.closed() => {
+                break;
+            }
+            _ = listen.auth_interval.tick() => {
+                if !listen.token_still_valid().await {
+                    break;
+                }
+            }
+            event = listen.streams.next(), if !listen.streams.is_empty() => {
+                match event {
+                    Some((vault_id, Ok(event))) => {
+                        let commit = event.commit.clone();
+                        let notification = crate::mcp::notifications::resource_updated(
+                            &vault_id,
+                            commit,
+                            event,
+                            &listen.id,
+                        );
+                        let Ok(data) = serde_json::to_string(&notification) else {
+                            continue;
+                        };
+                        if !listen.token_still_valid().await {
+                            break;
+                        }
+                        if tx.send(Ok(Event::default().data(data))).await.is_err() {
+                            break;
+                        }
+                    }
+                    // No lag signal on the modern stream: the client's next
+                    // read/listen re-syncs.
+                    Some((_vault_id, Err(BroadcastStreamRecvError::Lagged(_)))) => {
+                        continue;
+                    }
+                    None => break,
                 }
             }
         }
@@ -1090,6 +1301,101 @@ mod tests {
         assert_eq!(body["error"]["code"], -32601);
     }
 
+    fn listen_body(filter: serde_json::Value) -> String {
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "subscriptions/listen",
+            "params": {
+                "notifications": filter,
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        })
+        .to_string()
+    }
+
+    fn listen_post(raw: &str, filter: serde_json::Value) -> HttpRequest<Body> {
+        modern_post(&listen_body(filter), "subscriptions/listen", None, raw)
+    }
+
+    struct ListenServer {
+        state: AppState,
+        user_id: String,
+        raw: String,
+        vault_id: String,
+    }
+
+    async fn listen_server() -> ListenServer {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let vault = crate::service::vault::create_vault(&state, &user_id, "main")
+            .await
+            .unwrap();
+        ListenServer {
+            state,
+            user_id,
+            raw,
+            vault_id: vault.id,
+        }
+    }
+
+    fn listen_router(state: &AppState) -> Router {
+        router_with_rate_limiter(
+            state.clone(),
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        )
+    }
+
+    fn auth_for(user_id: &str) -> crate::auth::AuthenticatedUser {
+        crate::auth::AuthenticatedUser {
+            user_id: user_id.into(),
+            username: "u1".into(),
+            is_admin: false,
+            token_id: "listen-test-token".into(),
+            device_id: "listen-test-device".into(),
+        }
+    }
+
+    async fn commit_to_vault(ls: &ListenServer) -> String {
+        use crate::service::sync::{push, PushChange, PushReq};
+        push(
+            &ls.state,
+            &auth_for(&ls.user_id),
+            &ls.vault_id,
+            None,
+            None,
+            PushReq {
+                device_name: Some("listen-test".into()),
+                changes: vec![PushChange::Text {
+                    path: "listen.md".into(),
+                    content: "v".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap()
+        .new_commit
+    }
+
+    fn parse_sse_data(body: &str) -> Vec<Value> {
+        body.split("\n\n")
+            .filter_map(|event| {
+                let data = event
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("data: "))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if data.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::from_str(&data).unwrap())
+                }
+            })
+            .collect()
+    }
+
     #[tokio::test]
     async fn legacy_initialize_echoes_requested_version() {
         let state = state().await;
@@ -1128,5 +1434,235 @@ mod tests {
         assert_eq!(unknown.status(), StatusCode::OK);
         let unknown = response_json(unknown).await;
         assert_eq!(unknown["result"]["protocolVersion"], "2025-06-18");
+    }
+
+    #[tokio::test]
+    async fn listen_acknowledges_then_streams_resource_updates() {
+        let ls = listen_server().await;
+        let app = listen_router(&ls.state);
+
+        let response = app
+            .oneshot(listen_post(
+                &ls.raw,
+                serde_json::json!({
+                    "resourceSubscriptions": [format!("pkv://vault/{}", ls.vault_id)]
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("text/event-stream")));
+        assert_eq!(
+            response
+                .headers()
+                .get("x-accel-buffering")
+                .and_then(|value| value.to_str().ok()),
+            Some("no")
+        );
+
+        let mut stream = response.into_body().into_data_stream();
+        let mut body = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let ack: Value = loop {
+            let chunk = tokio::select! {
+                chunk = stream.next() => chunk,
+                _ = tokio::time::sleep_until(deadline) => panic!("no ack within 5s, got: {body}"),
+            };
+            match chunk {
+                Some(Ok(bytes)) => {
+                    body.push_str(&String::from_utf8_lossy(&bytes));
+                    if let Some(event) = parse_sse_data(&body).first() {
+                        break event.clone();
+                    }
+                }
+                Some(Err(err)) => panic!("body stream error: {err}"),
+                None => panic!("stream ended before ack, got: {body}"),
+            }
+        };
+
+        assert_eq!(
+            ack["method"], "notifications/subscriptions/acknowledged",
+            "first SSE event must be the ack"
+        );
+        assert_eq!(
+            ack["params"]["notifications"]["resourceSubscriptions"],
+            serde_json::json!([format!("pkv://vault/{}", ls.vault_id)])
+        );
+        assert_eq!(
+            ack["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"],
+            1
+        );
+
+        commit_to_vault(&ls).await;
+
+        let mut body = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let update: Value = loop {
+            let chunk = tokio::select! {
+                chunk = stream.next() => chunk,
+                _ = tokio::time::sleep_until(deadline) => panic!("no update within 5s, got: {body}"),
+            };
+            match chunk {
+                Some(Ok(bytes)) => {
+                    body.push_str(&String::from_utf8_lossy(&bytes));
+                    if let Some(event) = parse_sse_data(&body).first() {
+                        break event.clone();
+                    }
+                }
+                Some(Err(err)) => panic!("body stream error: {err}"),
+                None => panic!("stream ended before update, got: {body}"),
+            }
+        };
+
+        assert_eq!(update["method"], "notifications/resources/updated");
+        assert_eq!(
+            update["params"]["uri"],
+            format!("pkv://vault/{}", ls.vault_id)
+        );
+        assert_eq!(
+            update["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"],
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn listen_with_empty_filter_acknowledges_nothing_and_streams_nothing() {
+        let ls = listen_server().await;
+        let app = listen_router(&ls.state);
+
+        let response = app
+            .oneshot(listen_post(&ls.raw, serde_json::json!({})))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("text/event-stream")));
+
+        let mut stream = response.into_body().into_data_stream();
+        let mut body = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let ack: Value = loop {
+            let chunk = tokio::select! {
+                chunk = stream.next() => chunk,
+                _ = tokio::time::sleep_until(deadline) => panic!("no ack within 5s, got: {body}"),
+            };
+            match chunk {
+                Some(Ok(bytes)) => {
+                    body.push_str(&String::from_utf8_lossy(&bytes));
+                    if let Some(event) = parse_sse_data(&body).first() {
+                        break event.clone();
+                    }
+                }
+                Some(Err(err)) => panic!("body stream error: {err}"),
+                None => panic!("stream ended before ack, got: {body}"),
+            }
+        };
+
+        assert_eq!(
+            ack["method"], "notifications/subscriptions/acknowledged",
+            "first SSE event must be the ack"
+        );
+        assert_eq!(ack["params"]["notifications"], serde_json::json!({}));
+
+        commit_to_vault(&ls).await;
+
+        let mut new_bytes = String::new();
+        let slept = tokio::time::timeout(Duration::from_millis(300), async {
+            while let Some(chunk) = stream.next().await {
+                match chunk {
+                    Ok(bytes) => new_bytes.push_str(&String::from_utf8_lossy(&bytes)),
+                    Err(_) => break,
+                }
+            }
+        })
+        .await;
+        assert!(slept.is_err(), "stream must stay open after a commit");
+        assert!(
+            parse_sse_data(&new_bytes).is_empty(),
+            "commit on an unsubscribed vault must not stream anything, got: {new_bytes}"
+        );
+    }
+
+    #[tokio::test]
+    async fn listen_unknown_vault_uri_is_dropped_from_ack() {
+        let ls = listen_server().await;
+        let app = listen_router(&ls.state);
+
+        let response = app
+            .oneshot(listen_post(
+                &ls.raw,
+                serde_json::json!({
+                    "resourceSubscriptions": [
+                        "pkv://vault/unknown",
+                        format!("pkv://vault/{}", ls.vault_id)
+                    ]
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let mut stream = response.into_body().into_data_stream();
+        let mut body = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let ack: Value = loop {
+            let chunk = tokio::select! {
+                chunk = stream.next() => chunk,
+                _ = tokio::time::sleep_until(deadline) => panic!("no ack within 5s, got: {body}"),
+            };
+            match chunk {
+                Some(Ok(bytes)) => {
+                    body.push_str(&String::from_utf8_lossy(&bytes));
+                    if let Some(event) = parse_sse_data(&body).first() {
+                        break event.clone();
+                    }
+                }
+                Some(Err(err)) => panic!("body stream error: {err}"),
+                None => panic!("stream ended before ack, got: {body}"),
+            }
+        };
+
+        assert_eq!(ack["method"], "notifications/subscriptions/acknowledged");
+        assert_eq!(
+            ack["params"]["notifications"]["resourceSubscriptions"],
+            serde_json::json!([format!("pkv://vault/{}", ls.vault_id)]),
+            "unknown vault URI must be dropped from the ack: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_listen_is_method_not_found() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let body = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "subscriptions/listen",
+            "params": {"notifications": {}}
+        });
+        let request = HttpRequest::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("content-type", "application/json")
+            .header(deployment_key::HEADER, "k_test")
+            .header(header::AUTHORIZATION, format!("Bearer {raw}"))
+            .body(Body::from(body.to_string()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], -32601);
     }
 }
