@@ -10,7 +10,7 @@ use pkv_sync_server::server;
 use pkv_sync_server::service::sync::{push, PushChange, PushReq};
 use pkv_sync_server::service::{vault, AppState};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -177,7 +177,7 @@ async fn read_until(resp: reqwest::Response, needles: &[String]) -> String {
     body
 }
 
-async fn wait_for_file(path: &PathBuf) {
+async fn wait_for_file(path: &Path) {
     for _ in 0..200 {
         if path.exists() {
             return;

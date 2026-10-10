@@ -7,6 +7,53 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Security
+
+- Resolved all 12 open Dependabot alerts (8 distinct advisories, published
+  2026-07 through 2026-10, affecting 6 packages). Full per-advisory research
+  with exploitability analysis and sources:
+  `docs/audits/2026-10-10-dependabot-advisory-research.md`.
+  - `rmcp` 1.7.0 → 2.2.0 (GHSA-33f5-2c5q-wgwj / CVE-2026-63127,
+    GHSA-9pj6-vhgr-3mwh / CVE-2026-63128, GHSA-c9xm-49cp-xcr9,
+    GHSA-9g45-5xwm-f3wc / CVE-2026-64684). No patched 1.x exists; 2.2.0 is the
+    latest 2.x. pkv-sync only uses `rmcp::model::{object, Tool,
+    ToolAnnotations, JsonObject}` (no transport/auth features), so none of the
+    four vulnerable code paths were compiled in, and the model-only API
+    compiles unchanged at 2.2.0.
+  - `rustls` 0.23.40 → 0.23.45 (GHSA-2mjx-qc3c-rqvc, TLS 1.3 handshake
+    messages accepted across encryption-level boundaries) — drop-in patch.
+  - `quinn-proto` 0.11.14 → 0.11.19 (GHSA-4w2j-m93h-cj5j, unbounded
+    out-of-order stream reassembly) — patch; the QUIC path is not exercised
+    (reqwest runs without http3) but the alert is cleared regardless.
+  - `source-map-js` 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q / CVE-2026-93749,
+    event-loop DoS via indexed source-map offsets) — dev-only transitive via
+    postcss/magicast; patched by `npm audit fix`.
+  - `moment` 2.29.4 → 2.31.0 (GHSA-4p3w-j4w9-5jqw / CVE-2026-17495, path
+    traversal via crafted locale name) — dev-only transitive; fixed by moving
+    the pinned `obsidian` typings package 1.12.3 → 1.14.4 (the first release
+    pinning moment 2.31.0). The metadata test now pins 1.14.4 accordingly.
+  - Verified end state: `cargo test` green (the one cli_upgrade permission
+    test is root-environment-only; it passes when run as an unprivileged
+    user), `cargo clippy`/`cargo fmt` clean, all 371 plugin tests pass,
+    `npm audit --audit-level=moderate` reports 0 vulnerabilities.
+
+### Fixed
+
+- Repaired CI on the Rust 1.99.0 toolchain (GitHub's stable runner moved
+  past the toolchain the last green run used, surfacing new lints — not a
+  regression from the dependency bumps):
+  - `async-trait` 0.1.89 → 0.1.92: 0.1.92 resolves the new clippy
+    `double_must_use` lint that fires on `#[async_trait]`-generated code
+    (it placed a message-less `#[must_use]` on methods returning
+    `Result`, itself already `must_use`); this silenced 12 build errors
+    without any source changes.
+  - `server/src/service/state.rs`: kept `fetch_update` (renamed
+    `try_update` in 1.99.0, but that spelling needs Rust 1.95 and the
+    MSRV is 1.85) behind `#[allow(deprecated)]` with an explanatory
+    comment, so `-D warnings` passes on both old and new toolchains.
+  - `server/tests/mcp_sse_replay.rs`: `wait_for_file` now takes `&Path`
+    instead of `&PathBuf` (new-enforcement `clippy::ptr_arg`).
+
 ## [1.5.1] - 2026-09-11
 
 ### Changed

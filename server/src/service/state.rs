@@ -456,6 +456,9 @@ impl Drop for SseSubscriberGuard {
     }
 }
 
+// `try_update` needs Rust 1.95; the MSRV is 1.85, so keep the deprecated
+// `fetch_update` name (a pure alias) until the MSRV moves past 1.95.
+#[allow(deprecated)]
 fn release_sse_global_count(count: &AtomicUsize) {
     if count
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
@@ -467,6 +470,7 @@ fn release_sse_global_count(count: &AtomicUsize) {
     }
 }
 
+#[allow(deprecated)]
 fn release_sse_per_user_count(counts: &DashMap<String, AtomicUsize>, user_id: &str) {
     if let Some(count) = counts.get(user_id) {
         let released_to_zero = count

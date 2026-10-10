@@ -38,8 +38,8 @@ describe("plugin package metadata", () => {
       "package-lock obsidian package"
     );
 
-    expect(packageDevDeps.obsidian).toBe("1.12.3");
-    expect(rootDevDeps.obsidian).toBe("1.12.3");
-    expect(obsidianPackage.version).toBe("1.12.3");
+    expect(packageDevDeps.obsidian).toBe("1.14.4");
+    expect(rootDevDeps.obsidian).toBe("1.14.4");
+    expect(obsidianPackage.version).toBe("1.14.4");
   });
 });
