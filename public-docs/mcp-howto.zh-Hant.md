@@ -60,6 +60,8 @@ Authorization: Bearer pks_xxx
 
 MCP HTTP 使用固定視窗限流，每 60 秒最多 120 次請求。超限時，伺服器會返回 HTTP `429`，JSON-RPC error code 為 `-63001`。失敗的 MCP bearer token 認證返回 HTTP `401` 和 code `-63002`，並且同樣在進程內限流：stdio 和 HTTP transport 合計每 60 秒最多 30 次失敗嘗試。
 
+MCP 規範中的 `Origin` 請求頭 DNS-rebinding 檢查未在 `/mcp` 上實作，這是有意為之：該端點要求非環境憑證的部署金鑰和 bearer 裝置 token（瀏覽器無法在跨源請求中附帶這兩者），管理員會話 cookie 會被拒絕，並且沒有任何 CORS 政策向瀏覽器源暴露該端點。如果某個部署關閉了這些前提中的任何一項，就應當為 `/mcp` 自行前置 `Origin` 檢查。
+
 ## MCP 2026-07-28（現代）用戶端
 
 同一個端點同時服務兩個協定時代。現代用戶端在 `params._meta` 中發送逐請求協定欄位（`io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`），並且必須在 `MCP-Protocol-Version` 請求頭中重複版本、在 `Mcp-Method` 請求頭中重複方法；當請求攜帶 `params.name` 時，還要在 `Mcp-Name` 請求頭中重複名稱（非純 ASCII 時以 `=?base64?...?=` 形式 base64 編碼）。任一請求頭與請求體不符都會返回 HTTP `400` 和 code `-32020`。請求不支援的版本會返回 HTTP `400` 和 code `-32022`，並附上受支援版本列表（`2026-07-28`、`2025-06-18`）。未知方法返回 HTTP `404` 和 `-32601`；不含 `id` 的純通知訊息以 HTTP `202` 應答且無回應體。

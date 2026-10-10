@@ -62,6 +62,8 @@ Authorization: Bearer pks_xxx
 
 MCP HTTP は固定ウィンドウで 60 秒あたり 120 リクエストに制限されます。制限を超えると、サーバーは HTTP `429` と JSON-RPC error code `-63001` を返します。失敗した MCP bearer token 認証は HTTP `401` と code `-63002` を返し、プロセス内でも制限されます。stdio と HTTP transports の合計で 60 秒あたり最大 30 回の失敗試行までです。
 
+MCP 仕様の `Origin` ヘッダーによる DNS-rebinding チェックは `/mcp` では意図的に実装していません。この endpoint は非アンビエントなデプロイメントキーと bearer device token を必須にしており（ブラウザーはこのどちらも cross-origin リクエストに付与できません）、admin session cookie は拒否され、どの CORS ポリシーもこの endpoint をブラウザーの origin に公開しないためです。これらの前提のいずれかを無効化するデプロイメントは、`/mcp` の前に独自の `Origin` チェックを置くべきです。
+
 ## MCP 2026-07-28（モダン）クライアント
 
 同じ endpoint が両方のプロトコル時代に対応します。モダンクライアントは `params._meta` にリクエストごとのプロトコルフィールド（`io.modelcontextprotocol/protocolVersion` と `io.modelcontextprotocol/clientCapabilities`）を送信し、`MCP-Protocol-Version` ヘッダーにバージョンを、`Mcp-Method` ヘッダーにメソッドを繰り返さなければなりません。リクエストが `params.name` を持つ場合は、`Mcp-Name` ヘッダーにも名前を繰り返します（純 ASCII でない場合は `=?base64?...?=` 形式で base64 エンコード）。ヘッダーと body が一致しない場合、HTTP `400` と code `-32020` を返します。サポート対象外のバージョンを要求すると HTTP `400` と code `-32022`、サポートされているバージョンのリスト（`2026-07-28`、`2025-06-18`）を返します。不明なメソッドは HTTP `404` と `-32601` を返し、`id` のない通知のみのメッセージは body なしの HTTP `202` で応答されます。

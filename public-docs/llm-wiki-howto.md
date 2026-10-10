@@ -24,7 +24,7 @@ Create or reuse a PKV Sync device token, then point the MCP-capable agent at a s
 PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
 ```
 
-For agents that support Streamable HTTP, you can expose `/mcp` in embedded or standalone mode and send both the deployment key and bearer token on every request. See the MCP access guide for transport details.
+For agents that support Streamable HTTP, point them at the `/mcp` endpoint embedded in `pkvsyncd serve` and send both the deployment key and bearer token on every request. See the MCP access guide for transport details.
 
 Give the agent a narrow instruction: read the source pages, propose wiki updates, use `parent_commit` from the last read when writing, and stop for human review when facts are uncertain or conflicts appear.
 

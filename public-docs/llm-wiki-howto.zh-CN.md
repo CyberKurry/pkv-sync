@@ -24,7 +24,7 @@ PKV Sync 是基底，不是 LLM host。服务端暴露安全读取工具、乐�
 PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
 ```
 
-对于支持 Streamable HTTP 的 agent，你可以用嵌入模式或独立模式暴露 `/mcp`，并在每个请求中同时发送部署密钥和 bearer token。transport 细节请参见 MCP access guide。
+对于支持 Streamable HTTP 的 agent，你可以让它指向 `pkvsyncd serve` 内嵌提供的 `/mcp` 端点，并在每个请求中同时发送部署密钥和 bearer token。transport 细节请参见 MCP access guide。
 
 给 agent 一个范围很窄的指令：读取 source 页面、提出 wiki 更新、写入时使用上次读取得到的 `parent_commit`，并在事实不确定或出现冲突时停下来等待人工 review。
 

@@ -62,6 +62,8 @@ Authorization: Bearer pks_xxx
 
 MCP HTTP는 고정 창 방식으로 60초당 120개 요청으로 제한됩니다. 제한을 초과하면 서버는 HTTP `429`와 JSON-RPC error code `-63001`을 반환합니다. 실패한 MCP bearer token 인증은 HTTP `401`과 code `-63002`를 반환하며, 프로세스 내에서도 제한됩니다. stdio와 HTTP transports 합산 60초당 최대 30회 실패 시도까지 허용됩니다.
 
+MCP 사양의 `Origin` 헤더 DNS-rebinding 검사는 `/mcp`에서 의도적으로 구현하지 않았습니다. 이 endpoint는 비앰비언트(non-ambient) 배포 키와 bearer device token을 필수로 요구하고(브라우저는 이 둘을 cross-origin 요청에 첨부할 수 없음), admin session cookie는 거부되며, 어떤 CORS 정책도 이 endpoint를 브라우저 origin에 노출하지 않기 때문입니다. 이 전제 중 하나라도 비활성화하는 배포는 `/mcp` 앞에 자체 `Origin` 검사를 두어야 합니다.
+
 ## MCP 2026-07-28(모던) 클라이언트
 
 같은 endpoint가 두 프로토콜 시대를 모두 서비스합니다. 모던 클라이언트는 `params._meta`에 요청별 프로토콜 필드(`io.modelcontextprotocol/protocolVersion`과 `io.modelcontextprotocol/clientCapabilities`)를 담아 보내고, `MCP-Protocol-Version` 헤더에 버전을, `Mcp-Method` 헤더에 메서드를 반드시 반복해야 합니다. 요청에 `params.name`이 있으면 `Mcp-Name` 헤더에도 이름을 반복합니다(순수 ASCII가 아니면 `=?base64?...?=` 형식으로 base64 인코딩). 헤더와 body가 일치하지 않으면 HTTP `400`과 code `-32020`을 반환합니다. 지원되지 않는 버전을 요청하면 HTTP `400`과 code `-32022`, 지원 버전 목록(`2026-07-28`, `2025-06-18`)을 반환합니다. 알 수 없는 메서드는 HTTP `404`와 `-32601`을 반환하며, `id`가 없는 알림 전용 메시지는 body 없이 HTTP `202`로 응답됩니다.

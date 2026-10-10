@@ -26,7 +26,7 @@ PKV Sync device token を作成または再利用し、stdio で MCP 対応 agen
 PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
 ```
 
-Streamable HTTP をサポートする agent では、embedded または standalone mode で `/mcp` を公開し、すべての request に deployment key と bearer token を送信できます。transport の詳細は MCP access guide を参照してください。
+Streamable HTTP をサポートする agent では、`pkvsyncd serve` に組み込みで提供される `/mcp` endpoint を指し、すべての request に deployment key と bearer token を送信できます。transport の詳細は MCP access guide を参照してください。
 
 agent には狭い instruction を渡します。source pages を読み、wiki updates を提案し、書き込み時には最後の read で得た `parent_commit` を使い、facts が不確かまたは conflicts が出たら human review のために停止するよう指示します。
 

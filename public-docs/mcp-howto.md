@@ -85,6 +85,13 @@ using code `-63001`. Failed MCP bearer-token authentication responds with
 HTTP `401` and code `-63002`, and is also rate limited in-process at 30
 attempts per 60 seconds across stdio and HTTP transports.
 
+The MCP specification's `Origin`-header DNS-rebinding check is intentionally
+not implemented on `/mcp`: the endpoint requires the non-ambient deployment
+key and bearer device token (browsers cannot attach either to a cross-origin
+request), admin session cookies are rejected, and no CORS policy exposes the
+endpoint to browser origins. If a deployment disables any of these
+assumptions, it should front `/mcp` with its own `Origin` checks.
+
 ## MCP 2026-07-28 (modern) clients
 
 The server serves two protocol eras on the same endpoint. Modern clients send

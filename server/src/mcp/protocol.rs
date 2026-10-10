@@ -9,7 +9,7 @@ pub const META_SERVER_INFO: &str = "io.modelcontextprotocol/serverInfo";
 pub const META_SUBSCRIPTION_ID: &str = "io.modelcontextprotocol/subscriptionId";
 pub const SERVER_NAME: &str = "cyberkurry pkv sync";
 
-// App-defined codes, kept outside the -32000..-32768 range the 2026-07-28
+// App-defined codes, kept outside the -32768..-32000 range the 2026-07-28
 // spec freezes for the protocol / reserved error space.
 pub const ERR_RATE_LIMIT: i64 = -63001;
 pub const ERR_AUTH: i64 = -63002;
@@ -113,6 +113,18 @@ pub fn decode_header_value(raw: &str) -> String {
         }
     }
     raw.to_string()
+}
+
+/// True when the `MCP-Protocol-Version` header names the modern version.
+///
+/// A request whose body classifies as legacy (no modern `_meta`) but whose
+/// header claims a modern version must not be silently downgraded to the
+/// legacy era: the caller rejects it with a header mismatch instead.
+pub fn header_names_modern_version(headers: &axum::http::HeaderMap) -> bool {
+    headers
+        .get("MCP-Protocol-Version")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == MODERN_VERSION)
 }
 
 pub fn validate_modern_headers(
@@ -279,6 +291,20 @@ mod tests {
             "params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",
             "io.modelcontextprotocol/clientCapabilities":{}}}});
         assert!(validate_modern_headers(&headers, &req).is_err());
+    }
+
+    #[test]
+    fn header_names_modern_version_matches_only_modern_version() {
+        assert!(header_names_modern_version(&header_map(&[(
+            "MCP-Protocol-Version",
+            MODERN_VERSION
+        )])));
+        assert!(!header_names_modern_version(&header_map(&[(
+            "MCP-Protocol-Version",
+            "2025-06-18"
+        )])));
+        // Absent or unreadable headers never claim the modern version.
+        assert!(!header_names_modern_version(&axum::http::HeaderMap::new()));
     }
 
     #[test]

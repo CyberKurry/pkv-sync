@@ -1740,11 +1740,13 @@ paths:
         fields in `params._meta` and must repeat the version in the
         `MCP-Protocol-Version` header and the method in the `Mcp-Method`
         header (plus `Mcp-Name` when the body carries `params.name`); a
-        header/body mismatch returns `400` with code `-32020`, and an
+        header/body mismatch returns `400` with code `-32020` — including a
+        modern-version header on a body without modern `_meta` — and an
         unsupported version returns `400` with code `-32022` plus the
         supported list (`2026-07-28`, `2025-06-18`). Modern results carry
         `resultType`, `tools/list` and `server/discover` additionally carry
-        `ttlMs`/`cacheScope`, and unknown methods return `404` with `-32601`.
+        `ttlMs`/`cacheScope`, and unknown methods return `404` with `-32601`;
+        legacy-era errors stay 200-wrapped JSON-RPC envelopes.
         Notification-only messages (no `id`) are answered with `202` and no
         body. A `subscriptions/listen` POST switches the response to an SSE
         stream (ack-first, `notifications/resources/updated` for

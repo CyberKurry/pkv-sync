@@ -157,7 +157,11 @@ async fn post_mcp(
     }
 
     let era = super::protocol::classify_request(&request);
-    let is_modern = matches!(era, Ok(super::protocol::Era::Modern));
+    // `is_modern` covers requests that target the modern era, including ones
+    // whose `_meta` is malformed (classification error): only those map
+    // protocol errors onto HTTP statuses. Legacy-era requests always get
+    // 200-wrapped JSON-RPC envelopes, whatever their error code.
+    let is_modern = !matches!(era, Ok(super::protocol::Era::Legacy));
     let response = match era {
         Ok(super::protocol::Era::Modern) => {
             if let Err(reason) = super::protocol::validate_modern_headers(&headers, &request) {
@@ -177,14 +181,31 @@ async fn post_mcp(
             }
             handle_modern_jsonrpc(&state, &user, request).await
         }
-        Ok(super::protocol::Era::Legacy) => handle_jsonrpc(&state, &user, None, request).await,
+        Ok(super::protocol::Era::Legacy) => {
+            // The header names the modern version but the body has no modern
+            // `_meta`: the spec forbids silently downgrading a modern client,
+            // so refuse instead of serving the legacy era.
+            if super::protocol::header_names_modern_version(&headers) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(jsonrpc_error(
+                        request.get("id").cloned().unwrap_or(Value::Null),
+                        -32020,
+                        "MCP-Protocol-Version header names a modern version but the request body lacks modern _meta",
+                    )),
+                )
+                    .into_response();
+            }
+            handle_jsonrpc(&state, &user, None, request).await
+        }
         Err(err) => super::protocol::error_response(request.get("id").unwrap_or(&Value::Null), err),
     };
 
     let status = match response["error"]["code"].as_i64() {
-        Some(-32020 | -32021 | -32022 | -32602) => StatusCode::BAD_REQUEST,
-        // Legacy JSON-RPC clients expect 200-wrapped errors, so only modern-era
-        // method-not-found maps to 404.
+        // Legacy JSON-RPC clients expect 200-wrapped errors, so only
+        // modern-era errors map to transport-level statuses; the -32601 →
+        // 404 arm below is era-gated the same way.
+        Some(-32020 | -32021 | -32022 | -32602) if is_modern => StatusCode::BAD_REQUEST,
         Some(-32601) if is_modern => StatusCode::NOT_FOUND,
         _ => StatusCode::OK,
     };
@@ -1136,6 +1157,79 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         let body = response_json(response).await;
         assert_eq!(body["error"]["code"], -32601);
+    }
+
+    #[tokio::test]
+    async fn modern_header_with_legacy_body_is_rejected_not_downgraded() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        // Legacy-shaped body (no modern `_meta`) but the header claims the
+        // modern version: must not fall back to the legacy era silently.
+        let body = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}
+        });
+        let request = HttpRequest::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("content-type", "application/json")
+            .header(deployment_key::HEADER, "k_test")
+            .header(header::AUTHORIZATION, format!("Bearer {raw}"))
+            .header("MCP-Protocol-Version", "2026-07-28")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], -32020);
+        let message = body["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("modern version") && message.contains("_meta"),
+            "message must explain the header/body era mismatch: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_tools_call_invalid_params_stays_200_wrapped() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        // Legacy-era tools/call with malformed params (no `_meta`, invalid
+        // tool name): base behavior is a 200-wrapped -32602 envelope, not an
+        // HTTP 400.
+        let body = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": 5, "arguments": {}}
+        });
+        let request = HttpRequest::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("content-type", "application/json")
+            .header(deployment_key::HEADER, "k_test")
+            .header(header::AUTHORIZATION, format!("Bearer {raw}"))
+            .body(Body::from(body.to_string()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], -32602);
+        let message = body["error"]["message"].as_str().unwrap();
+        assert!(
+            message.starts_with("invalid params"),
+            "expected invalid-params envelope, got: {message}"
+        );
     }
 
     fn listen_body(filter: serde_json::Value) -> String {
