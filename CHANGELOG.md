@@ -7,6 +7,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- MCP 2026-07-28 dual-era support on `/mcp` (embedded) and stdio: modern
+  per-request `_meta` protocol handling with `MCP-Protocol-Version`/
+  `Mcp-Method`/`Mcp-Name` header validation (`-32020`), `server/discover`,
+  `resultType`/`ttlMs`/`cacheScope` result envelopes, `202 Accepted` for
+  notifications, `-32022` version negotiation with the supported list, and
+  legacy `initialize` that echoes the client's legacy version.
+
 ### Security
 
 - Resolved all 12 open Dependabot alerts (8 distinct advisories, published

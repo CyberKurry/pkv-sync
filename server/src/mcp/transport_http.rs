@@ -184,7 +184,50 @@ async fn post_mcp(
                 .into_response();
         }
     };
-    Json(handle_jsonrpc(&state, &user, None, request).await).into_response()
+    // Notification (no id): accepted → 202, no body (transport spec).
+    if request.get("id").is_none() {
+        return StatusCode::ACCEPTED.into_response();
+    }
+
+    let era = super::protocol::classify_request(&request);
+    let is_modern = matches!(era, Ok(super::protocol::Era::Modern));
+    let response = match era {
+        Ok(super::protocol::Era::Modern) => {
+            if let Err(reason) = super::protocol::validate_modern_headers(&headers, &request) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(jsonrpc_error(
+                        request.get("id").cloned().unwrap_or(Value::Null),
+                        -32020,
+                        &format!("Header mismatch: {reason}"),
+                    )),
+                )
+                    .into_response();
+            }
+            handle_modern_jsonrpc(&state, &user, request).await
+        }
+        Ok(super::protocol::Era::Legacy) => handle_jsonrpc(&state, &user, None, request).await,
+        Err(err) => super::protocol::error_response(request.get("id").unwrap_or(&Value::Null), err),
+    };
+
+    let status = match response["error"]["code"].as_i64() {
+        Some(-32020 | -32021 | -32022 | -32602) => StatusCode::BAD_REQUEST,
+        // Legacy JSON-RPC clients expect 200-wrapped errors, so only modern-era
+        // method-not-found maps to 404.
+        Some(-32601) if is_modern => StatusCode::NOT_FOUND,
+        _ => StatusCode::OK,
+    };
+    (status, Json(response)).into_response()
+}
+
+// `subscriptions/listen` deliberately falls through to the shared -32601:
+// HTTP serves subscriptions over the SSE endpoint, never POST.
+async fn handle_modern_jsonrpc(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    request: Value,
+) -> Value {
+    super::transport_stdio::handle_modern_jsonrpc(state, user, request).await
 }
 
 async fn mcp_rate_limit(
@@ -550,6 +593,39 @@ mod tests {
             .unwrap()
     }
 
+    fn modern_post(raw: &str, method: &str, name: Option<&str>, token: &str) -> HttpRequest<Body> {
+        let mut builder = HttpRequest::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("content-type", "application/json")
+            .header(deployment_key::HEADER, "k_test")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .header("MCP-Protocol-Version", "2026-07-28")
+            .header("Mcp-Method", method);
+        if let Some(name) = name {
+            builder = builder.header("Mcp-Name", name);
+        }
+        builder.body(Body::from(raw.to_string())).unwrap()
+    }
+
+    fn modern_body(method: &str) -> String {
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": method,
+            "params": {"_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }}
+        })
+        .to_string()
+    }
+
+    async fn response_json(response: Response) -> Value {
+        let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
     async fn mcp_error_message(response: Response) -> String {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body = axum::body::to_bytes(response.into_body(), 4096)
@@ -805,5 +881,252 @@ mod tests {
             StatusCode::TOO_MANY_REQUESTS,
             "untrusted peer: both requests map to the same IP bucket"
         );
+    }
+
+    #[tokio::test]
+    async fn modern_tools_list_returns_decorated_result() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let response = app
+            .oneshot(modern_post(
+                &modern_body("tools/list"),
+                "tools/list",
+                None,
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["result"]["resultType"], "complete");
+        assert_eq!(body["result"]["ttlMs"], 300_000);
+        assert_eq!(body["result"]["cacheScope"], "private");
+        assert_eq!(
+            body["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+            "cyberkurry pkv sync"
+        );
+    }
+
+    #[tokio::test]
+    async fn modern_server_discover_lists_both_eras() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let response = app
+            .oneshot(modern_post(
+                &modern_body("server/discover"),
+                "server/discover",
+                None,
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        assert_eq!(
+            body["result"]["supportedVersions"],
+            serde_json::json!(["2026-07-28", "2025-06-18"])
+        );
+        assert_eq!(
+            body["result"]["capabilities"]["tools"],
+            serde_json::json!({})
+        );
+        assert_eq!(body["result"]["resultType"], "complete");
+        assert_eq!(body["result"]["ttlMs"], 3_600_000);
+        assert_eq!(body["result"]["cacheScope"], "private");
+        assert_eq!(
+            body["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+            "cyberkurry pkv sync"
+        );
+    }
+
+    #[tokio::test]
+    async fn modern_notification_returns_202_with_empty_body() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let body = serde_json::json!({
+            "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {}
+        });
+        let response = app
+            .oneshot(modern_post(
+                &body.to_string(),
+                "notifications/cancelled",
+                None,
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        assert!(bytes.is_empty(), "expected empty body, got {bytes:?}");
+    }
+
+    #[tokio::test]
+    async fn header_mismatch_is_400_header_mismatch() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let mut request = modern_post(&modern_body("tools/list"), "tools/list", None, &raw);
+        request.headers_mut().insert(
+            "MCP-Protocol-Version",
+            axum::http::HeaderValue::from_static("2025-06-18"),
+        );
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], -32020);
+        let message = body["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("header"),
+            "message must mention header: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_client_capabilities_is_400_invalid_params() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let body = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+            "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}
+        });
+        let response = app
+            .oneshot(modern_post(&body.to_string(), "tools/list", None, &raw))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], -32602);
+    }
+
+    #[tokio::test]
+    async fn unsupported_version_is_400_with_supported_list() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let body = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+            "params": {"_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2099-01-01",
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }}
+        });
+        let mut request = modern_post(&body.to_string(), "tools/list", None, &raw);
+        request.headers_mut().insert(
+            "MCP-Protocol-Version",
+            axum::http::HeaderValue::from_static("2099-01-01"),
+        );
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], -32022);
+        assert_eq!(
+            body["error"]["data"]["supported"],
+            serde_json::json!(["2026-07-28", "2025-06-18"])
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_method_modern_is_404_method_not_found() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let response = app
+            .oneshot(modern_post(
+                &modern_body("resources/list"),
+                "resources/list",
+                None,
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], -32601);
+    }
+
+    #[tokio::test]
+    async fn legacy_initialize_echoes_requested_version() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let post_initialize = |protocol_version: &str| {
+            let body = serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": protocol_version}
+            });
+            HttpRequest::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header(deployment_key::HEADER, "k_test")
+                .header(header::AUTHORIZATION, format!("Bearer {raw}"))
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+
+        let known = app
+            .clone()
+            .oneshot(post_initialize("2024-11-05"))
+            .await
+            .unwrap();
+        assert_eq!(known.status(), StatusCode::OK);
+        let known = response_json(known).await;
+        assert_eq!(known["result"]["protocolVersion"], "2024-11-05");
+
+        let unknown = app.oneshot(post_initialize("1999-01-01")).await.unwrap();
+        assert_eq!(unknown.status(), StatusCode::OK);
+        let unknown = response_json(unknown).await;
+        assert_eq!(unknown["result"]["protocolVersion"], "2025-06-18");
     }
 }

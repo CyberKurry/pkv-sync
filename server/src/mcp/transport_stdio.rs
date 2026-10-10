@@ -31,7 +31,7 @@ impl std::fmt::Debug for StdioSession {
 }
 
 #[derive(Debug, Deserialize)]
-struct ToolCallParams {
+pub(crate) struct ToolCallParams {
     name: String,
     #[serde(default)]
     arguments: Value,
@@ -190,20 +190,26 @@ pub(crate) async fn handle_jsonrpc(
     };
 
     match method {
-        "initialize" => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "tools": {}
-                },
-                "serverInfo": {
-                    "name": "cyberkurry pkv sync",
-                    "version": env!("CARGO_PKG_VERSION")
+        "initialize" => {
+            let requested = request
+                .pointer("/params/protocolVersion")
+                .and_then(Value::as_str)
+                .unwrap_or("2025-06-18");
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "protocolVersion": crate::mcp::protocol::legacy_negotiate_initialize(requested),
+                    "capabilities": {
+                        "tools": {}
+                    },
+                    "serverInfo": {
+                        "name": crate::mcp::protocol::SERVER_NAME,
+                        "version": env!("CARGO_PKG_VERSION")
+                    }
                 }
-            }
-        }),
+            })
+        }
         "tools/list" => json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -232,7 +238,60 @@ pub(crate) async fn handle_jsonrpc(
     }
 }
 
-async fn call_tool(
+// Era-dispatched modern methods shared by both transports. Subscriptions are
+// transport-specific (HTTP answers over SSE, stdio Task 6 will differ), so
+// transports must handle `subscriptions/listen` before calling this.
+pub(crate) async fn handle_modern_jsonrpc(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    request: Value,
+) -> Value {
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let Some(method) = request.get("method").and_then(Value::as_str) else {
+        return jsonrpc_error(id, -32600, "invalid request");
+    };
+    match method {
+        "server/discover" => {
+            let result = crate::mcp::protocol::decorate_result(
+                json!({
+                    "supportedVersions": crate::mcp::protocol::SUPPORTED_VERSIONS,
+                    "capabilities": {"tools": {}},
+                    "instructions": "PKV Sync vault tools: list/read/search vault files, link graph, changes since, and guarded write tools.",
+                }),
+                Some((3_600_000, "private")),
+            );
+            json!({"jsonrpc": "2.0", "id": id, "result": result})
+        }
+        "tools/list" => {
+            let result = crate::mcp::protocol::decorate_result(
+                json!({"tools": tools::tool_definitions()}),
+                Some((300_000, "private")),
+            );
+            json!({"jsonrpc": "2.0", "id": id, "result": result})
+        }
+        "tools/call" => {
+            let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
+            match serde_json::from_value::<ToolCallParams>(params) {
+                Ok(params) => match call_tool(state, user, None, params).await {
+                    Ok(mut result) => {
+                        if let Some(obj) = result.as_object_mut() {
+                            obj.insert("resultType".into(), json!("complete"));
+                        }
+                        json!({"jsonrpc": "2.0", "id": id, "result": result})
+                    }
+                    Err(err) => {
+                        let message = mcp_tool_error_public_message(&err);
+                        jsonrpc_error(id, -32000, &message)
+                    }
+                },
+                Err(err) => jsonrpc_error(id, -32602, &format!("invalid params: {err}")),
+            }
+        }
+        _ => jsonrpc_error(id, -32601, "method not found"),
+    }
+}
+
+pub(crate) async fn call_tool(
     state: &AppState,
     user: &AuthenticatedUser,
     vault_scope: Option<&str>,
