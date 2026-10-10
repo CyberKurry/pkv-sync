@@ -1327,24 +1327,13 @@ mod tests {
         }
 
         let mut body = String::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            let chunk = tokio::select! {
-                chunk = stream.next() => chunk.expect("stream ended without a lagged signal"),
-                _ = tokio::time::sleep_until(deadline) => {
-                    panic!("no lagged event within 5s, got: {body}")
-                }
-            };
-            match chunk {
-                Ok(bytes) => {
-                    body.push_str(&String::from_utf8_lossy(&bytes));
-                    if body.contains("event: lagged") {
-                        break;
-                    }
-                }
-                Err(err) => panic!("body stream error: {err}"),
-            }
-        }
+        read_sse_until(
+            &mut body,
+            &mut stream,
+            |body| body.contains("event: lagged"),
+            "lagged event",
+        )
+        .await;
     }
 
     fn listen_body(filter: serde_json::Value) -> String {
@@ -1442,6 +1431,52 @@ mod tests {
             .collect()
     }
 
+    /// Accumulate SSE chunks into `body` with a 5s deadline until `predicate`
+    /// matches the accumulated buffer. Panics on timeout (message includes
+    /// the buffer), on body-stream errors, and on EOF before the predicate
+    /// matches; `what` names the awaited thing in those panic messages.
+    async fn read_sse_until(
+        body: &mut String,
+        stream: &mut axum::body::BodyDataStream,
+        predicate: impl Fn(&str) -> bool,
+        what: &str,
+    ) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let chunk = tokio::select! {
+                chunk = stream.next() => chunk,
+                _ = tokio::time::sleep_until(deadline) => {
+                    panic!("no {what} within 5s, got: {body}")
+                }
+            };
+            match chunk {
+                Some(Ok(bytes)) => {
+                    body.push_str(&String::from_utf8_lossy(&bytes));
+                    if predicate(body) {
+                        return;
+                    }
+                }
+                Some(Err(err)) => panic!("body stream error: {err}"),
+                None => panic!("stream ended before {what}, got: {body}"),
+            }
+        }
+    }
+
+    /// Accumulate SSE chunks into `body` until it holds at least one
+    /// parseable `data:` JSON event and return that first event. Same panic
+    /// semantics as [`read_sse_until`].
+    async fn next_sse_event(
+        body: &mut String,
+        stream: &mut axum::body::BodyDataStream,
+        what: &str,
+    ) -> Value {
+        read_sse_until(body, stream, |body| !parse_sse_data(body).is_empty(), what).await;
+        parse_sse_data(body)
+            .into_iter()
+            .next()
+            .expect("read_sse_until returned without a parsed event")
+    }
+
     #[tokio::test]
     async fn legacy_initialize_echoes_requested_version() {
         let state = state().await;
@@ -1512,23 +1547,7 @@ mod tests {
 
         let mut stream = response.into_body().into_data_stream();
         let mut body = String::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        let ack: Value = loop {
-            let chunk = tokio::select! {
-                chunk = stream.next() => chunk,
-                _ = tokio::time::sleep_until(deadline) => panic!("no ack within 5s, got: {body}"),
-            };
-            match chunk {
-                Some(Ok(bytes)) => {
-                    body.push_str(&String::from_utf8_lossy(&bytes));
-                    if let Some(event) = parse_sse_data(&body).first() {
-                        break event.clone();
-                    }
-                }
-                Some(Err(err)) => panic!("body stream error: {err}"),
-                None => panic!("stream ended before ack, got: {body}"),
-            }
-        };
+        let ack: Value = next_sse_event(&mut body, &mut stream, "ack").await;
 
         assert_eq!(
             ack["method"], "notifications/subscriptions/acknowledged",
@@ -1546,23 +1565,7 @@ mod tests {
         commit_to_vault(&ls).await;
 
         let mut body = String::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        let update: Value = loop {
-            let chunk = tokio::select! {
-                chunk = stream.next() => chunk,
-                _ = tokio::time::sleep_until(deadline) => panic!("no update within 5s, got: {body}"),
-            };
-            match chunk {
-                Some(Ok(bytes)) => {
-                    body.push_str(&String::from_utf8_lossy(&bytes));
-                    if let Some(event) = parse_sse_data(&body).first() {
-                        break event.clone();
-                    }
-                }
-                Some(Err(err)) => panic!("body stream error: {err}"),
-                None => panic!("stream ended before update, got: {body}"),
-            }
-        };
+        let update: Value = next_sse_event(&mut body, &mut stream, "update").await;
 
         assert_eq!(update["method"], "notifications/resources/updated");
         assert_eq!(
@@ -1593,23 +1596,7 @@ mod tests {
 
         let mut stream = response.into_body().into_data_stream();
         let mut body = String::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        let ack: Value = loop {
-            let chunk = tokio::select! {
-                chunk = stream.next() => chunk,
-                _ = tokio::time::sleep_until(deadline) => panic!("no ack within 5s, got: {body}"),
-            };
-            match chunk {
-                Some(Ok(bytes)) => {
-                    body.push_str(&String::from_utf8_lossy(&bytes));
-                    if let Some(event) = parse_sse_data(&body).first() {
-                        break event.clone();
-                    }
-                }
-                Some(Err(err)) => panic!("body stream error: {err}"),
-                None => panic!("stream ended before ack, got: {body}"),
-            }
-        };
+        let ack: Value = next_sse_event(&mut body, &mut stream, "ack").await;
 
         assert_eq!(
             ack["method"], "notifications/subscriptions/acknowledged",
@@ -1655,23 +1642,7 @@ mod tests {
 
         let mut stream = response.into_body().into_data_stream();
         let mut body = String::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        let ack: Value = loop {
-            let chunk = tokio::select! {
-                chunk = stream.next() => chunk,
-                _ = tokio::time::sleep_until(deadline) => panic!("no ack within 5s, got: {body}"),
-            };
-            match chunk {
-                Some(Ok(bytes)) => {
-                    body.push_str(&String::from_utf8_lossy(&bytes));
-                    if let Some(event) = parse_sse_data(&body).first() {
-                        break event.clone();
-                    }
-                }
-                Some(Err(err)) => panic!("body stream error: {err}"),
-                None => panic!("stream ended before ack, got: {body}"),
-            }
-        };
+        let ack: Value = next_sse_event(&mut body, &mut stream, "ack").await;
 
         assert_eq!(ack["method"], "notifications/subscriptions/acknowledged");
         assert_eq!(
@@ -1703,25 +1674,13 @@ mod tests {
         let body = response.into_body();
         let mut stream = body.into_data_stream();
         let mut received = String::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            let chunk = tokio::select! {
-                chunk = stream.next() => chunk,
-                _ = tokio::time::sleep_until(deadline) => {
-                    panic!("no ack within 5s, got: {received}")
-                }
-            };
-            match chunk {
-                Some(Ok(bytes)) => {
-                    received.push_str(&String::from_utf8_lossy(&bytes));
-                    if received.contains("notifications/subscriptions/acknowledged") {
-                        break;
-                    }
-                }
-                Some(Err(err)) => panic!("body stream error: {err}"),
-                None => panic!("stream ended before ack, got: {received}"),
-            }
-        }
+        read_sse_until(
+            &mut received,
+            &mut stream,
+            |received| received.contains("notifications/subscriptions/acknowledged"),
+            "ack",
+        )
+        .await;
         drop(stream);
 
         // The guard is released once the spawned stream task observes the
@@ -1760,23 +1719,7 @@ mod tests {
 
         let mut stream = response.into_body().into_data_stream();
         let mut body = String::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        let ack: Value = loop {
-            let chunk = tokio::select! {
-                chunk = stream.next() => chunk,
-                _ = tokio::time::sleep_until(deadline) => panic!("no ack within 5s, got: {body}"),
-            };
-            match chunk {
-                Some(Ok(bytes)) => {
-                    body.push_str(&String::from_utf8_lossy(&bytes));
-                    if let Some(event) = parse_sse_data(&body).first() {
-                        break event.clone();
-                    }
-                }
-                Some(Err(err)) => panic!("body stream error: {err}"),
-                None => panic!("stream ended before ack, got: {body}"),
-            }
-        };
+        let ack: Value = next_sse_event(&mut body, &mut stream, "ack").await;
 
         assert_eq!(ack["method"], "notifications/subscriptions/acknowledged");
         assert_eq!(
@@ -1825,23 +1768,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let mut stream = response.into_body().into_data_stream();
         let mut body = String::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        let ack: Value = loop {
-            let chunk = tokio::select! {
-                chunk = stream.next() => chunk,
-                _ = tokio::time::sleep_until(deadline) => panic!("no ack within 5s, got: {body}"),
-            };
-            match chunk {
-                Some(Ok(bytes)) => {
-                    body.push_str(&String::from_utf8_lossy(&bytes));
-                    if let Some(event) = parse_sse_data(&body).first() {
-                        break event.clone();
-                    }
-                }
-                Some(Err(err)) => panic!("body stream error: {err}"),
-                None => panic!("stream ended before ack, got: {body}"),
-            }
-        };
+        let ack: Value = next_sse_event(&mut body, &mut stream, "ack").await;
         assert_eq!(
             ack["method"], "notifications/subscriptions/acknowledged",
             "first SSE event must be the ack, got: {body}"
@@ -1880,6 +1807,11 @@ mod tests {
             );
         }
         let mut tail = String::new();
+        // Deliberately not `read_sse_until`/`next_sse_event`: this loop reads
+        // past the ack into a second buffer, only counts *complete* events
+        // (parse_complete_sse_data drops a trailing partial segment), and its
+        // EOF/timeout panics carry different text (`.expect("stream ended
+        // without a dropped signal")`, `{body}{tail}` in the timeout message).
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         let dropped = loop {
             let chunk = tokio::select! {
