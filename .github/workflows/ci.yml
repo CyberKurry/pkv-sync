@@ -64,7 +64,10 @@ jobs:
 
       - name: Rust coverage
         if: matrix.os == 'ubuntu-latest'
-        run: cargo tarpaulin -p pkv-sync-server --engine Llvm --out Json --output-dir target/tarpaulin
+        # --timeout 600: tarpaulin 0.37.4+ made the LLVM engine honour the
+        # timeout watchdog (default 60s); the instrumented 649-test lib binary
+        # alone needs ~100s, so the default kills the run mid-stream.
+        run: cargo tarpaulin -p pkv-sync-server --engine Llvm --timeout 600 --out Json --output-dir target/tarpaulin
 
       - name: Upload Rust coverage
         if: matrix.os == 'ubuntu-latest'
