@@ -33,9 +33,35 @@ pub fn resource_updated(
     }
 }
 
+/// Non-standard signal that events were missed on a subscription and the
+/// client must re-read the resource: neither transport replays the skipped
+/// range, so silence would hide the gap entirely.
+pub fn resources_dropped(vault_id: &str, subscription_id: &serde_json::Value) -> McpNotification {
+    McpNotification {
+        method: "notifications/resources/dropped".into(),
+        params: serde_json::json!({
+            "uri": format!("pkv://vault/{vault_id}"),
+            "_meta": {
+                "io.modelcontextprotocol/subscriptionId": subscription_id,
+            },
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resources_dropped_carries_uri_and_subscription_id() {
+        let n = resources_dropped("vault-1", &serde_json::json!(5));
+        assert_eq!(n.method, "notifications/resources/dropped");
+        assert_eq!(n.params["uri"], "pkv://vault/vault-1");
+        assert_eq!(
+            n.params["_meta"]["io.modelcontextprotocol/subscriptionId"],
+            5
+        );
+    }
 
     #[test]
     fn resource_updated_carries_uri_commit_and_subscription_id() {

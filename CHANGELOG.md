@@ -64,6 +64,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Zero-vault users no longer get an instantly-closing SSE stream on
+  `GET /mcp`: an empty `StreamMap` made the stream end on its first poll,
+  so clients without any vault fell into a reconnect storm. The stream now
+  stays open (keep-alive every 15s) until the client disconnects.
+- MCP subscriptions on both `/mcp` (SSE) and stdio now emit a
+  non-standard `notifications/resources/dropped` notification (params:
+  `uri` `pkv://vault/<id>` plus `_meta.subscriptionId`) when the event
+  ring overflows, instead of silently skipping missed vault changes;
+  clients should treat it as "re-read state". Neither transport replays
+  the skipped range, so this is the only signal a gap happened.
+
 - Repaired CI on the Rust 1.99.0 toolchain (GitHub's stable runner moved
   past the toolchain the last green run used, surfacing new lints — not a
   regression from the dependency bumps):

@@ -476,6 +476,58 @@ async fn stdio_listen_streams_resource_updates_until_cancelled() {
 }
 
 #[tokio::test]
+async fn stdio_listen_lagged_broadcast_emits_resources_dropped() {
+    let (session, state, _user_id, vault_id, _tmp) = session_with_vault("stdio-listen-lag").await;
+    let scoped = format!("pkv://vault/{vault_id}");
+
+    let (tx, mut rx) = mpsc::channel::<String>(1024);
+    let mut tx = tx;
+    session
+        .pump(
+            &listen_request(json!(11), vec![scoped.as_str()]).to_string(),
+            &mut tx,
+        )
+        .await;
+    let ack: Value = serde_json::from_str(&rx.recv().await.unwrap()).unwrap();
+    assert_eq!(ack["method"], "notifications/subscriptions/acknowledged");
+
+    // stdio has no replay path: the drain loop polls on a 50ms tick, so
+    // publishing faster than it drains overflows the 64-slot broadcast ring
+    // and the next try_recv must report Lagged.
+    for idx in 0..70 {
+        state.events.publish(
+            &vault_id,
+            VaultEvent {
+                commit: format!("lag-{idx}"),
+                parent: None,
+                source_device_id: "dev".into(),
+                at: 1,
+                kind: EventKind::Commit,
+                changes: vec![],
+            },
+        );
+    }
+    session.drain_listens(&mut tx).await;
+
+    let mut saw_dropped = false;
+    while let Ok(Some(line)) = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
+        let notification: Value = serde_json::from_str(&line).unwrap();
+        if notification["method"] == "notifications/resources/dropped" {
+            assert_eq!(notification["params"]["uri"], scoped);
+            assert_eq!(
+                notification["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"],
+                11
+            );
+            saw_dropped = true;
+        }
+    }
+    assert!(
+        saw_dropped,
+        "drain after a broadcast overflow must emit a resources/dropped notification"
+    );
+}
+
+#[tokio::test]
 async fn stdio_unknown_notification_is_silence() {
     let (session, _state, _user_id, _vault_id, _tmp) =
         session_with_vault("stdio-notify-silence").await;

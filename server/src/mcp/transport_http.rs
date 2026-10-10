@@ -449,7 +449,7 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                     break;
                 }
             }
-            event = sse.streams.next() => {
+            event = sse.streams.next(), if !sse.streams.is_empty() => {
                 let item = match event {
                     Some((_vault_id, Ok(event))) => {
                         if sse.replay_commit_ids.contains(&event.commit) {
@@ -680,10 +680,22 @@ async fn run_listen_stream(mut listen: ListenState, tx: mpsc::Sender<Result<Even
                             break;
                         }
                     }
-                    // No lag signal on the modern stream: the client's next
-                    // read/listen re-syncs.
-                    Some((_vault_id, Err(BroadcastStreamRecvError::Lagged(_)))) => {
-                        continue;
+                    Some((vault_id, Err(BroadcastStreamRecvError::Lagged(_)))) => {
+                        // Lagged means the receiver already skipped to the
+                        // oldest retained event; the modern stream has no
+                        // replay, so surface the gap instead of continuing
+                        // silently.
+                        let notification =
+                            crate::mcp::notifications::resources_dropped(&vault_id, &listen.id);
+                        let Ok(data) = serde_json::to_string(&notification) else {
+                            continue;
+                        };
+                        if !listen.token_still_valid().await {
+                            break;
+                        }
+                        if tx.send(Ok(Event::default().data(data))).await.is_err() {
+                            break;
+                        }
                     }
                     None => break,
                 }
@@ -1232,6 +1244,40 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn zero_vault_get_sse_stream_stays_open() {
+        let state = state().await;
+        let (_user_id, raw) = create_user_token(&state, "zero-vault-sse").await;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let request = HttpRequest::builder()
+            .method("GET")
+            .uri("/mcp")
+            .header(header::ACCEPT, "text/event-stream")
+            .header(deployment_key::HEADER, "k_test")
+            .header(header::AUTHORIZATION, format!("Bearer {raw}"))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        let mut received: Vec<Result<axum::body::Bytes, axum::Error>> = Vec::new();
+        let read = tokio::time::timeout(Duration::from_millis(1500), async {
+            while let Some(chunk) = stream.next().await {
+                received.push(chunk);
+            }
+        })
+        .await;
+        assert!(
+            read.is_err(),
+            "zero-vault GET /mcp stream must stay open, got EOF with body: {received:?}"
+        );
+    }
+
     fn listen_body(filter: serde_json::Value) -> String {
         serde_json::json!({
             "jsonrpc": "2.0", "id": 1, "method": "subscriptions/listen",
@@ -1565,6 +1611,132 @@ mod tests {
             ack["params"]["notifications"]["resourceSubscriptions"],
             serde_json::json!([format!("pkv://vault/{}", ls.vault_id)]),
             "unknown vault URI must be dropped from the ack: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn listen_stream_lagged_broadcast_emits_resources_dropped_notification() {
+        fn parse_complete_sse_data(body: &str) -> Vec<Value> {
+            let mut segments = body.split("\n\n").collect::<Vec<_>>();
+            if !body.ends_with("\n\n") {
+                segments.pop();
+            }
+            segments
+                .into_iter()
+                .filter_map(|event| {
+                    let data = event
+                        .lines()
+                        .filter_map(|line| line.strip_prefix("data: "))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if data.is_empty() {
+                        None
+                    } else {
+                        serde_json::from_str(&data).ok()
+                    }
+                })
+                .collect()
+        }
+
+        let ls = listen_server().await;
+        let app = listen_router(&ls.state);
+
+        let response = app
+            .oneshot(listen_post(
+                &ls.raw,
+                serde_json::json!({
+                    "resourceSubscriptions": [format!("pkv://vault/{}", ls.vault_id)]
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        let mut body = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let ack: Value = loop {
+            let chunk = tokio::select! {
+                chunk = stream.next() => chunk,
+                _ = tokio::time::sleep_until(deadline) => panic!("no ack within 5s, got: {body}"),
+            };
+            match chunk {
+                Some(Ok(bytes)) => {
+                    body.push_str(&String::from_utf8_lossy(&bytes));
+                    if let Some(event) = parse_sse_data(&body).first() {
+                        break event.clone();
+                    }
+                }
+                Some(Err(err)) => panic!("body stream error: {err}"),
+                None => panic!("stream ended before ack, got: {body}"),
+            }
+        };
+        assert_eq!(
+            ack["method"], "notifications/subscriptions/acknowledged",
+            "first SSE event must be the ack, got: {body}"
+        );
+
+        // Forcing a real broadcast overflow needs the SSE task parked off its
+        // receiver: fill the 16-slot outbound channel without reading so the
+        // task blocks inside `tx.send`, then burst past the 64-slot ring.
+        // Reading afterwards releases the parked send and the next poll of
+        // the broadcast receiver reports the lag.
+        for idx in 0..20 {
+            ls.state.events.publish(
+                &ls.vault_id,
+                crate::service::events::VaultEvent {
+                    commit: format!("lag-{idx}"),
+                    parent: None,
+                    source_device_id: "dev".into(),
+                    at: 1,
+                    kind: crate::service::events::EventKind::Commit,
+                    changes: vec![],
+                },
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        for idx in 20..120 {
+            ls.state.events.publish(
+                &ls.vault_id,
+                crate::service::events::VaultEvent {
+                    commit: format!("lag-{idx}"),
+                    parent: None,
+                    source_device_id: "dev".into(),
+                    at: 1,
+                    kind: crate::service::events::EventKind::Commit,
+                    changes: vec![],
+                },
+            );
+        }
+        let mut tail = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let dropped = loop {
+            let chunk = tokio::select! {
+                chunk = stream.next() => chunk.expect("stream ended without a dropped signal"),
+                _ = tokio::time::sleep_until(deadline) => {
+                    panic!("no resources/dropped within 5s, got: {body}{tail}")
+                }
+            };
+            match chunk {
+                Ok(bytes) => {
+                    tail.push_str(&String::from_utf8_lossy(&bytes));
+                    if let Some(event) = parse_complete_sse_data(&tail)
+                        .into_iter()
+                        .find(|event| event["method"] == "notifications/resources/dropped")
+                    {
+                        break event;
+                    }
+                }
+                Err(err) => panic!("body stream error: {err}"),
+            }
+        };
+
+        assert_eq!(
+            dropped["params"]["uri"],
+            format!("pkv://vault/{}", ls.vault_id)
+        );
+        assert_eq!(
+            dropped["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"],
+            1
         );
     }
 

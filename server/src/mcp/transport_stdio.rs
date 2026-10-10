@@ -230,7 +230,19 @@ impl StdioSession {
                         ))
                         .unwrap_or_default(),
                     ),
-                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
+                        // Lagged means the receiver already skipped to the
+                        // oldest retained event; stdio has no replay path, so
+                        // surface the gap before continuing the drain.
+                        lines.push(
+                            serde_json::to_string(&crate::mcp::notifications::resources_dropped(
+                                &entry.vault_id,
+                                &entry.id,
+                            ))
+                            .unwrap_or_default(),
+                        );
+                        continue;
+                    }
                     Err(tokio::sync::broadcast::error::TryRecvError::Empty) => return None,
                     Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
                         return Some(key.clone())
