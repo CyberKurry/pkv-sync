@@ -17,7 +17,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
   legacy `initialize` that echoes the client's legacy version;
   `subscriptions/listen` on HTTP returning `notifications/resources/updated`
   for `pkv://vault/<id>` URIs with ack-first ordering and connection-scoped
-  cancellation.
+  cancellation; stdio transport gains the same modern-era dispatch plus
+  `subscriptions/listen` with `notifications/cancelled` termination; client
+  notifications are now acknowledged by silence instead of a spurious
+  `-32600` error.
 
 ### Security
 

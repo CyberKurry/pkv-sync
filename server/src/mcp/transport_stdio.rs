@@ -1,17 +1,23 @@
 use crate::auth::{token, AuthenticatedUser};
 use crate::db::repos::{TokenRepo, UserRepo, VaultRepo};
 use crate::mcp::auth::{mcp_token_still_valid, TokenValidityCache};
+use crate::mcp::protocol::Era;
 use crate::mcp::tools;
+use crate::service::events::VaultEvent;
 use crate::service::AppState;
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 
 pub(crate) const GENERIC_MCP_AUTH_ERROR: &str = "invalid or revoked token";
 pub(crate) const GENERIC_MCP_INTERNAL_ERROR: &str = "internal server error";
+
+const LISTEN_DRAIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 
 pub struct StdioSession {
     state: AppState,
@@ -19,6 +25,13 @@ pub struct StdioSession {
     vault_id: String,
     token_hash: String,
     validity_cache: Mutex<TokenValidityCache>,
+    listens: Mutex<HashMap<String, ListenEntry>>,
+}
+
+struct ListenEntry {
+    vault_id: String,
+    id: Value,
+    receiver: tokio::sync::broadcast::Receiver<VaultEvent>,
 }
 
 impl std::fmt::Debug for StdioSession {
@@ -57,6 +70,7 @@ impl StdioSession {
             vault_id,
             token_hash,
             validity_cache: Mutex::new(TokenValidityCache::default()),
+            listens: Mutex::new(HashMap::new()),
         })
     }
 
@@ -82,6 +96,156 @@ impl StdioSession {
         )
         .await
     }
+
+    /// Handle one inbound stdio line. Requests are answered with exactly one
+    /// line via `tx`; notifications are answered with silence (the stdio
+    /// equivalent of HTTP's 202), except `notifications/cancelled`, which
+    /// removes a registered listen.
+    pub async fn pump(&self, line: &str, tx: &mut mpsc::Sender<String>) {
+        if line.trim().is_empty() {
+            return;
+        }
+        let msg: Value = match serde_json::from_str(line) {
+            Ok(msg) => msg,
+            Err(_) => {
+                let _ = tx
+                    .send(jsonrpc_error(Value::Null, -32700, "parse error").to_string())
+                    .await;
+                return;
+            }
+        };
+        if msg.get("id").is_none() {
+            if msg.get("method").and_then(Value::as_str) == Some("notifications/cancelled") {
+                if let Some(rid) = msg.pointer("/params/requestId") {
+                    self.listens.lock().await.remove(&rid.to_string());
+                }
+            }
+            return;
+        }
+        let response = match crate::mcp::protocol::classify_request(&msg) {
+            Ok(Era::Legacy) => Some(self.handle_jsonrpc(msg).await),
+            Ok(Era::Modern) => self.handle_modern(msg, tx).await,
+            Err(err) => Some(crate::mcp::protocol::error_response(
+                msg.get("id").unwrap_or(&Value::Null),
+                err,
+            )),
+        };
+        if let Some(response) = response {
+            let _ = tx.send(response.to_string()).await;
+        }
+    }
+
+    async fn handle_modern(&self, msg: Value, tx: &mut mpsc::Sender<String>) -> Option<Value> {
+        let id = msg.get("id").cloned().unwrap_or(Value::Null);
+        let mut validity_cache = self.validity_cache.lock().await;
+        if !mcp_token_still_valid(
+            &self.state,
+            &self.token_hash,
+            &self.user,
+            &mut validity_cache,
+        )
+        .await
+        {
+            return Some(jsonrpc_error(id, -32000, "invalid or revoked token"));
+        }
+        drop(validity_cache);
+        if msg.get("method").and_then(Value::as_str) == Some("subscriptions/listen") {
+            self.listen(id, msg, tx).await;
+            return None;
+        }
+        Some(
+            handle_modern_jsonrpc(&self.state, &self.user, Some(self.vault_id.as_str()), msg).await,
+        )
+    }
+
+    async fn listen(&self, id: Value, msg: Value, tx: &mut mpsc::Sender<String>) {
+        let requested: Vec<String> = msg
+            .pointer("/params/notifications/resourceSubscriptions")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let scoped_uri = format!("pkv://vault/{}", self.vault_id);
+        let accepted = requested.contains(&scoped_uri);
+        let mut ack_notifications = serde_json::Map::new();
+        for switch in [
+            ("toolsListChanged", "/params/notifications/toolsListChanged"),
+            (
+                "promptsListChanged",
+                "/params/notifications/promptsListChanged",
+            ),
+            (
+                "resourcesListChanged",
+                "/params/notifications/resourcesListChanged",
+            ),
+        ] {
+            if msg.pointer(switch.1).and_then(Value::as_bool) == Some(true) {
+                ack_notifications.insert(switch.0.into(), Value::Bool(true));
+            }
+        }
+        if accepted {
+            ack_notifications.insert("resourceSubscriptions".into(), json!([scoped_uri.clone()]));
+            self.listens.lock().await.insert(
+                id.to_string(),
+                ListenEntry {
+                    vault_id: self.vault_id.clone(),
+                    id: id.clone(),
+                    receiver: self.state.events.subscribe(&self.vault_id),
+                },
+            );
+        }
+        let ack = crate::mcp::notifications::McpNotification {
+            method: "notifications/subscriptions/acknowledged".into(),
+            params: json!({
+                "notifications": ack_notifications,
+                "_meta": {crate::mcp::protocol::META_SUBSCRIPTION_ID: id},
+            }),
+        };
+        let _ = tx
+            .send(serde_json::to_string(&ack).unwrap_or_default())
+            .await;
+    }
+
+    /// Drain every registered listen receiver once and write a
+    /// `notifications/resources/updated` line per pending event. `run` polls
+    /// this on a fixed interval; calling it directly is how tests observe
+    /// stream output without a real stdin.
+    pub async fn drain_listens(&self, tx: &mut mpsc::Sender<String>) {
+        let mut listens = self.listens.lock().await;
+        let mut lines = Vec::new();
+        let dead: Vec<String> = listens
+            .iter_mut()
+            .filter_map(|(key, entry)| loop {
+                match entry.receiver.try_recv() {
+                    Ok(event) => lines.push(
+                        serde_json::to_string(&crate::mcp::notifications::resource_updated(
+                            &entry.vault_id,
+                            event.commit.clone(),
+                            event,
+                            &entry.id,
+                        ))
+                        .unwrap_or_default(),
+                    ),
+                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::TryRecvError::Empty) => return None,
+                    Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
+                        return Some(key.clone())
+                    }
+                }
+            })
+            .collect();
+        for key in dead {
+            listens.remove(&key);
+        }
+        drop(listens);
+        for line in lines {
+            let _ = tx.send(line).await;
+        }
+    }
 }
 
 pub async fn run(state: AppState, vault_id: String, token_raw: String) -> Result<()> {
@@ -89,18 +253,28 @@ pub async fn run(state: AppState, vault_id: String, token_raw: String) -> Result
     let stdin = tokio::io::stdin();
     let mut lines = tokio::io::BufReader::new(stdin).lines();
     let mut stdout = tokio::io::stdout();
+    let (mut tx, mut rx) = mpsc::channel::<String>(64);
+    // 50ms poll: bounded worst-case latency for push lines; the loop only
+    // wakes on stdin, a pending outbound line, or this tick — never a hot spin.
+    let mut drain_tick = tokio::time::interval(LISTEN_DRAIN_INTERVAL);
+    drain_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    while let Some(line) = lines.next_line().await? {
-        if line.trim().is_empty() {
-            continue;
+    loop {
+        tokio::select! {
+            line = lines.next_line() => {
+                let Ok(Some(line)) = line else { break };
+                session.pump(&line, &mut tx).await;
+            }
+            _ = drain_tick.tick() => {
+                session.drain_listens(&mut tx).await;
+            }
+            outgoing = rx.recv() => {
+                let Some(line) = outgoing else { break };
+                stdout.write_all(line.as_bytes()).await?;
+                stdout.write_all(b"\n").await?;
+                stdout.flush().await?;
+            }
         }
-        let response = match serde_json::from_str::<Value>(&line) {
-            Ok(request) => session.handle_jsonrpc(request).await,
-            Err(_) => jsonrpc_error(Value::Null, -32700, "parse error"),
-        };
-        stdout.write_all(response.to_string().as_bytes()).await?;
-        stdout.write_all(b"\n").await?;
-        stdout.flush().await?;
     }
     Ok(())
 }
@@ -239,11 +413,13 @@ pub(crate) async fn handle_jsonrpc(
 }
 
 // Era-dispatched modern methods shared by both transports. Subscriptions are
-// transport-specific (HTTP answers over SSE, stdio Task 6 will differ), so
-// transports must handle `subscriptions/listen` before calling this.
+// transport-specific (HTTP answers over SSE, stdio registers an in-session
+// receiver), so transports must handle `subscriptions/listen` before calling
+// this.
 pub(crate) async fn handle_modern_jsonrpc(
     state: &AppState,
     user: &AuthenticatedUser,
+    vault_scope: Option<&str>,
     request: Value,
 ) -> Value {
     let id = request.get("id").cloned().unwrap_or(Value::Null);
@@ -272,7 +448,7 @@ pub(crate) async fn handle_modern_jsonrpc(
         "tools/call" => {
             let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
             match serde_json::from_value::<ToolCallParams>(params) {
-                Ok(params) => match call_tool(state, user, None, params).await {
+                Ok(params) => match call_tool(state, user, vault_scope, params).await {
                     Ok(mut result) => {
                         if let Some(obj) = result.as_object_mut() {
                             obj.insert("resultType".into(), json!("complete"));
@@ -465,7 +641,7 @@ mod tests {
         );
         assert_eq!(
             count_occurrences(stdio_source, "mcp_token_still_valid("),
-            1,
+            2,
             "stdio sessions must call the shared MCP token validity helper"
         );
         assert!(

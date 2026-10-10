@@ -231,7 +231,7 @@ async fn handle_modern_jsonrpc(
     user: &AuthenticatedUser,
     request: Value,
 ) -> Value {
-    super::transport_stdio::handle_modern_jsonrpc(state, user, request).await
+    super::transport_stdio::handle_modern_jsonrpc(state, user, None, request).await
 }
 
 async fn mcp_rate_limit(
