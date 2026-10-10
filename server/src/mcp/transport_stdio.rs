@@ -661,41 +661,6 @@ mod tests {
             .update_config(1, Duration::from_secs(60), Duration::from_secs(60));
     }
 
-    fn count_occurrences(haystack: &str, needle: &str) -> usize {
-        haystack.match_indices(needle).count()
-    }
-
-    #[test]
-    fn mcp_transports_share_token_validity_check() {
-        let http_source = include_str!("transport_http.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        let stdio_source = include_str!("transport_stdio.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-
-        assert_eq!(
-            count_occurrences(http_source, "mcp_token_still_valid("),
-            4,
-            "HTTP SSE streams must call the shared MCP token validity helper"
-        );
-        assert_eq!(
-            count_occurrences(stdio_source, "mcp_token_still_valid("),
-            2,
-            "stdio sessions must call the shared MCP token validity helper"
-        );
-        assert!(
-            !http_source.contains("find_by_hash(token_hash)"),
-            "HTTP transport must not reimplement token lookup"
-        );
-        assert!(
-            !stdio_source.contains("find_by_hash(token_hash)"),
-            "stdio transport must not reimplement token lookup"
-        );
-    }
-
     #[tokio::test]
     async fn authenticate_token_releases_limiter_neutrally_on_internal_error() {
         let state = test_state().await;

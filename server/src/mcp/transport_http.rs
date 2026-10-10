@@ -965,23 +965,6 @@ mod tests {
         assert_eq!(mcp_json_body_limit_bytes(u64::MAX), 100 * 1024 * 1024);
     }
 
-    #[test]
-    fn high_audit_mcp_live_sse_lagged_broadcast_errors_emit_lagged_event() {
-        let source = include_str!("transport_http.rs");
-        let branch_start = source
-            .find("event = sse.streams.next()")
-            .expect("live event branch exists");
-        let branch_end = source[branch_start..]
-            .find("if !mcp_token_still_valid")
-            .map(|idx| branch_start + idx)
-            .expect("live event branch checks token validity after lagged handling");
-        let branch = &source[branch_start..branch_end];
-
-        assert!(branch.contains("BroadcastStreamRecvError::Lagged"));
-        assert!(branch.contains("McpSseItem::Lagged"));
-        assert!(!branch.contains("let Some((_vault_id, Ok(event))) = event else"));
-    }
-
     #[tokio::test]
     async fn mcp_http_routes_are_rate_limited() {
         let app = router_with_rate_limiter(
@@ -1261,8 +1244,6 @@ mod tests {
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
             "k_test".into(),
         );
-        // Legacy-shaped body (no modern `_meta`) but the header claims the
-        // modern version: must not fall back to the legacy era silently.
         let body = serde_json::json!({
             "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}
         });
@@ -1297,9 +1278,6 @@ mod tests {
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
             "k_test".into(),
         );
-        // Legacy-era tools/call with malformed params (no `_meta`, invalid
-        // tool name): base behavior is a 200-wrapped -32602 envelope, not an
-        // HTTP 400.
         let body = serde_json::json!({
             "jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": 5, "arguments": {}}
@@ -1356,6 +1334,65 @@ mod tests {
             read.is_err(),
             "zero-vault GET /mcp stream must stay open, got EOF with body: {received:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn get_sse_live_lagged_broadcast_emits_lagged_event() {
+        let ls = listen_server().await;
+        let app = listen_router(&ls.state);
+
+        let request = HttpRequest::builder()
+            .method("GET")
+            .uri("/mcp")
+            .header(header::ACCEPT, "text/event-stream")
+            .header(deployment_key::HEADER, "k_test")
+            .header(header::AUTHORIZATION, format!("Bearer {}", ls.raw))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+
+        // Forcing a real broadcast overflow needs the stream task parked off
+        // its receiver: fill the 16-slot outbound channel without reading so
+        // the task blocks inside `tx.send`, then burst past the 64-slot ring.
+        // Reading afterwards releases the parked send and the next poll of
+        // the broadcast receiver reports the lag.
+        let lag_burst = |start: usize| crate::service::events::VaultEvent {
+            commit: format!("get-lag-{start}"),
+            parent: None,
+            source_device_id: "dev".into(),
+            at: 1,
+            kind: crate::service::events::EventKind::Commit,
+            changes: vec![],
+        };
+        for idx in 0..20 {
+            ls.state.events.publish(&ls.vault_id, lag_burst(idx));
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        for idx in 20..120 {
+            ls.state.events.publish(&ls.vault_id, lag_burst(idx));
+        }
+
+        let mut body = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let chunk = tokio::select! {
+                chunk = stream.next() => chunk.expect("stream ended without a lagged signal"),
+                _ = tokio::time::sleep_until(deadline) => {
+                    panic!("no lagged event within 5s, got: {body}")
+                }
+            };
+            match chunk {
+                Ok(bytes) => {
+                    body.push_str(&String::from_utf8_lossy(&bytes));
+                    if body.contains("event: lagged") {
+                        break;
+                    }
+                }
+                Err(err) => panic!("body stream error: {err}"),
+            }
+        }
     }
 
     fn listen_body(filter: serde_json::Value) -> String {

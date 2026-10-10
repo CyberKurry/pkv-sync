@@ -270,6 +270,44 @@ async fn stdio_session_rechecks_token_revocation_before_each_request() {
 }
 
 #[tokio::test]
+async fn stdio_modern_session_rechecks_token_revocation_before_each_request() {
+    let (state, _tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&state, "stdio-modern-revoke").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let token_row = state
+        .tokens
+        .find_by_hash(&token::hash(&raw))
+        .await
+        .unwrap()
+        .unwrap()
+        .0;
+    let session = StdioSession::authenticate(state.clone(), vault.id.clone(), raw)
+        .await
+        .unwrap();
+
+    state
+        .tokens
+        .revoke(&token_row.id, chrono::Utc::now().timestamp())
+        .await
+        .unwrap();
+
+    let lines = send(
+        &session,
+        modern_request(json!("after-revoke"), "tools/list"),
+    )
+    .await;
+    assert_eq!(lines.len(), 1);
+    let resp = &lines[0];
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], "after-revoke");
+    assert_eq!(resp["error"]["code"], -32000);
+    assert!(resp["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("invalid or revoked token"));
+}
+
+#[tokio::test]
 async fn stdio_session_rejects_invalid_token() {
     let (state, _tmp) = test_state().await;
     let (user_id, _raw) = create_user_with_token(&state, "stdio-invalid").await;
