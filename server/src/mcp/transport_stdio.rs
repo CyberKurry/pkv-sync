@@ -44,7 +44,7 @@ impl std::fmt::Debug for StdioSession {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct ToolCallParams {
+struct ToolCallParams {
     name: String,
     #[serde(default)]
     arguments: Value,
@@ -509,7 +509,7 @@ pub(crate) async fn handle_modern_jsonrpc(
     }
 }
 
-pub(crate) async fn call_tool(
+async fn call_tool(
     state: &AppState,
     user: &AuthenticatedUser,
     vault_scope: Option<&str>,

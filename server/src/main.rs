@@ -160,11 +160,7 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("verification failed");
             }
         }
-        Command::Mcp {
-            transport,
-            vault,
-            token,
-        } => {
+        Command::Mcp { vault, token } => {
             let cfg = Config::load(&cli.config)?;
             pkv_sync_server::logging::init_with_config(&cfg.logging);
             let rt = tokio::runtime::Runtime::new()?;
@@ -189,28 +185,17 @@ fn main() -> anyhow::Result<()> {
                     git_available,
                 )
                 .await?;
-                let transport = match transport.as_str() {
-                    "stdio" => {
-                        let vault_id = vault.ok_or_else(|| {
-                            anyhow::anyhow!("--vault is required for stdio transport")
-                        })?;
-                        let token = token
-                            .or_else(|| std::env::var("PKV_TOKEN").ok())
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "--token or PKV_TOKEN is required for stdio transport"
-                                )
-                            })?;
-                        pkv_sync_server::mcp::McpTransport::Stdio { vault_id, token }
-                    }
-                    "http" => anyhow::bail!(
-                        "standalone MCP HTTP transport was removed; set [mcp].embed_in_serve (default true) and use `pkvsyncd serve`"
-                    ),
-                    other => anyhow::bail!(
-                        "unsupported MCP transport '{other}', expected 'stdio'"
-                    ),
-                };
-                pkv_sync_server::mcp::run(state, transport).await
+                // stdio is the only transport: standalone HTTP was removed;
+                // HTTP MCP runs embedded in `pkvsyncd serve` via
+                // [mcp].embed_in_serve (default true).
+                let vault_id = vault
+                    .ok_or_else(|| anyhow::anyhow!("--vault is required for stdio transport"))?;
+                let token = token
+                    .or_else(|| std::env::var("PKV_TOKEN").ok())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("--token or PKV_TOKEN is required for stdio transport")
+                    })?;
+                pkv_sync_server::mcp::transport_stdio::run(state, vault_id, token).await
             })?;
         }
         Command::Upgrade {

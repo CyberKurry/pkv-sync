@@ -86,13 +86,8 @@ pub enum Command {
         #[arg(long)]
         no_fail: bool,
     },
-    /// Start the read-only MCP server.
+    /// Start the read-only MCP server over stdio.
     Mcp {
-        /// Transport: stdio (the only transport; "http" standalone mode was
-        /// removed — set [mcp].embed_in_serve (default true) and use
-        /// `pkvsyncd serve`).
-        #[arg(long, default_value = "stdio")]
-        transport: String,
         /// Vault ID to expose.
         #[arg(long)]
         vault: Option<String>,
@@ -333,17 +328,18 @@ mod tests {
     fn cli_parses_mcp_stdio_defaults() {
         let cli = Cli::try_parse_from(["pkvsyncd", "mcp", "--vault", "vault1"]).unwrap();
         match cli.command {
-            Command::Mcp {
-                transport,
-                vault,
-                token,
-            } => {
-                assert_eq!(transport, "stdio");
+            Command::Mcp { vault, token } => {
                 assert_eq!(vault.as_deref(), Some("vault1"));
                 assert!(token.is_none());
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    #[test]
+    fn cli_rejects_removed_transport_flag() {
+        let err = Cli::try_parse_from(["pkvsyncd", "mcp", "--transport", "stdio"]).unwrap_err();
+        assert!(err.to_string().contains("unexpected argument"));
     }
 
     #[test]

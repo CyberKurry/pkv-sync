@@ -22,7 +22,7 @@ pub const ERR_AUTH: i64 = -63002;
 const META_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 const META_CLIENT_CAPS: &str = "io.modelcontextprotocol/clientCapabilities";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub enum Era {
     Modern,
     Legacy,
