@@ -44,26 +44,28 @@ You can also pass the token directly:
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
+stdio speaks both protocol eras. Modern 2026-07-28 clients send per-request
+`_meta` protocol fields and receive modern result envelopes; legacy clients
+negotiate through `initialize`, and the server echoes the requested legacy
+version. Modern stdio clients can also call `subscriptions/listen` for the
+scoped vault; the session then prints `notifications/resources/updated`
+lines until the client sends a `notifications/cancelled` notification
+carrying the listen's request id (or exits).
+
 ## Streamable HTTP transport
 
 Use HTTP when the client connects to an already running local or internal MCP
-endpoint. PKV Sync offers two HTTP deployment modes:
+endpoint. MCP HTTP is embedded-only: `[mcp].embed_in_serve` defaults to `true`,
+so `pkvsyncd serve` mounts `/mcp` on the main server port. Set
+`[mcp].embed_in_serve = false` to disable the embedded endpoint. The standalone
+`pkvsyncd mcp --transport http --bind` process was removed in this version;
+point existing standalone deployments at the main server's `/mcp`.
 
-- **Embedded**: set `[mcp].embed_in_serve = true` in `config.toml`, then
-  `pkvsyncd serve` mounts `/mcp` on the main server port.
-- **Standalone**: run a separate MCP process, useful for dedicated bind
-  addresses, air-gapped MCP, or independent scaling:
-
-```bash
-pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
-```
-
-The endpoint path is always `/mcp`; use the main server origin for embedded
-mode or the standalone bind address for standalone mode:
+The endpoint path is always `/mcp`, on the main server origin:
 
 ```text
-POST http://127.0.0.1:6711/mcp
-GET  http://127.0.0.1:6711/mcp
+POST http://127.0.0.1:6710/mcp
+GET  http://127.0.0.1:6710/mcp
 ```
 
 Every request must include:
@@ -79,18 +81,51 @@ authentication.
 
 MCP HTTP is fixed-window rate limited at 120 requests per 60 seconds. When the
 limit is exceeded, the server responds with HTTP `429` and a JSON-RPC error
-using code `-32029`.
-Failed MCP bearer-token authentication is also rate limited in-process at 30
+using code `-63001`. Failed MCP bearer-token authentication responds with
+HTTP `401` and code `-63002`, and is also rate limited in-process at 30
 attempts per 60 seconds across stdio and HTTP transports.
 
-POST carries JSON-RPC tool calls and returns JSON responses. GET with
-`Accept: text/event-stream` subscribes to `vault_changed` notifications. Each
-event's id is the bare commit SHA, and it can be sent back as `Last-Event-ID` to
-replay missed commits for that vault. Replay is capped; if the server cannot
-cover the missed history, it emits `lagged` and the client should refresh from
-the sync API. A value containing `:` is not accepted as a resume position, and
-when the token can see more than one vault only the resuming vault's position is
-known, so the stream also emits `lagged` for the others.
+## MCP 2026-07-28 (modern) clients
+
+The server serves two protocol eras on the same endpoint. Modern clients send
+per-request protocol fields in `params._meta`
+(`io.modelcontextprotocol/protocolVersion` plus
+`io.modelcontextprotocol/clientCapabilities`) and must repeat the version in
+an `MCP-Protocol-Version` header, the method in an `Mcp-Method` header, and —
+when the request carries `params.name` — the name in an `Mcp-Name` header
+(base64-encoded as `=?base64?...?=` when it is not plain ASCII). A mismatch
+between any header and the body returns HTTP `400` with code `-32020`.
+Requesting an unsupported version returns HTTP `400` with code `-32022` and
+the supported list (`2026-07-28`, `2025-06-18`). Unknown methods return HTTP
+`404` with `-32601`, and notification-only messages (no `id`) are answered
+with HTTP `202` and no body.
+
+Modern results carry `resultType`, and `tools/list` and `server/discover`
+additionally carry `ttlMs`/`cacheScope` cache hints. `server/discover`
+reports `supportedVersions` so a client can pick its era before connecting.
+Legacy `initialize` clients are still served: the server echoes the requested
+legacy version and answers with legacy envelopes.
+
+## Change notifications
+
+- **Legacy clients**: GET `/mcp` with `Accept: text/event-stream` subscribes
+  to `vault_changed` notifications. Each event's id is the bare commit SHA,
+  and it can be sent back as `Last-Event-ID` to replay missed commits for
+  that vault. Replay is capped; if the server cannot cover the missed
+  history, it emits `lagged` and the client should refresh from the sync API.
+  A value containing `:` is not accepted as a resume position, and when the
+  token can see more than one vault only the resuming vault's position is
+  known, so the stream also emits `lagged` for the others.
+- **Modern clients**: POST a `subscriptions/listen` request with
+  `params.notifications.resourceSubscriptions` set to
+  `["pkv://vault/<id>"]` URIs (only vaults the token may see are accepted).
+  The response is an SSE stream that opens with a
+  `notifications/subscriptions/acknowledged` event echoing the accepted
+  subscriptions, then emits `notifications/resources/updated` events whose
+  params carry `uri`, `commit`, `event`, and `_meta.subscriptionId`. Cancel
+  by closing the stream. The modern stream is not resumable: there is no
+  `Last-Event-ID` replay, so after a reconnect the client listens again and
+  diffs what it reads.
 
 Bind HTTP to loopback unless you put it behind trusted network controls. A
 bearer token gives read and write access to every vault owned by that user.
@@ -156,4 +191,7 @@ have happened"; that audit trail is intentional.
   can use stdio mode by launching `pkvsyncd mcp`.
 - Clients that support Streamable HTTP can point at `/mcp` and send bearer auth
   plus the deployment key on every request.
+- Both transports are dual-era: legacy `initialize` clients keep working, and
+  modern 2026-07-28 clients get per-request version handling, `server/discover`,
+  and `subscriptions/listen` push.
 - The server is stateless; it does not require or return `Mcp-Session-Id`.

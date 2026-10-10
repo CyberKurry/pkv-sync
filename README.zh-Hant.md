@@ -16,7 +16,7 @@
 - **Git 即真相**。每個筆記庫都是一個 bare git 倉庫，單檔歷史、unified diff、單檔還原開箱即用——外掛端和管理後台都能用。
 - **衝突安全**。外掛不會默默覆蓋本地修改，衝突會以 `.conflict-*` 檔案呈現，一鍵「保留本地」或「採納遠端」。
 - **五語言管理後台**（English、简中、繁中、日本語、한국어）：使用者、裝置 token、筆記庫、邀請碼、活動日誌、blob 垃圾回收，並對破壞性的筆記庫和使用者操作彈出確認。
-- **AI 可讀**。MCP 可透過 stdio、獨立 Streamable HTTP，或 `pkvsyncd serve` 內嵌的 `/mcp` 路由暴露讀寫工具。
+- **AI 可讀**。MCP 可透過 stdio 或 `pkvsyncd serve` 內嵌的 `/mcp` 路由（預設開啟）暴露讀寫工具。
 - **預設有邊界**。管理員建立／重設密碼使用 setup 同級強密碼策略；token 明文只展示一次；上傳和 MCP 回應都有大小上限；即時 SSE 串流會複查已撤銷 token。
 - **刻意做得無聊**。單一二進位、單一 SQLite 中繼資料庫、每庫一個 bare git 倉、每個附件一個內容定址 blob。
 
@@ -48,7 +48,7 @@
    trusted_proxies = ["172.16.0.0/12"]   # Docker bridge 網段
 
    [mcp]
-   embed_in_serve = false                # true 會在本服務上掛載 /mcp
+   embed_in_serve = true                 # 預設值；設為 false 可停用
    ```
 
 3. 編輯 `deploy/caddy/Caddyfile`，把 `sync.example.com` 換成你的真實網域。
@@ -67,7 +67,7 @@
 
 ## MCP 部署模式
 
-PKV Sync 提供兩種 MCP Streamable HTTP 部署方式。內嵌模式需要明確開啟：設定 `[mcp].embed_in_serve = true` 後，`pkvsyncd serve` 會在主服務端口掛載 `/mcp`，復用同一套 TLS 終止、反向代理、部署金鑰和 bearer 權杖校驗。獨立模式保留原有單獨進程：`pkvsyncd mcp --transport http --bind 127.0.0.1:6711`，適合隔離 MCP、專用監聽位址或獨立擴縮容。
+MCP HTTP 僅內嵌提供：`[mcp].embed_in_serve` 預設為 `true`，`pkvsyncd serve` 會在主服務端口掛載 `/mcp`，復用同一套 TLS 終止、反向代理、部署金鑰和 bearer 權杖校驗。設定 `embed_in_serve = false` 可停用。獨立進程 `pkvsyncd mcp --transport http --bind` 已在本版本移除——原有的獨立部署請改為指向主服務的 `/mcp`。本機 AI 工具也可以使用 stdio 傳輸：`pkvsyncd mcp --vault <id>`。
 
 ## Obsidian 外掛
 

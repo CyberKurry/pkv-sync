@@ -38,22 +38,17 @@ token を直接渡すこともできます。
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
+stdio は両方のプロトコル時代に対応します。モダンな 2026-07-28 クライアントはリクエストごとに `_meta` プロトコルフィールドを送信し、モダンな結果エンベロープを受け取ります。レガシークライアントは `initialize` でネゴシエートし、サーバーは要求されたレガシーバージョンをエコーします。モダンな stdio クライアントはスコープされた vault に対して `subscriptions/listen` を呼び出すこともできます。セッションはクライアントがその listen のリクエスト id を持つ `notifications/cancelled` 通知を送る（または終了する）まで、`notifications/resources/updated` 行を出力し続けます。
+
 ## Streamable HTTP transport
 
-クライアントがすでに実行中のローカルまたは内部 MCP endpoint に接続する場合は HTTP を使用します。PKV Sync には 2 つの HTTP デプロイモードがあります。
+クライアントがすでに実行中のローカルまたは内部 MCP endpoint に接続する場合は HTTP を使用します。MCP HTTP は埋め込み専用です。`[mcp].embed_in_serve` はデフォルトで `true` であり、`pkvsyncd serve` がメインサーバーポートに `/mcp` をマウントします。`[mcp].embed_in_serve = false` を設定すると埋め込みエンドポイントを無効化できます。スタンドアロンの `pkvsyncd mcp --transport http --bind` プロセスはこのバージョンで削除されました。既存のスタンドアロンデプロイはメインサーバーの `/mcp` を指すようにしてください。
 
-- **Embedded**: `config.toml` で `[mcp].embed_in_serve = true` を設定すると、`pkvsyncd serve` がメインサーバーポートに `/mcp` をマウントします。
-- **Standalone**: 専用 bind address、隔離された MCP、独立 scaling が必要な場合は、別 MCP プロセスを実行します。
-
-```bash
-pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
-```
-
-endpoint path は常に `/mcp` です。embedded mode ではメインサーバー origin、standalone mode では専用 bind address を使います。
+endpoint path は常に `/mcp` で、メインサーバーの origin 上にあります。
 
 ```text
-POST http://127.0.0.1:6711/mcp
-GET  http://127.0.0.1:6711/mcp
+POST http://127.0.0.1:6710/mcp
+GET  http://127.0.0.1:6710/mcp
 ```
 
 すべてのリクエストには次が必要です。
@@ -65,9 +60,18 @@ Authorization: Bearer pks_xxx
 
 デプロイメントキーは主 PKV Sync サーバーと同じ設定ファイルから読み取られます。キーがない、または間違っている場合は bearer token 認証の前に HTTP `404` を返します。
 
-MCP HTTP は固定ウィンドウで 60 秒あたり 120 リクエストに制限されます。制限を超えると、サーバーは HTTP `429` と JSON-RPC error code `-32029` を返します。失敗した MCP bearer token 認証もプロセス内で制限され、stdio と HTTP transports の合計で 60 秒あたり最大 30 回の失敗試行までです。
+MCP HTTP は固定ウィンドウで 60 秒あたり 120 リクエストに制限されます。制限を超えると、サーバーは HTTP `429` と JSON-RPC error code `-63001` を返します。失敗した MCP bearer token 認証は HTTP `401` と code `-63002` を返し、プロセス内でも制限されます。stdio と HTTP transports の合計で 60 秒あたり最大 30 回の失敗試行までです。
 
-POST は JSON-RPC tool calls を運び、JSON responses を返します。`Accept: text/event-stream` を持つ GET は `vault_changed` notifications を購読します。各 event の id は commit SHA そのもので、再接続時に `Last-Event-ID` として送り返すことで、その vault の missed commits を replay できます。Replay には上限があります。サーバーが missed history をカバーできない場合は `lagged` を送信し、クライアントは sync API から更新する必要があります。`:` を含む値は再開位置として受け付けられません。トークンから複数の vault が見える場合、再開する vault の位置しか分からないため、他の vault に対しても `lagged` を送信します。
+## MCP 2026-07-28（モダン）クライアント
+
+同じ endpoint が両方のプロトコル時代に対応します。モダンクライアントは `params._meta` にリクエストごとのプロトコルフィールド（`io.modelcontextprotocol/protocolVersion` と `io.modelcontextprotocol/clientCapabilities`）を送信し、`MCP-Protocol-Version` ヘッダーにバージョンを、`Mcp-Method` ヘッダーにメソッドを繰り返さなければなりません。リクエストが `params.name` を持つ場合は、`Mcp-Name` ヘッダーにも名前を繰り返します（純 ASCII でない場合は `=?base64?...?=` 形式で base64 エンコード）。ヘッダーと body が一致しない場合、HTTP `400` と code `-32020` を返します。サポート対象外のバージョンを要求すると HTTP `400` と code `-32022`、サポートされているバージョンのリスト（`2026-07-28`、`2025-06-18`）を返します。不明なメソッドは HTTP `404` と `-32601` を返し、`id` のない通知のみのメッセージは body なしの HTTP `202` で応答されます。
+
+モダンな結果には `resultType` が含まれ、`tools/list` と `server/discover` にはさらに `ttlMs`/`cacheScope` キャッシュヒントが付きます。`server/discover` は `supportedVersions` を報告するため、クライアントは接続前に自分の時代を選択できます。レガシーの `initialize` クライアントも引き続き利用できます。サーバーは要求されたレガシーバージョンをエコーし、レガシーエンベロープで応答します。
+
+## 変更通知
+
+- **レガシークライアント**: `Accept: text/event-stream` を持つ GET `/mcp` は `vault_changed` notifications を購読します。各 event の id は commit SHA そのもので、再接続時に `Last-Event-ID` として送り返すことで、その vault の missed commits を replay できます。Replay には上限があります。サーバーが missed history をカバーできない場合は `lagged` を送信し、クライアントは sync API から更新する必要があります。`:` を含む値は再開位置として受け付けられません。トークンから複数の vault が見える場合、再開する vault の位置しか分からないため、他の vault に対しても `lagged` を送信します。
+- **モダンクライアント**: `subscriptions/listen` リクエストを POST し、`params.notifications.resourceSubscriptions` に `["pkv://vault/<id>"]` URI を設定します（トークンが見える vault のみ受け付けられます）。応答は SSE ストリームで、まず受け入れられた購読をエコーする `notifications/subscriptions/acknowledged` event を送り、その後 params に `uri`、`commit`、`event`、`_meta.subscriptionId` を持つ `notifications/resources/updated` event を送信します。ストリームを閉じると購読はキャンセルされます。モダンなストリームは再開できません。`Last-Event-ID` replay はないため、再接続後は再度 listen して読み取った内容を比較します。
 
 信頼できるネットワーク制御の背後に置かない限り、HTTP は loopback に bind してください。bearer token は、そのユーザーが所有するすべての vault への読み書きアクセスを与えます。
 
@@ -106,4 +110,5 @@ AI-driven writes は vault git history の commits になります。通常の g
 
 - Claude Code、Codex CLI、Cherry Studio、OpenCode、および bridge-based MCP clients は、`pkvsyncd mcp` を起動して stdio mode を使用できます。
 - Streamable HTTP をサポートする clients は `/mcp` を指し、すべてのリクエストで bearer auth とデプロイメントキーを送信できます。
+- どちらの transport も dual-era です。レガシーの `initialize` クライアントは引き続き動作し、モダンな 2026-07-28 クライアントはリクエストごとのバージョン処理、`server/discover`、`subscriptions/listen` プッシュを利用できます。
 - サーバーは stateless です。`Mcp-Session-Id` を要求せず、返しません。

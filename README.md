@@ -26,8 +26,8 @@ English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md
 - **Admin panel** in five languages (English, 简中, 繁中, 日本語, 한국어)
   for users, device tokens, vaults, invites, activity, and blob GC, with
   confirmation dialogs for destructive vault and user actions.
-- **AI-readable vaults.** MCP exposes read/write tools over stdio,
-  standalone Streamable HTTP, or an embedded `/mcp` route on `pkvsyncd serve`.
+- **AI-readable vaults.** MCP exposes read/write tools over stdio or the
+  embedded `/mcp` route on `pkvsyncd serve` (default on).
 - **Bounded by default.** Admin-created passwords use the setup-grade strong
   policy, token secrets are one-time only, uploads and MCP responses are size
   capped, and live SSE streams revalidate revoked tokens.
@@ -66,7 +66,7 @@ internet (port 80 is needed for ACME HTTP-01 validation).
    trusted_proxies = ["172.16.0.0/12"]   # Docker bridge network
 
    [mcp]
-   embed_in_serve = false                # true mounts /mcp on this server
+   embed_in_serve = true                 # default; set false to disable
    ```
 
 3. Edit `deploy/caddy/Caddyfile` and replace `sync.example.com` with your
@@ -92,13 +92,13 @@ semantics, backup / restore, and disk encryption, read the
 
 ## MCP deployment modes
 
-PKV Sync exposes the MCP Streamable HTTP transport in two ways. Embedded mode
-is opt-in: set `[mcp].embed_in_serve = true` and `pkvsyncd serve` mounts
-`/mcp` on the main server port, sharing the same TLS termination, reverse
-proxy, deployment key, and bearer token enforcement. Standalone mode keeps the
-existing separate process: `pkvsyncd mcp --transport http --bind
-127.0.0.1:6711`, useful for air-gapped MCP, dedicated bind addresses, or
-independent scaling.
+MCP HTTP is embedded-only: `[mcp].embed_in_serve` defaults to `true`, so
+`pkvsyncd serve` mounts `/mcp` on the main server port, sharing the same TLS
+termination, reverse proxy, deployment key, and bearer token enforcement. Set
+`embed_in_serve = false` to disable it. The standalone
+`pkvsyncd mcp --transport http --bind` process was removed in this version —
+point existing standalone deployments at the main server's `/mcp`. Local AI
+tools can also use the stdio transport: `pkvsyncd mcp --vault <id>`.
 
 ## Obsidian plugin
 

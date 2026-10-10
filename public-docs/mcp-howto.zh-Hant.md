@@ -36,22 +36,17 @@ PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
+stdio 同時支援兩個協定時代。現代 2026-07-28 用戶端在請求中發送 `_meta` 協定欄位，並收到現代結果封裝；舊版用戶端透過 `initialize` 協商，伺服器會回顯所請求的舊版本。現代 stdio 用戶端還可以對限定的筆記庫呼叫 `subscriptions/listen`；工作階段隨後會持續輸出 `notifications/resources/updated` 行，直到用戶端傳送攜帶該 listen 請求 id 的 `notifications/cancelled` 通知（或退出）。
+
 ## Streamable HTTP transport
 
-當用戶端連接一個已經執行的本機或內部 MCP 端點時，使用 HTTP。PKV Sync 提供兩種 HTTP 部署模式：
+當用戶端連接一個已經執行的本機或內部 MCP 端點時，使用 HTTP。MCP HTTP 僅支援內嵌部署：`[mcp].embed_in_serve` 預設為 `true`，`pkvsyncd serve` 會在主服務端口掛載 `/mcp`。設定 `[mcp].embed_in_serve = false` 可停用內嵌端點。獨立進程 `pkvsyncd mcp --transport http --bind` 已在本版本移除；原有的獨立部署請改為指向主服務的 `/mcp`。
 
-- **內嵌模式**：在 `config.toml` 中設定 `[mcp].embed_in_serve = true`，`pkvsyncd serve` 會在主服務端口掛載 `/mcp`。
-- **獨立模式**：執行單獨的 MCP 進程，適合專用監聽位址、隔離 MCP 或獨立擴縮容：
-
-```bash
-pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
-```
-
-端點路徑始終是 `/mcp`；內嵌模式使用主服務 origin，獨立模式使用單獨的監聽位址：
+端點路徑始終是 `/mcp`，位於主服務 origin：
 
 ```text
-POST http://127.0.0.1:6711/mcp
-GET  http://127.0.0.1:6711/mcp
+POST http://127.0.0.1:6710/mcp
+GET  http://127.0.0.1:6710/mcp
 ```
 
 每個請求都必須包含：
@@ -63,9 +58,18 @@ Authorization: Bearer pks_xxx
 
 部署金鑰來自與主 PKV Sync 服務相同的設定檔。缺少或錯誤的部署金鑰會在 bearer token 驗證前直接回傳 HTTP `404`。
 
-MCP HTTP 使用固定視窗限流，每 60 秒最多 120 次請求。超限時，伺服器會返回 HTTP `429`，JSON-RPC error code 為 `-32029`。失敗的 MCP bearer token 認證也會在進程內限流，stdio 和 HTTP transport 合計每 60 秒最多 30 次失敗嘗試。
+MCP HTTP 使用固定視窗限流，每 60 秒最多 120 次請求。超限時，伺服器會返回 HTTP `429`，JSON-RPC error code 為 `-63001`。失敗的 MCP bearer token 認證返回 HTTP `401` 和 code `-63002`，並且同樣在進程內限流：stdio 和 HTTP transport 合計每 60 秒最多 30 次失敗嘗試。
 
-POST 承載 JSON-RPC 工具呼叫並返回 JSON 回應。GET 攜帶 `Accept: text/event-stream` 時訂閱 `vault_changed` notification。每個事件的 id 就是 commit SHA 本身，用戶端重連時可作為 `Last-Event-ID` 傳回，以 replay 該 vault 錯過的 commit。Replay 有上限；如果服務端無法覆蓋錯過的歷史，會發送 `lagged`，用戶端應透過同步 API 重新整理。包含 `:` 的值不會被當作續傳位置；當權杖可見多個 vault 時，只有正在續傳的那個 vault 位置已知，因此服務端也會為其他 vault 發送 `lagged`。
+## MCP 2026-07-28（現代）用戶端
+
+同一個端點同時服務兩個協定時代。現代用戶端在 `params._meta` 中發送逐請求協定欄位（`io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`），並且必須在 `MCP-Protocol-Version` 請求頭中重複版本、在 `Mcp-Method` 請求頭中重複方法；當請求攜帶 `params.name` 時，還要在 `Mcp-Name` 請求頭中重複名稱（非純 ASCII 時以 `=?base64?...?=` 形式 base64 編碼）。任一請求頭與請求體不符都會返回 HTTP `400` 和 code `-32020`。請求不支援的版本會返回 HTTP `400` 和 code `-32022`，並附上受支援版本列表（`2026-07-28`、`2025-06-18`）。未知方法返回 HTTP `404` 和 `-32601`；不含 `id` 的純通知訊息以 HTTP `202` 應答且無回應體。
+
+現代結果帶有 `resultType`，`tools/list` 和 `server/discover` 還會額外帶有 `ttlMs`/`cacheScope` 快取提示。`server/discover` 會報告 `supportedVersions`，用戶端可以在連線前據此選擇協定時代。舊版 `initialize` 用戶端仍可使用：伺服器會回顯所請求的舊版本，並以舊版封裝應答。
+
+## 變更通知
+
+- **舊版用戶端**：攜帶 `Accept: text/event-stream` 的 GET `/mcp` 訂閱 `vault_changed` 通知。每個事件的 id 就是 commit SHA 本身，用戶端重連時可作為 `Last-Event-ID` 傳回，以 replay 該 vault 錯過的 commit。Replay 有上限；如果服務端無法覆蓋錯過的歷史，會發送 `lagged`，用戶端應透過同步 API 重新整理。包含 `:` 的值不會被當作續傳位置；當權杖可見多個 vault 時，只有正在續傳的那個 vault 位置已知，因此服務端也會為其他 vault 發送 `lagged`。
+- **現代用戶端**：POST 一個 `subscriptions/listen` 請求，將 `params.notifications.resourceSubscriptions` 設為 `["pkv://vault/<id>"]` URI（只有權杖可見的 vault 會被接受）。回應是一條 SSE 串流：先傳送回顯已接受訂閱的 `notifications/subscriptions/acknowledged` 事件，隨後傳送 `notifications/resources/updated` 事件，其 params 攜帶 `uri`、`commit`、`event` 和 `_meta.subscriptionId`。關閉串流即取消訂閱。現代串流不可續傳：沒有 `Last-Event-ID` replay，重連後用戶端需要重新 listen 並比對讀取結果。
 
 除非放在可信網路控制之後，否則請把 HTTP 綁定到 loopback。bearer token 會授予該使用者所有筆記庫的讀寫存取權限。
 
@@ -104,4 +108,5 @@ AI 驅動的寫入會成為筆記庫 git 歷史中的 commit。你可以透過�
 
 - Claude Code、Codex CLI、Cherry Studio、OpenCode，以及透過橋接使用 MCP 的用戶端，都可以透過啟動 `pkvsyncd mcp` 使用 stdio 模式。
 - 支援 Streamable HTTP 的用戶端可以指向 `/mcp`，並在每個請求上發送 bearer auth 與部署金鑰。
+- 兩種 transport 均為雙時代：舊版 `initialize` 用戶端繼續可用，現代 2026-07-28 用戶端可獲得逐請求版本處理、`server/discover` 和 `subscriptions/listen` 推送。
 - 服務端是無狀態的，不要求也不返回 `Mcp-Session-Id`。

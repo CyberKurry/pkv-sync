@@ -249,32 +249,28 @@ pkvsyncd verify --data-dir /var/lib/pkv-sync
 ### 概述
 
 ```text
-pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>] [--bind <ADDR>]
+pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 ```
 
 ### 选项
 
-- `--transport <stdio|http>`：传输模式。默认值：`stdio`。
-- `--vault <VAULT-ID>`：stdio 模式必填；要向客户端暴露的单一保险库。
-- `--token <PKS-TOKEN>`：stdio 模式使用的 bearer 设备令牌。若省略，则使用 `PKV_TOKEN` 环境变量。
-- `--bind <ADDR>`：HTTP 绑定地址。默认值：`127.0.0.1:6711`。
+- `--vault <VAULT-ID>`：必填；要向客户端暴露的单一保险库。
+- `--token <PKS-TOKEN>`：bearer 设备令牌。若省略，则使用 `PKV_TOKEN` 环境变量（推荐，可避免令牌进入 shell 历史）。
 
 ### 说明
 
-`stdio` 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC。`http` 模式在 `/mcp` 上提供一个无状态的 Streamable HTTP MCP 端点。两种模式暴露相同的工具集：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files` 和 `move_file`。`write_files` 适合原子的多页 wiki 编辑，`move_file` 适合保留历史的重命名或归档移动。写入类工具按 `(token, vault)` 限流为每分钟 60 次写入，且一个 `write_files` 批次只消耗一次写入记录。搜索请求最多扫描 5000 个可见 tree 文件、返回 500 条匹配，并在生产环境搜索文本累计超过 256 MiB 后报错中止。`link_graph` 最多扫描 5000 个可见文本文件，并使用同一个生产文本预算，但会返回 `truncated` 而不是失败；`changes_since` 最多返回 5000 条可见变更。超过 64 MiB 的二进制/blob 读取响应会被拒绝，而不是被 base64 展开进 JSON。
+`stdio` 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC；这个子命令只提供 stdio 一种传输。它暴露完整工具集：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files` 和 `move_file`。`write_files` 适合原子的多页 wiki 编辑，`move_file` 适合保留历史的重命名或归档移动。写入类工具按 `(token, vault)` 限流为每分钟 60 次写入，且一个 `write_files` 批次只消耗一次写入记录。搜索请求最多扫描 5000 个可见 tree 文件、返回 500 条匹配，并在生产环境搜索文本累计超过 256 MiB 后报错中止。`link_graph` 最多扫描 5000 个可见文本文件，并使用同一个生产文本预算，但会返回 `truncated` 而不是失败；`changes_since` 最多返回 5000 条可见变更。超过 64 MiB 的二进制/blob 读取响应会被拒绝，而不是被 base64 展开进 JSON。两个协议时代都可用：旧版 `initialize` 客户端和现代 2026-07-28 客户端，后者包括 `subscriptions/listen`（以 `notifications/cancelled` 终止）。
 
-`http` 模式要求每个请求都携带服务器部署密钥请求头，与常规同步 API 一致。
+独立 MCP HTTP 模式（`--transport http --bind`）已在本版本移除。MCP HTTP 现在仅内嵌提供：`pkvsyncd serve` 会在主服务端口挂载 `/mcp`，且 `[mcp].embed_in_serve` 默认为 `true`（设为 `false` 可禁用）。原有的独立部署请改为指向主服务的 `/mcp`。
 
-
-这个子命令仍然是独立 MCP 进程。若要把同一个 Streamable HTTP transport 挂到主服务端口，请设置 `[mcp].embed_in_serve = true` 并运行 `pkvsyncd serve`。
 ### 示例
 
 ```bash
 # 使用环境变量中的 token 启动 stdio
 PKV_TOKEN=pks_xxx pkvsyncd mcp --vault 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 
-# 本地 Streamable HTTP 端点
-pkvsyncd mcp --transport http --bind 127.0.0.1:6711
+# 内嵌 MCP HTTP 端点（默认开启；由 pkvsyncd serve 提供）
+# [mcp] embed_in_serve = true  →  http://127.0.0.1:6710/mcp
 ```
 
 ## pkvsyncd upgrade

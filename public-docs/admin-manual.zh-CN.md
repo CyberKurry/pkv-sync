@@ -240,7 +240,7 @@ docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --pro
 - 使用 `pkvsyncd restore --input <backup-dir> --data-dir <dir>` 恢复到不存在或为空的数据目录。只有确认目标可以先清空时才加 `--force`；恢复会先校验 manifest 哈希，复制完成后自动运行 verify。
 - 维护后或主机存储异常后运行 `pkvsyncd verify [--data-dir <dir>]`。它会检查被引用的 blob 文件，报告孤立 blob，用 `git2` 校验笔记库 git 仓库，并在缺失、损坏或 git 错误时返回失败。`--no-fail` 会保留报告但强制返回成功退出码。
 - 使用 `pkvsyncd materialize <vault-id> -o <dir>` 把笔记库 HEAD 导出为普通文件树（文本文件原样输出，二进制 blob 从 blob 存储解析）。适合离线导出、临时审计或冷迁移。配合 `--at <commit-sha>` 可 materialize 某个历史 commit。
-- 设置 `[mcp].embed_in_serve = true` 可在主 `pkvsyncd serve` 端口的 `/mcp` 暴露读写 MCP Streamable HTTP 端点；也可以运行 `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` 作为独立 MCP 进程。使用 `pkvsyncd mcp --vault <id>` 可启动仅 stdio 的单笔记库会话。
+- `[mcp].embed_in_serve` 默认为 `true`，会在主 `pkvsyncd serve` 端口的 `/mcp` 挂载读写 MCP Streamable HTTP 端点；设为 `false` 可禁用内嵌端点（MCP HTTP 仅内嵌提供——独立进程已移除）。使用 `pkvsyncd mcp --vault <id>` 可启动仅 stdio 的单笔记库会话。
 - 大量删除附件后运行 blob 垃圾回收。
 - 维护前检查仪表盘更新提示或 GitHub release。
 - 关注日志和活动中重复出现的 `401`、`403`、`404`、`409` 和 `429` 响应。

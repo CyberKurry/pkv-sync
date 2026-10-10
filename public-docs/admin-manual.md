@@ -391,11 +391,11 @@ automatically.
   as a plain file tree (text files as-is, binary blobs resolved from the
   blob store). Useful for offline export, ad-hoc audit, or cold migration.
   Pair with `--at <commit-sha>` to materialize a historical commit.
-- Set `[mcp].embed_in_serve = true` to expose the read/write MCP Streamable
-  HTTP endpoint at `/mcp` on the main `pkvsyncd serve` port, or run
-  `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` as a standalone MCP
-  process. Use `pkvsyncd mcp --vault <id>` for a stdio-only single-vault
-  session.
+- `[mcp].embed_in_serve` defaults to `true` and mounts the read/write MCP
+  Streamable HTTP endpoint at `/mcp` on the main `pkvsyncd serve` port; set it
+  to `false` to disable the embedded endpoint (MCP HTTP is embedded-only —
+  the standalone process was removed). Use `pkvsyncd mcp --vault <id>` for a
+  stdio-only single-vault session.
 - Run blob garbage collection after large attachment deletions.
 - Check the dashboard update banner or GitHub releases before maintenance.
 - Watch logs and activity for repeated `401`, `403`, `404`, `409`, and `429`

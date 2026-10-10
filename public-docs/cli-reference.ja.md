@@ -249,32 +249,28 @@ AI ツール向けの MCP(Model Context Protocol)サーバーを起動します�
 ### 形式
 
 ```text
-pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>] [--bind <ADDR>]
+pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 ```
 
 ### オプション
 
-- `--transport <stdio|http>`: トランスポートモード。デフォルト: `stdio`。
-- `--vault <VAULT-ID>`: stdio で必須。クライアントに公開する単一のボールトです。
-- `--token <PKS-TOKEN>`: stdio 用のベアラーデバイストークン。省略した場合は環境変数 `PKV_TOKEN` が使われます。
-- `--bind <ADDR>`: HTTP のバインドアドレス。デフォルト: `127.0.0.1:6711`。
+- `--vault <VAULT-ID>`: 必須。クライアントに公開する単一のボールトです。
+- `--token <PKS-TOKEN>`: ベアラーデバイストークン。省略した場合は環境変数 `PKV_TOKEN` が使われます（推奨。トークンがシェル履歴に残りません）。
 
 ### 説明
 
-`stdio` モードは標準入力から JSON-RPC を読み取り、標準出力に JSON-RPC を書き込みます。`http` モードはステートレスな Streamable HTTP MCP エンドポイントを `/mcp` で提供します。どちらのモードも同じツールセットを公開します: `list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files`、`move_file`。`write_files` は複数ページの wiki 編集を原子的にまとめる場合に、`move_file` は履歴を保った名前変更やアーカイブ移動に使います。書き込み系ツールは `(token, vault)` ごとに 1 分あたり 60 回までにレート制限され、`write_files` batch は 1 つの書き込み記録だけを消費します。検索リクエストは最大 5000 個の表示可能な tree files を走査し、最大 500 件の一致を返し、本番環境では検索済みテキストが 256 MiB を超えるとエラーで中止します。`link_graph` は同じ本番テキスト予算で最大 5000 個の表示可能なテキストファイルを走査しますが、失敗せず `truncated` を返します。`changes_since` は最大 5000 件の表示可能な変更エントリを返します。64 MiB を超える binary/blob 読み取りレスポンスは、base64 で JSON に展開される代わりに拒否されます。
+`stdio` モードは標準入力から JSON-RPC を読み取り、標準出力に JSON-RPC を書き込みます。このサブコマンドが提供する transport は stdio だけです。完全なツールセットを公開します: `list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files`、`move_file`。`write_files` は複数ページの wiki 編集を原子的にまとめる場合に、`move_file` は履歴を保った名前変更やアーカイブ移動に使います。書き込み系ツールは `(token, vault)` ごとに 1 分あたり 60 回までにレート制限され、`write_files` batch は 1 つの書き込み記録だけを消費します。検索リクエストは最大 5000 個の表示可能な tree files を走査し、最大 500 件の一致を返し、本番環境では検索済みテキストが 256 MiB を超えるとエラーで中止します。`link_graph` は同じ本番テキスト予算で最大 5000 個の表示可能なテキストファイルを走査しますが、失敗せず `truncated` を返します。`changes_since` は最大 5000 件の表示可能な変更エントリを返します。64 MiB を超える binary/blob 読み取りレスポンスは、base64 で JSON に展開される代わりに拒否されます。両方のプロトコル時代に対応します。レガシーの `initialize` クライアントとモダンな 2026-07-28 クライアント（`notifications/cancelled` で終了する `subscriptions/listen` を含む）です。
 
-`http` モードでは、通常の同期 API と同じく、すべてのリクエストにサーバーのデプロイメントキーヘッダーを付与する必要があります。
+スタンドアロンの MCP HTTP モード（`--transport http --bind`）はこのバージョンで削除されました。MCP HTTP は埋め込み専用です。`pkvsyncd serve` がメインサーバーポートに `/mcp` をマウントし、`[mcp].embed_in_serve` はデフォルトで `true` です（`false` で無効化）。既存のスタンドアロンデプロイはメインサーバーの `/mcp` を指すようにしてください。
 
-
-このサブコマンドは引き続き独立 MCP プロセスです。同じ Streamable HTTP transport をメインサーバーポートから提供するには、`[mcp].embed_in_serve = true` を設定し、`pkvsyncd serve` を使います。
 ### 例
 
 ```bash
 # 環境変数のトークンを使った stdio
 PKV_TOKEN=pks_xxx pkvsyncd mcp --vault 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 
-# ローカルの Streamable HTTP エンドポイント
-pkvsyncd mcp --transport http --bind 127.0.0.1:6711
+# 埋め込み MCP HTTP エンドポイント（デフォルトで有効。pkvsyncd serve が提供）
+# [mcp] embed_in_serve = true  →  http://127.0.0.1:6710/mcp
 ```
 
 ## pkvsyncd upgrade

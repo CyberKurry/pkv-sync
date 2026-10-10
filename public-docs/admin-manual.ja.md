@@ -208,7 +208,7 @@ https://sync.example.com/k_xxx/
 - `pkvsyncd restore --input <backup-dir> --data-dir <dir>` で、存在しないか空のデータディレクトリに復元します。先に消去してよい対象であることを確認した場合のみ `--force` を追加してください。restore はコピー前に manifest hash を検証し、完了後に verify を実行します。
 - メンテナンス後またはホストストレージ障害後に `pkvsyncd verify [--data-dir <dir>]` を実行します。参照される blob ファイルを確認し、孤立 blob を報告し、`git2` で vault git リポジトリを検証し、欠落、破損、git エラーでは非ゼロ終了します。`--no-fail` はレポートを残したまま成功終了コードを強制します。
 - `pkvsyncd materialize <vault-id> -o <dir>` で vault の HEAD を平坦なファイルツリーとしてエクスポートします（テキストファイルはそのまま、バイナリ blob は blob ストアから解決されます）。オフラインエクスポート、臨時監査、コールドマイグレーションに有用です。`--at <commit-sha>` と組み合わせると、過去の commit を materialize できます。
-- `[mcp].embed_in_serve = true` を設定すると、メインの `pkvsyncd serve` ポートの `/mcp` で read/write MCP Streamable HTTP endpoint を公開できます。独立 MCP プロセスとして `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` を実行することもできます。単一 vault 専用の stdio セッションには `pkvsyncd mcp --vault <id>` を使用します。
+- `[mcp].embed_in_serve` はデフォルトで `true` であり、メインの `pkvsyncd serve` ポートの `/mcp` に read/write MCP Streamable HTTP endpoint をマウントします。`false` を設定すると埋め込み endpoint を無効化できます（MCP HTTP は埋め込み専用です。スタンドアロンプロセスは削除されました）。単一 vault 専用の stdio セッションには `pkvsyncd mcp --vault <id>` を使用します。
 - 大量の添付ファイル削除後は blob ガベージコレクションを実行します。
 - ログとアクティビティで `401`、`403`、`404`、`409`、`429` の繰り返し応答を監視します。
 - サーバーバイナリ、プラグインパッケージ、Docker イメージ、リバースプロキシ、ホスト OS を更新状態に保ちます。

@@ -208,7 +208,7 @@ https://sync.example.com/k_xxx/
 - `pkvsyncd restore --input <backup-dir> --data-dir <dir>`로 없거나 빈 데이터 디렉터리에 복원합니다. 대상을 먼저 비워도 된다는 것을 확인한 경우에만 `--force`를 추가하세요. restore는 복사 전에 manifest hash를 확인하고 이후 verify를 실행합니다.
 - 유지보수 후 또는 호스트 스토리지 사고 후 `pkvsyncd verify [--data-dir <dir>]`를 실행합니다. 참조된 blob 파일을 검사하고, 고아 blob을 보고하며, `git2`로 vault git 저장소를 검증하고, 누락, 손상, git 오류가 있으면 0이 아닌 값으로 종료합니다. `--no-fail`은 보고서를 유지하되 성공 종료 코드를 강제합니다.
 - `pkvsyncd materialize <vault-id> -o <dir>`로 vault의 HEAD를 일반 파일 트리로 내보냅니다(텍스트 파일은 그대로, 바이너리 blob은 blob store에서 해석). 오프라인 내보내기, 임시 감사 또는 콜드 마이그레이션에 유용합니다. 과거 commit을 materialize하려면 `--at <commit-sha>`와 함께 사용하세요.
-- `[mcp].embed_in_serve = true`를 설정하면 메인 `pkvsyncd serve` 포트의 `/mcp`에서 읽기/쓰기 MCP Streamable HTTP endpoint를 노출합니다. 또는 `pkvsyncd mcp --transport http --bind 127.0.0.1:6711`을 독립 MCP 프로세스로 실행할 수 있습니다. 단일 vault stdio 세션은 `pkvsyncd mcp --vault <id>`를 사용하세요.
+- `[mcp].embed_in_serve`는 기본적으로 `true`이며, 메인 `pkvsyncd serve` 포트의 `/mcp`에 읽기/쓰기 MCP Streamable HTTP endpoint를 마운트합니다. `false`로 설정하면 내장 endpoint를 비활성화할 수 있습니다(MCP HTTP는 내장 방식만 제공됩니다. 독립 프로세스는 제거되었습니다). 단일 vault stdio 세션은 `pkvsyncd mcp --vault <id>`를 사용하세요.
 - 대량 첨부 삭제 후 blob 가비지 컬렉션을 실행합니다.
 - 로그와 활동에서 반복되는 `401`, `403`, `404`, `409`, `429` 응답을 확인합니다.
 - 서버 바이너리, 플러그인 패키지, Docker 이미지, 리버스 프록시, 호스트 OS를 최신 상태로 유지합니다.

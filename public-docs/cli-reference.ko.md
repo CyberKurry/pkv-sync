@@ -249,32 +249,28 @@ AI 도구를 위한 MCP(Model Context Protocol) 서버를 시작합니다.
 ### 개요
 
 ```text
-pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>] [--bind <ADDR>]
+pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 ```
 
 ### 옵션
 
-- `--transport <stdio|http>`: 전송 모드입니다. 기본값: `stdio`.
-- `--vault <VAULT-ID>`: stdio에서는 필수이며, 클라이언트에 노출되는 단일 볼트입니다.
-- `--token <PKS-TOKEN>`: stdio용 bearer 디바이스 토큰입니다. 생략하면 `PKV_TOKEN` 환경 변수가 사용됩니다.
-- `--bind <ADDR>`: HTTP 바인딩 주소입니다. 기본값: `127.0.0.1:6711`.
+- `--vault <VAULT-ID>`: 필수이며, 클라이언트에 노출되는 단일 볼트입니다.
+- `--token <PKS-TOKEN>`: bearer 디바이스 토큰입니다. 생략하면 `PKV_TOKEN` 환경 변수가 사용됩니다(권장. 토큰이 셸 히스토리에 남지 않습니다).
 
 ### 설명
 
-`stdio` 모드는 stdin에서 JSON-RPC를 읽고 stdout으로 JSON-RPC를 씁니다. `http` 모드는 `/mcp`에서 무상태 Streamable HTTP MCP 엔드포인트를 제공합니다. 두 모드 모두 동일한 툴셋, 즉 `list_vaults`, `list_files`, `read_file`, `read_file_at_commit`, `search`, `link_graph`, `changes_since`, `write_file`, `delete_file`, `write_files`, `move_file`을 노출합니다. `write_files`는 여러 wiki 페이지 편집을 원자적으로 묶을 때, `move_file`은 기록을 보존하는 이름 변경이나 보관 이동에 사용합니다. 쓰기 툴은 `(token, vault)`마다 분당 60회 쓰기로 속도 제한되며, `write_files` batch는 쓰기 기록 하나만 사용합니다. 검색 요청은 최대 5000개의 표시 가능한 tree files를 스캔하고 최대 500 matches를 반환하며, 프로덕션에서는 검색한 text가 256 MiB를 초과하면 오류로 중단합니다. `link_graph`는 같은 프로덕션 text 예산으로 최대 5000개의 표시 가능한 text 파일을 스캔하지만, 실패하지 않고 `truncated`를 반환합니다. `changes_since`는 최대 5000개의 표시 가능한 변경 항목을 반환합니다. 64 MiB를 넘는 binary/blob 읽기 응답은 base64로 JSON에 확장되는 대신 거부됩니다.
+`stdio` 모드는 stdin에서 JSON-RPC을 읽고 stdout으로 JSON-RPC을 씁니다. 이 서브커맨드가 제공하는 transport는 stdio뿐입니다. 전체 툴셋인 `list_vaults`, `list_files`, `read_file`, `read_file_at_commit`, `search`, `link_graph`, `changes_since`, `write_file`, `delete_file`, `write_files`, `move_file`을 노출합니다. `write_files`는 여러 wiki 페이지 편집을 원자적으로 묶을 때, `move_file`은 기록을 보존하는 이름 변경이나 보관 이동에 사용합니다. 쓰기 툴은 `(token, vault)`마다 분당 60회 쓰기로 속도 제한되며, `write_files` batch는 쓰기 기록 하나만 사용합니다. 검색 요청은 최대 5000개의 표시 가능한 tree files를 스캔하고 최대 500 matches를 반환하며, 프로덕션에서는 검색한 text가 256 MiB를 초과하면 오류로 중단합니다. `link_graph`는 같은 프로덕션 text 예산으로 최대 5000개의 표시 가능한 text 파일을 스캔하지만, 실패하지 않고 `truncated`를 반환합니다. `changes_since`는 최대 5000개의 표시 가능한 변경 항목을 반환합니다. 64 MiB를 넘는 binary/blob 읽기 응답은 base64로 JSON에 확장되는 대신 거부됩니다. 두 프로토콜 시대를 모두 지원합니다. 레거시 `initialize` 클라이언트와 모던 2026-07-28 클라이언트(`notifications/cancelled`로 종료되는 `subscriptions/listen` 포함)입니다.
 
-`http` 모드는 일반 동기화 API와 마찬가지로 모든 요청에 서버 배포 키 헤더를 포함해야 합니다.
+독립 실행형 MCP HTTP 모드(`--transport http --bind`)는 이 버전에서 제거되었습니다. MCP HTTP는 이제 내장 방식만 제공됩니다. `pkvsyncd serve`가 메인 서버 포트에 `/mcp`를 마운트하며 `[mcp].embed_in_serve`는 기본적으로 `true`입니다(`false`로 비활성화). 기존 독립 배포는 메인 서버의 `/mcp`를 가리키도록 변경하세요.
 
-
-이 서브커맨드는 계속 독립 MCP 프로세스입니다. 같은 Streamable HTTP transport를 메인 서버 포트에서 제공하려면 `[mcp].embed_in_serve = true`를 설정하고 `pkvsyncd serve`를 사용하세요.
 ### 예시
 
 ```bash
 # 환경에서 가져온 토큰으로 stdio 실행
 PKV_TOKEN=pks_xxx pkvsyncd mcp --vault 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 
-# 로컬 Streamable HTTP 엔드포인트
-pkvsyncd mcp --transport http --bind 127.0.0.1:6711
+# 내장 MCP HTTP 엔드포인트(기본 켜짐. pkvsyncd serve가 제공)
+# [mcp] embed_in_serve = true  →  http://127.0.0.1:6710/mcp
 ```
 
 ## pkvsyncd upgrade

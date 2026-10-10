@@ -206,7 +206,7 @@ https://sync.example.com/k_xxx/
 - 使用 `pkvsyncd restore --input <backup-dir> --data-dir <dir>` 恢復到不存在或為空的資料目錄。只有確認目標可以先清空時才加 `--force`；恢復會先校驗 manifest 雜湊，複製完成後自動執行 verify。
 - 維護後或主機儲存異常後執行 `pkvsyncd verify [--data-dir <dir>]`。它會檢查被引用的 blob 檔案，報告孤立 blob，用 `git2` 校驗筆記庫 git 倉庫，並在缺失、損壞或 git 錯誤時返回失敗。`--no-fail` 會保留報告但強制返回成功退出碼。
 - 使用 `pkvsyncd materialize <vault-id> -o <dir>` 將筆記庫的 HEAD 匯出為普通檔案樹（文字檔案原樣寫出，二進位 blob 從 blob 儲存解析）。可用於離線匯出、臨時稽核或冷遷移。搭配 `--at <commit-sha>` 可實體化特定歷史提交。
-- 設定 `[mcp].embed_in_serve = true` 可在主 `pkvsyncd serve` 端口的 `/mcp` 開放讀寫 MCP Streamable HTTP endpoint；也可以執行 `pkvsyncd mcp --transport http --bind 127.0.0.1:6711` 作為獨立 MCP 進程。使用 `pkvsyncd mcp --vault <id>` 可啟動僅 stdio 的單筆記庫工作階段。
+- `[mcp].embed_in_serve` 預設為 `true`，會在主 `pkvsyncd serve` 端口的 `/mcp` 掛載讀寫 MCP Streamable HTTP endpoint；設為 `false` 可停用內嵌端點（MCP HTTP 僅內嵌提供——獨立進程已移除）。使用 `pkvsyncd mcp --vault <id>` 可啟動僅 stdio 的單筆記庫工作階段。
 - 大量刪除附件後執行 blob 垃圾回收。
 - 關注日誌和活動中重複出現的 `401`、`403`、`404`、`409` 和 `429` 回應。
 - 保持服務端二進位、外掛包、Docker 映像、反向代理和主機系統及時更新。

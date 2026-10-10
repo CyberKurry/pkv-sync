@@ -277,37 +277,38 @@ Start the MCP (Model Context Protocol) server for AI tools.
 ### Synopsis
 
 ```text
-pkvsyncd mcp [--transport stdio|http] [--vault <VAULT-ID>] [--token <PKS-TOKEN>] [--bind <ADDR>]
+pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 ```
 
 ### Options
 
-- `--transport <stdio|http>`: transport mode. Default: `stdio`.
-- `--vault <VAULT-ID>`: required for stdio; the single vault exposed to the client.
-- `--token <PKS-TOKEN>`: bearer device token for stdio. If omitted, the `PKV_TOKEN` environment variable is used.
-- `--bind <ADDR>`: HTTP bind address. Default: `127.0.0.1:6711`.
+- `--vault <VAULT-ID>`: required; the single vault exposed to the client.
+- `--token <PKS-TOKEN>`: bearer device token. If omitted, the `PKV_TOKEN` environment variable is used (preferred, so the token stays out of shell history).
 
 ### Description
 
-`stdio` mode reads JSON-RPC from stdin and writes JSON-RPC to stdout. `http`
-mode serves a stateless Streamable HTTP MCP endpoint at `/mcp`. Both modes
-expose the same toolset: `list_vaults`, `list_files`, `read_file`,
-`read_file_at_commit`, `search`, `link_graph`, `changes_since`, `write_file`,
-`delete_file`, `write_files`, and `move_file`. Use `write_files` for atomic
-multi-page wiki edits and `move_file` for history-preserving renames or
-archival moves. Write tools are rate-limited at 60 writes per minute per
-`(token, vault)`, and a `write_files` batch spends one write record.
-Search requests scan at most 5000 visible tree files, return at most 500
-matches, and abort with an error after 256 MiB of searched text in production.
-`link_graph` scans at most 5000 visible text files with the same production text
-budget and reports `truncated` instead of failing, and `changes_since` returns
-at most 5000 visible change entries. Binary/blob read responses above 64 MiB are
-rejected instead of being base64-expanded into JSON.
+`stdio` mode reads JSON-RPC from stdin and writes JSON-RPC to stdout; stdio is
+the only transport this subcommand serves. It exposes the full toolset:
+`list_vaults`, `list_files`, `read_file`, `read_file_at_commit`, `search`,
+`link_graph`, `changes_since`, `write_file`, `delete_file`, `write_files`, and
+`move_file`. Use `write_files` for atomic multi-page wiki edits and
+`move_file` for history-preserving renames or archival moves. Write tools are
+rate-limited at 60 writes per minute per `(token, vault)`, and a
+`write_files` batch spends one write record. Search requests scan at most
+5000 visible tree files, return at most 500 matches, and abort with an error
+after 256 MiB of searched text in production. `link_graph` scans at most 5000
+visible text files with the same production text budget and reports
+`truncated` instead of failing, and `changes_since` returns at most 5000
+visible change entries. Binary/blob read responses above 64 MiB are rejected
+instead of being base64-expanded into JSON. Both protocol eras are served:
+legacy `initialize` clients and modern 2026-07-28 clients, including
+`subscriptions/listen` with `notifications/cancelled` termination.
 
-`http` mode requires every request to carry the server deployment key header,
-just like the regular sync API.
-
-This subcommand remains the standalone MCP process. To serve the same Streamable HTTP transport from the main server port, set `[mcp].embed_in_serve = true` and use `pkvsyncd serve`.
+The standalone MCP HTTP mode (`--transport http --bind`) was removed in this
+version. MCP HTTP is now embedded only: `pkvsyncd serve` mounts `/mcp` on the
+main server port and `[mcp].embed_in_serve` defaults to `true` (set `false`
+to disable). Point existing standalone deployments at the main server's
+`/mcp`.
 
 ### Examples
 
@@ -315,8 +316,8 @@ This subcommand remains the standalone MCP process. To serve the same Streamable
 # stdio with the token from the environment
 PKV_TOKEN=pks_xxx pkvsyncd mcp --vault 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 
-# Local Streamable HTTP endpoint
-pkvsyncd mcp --transport http --bind 127.0.0.1:6711
+# Embedded MCP HTTP endpoint (default on; served by pkvsyncd serve)
+# [mcp] embed_in_serve = true  →  http://127.0.0.1:6710/mcp
 ```
 
 ## pkvsyncd upgrade

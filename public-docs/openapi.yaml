@@ -1727,18 +1727,36 @@ paths:
       summary: MCP Streamable HTTP JSON-RPC request
       description: |
         Streamable HTTP transport for Model Context Protocol clients. The
-        endpoint is available either on the main `pkvsyncd serve` listener when
-        `[mcp].embed_in_serve = true`, or on the standalone
-        `pkvsyncd mcp --transport http` listener. It requires the configured
-        deployment key and a bearer device token; Admin WebUI cookies do not
-        authenticate MCP requests. JSON-RPC method names and payloads follow
-        the MCP protocol plus PKV Sync's documented tool set. MCP search caps
-        each request to 5000 visible tree files, 500 returned matches, and 256
-        MiB of searched text in production. `link_graph` scans at most 5000
-        visible text files with the same production text budget, and
-        `changes_since` returns at most 5000 visible change entries.
-        Binary/blob read responses above 64 MiB are rejected instead of being
-        base64-expanded into JSON.
+        endpoint is mounted on the main `pkvsyncd serve` listener when
+        `[mcp].embed_in_serve` is enabled (default `true`; MCP HTTP is
+        embedded-only — the standalone `pkvsyncd mcp --transport http`
+        process was removed). It requires the configured deployment key and
+        a bearer device token; Admin WebUI cookies do not authenticate MCP
+        requests. JSON-RPC method names and payloads follow the MCP protocol
+        plus PKV Sync's documented tool set.
+
+        The endpoint serves two protocol eras. Legacy clients negotiate via
+        `initialize`. Modern 2026-07-28 clients send per-request protocol
+        fields in `params._meta` and must repeat the version in the
+        `MCP-Protocol-Version` header and the method in the `Mcp-Method`
+        header (plus `Mcp-Name` when the body carries `params.name`); a
+        header/body mismatch returns `400` with code `-32020`, and an
+        unsupported version returns `400` with code `-32022` plus the
+        supported list (`2026-07-28`, `2025-06-18`). Modern results carry
+        `resultType`, `tools/list` and `server/discover` additionally carry
+        `ttlMs`/`cacheScope`, and unknown methods return `404` with `-32601`.
+        Notification-only messages (no `id`) are answered with `202` and no
+        body. A `subscriptions/listen` POST switches the response to an SSE
+        stream (ack-first, `notifications/resources/updated` for
+        `pkv://vault/<id>` URIs, cancel by closing the stream, not
+        resumable).
+
+        MCP search caps each request to 5000 visible tree files, 500
+        returned matches, and 256 MiB of searched text in production.
+        `link_graph` scans at most 5000 visible text files with the same
+        production text budget, and `changes_since` returns at most 5000
+        visible change entries. Binary/blob read responses above 64 MiB are
+        rejected instead of being base64-expanded into JSON.
       requestBody:
         required: true
         content:
@@ -1752,6 +1770,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JsonRpcResponse'
+        '202':
+          description: Accepted notification (no `id`) — empty body
+        '400':
+          description: >-
+            Modern-era header/version mismatch (`-32020`) or unsupported
+            protocol version (`-32022` with the supported list)
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1765,11 +1789,13 @@ paths:
           BearerAuth: []
       summary: MCP Streamable HTTP SSE stream
       description: |
-        Server-Sent Events stream for MCP vault change notifications. Clients
-        must send `Accept: text/event-stream`; otherwise the server returns
-        `405`. The stream uses bearer authentication, the deployment key, MCP
-        replay via `Last-Event-ID`, and the same per-user/global SSE subscriber
-        caps as the plugin event stream.
+        Server-Sent Events stream of MCP vault change notifications for
+        legacy clients (modern clients use `subscriptions/listen` on the
+        POST endpoint instead). Clients must send `Accept:
+        text/event-stream`; otherwise the server returns `405`. The stream
+        uses bearer authentication, the deployment key, MCP replay via
+        `Last-Event-ID`, and the same per-user/global SSE subscriber caps
+        as the plugin event stream.
       parameters:
         - in: header
           name: Accept

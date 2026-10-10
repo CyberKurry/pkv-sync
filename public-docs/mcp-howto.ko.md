@@ -38,22 +38,17 @@ token을 직접 전달할 수도 있습니다.
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
+stdio는 두 프로토콜 시대를 모두 지원합니다. 모던 2026-07-28 클라이언트는 요청마다 `_meta` 프로토콜 필드를 보내고 모던 결과 봉투를 받습니다. 레거시 클라이언트는 `initialize`로 협상하며, 서버는 요청된 레거시 버전을 그대로 되돌려줍니다. 모던 stdio 클라이언트는 스코프된 vault에 대해 `subscriptions/listen`을 호출할 수도 있습니다. 세션은 클라이언트가 해당 listen의 요청 id를 담은 `notifications/cancelled` 알림을 보내거나(또는 종료할 때까지) `notifications/resources/updated` 줄을 계속 출력합니다.
+
 ## Streamable HTTP transport
 
-클라이언트가 이미 실행 중인 로컬 또는 내부 MCP endpoint에 연결할 때는 HTTP를 사용합니다. PKV Sync는 두 가지 HTTP 배포 모드를 제공합니다.
+클라이언트가 이미 실행 중인 로컬 또는 내부 MCP endpoint에 연결할 때는 HTTP를 사용합니다. MCP HTTP는 내장 방식만 제공됩니다. `[mcp].embed_in_serve`는 기본적으로 `true`이며, `pkvsyncd serve`가 메인 서버 포트에 `/mcp`를 마운트합니다. `[mcp].embed_in_serve = false`를 설정하면 내장 endpoint를 비활성화할 수 있습니다. 독립 실행형 `pkvsyncd mcp --transport http --bind` 프로세스는 이 버전에서 제거되었습니다. 기존 독립 배포는 메인 서버의 `/mcp`를 가리키도록 변경하세요.
 
-- **Embedded**: `config.toml`에서 `[mcp].embed_in_serve = true`를 설정하면 `pkvsyncd serve`가 메인 서버 포트에 `/mcp`를 마운트합니다.
-- **Standalone**: 전용 bind address, 격리된 MCP, 독립 scaling이 필요할 때 별도 MCP 프로세스를 실행합니다.
-
-```bash
-pkvsyncd -c /etc/pkv-sync/config.toml mcp --transport http --bind 127.0.0.1:6711
-```
-
-endpoint path는 항상 `/mcp`입니다. embedded mode에서는 메인 서버 origin을, standalone mode에서는 전용 bind address를 사용합니다.
+endpoint path는 항상 `/mcp`이며 메인 서버 origin에 있습니다.
 
 ```text
-POST http://127.0.0.1:6711/mcp
-GET  http://127.0.0.1:6711/mcp
+POST http://127.0.0.1:6710/mcp
+GET  http://127.0.0.1:6710/mcp
 ```
 
 모든 요청에는 다음이 포함되어야 합니다.
@@ -65,9 +60,18 @@ Authorization: Bearer pks_xxx
 
 배포 키는 주 PKV Sync 서버와 같은 설정 파일에서 읽습니다. 키가 없거나 잘못되면 bearer token 인증 전에 HTTP `404`를 반환합니다.
 
-MCP HTTP는 고정 창 방식으로 60초당 120개 요청으로 제한됩니다. 제한을 초과하면 서버는 HTTP `429`와 JSON-RPC error code `-32029`를 반환합니다. 실패한 MCP bearer token 인증도 프로세스 내에서 제한되며, stdio와 HTTP transports 합산 60초당 최대 30회 실패 시도까지 허용됩니다.
+MCP HTTP는 고정 창 방식으로 60초당 120개 요청으로 제한됩니다. 제한을 초과하면 서버는 HTTP `429`와 JSON-RPC error code `-63001`을 반환합니다. 실패한 MCP bearer token 인증은 HTTP `401`과 code `-63002`를 반환하며, 프로세스 내에서도 제한됩니다. stdio와 HTTP transports 합산 60초당 최대 30회 실패 시도까지 허용됩니다.
 
-POST는 JSON-RPC tool calls를 담고 JSON responses를 반환합니다. `Accept: text/event-stream`이 있는 GET은 `vault_changed` notifications를 구독합니다. 각 event의 id는 commit SHA 자체이며, 재연결 시 `Last-Event-ID`로 되돌려 보내 해당 vault의 missed commits를 replay할 수 있습니다. Replay에는 상한이 있습니다. 서버가 missed history를 커버할 수 없으면 `lagged`를 내보내며, 클라이언트는 sync API에서 새로 고쳐야 합니다. `:`를 포함한 값은 재개 위치로 허용되지 않습니다. 토큰이 여러 vault를 볼 수 있으면 재개하는 vault의 위치만 알 수 있으므로, 나머지 vault에 대해서도 `lagged`를 내보냅니다.
+## MCP 2026-07-28(모던) 클라이언트
+
+같은 endpoint가 두 프로토콜 시대를 모두 서비스합니다. 모던 클라이언트는 `params._meta`에 요청별 프로토콜 필드(`io.modelcontextprotocol/protocolVersion`과 `io.modelcontextprotocol/clientCapabilities`)를 담아 보내고, `MCP-Protocol-Version` 헤더에 버전을, `Mcp-Method` 헤더에 메서드를 반드시 반복해야 합니다. 요청에 `params.name`이 있으면 `Mcp-Name` 헤더에도 이름을 반복합니다(순수 ASCII가 아니면 `=?base64?...?=` 형식으로 base64 인코딩). 헤더와 body가 일치하지 않으면 HTTP `400`과 code `-32020`을 반환합니다. 지원되지 않는 버전을 요청하면 HTTP `400`과 code `-32022`, 지원 버전 목록(`2026-07-28`, `2025-06-18`)을 반환합니다. 알 수 없는 메서드는 HTTP `404`와 `-32601`을 반환하며, `id`가 없는 알림 전용 메시지는 body 없이 HTTP `202`로 응답됩니다.
+
+모던 결과에는 `resultType`이 포함되고, `tools/list`와 `server/discover`에는 추가로 `ttlMs`/`cacheScope` 캐시 힌트가 붙습니다. `server/discover`는 `supportedVersions`를 알려주므로 클라이언트는 연결 전에 자신의 시대를 선택할 수 있습니다. 레거시 `initialize` 클라이언트도 계속 사용할 수 있습니다. 서버는 요청된 레거시 버전을 되돌려주고 레거시 봉투로 응답합니다.
+
+## 변경 알림
+
+- **레거시 클라이언트**: `Accept: text/event-stream`을 가진 GET `/mcp`는 `vault_changed` notifications를 구독합니다. 각 event의 id는 commit SHA 자체이며, 재연결 시 `Last-Event-ID`로 되돌려 보내 해당 vault의 missed commits를 replay할 수 있습니다. Replay에는 상한이 있습니다. 서버가 missed history를 커버할 수 없으면 `lagged`를 내보내며, 클라이언트는 sync API에서 새로 고쳐야 합니다. `:`를 포함한 값은 재개 위치로 허용되지 않습니다. 토큰이 여러 vault를 볼 수 있으면 재개하는 vault의 위치만 알 수 있으므로, 나머지 vault에 대해서도 `lagged`를 내보냅니다.
+- **모던 클라이언트**: `subscriptions/listen` 요청을 POST하고 `params.notifications.resourceSubscriptions`를 `["pkv://vault/<id>"]` URI로 설정합니다(토큰이 볼 수 있는 vault만 수락됩니다). 응답은 SSE 스트림으로, 먼저 수락된 구독을 되돌려주는 `notifications/subscriptions/acknowledged` event를 보내고, 이어서 params에 `uri`, `commit`, `event`, `_meta.subscriptionId`를 담은 `notifications/resources/updated` event를 보냅니다. 스트림을 닫으면 구독이 취소됩니다. 모던 스트림은 재개할 수 없습니다. `Last-Event-ID` replay가 없으므로 재연결 후에는 다시 listen하고 읽은 내용을 비교해야 합니다.
 
 신뢰할 수 있는 네트워크 제어 뒤에 두지 않는 한 HTTP를 loopback에 bind하세요. bearer token은 해당 사용자가 소유한 모든 vault에 대한 읽기 및 쓰기 접근 권한을 부여합니다.
 
@@ -106,4 +110,5 @@ AI-driven writes는 vault git history의 commits가 됩니다. 일반 git operat
 
 - Claude Code, Codex CLI, Cherry Studio, OpenCode, bridge-based MCP clients는 `pkvsyncd mcp`를 실행해 stdio mode를 사용할 수 있습니다.
 - Streamable HTTP를 지원하는 clients는 `/mcp`를 가리키고 모든 요청에 bearer auth와 배포 키를 보낼 수 있습니다.
+- 두 transport 모두 dual-era입니다. 레거시 `initialize` 클라이언트는 계속 동작하고, 모던 2026-07-28 클라이언트는 요청별 버전 처리, `server/discover`, `subscriptions/listen` 푸시를 사용할 수 있습니다.
 - 서버는 stateless입니다. `Mcp-Session-Id`를 요구하거나 반환하지 않습니다.

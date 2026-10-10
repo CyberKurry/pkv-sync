@@ -27,7 +27,7 @@ Obsidian 볼트를 휴대폰, 태블릿, 데스크톱 사이에서 동기화합�
 - **어드민 패널**은 5 개 언어(English, 简中, 繁中, 日本語, 한국어)로
   사용자, 기기 토큰, 볼트, 초대, 활동, 블롭 GC 를 관리하며 파괴적인 볼트와
   사용자 작업에는 확인 대화상자를 표시합니다.
-- **AI가 읽을 수 있는 vault.** MCP는 stdio, 독립 Streamable HTTP, 또는 `pkvsyncd serve`에 내장된 `/mcp` 라우트로 읽기/쓰기 도구를 노출합니다.
+- **AI가 읽을 수 있는 vault.** MCP는 stdio 또는 `pkvsyncd serve`에 내장된 `/mcp` 라우트(기본 켜짐)로 읽기/쓰기 도구를 노출합니다.
 - **기본적으로 경계가 있습니다.** 관리자가 생성／재설정하는 비밀번호는 setup과 같은 강한 정책을 사용하고, token 평문은 한 번만 표시되며, upload와 MCP response에는 크기 상한이 있고, live SSE stream은 철회된 token을 재검증합니다.
 - **의도적으로 단순합니다.** 바이너리 하나, SQLite 메타데이터 DB 하나,
   볼트마다 bare git 저장소 하나, 첨부 파일마다 content-addressed 블롭 하나.
@@ -64,7 +64,7 @@ Obsidian 볼트를 휴대폰, 태블릿, 데스크톱 사이에서 동기화합�
    trusted_proxies = ["172.16.0.0/12"]   # Docker bridge network
 
    [mcp]
-   embed_in_serve = false                # true이면 이 서버에 /mcp를 마운트
+   embed_in_serve = true                 # 기본값. false로 비활성화
    ```
 
 3. `deploy/caddy/Caddyfile` 을 편집해 `sync.example.com` 을 실제
@@ -91,12 +91,13 @@ Obsidian 볼트를 휴대폰, 태블릿, 데스크톱 사이에서 동기화합�
 
 ## MCP 배포 모드
 
-PKV Sync는 MCP Streamable HTTP transport를 두 가지 방식으로 노출합니다. 내장
-모드는 명시적으로 켭니다. `[mcp].embed_in_serve = true`를 설정하면 `pkvsyncd
-serve`가 메인 서버 포트에 `/mcp`를 마운트하고 같은 TLS 종료, 리버스 프록시,
-배포 키, bearer token 검증을 공유합니다. 독립 모드는 기존처럼 별도 프로세스입니다:
-`pkvsyncd mcp --transport http --bind 127.0.0.1:6711`. MCP 격리, 전용 bind
-address, 또는 독립 scaling이 필요할 때 유용합니다.
+MCP HTTP는 내장 방식만 제공됩니다. `[mcp].embed_in_serve`는 기본적으로
+`true`이므로 `pkvsyncd serve`가 메인 서버 포트에 `/mcp`를 마운트하고 같은
+TLS 종료, 리버스 프록시, 배포 키, bearer token 검증을 공유합니다.
+`embed_in_serve = false`로 비활성화할 수 있습니다. 독립 실행형
+`pkvsyncd mcp --transport http --bind` 프로세스는 이 버전에서 제거되었으므로,
+기존 독립 배포는 메인 서버의 `/mcp`를 가리키도록 변경하세요. 로컬 AI
+도구는 stdio transport(`pkvsyncd mcp --vault <id>`)도 사용할 수 있습니다.
 
 ## Obsidian 플러그인
 
