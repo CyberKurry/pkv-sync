@@ -9,6 +9,7 @@ use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
 use pkv_sync_server::server;
 use pkv_sync_server::service::sync::{push, PushChange, PushReq};
 use pkv_sync_server::service::{vault, AppState};
+use pkv_sync_server::storage::git::GitVaultStore;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -355,6 +356,64 @@ async fn mcp_sse_reconnect_dedupes_commit_seen_by_replay_and_live_stream() {
             .count(),
         1,
         "commit seen by both replay and live stream must be emitted exactly once, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn mcp_sse_replay_does_not_suppress_other_vault_with_identical_commit() {
+    // BUG-5: a commit id is a git OID, and two vaults initialized from the
+    // same template in the same second with the same message produce the
+    // same root OID (asserted below on real git objects). Replay suppression
+    // used to key on the commit alone, so vault A's replayed event
+    // suppressed vault B's live event carrying the identical id.
+    //
+    // Tested at the suppression-check level: a full GET-with-replay cannot
+    // produce the collision (replay needs a Last-Event-ID ancestor, and a
+    // vault whose root is the colliding commit has no earlier position), so
+    // this mirrors the exact `contains` the live branch runs against the
+    // production key type (vault_id, commit).
+    let (_ts, state, auth, _raw) = start_test_server().await;
+    let vault_a = vault::create_vault(&state, &auth.user_id, "a")
+        .await
+        .unwrap();
+    let vault_b = vault::create_vault(&state, &auth.user_id, "b")
+        .await
+        .unwrap();
+
+    let git = pkv_sync_server::storage::git::Git2VaultStore::new(state.default_vault_root());
+    let mk_root = |vault_id: String| {
+        let git = git.clone();
+        async move {
+            git.commit_changes(
+                &vault_id,
+                None,
+                &[pkv_sync_server::storage::git::FileChange::Upsert {
+                    path: "same.md".into(),
+                    file: pkv_sync_server::storage::git::StoredFile::Text {
+                        bytes: b"x".to_vec(),
+                    },
+                }],
+                "identical root",
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let oid_a = mk_root(vault_a.id.clone()).await;
+    let oid_b = mk_root(vault_b.id.clone()).await;
+    assert_eq!(
+        oid_a, oid_b,
+        "test premise: same-template roots pushed in the same second must collide"
+    );
+
+    // The replay suppression set collected from vault A's replay, keyed by
+    // the production type: (vault_id, commit).
+    let replay_set: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::from([(vault_a.id.clone(), oid_a.clone())]);
+    assert!(replay_set.contains(&(vault_a.id.clone(), oid_a.clone())));
+    assert!(
+        !replay_set.contains(&(vault_b.id.clone(), oid_b.clone())),
+        "vault B's live event with the same commit id must not be suppressed by vault A's replay"
     );
 }
 

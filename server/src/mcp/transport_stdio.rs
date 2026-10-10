@@ -56,7 +56,13 @@ impl StdioSession {
         vault_id: String,
         token_raw: String,
     ) -> Result<Self> {
-        let auth_limit_key = format!("mcp-auth:stdio:{vault_id}");
+        // The limiter runs before the token lookup, so the only available
+        // key material is the vault id plus a per-process factor: keying on
+        // the vault alone let one process's failures burn the shared budget
+        // for every other stdio client of that vault. Within one process
+        // repeated failures still share a bucket, so brute force stays
+        // rate-limited.
+        let auth_limit_key = format!("mcp-auth:stdio:{vault_id}:{}", std::process::id());
         let user = authenticate_token(&state, &token_raw, &auth_limit_key).await?;
         let token_hash = token::hash(&token_raw);
         state
@@ -261,10 +267,34 @@ impl StdioSession {
 }
 
 pub async fn run(state: AppState, vault_id: String, token_raw: String) -> Result<()> {
+    run_on(
+        state,
+        vault_id,
+        token_raw,
+        tokio::io::stdin(),
+        tokio::io::stdout(),
+    )
+    .await
+}
+
+/// Line-oriented MCP stdio loop over any duplex pair. `run` wires real
+/// stdio; tests drive both halves of a `tokio::io::duplex` so the EOF
+/// cleanup path (stdin close with a listen registered) is exercised for
+/// real.
+pub async fn run_on<R, W>(
+    state: AppState,
+    vault_id: String,
+    token_raw: String,
+    reader: R,
+    writer: W,
+) -> Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
     let session = StdioSession::authenticate(state, vault_id, token_raw).await?;
-    let stdin = tokio::io::stdin();
-    let mut lines = tokio::io::BufReader::new(stdin).lines();
-    let mut stdout = tokio::io::stdout();
+    let mut lines = tokio::io::BufReader::new(reader).lines();
+    let mut stdout = writer;
     let (mut tx, mut rx) = mpsc::channel::<String>(64);
     // 50ms poll: bounded worst-case latency for push lines; the loop only
     // wakes on stdin, a pending outbound line, or this tick — never a hot spin.
@@ -461,10 +491,10 @@ pub(crate) async fn handle_modern_jsonrpc(
             let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
             match serde_json::from_value::<ToolCallParams>(params) {
                 Ok(params) => match call_tool(state, user, vault_scope, params).await {
-                    Ok(mut result) => {
-                        if let Some(obj) = result.as_object_mut() {
-                            obj.insert("resultType".into(), json!("complete"));
-                        }
+                    Ok(result) => {
+                        // Single source for the modern result envelope: also
+                        // adds the SHOULD-level `_meta.serverInfo`.
+                        let result = crate::mcp::protocol::decorate_result(result, None);
                         json!({"jsonrpc": "2.0", "id": id, "result": result})
                     }
                     Err(err) => {

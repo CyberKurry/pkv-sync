@@ -3,7 +3,12 @@ use serde_json::{json, Value};
 
 pub const MODERN_VERSION: &str = "2026-07-28";
 pub const LEGACY_VERSIONS: [&str; 4] = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
-pub const SUPPORTED_VERSIONS: [&str; 2] = [MODERN_VERSION, "2025-06-18"];
+// The modern negotiation surface only ever accepts the modern version, so
+// `server/discover.supportedVersions` and the `-32022` supported list must
+// not advertise legacy eras: a client that picked one from the list would be
+// rejected by the very surface that advertised it. Legacy versions remain
+// supported through the `initialize` handshake (LEGACY_VERSIONS above).
+pub const SUPPORTED_VERSIONS: [&str; 1] = [MODERN_VERSION];
 
 pub const META_SERVER_INFO: &str = "io.modelcontextprotocol/serverInfo";
 pub const META_SUBSCRIPTION_ID: &str = "io.modelcontextprotocol/subscriptionId";
@@ -154,7 +159,12 @@ pub fn validate_modern_headers(
     if header_method != method {
         return Err("Mcp-Method header does not match body method");
     }
-    if let Some(name) = request.pointer("/params/name").and_then(Value::as_str) {
+    if let Some(name) = request.pointer("/params/name") {
+        // Present-but-non-string: the request will fail params parsing, but
+        // skipping the Mcp-Name check here would let any header through.
+        let Some(name) = name.as_str() else {
+            return Err("params.name must be a string");
+        };
         let header_name = headers
             .get("Mcp-Name")
             .and_then(|v| v.to_str().ok())
@@ -305,6 +315,26 @@ mod tests {
         )])));
         // Absent or unreadable headers never claim the modern version.
         assert!(!header_names_modern_version(&axum::http::HeaderMap::new()));
+    }
+
+    #[test]
+    fn non_string_params_name_fails_header_validation() {
+        // `params.name: 5` would skip the Mcp-Name block entirely and let any
+        // header through; the request dies in params parsing anyway, but the
+        // header check must not develop a hole.
+        let headers = header_map(&[
+            ("MCP-Protocol-Version", "2026-07-28"),
+            ("Mcp-Method", "tools/call"),
+            ("Mcp-Name", "5"),
+        ]);
+        let req = json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name": 5, "_meta":{
+                "io.modelcontextprotocol/protocolVersion":"2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities":{}}}});
+        assert_eq!(
+            validate_modern_headers(&headers, &req).unwrap_err(),
+            "params.name must be a string"
+        );
     }
 
     #[test]

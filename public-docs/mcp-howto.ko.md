@@ -66,9 +66,9 @@ MCP 사양의 `Origin` 헤더 DNS-rebinding 검사는 `/mcp`에서 의도적으�
 
 ## MCP 2026-07-28(모던) 클라이언트
 
-같은 endpoint가 두 프로토콜 시대를 모두 서비스합니다. 모던 클라이언트는 `params._meta`에 요청별 프로토콜 필드(`io.modelcontextprotocol/protocolVersion`과 `io.modelcontextprotocol/clientCapabilities`)를 담아 보내고, `MCP-Protocol-Version` 헤더에 버전을, `Mcp-Method` 헤더에 메서드를 반드시 반복해야 합니다. 요청에 `params.name`이 있으면 `Mcp-Name` 헤더에도 이름을 반복합니다(순수 ASCII가 아니면 `=?base64?...?=` 형식으로 base64 인코딩). 헤더와 body가 일치하지 않으면 HTTP `400`과 code `-32020`을 반환합니다. 지원되지 않는 버전을 요청하면 HTTP `400`과 code `-32022`, 지원 버전 목록(`2026-07-28`, `2025-06-18`)을 반환합니다. 알 수 없는 메서드는 HTTP `404`와 `-32601`을 반환하며, `id`가 없는 알림 전용 메시지는 body 없이 HTTP `202`로 응답됩니다.
+같은 endpoint가 두 프로토콜 시대를 모두 서비스합니다. 모던 클라이언트는 `params._meta`에 요청별 프로토콜 필드(`io.modelcontextprotocol/protocolVersion`과 `io.modelcontextprotocol/clientCapabilities`)를 담아 보내고, `MCP-Protocol-Version` 헤더에 버전을, `Mcp-Method` 헤더에 메서드를 반드시 반복해야 합니다. 요청에 `params.name`이 있으면 `Mcp-Name` 헤더에도 이름을 반복합니다(순수 ASCII가 아니면 `=?base64?...?=` 형식으로 base64 인코딩). 헤더와 body가 일치하지 않으면 HTTP `400`과 code `-32020`을 반환합니다. 지원되지 않는 버전을 요청하면 HTTP `400`과 code `-32022`, 지원 버전 목록(`2026-07-28`)을 반환합니다. 알 수 없는 메서드는 HTTP `404`와 `-32601`을 반환하며, `id`가 없는 알림 전용 메시지는 body 없이 HTTP `202`로 응답됩니다.
 
-모던 결과에는 `resultType`이 포함되고, `tools/list`와 `server/discover`에는 추가로 `ttlMs`/`cacheScope` 캐시 힌트가 붙습니다. `server/discover`는 `supportedVersions`를 알려주므로 클라이언트는 연결 전에 자신의 시대를 선택할 수 있습니다. 레거시 `initialize` 클라이언트도 계속 사용할 수 있습니다. 서버는 요청된 레거시 버전을 되돌려주고 레거시 봉투로 응답합니다.
+모던 결과에는 `resultType`이 포함되고, `tools/list`와 `server/discover`에는 추가로 `ttlMs`/`cacheScope` 캐시 힌트가 붙습니다. `server/discover`는 `supportedVersions`를 알려주므로 클라이언트는 연결 전에 자신의 시대를 선택할 수 있습니다.(모던 버전만 해당. 레거시 `initialize` 협상은 이 목록 밖에서 이루어집니다) 레거시 `initialize` 클라이언트도 계속 사용할 수 있습니다. 서버는 요청된 레거시 버전을 되돌려주고 레거시 봉투로 응답합니다.
 
 ## 변경 알림
 

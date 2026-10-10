@@ -103,13 +103,13 @@ when the request carries `params.name` — the name in an `Mcp-Name` header
 (base64-encoded as `=?base64?...?=` when it is not plain ASCII). A mismatch
 between any header and the body returns HTTP `400` with code `-32020`.
 Requesting an unsupported version returns HTTP `400` with code `-32022` and
-the supported list (`2026-07-28`, `2025-06-18`). Unknown methods return HTTP
+the supported list (`2026-07-28`). Unknown methods return HTTP
 `404` with `-32601`, and notification-only messages (no `id`) are answered
 with HTTP `202` and no body.
 
 Modern results carry `resultType`, and `tools/list` and `server/discover`
 additionally carry `ttlMs`/`cacheScope` cache hints. `server/discover`
-reports `supportedVersions` so a client can pick its era before connecting.
+reports `supportedVersions` so a client can pick its era before connecting. (modern only; legacy `initialize` negotiation stays outside this list)
 Legacy `initialize` clients are still served: the server echoes the requested
 legacy version and answers with legacy envelopes.
 

@@ -64,9 +64,9 @@ MCP 规范中的 `Origin` 请求头 DNS-rebinding 检查未在 `/mcp` 上实现�
 
 ## MCP 2026-07-28（现代）客户端
 
-同一个端点同时服务两个协议时代。现代客户端在 `params._meta` 中发送逐请求协议字段（`io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`），并且必须在 `MCP-Protocol-Version` 请求头中重复版本、在 `Mcp-Method` 请求头中重复方法；当请求携带 `params.name` 时，还要在 `Mcp-Name` 请求头中重复名称（非纯 ASCII 时以 `=?base64?...?=` 形式 base64 编码）。任一请求头与请求体不匹配都会返回 HTTP `400` 和 code `-32020`。请求不支持的版本会返回 HTTP `400` 和 code `-32022`，并附带受支持版本列表（`2026-07-28`、`2025-06-18`）。未知方法返回 HTTP `404` 和 `-32601`；不含 `id` 的纯通知消息以 HTTP `202` 应答且无响应体。
+同一个端点同时服务两个协议时代。现代客户端在 `params._meta` 中发送逐请求协议字段（`io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`），并且必须在 `MCP-Protocol-Version` 请求头中重复版本、在 `Mcp-Method` 请求头中重复方法；当请求携带 `params.name` 时，还要在 `Mcp-Name` 请求头中重复名称（非纯 ASCII 时以 `=?base64?...?=` 形式 base64 编码）。任一请求头与请求体不匹配都会返回 HTTP `400` 和 code `-32020`。请求不支持的版本会返回 HTTP `400` 和 code `-32022`，并附带受支持版本列表（`2026-07-28`）。未知方法返回 HTTP `404` 和 `-32601`；不含 `id` 的纯通知消息以 HTTP `202` 应答且无响应体。
 
-现代结果带有 `resultType`，`tools/list` 和 `server/discover` 还会额外带有 `ttlMs`/`cacheScope` 缓存提示。`server/discover` 会报告 `supportedVersions`，客户端可以在连接前据此选择协议时代。旧版 `initialize` 客户端仍可使用：服务端会回显所请求的旧版本，并以旧版封装应答。
+现代结果带有 `resultType`，`tools/list` 和 `server/discover` 还会额外带有 `ttlMs`/`cacheScope` 缓存提示。`server/discover` 会报告 `supportedVersions`，客户端可以在连接前据此选择协议时代。（仅现代版本；旧版 `initialize` 协商不在此列表内）旧版 `initialize` 客户端仍可使用：服务端会回显所请求的旧版本，并以旧版封装应答。
 
 ## 变更通知
 

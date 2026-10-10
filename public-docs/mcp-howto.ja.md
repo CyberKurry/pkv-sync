@@ -66,9 +66,9 @@ MCP 仕様の `Origin` ヘッダーによる DNS-rebinding チェックは `/mcp
 
 ## MCP 2026-07-28（モダン）クライアント
 
-同じ endpoint が両方のプロトコル時代に対応します。モダンクライアントは `params._meta` にリクエストごとのプロトコルフィールド（`io.modelcontextprotocol/protocolVersion` と `io.modelcontextprotocol/clientCapabilities`）を送信し、`MCP-Protocol-Version` ヘッダーにバージョンを、`Mcp-Method` ヘッダーにメソッドを繰り返さなければなりません。リクエストが `params.name` を持つ場合は、`Mcp-Name` ヘッダーにも名前を繰り返します（純 ASCII でない場合は `=?base64?...?=` 形式で base64 エンコード）。ヘッダーと body が一致しない場合、HTTP `400` と code `-32020` を返します。サポート対象外のバージョンを要求すると HTTP `400` と code `-32022`、サポートされているバージョンのリスト（`2026-07-28`、`2025-06-18`）を返します。不明なメソッドは HTTP `404` と `-32601` を返し、`id` のない通知のみのメッセージは body なしの HTTP `202` で応答されます。
+同じ endpoint が両方のプロトコル時代に対応します。モダンクライアントは `params._meta` にリクエストごとのプロトコルフィールド（`io.modelcontextprotocol/protocolVersion` と `io.modelcontextprotocol/clientCapabilities`）を送信し、`MCP-Protocol-Version` ヘッダーにバージョンを、`Mcp-Method` ヘッダーにメソッドを繰り返さなければなりません。リクエストが `params.name` を持つ場合は、`Mcp-Name` ヘッダーにも名前を繰り返します（純 ASCII でない場合は `=?base64?...?=` 形式で base64 エンコード）。ヘッダーと body が一致しない場合、HTTP `400` と code `-32020` を返します。サポート対象外のバージョンを要求すると HTTP `400` と code `-32022`、サポートされているバージョンのリスト（`2026-07-28`）を返します。不明なメソッドは HTTP `404` と `-32601` を返し、`id` のない通知のみのメッセージは body なしの HTTP `202` で応答されます。
 
-モダンな結果には `resultType` が含まれ、`tools/list` と `server/discover` にはさらに `ttlMs`/`cacheScope` キャッシュヒントが付きます。`server/discover` は `supportedVersions` を報告するため、クライアントは接続前に自分の時代を選択できます。レガシーの `initialize` クライアントも引き続き利用できます。サーバーは要求されたレガシーバージョンをエコーし、レガシーエンベロープで応答します。
+モダンな結果には `resultType` が含まれ、`tools/list` と `server/discover` にはさらに `ttlMs`/`cacheScope` キャッシュヒントが付きます。`server/discover` は `supportedVersions` を報告するため、クライアントは接続前に自分の時代を選択できます。（モダン版のみ。レガシーの `initialize` ネゴシエーションはこのリストの外で扱われます）レガシーの `initialize` クライアントも引き続き利用できます。サーバーは要求されたレガシーバージョンをエコーし、レガシーエンベロープで応答します。
 
 ## 変更通知
 

@@ -9,7 +9,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::{HashSet, VecDeque};
 use std::convert::Infallible;
 use std::time::Duration;
@@ -152,7 +152,26 @@ async fn post_mcp(
         }
     };
     // Notification (no id): accepted → 202, no body (transport spec).
+    // Exception: `notifications/cancelled` cannot work over HTTP — there is
+    // no server-side registry keyed by requestId, and the only supported
+    // cancellation is the client dropping the SSE stream. A 202 here would
+    // pretend a cancellation happened, so answer 405 with guidance instead.
     if request.get("id").is_none() {
+        if request.get("method").and_then(Value::as_str) == Some("notifications/cancelled") {
+            // Hand-built envelope: a notification has no id to echo, and the
+            // shared helper would serialize `"id": null` into it.
+            return (
+                StatusCode::METHOD_NOT_ALLOWED,
+                Json(json!({
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32601,
+                        "message": "cancellation on Streamable HTTP is performed by closing the SSE response stream"
+                    }
+                })),
+            )
+                .into_response();
+        }
         return StatusCode::ACCEPTED.into_response();
     }
 
@@ -320,12 +339,16 @@ async fn get_mcp_sse(
             Ok((McpReplayEvents::Events(events), unmatched_vaults)) => {
                 let mut items: VecDeque<McpSseItem> = events
                     .into_iter()
-                    .filter_map(|(_vault_id, event)| {
+                    .filter_map(|(vault_id, event)| {
                         let commit = event.commit.clone();
                         let notification =
                             crate::mcp::notifications::vault_changed(commit.clone(), event);
                         let data = serde_json::to_string(&notification).ok()?;
-                        Some(McpSseItem::VaultChanged { commit, data })
+                        Some(McpSseItem::VaultChanged {
+                            vault_id,
+                            commit,
+                            data,
+                        })
                     })
                     .collect();
                 // A single Last-Event-ID only identifies one vault's position;
@@ -343,10 +366,16 @@ async fn get_mcp_sse(
         },
         None => VecDeque::new(),
     };
-    let replay_commit_ids: HashSet<String> = replay_items
+    // Suppression is keyed by (vault_id, commit): a bare commit id is a git
+    // OID, and identical root commits across vaults (same template, same
+    // second) collide, so vault A's replay would suppress vault B's live
+    // event (BUG-5).
+    let replay_commit_ids: HashSet<(String, String)> = replay_items
         .iter()
         .filter_map(|item| match item {
-            McpSseItem::VaultChanged { commit, .. } => Some(commit.clone()),
+            McpSseItem::VaultChanged {
+                vault_id, commit, ..
+            } => Some((vault_id.clone(), commit.clone())),
             McpSseItem::Lagged => None,
         })
         .collect();
@@ -387,7 +416,7 @@ struct McpSseState {
     user: AuthenticatedUser,
     validity_cache: TokenValidityCache,
     replay_items: VecDeque<McpSseItem>,
-    replay_commit_ids: HashSet<String>,
+    replay_commit_ids: HashSet<(String, String)>,
     streams: tokio_stream::StreamMap<String, BroadcastStream<crate::service::events::VaultEvent>>,
     auth_interval: Interval,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
@@ -395,14 +424,18 @@ struct McpSseState {
 }
 
 enum McpSseItem {
-    VaultChanged { commit: String, data: String },
+    VaultChanged {
+        vault_id: String,
+        commit: String,
+        data: String,
+    },
     Lagged,
 }
 
 impl McpSseItem {
     fn into_event(self) -> Event {
         match self {
-            Self::VaultChanged { commit, data } => Event::default()
+            Self::VaultChanged { commit, data, .. } => Event::default()
                 .event("vault_changed")
                 .id(commit)
                 .data(data),
@@ -452,7 +485,10 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
             event = sse.streams.next(), if !sse.streams.is_empty() => {
                 let item = match event {
                     Some((_vault_id, Ok(event))) => {
-                        if sse.replay_commit_ids.contains(&event.commit) {
+                        if sse
+                            .replay_commit_ids
+                            .contains(&(_vault_id.clone(), event.commit.clone()))
+                        {
                             continue;
                         }
                         let commit = event.commit.clone();
@@ -463,7 +499,11 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                         let Ok(data) = serde_json::to_string(&notification) else {
                             continue;
                         };
-                        McpSseItem::VaultChanged { commit, data }
+                        McpSseItem::VaultChanged {
+                            vault_id: _vault_id,
+                            commit,
+                            data,
+                        }
                     }
                     Some((_vault_id, Err(BroadcastStreamRecvError::Lagged(_)))) => {
                         McpSseItem::Lagged
@@ -515,11 +555,16 @@ async fn listen_response(
     let owned: HashSet<String> = vaults.iter().map(|v| v.id.clone()).collect();
     // One pass: strip the prefix, keep only vaults the token may see, and
     // carry (vault_id, uri) so the ack echo and the subscription set cannot
-    // drift apart.
+    // drift apart. Duplicated URIs are acked once (first occurrence order),
+    // matching the stdio transport's ack.
+    let mut seen: HashSet<String> = HashSet::new();
     let accepted: Vec<(String, String)> = requested_uris
         .iter()
         .filter_map(|uri| {
             let vault_id = uri.strip_prefix("pkv://vault/")?;
+            if !seen.insert(uri.clone()) {
+                return None;
+            }
             owned
                 .contains(vault_id)
                 .then(|| (vault_id.to_string(), uri.clone()))
@@ -1022,7 +1067,7 @@ mod tests {
         let body = response_json(response).await;
         assert_eq!(
             body["result"]["supportedVersions"],
-            serde_json::json!(["2026-07-28", "2025-06-18"])
+            serde_json::json!(["2026-07-28"])
         );
         assert_eq!(
             body["result"]["capabilities"]["tools"],
@@ -1038,7 +1083,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn modern_notification_returns_202_with_empty_body() {
+    async fn modern_cancelled_notification_is_405_with_sse_guidance() {
         let state = state().await;
         let (user_id, raw) = create_user_token(&state, "u1").await;
         let _ = user_id;
@@ -1054,6 +1099,41 @@ mod tests {
             .oneshot(modern_post(
                 &body.to_string(),
                 "notifications/cancelled",
+                None,
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+        let body = response_json(response).await;
+        assert!(
+            body.get("id").is_none(),
+            "notification error envelope must not carry an id: {body}"
+        );
+        let message = body["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("closing the SSE"),
+            "message must point at closing the SSE stream: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn modern_initialized_notification_returns_202_with_empty_body() {
+        let state = state().await;
+        let (user_id, raw) = create_user_token(&state, "u1").await;
+        let _ = user_id;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let body = serde_json::json!({
+            "jsonrpc": "2.0", "method": "notifications/initialized", "params": {}
+        });
+        let response = app
+            .oneshot(modern_post(
+                &body.to_string(),
+                "notifications/initialized",
                 None,
                 &raw,
             ))
@@ -1143,7 +1223,7 @@ mod tests {
         assert_eq!(body["error"]["code"], -32022);
         assert_eq!(
             body["error"]["data"]["supported"],
-            serde_json::json!(["2026-07-28", "2025-06-18"])
+            serde_json::json!(["2026-07-28"])
         );
     }
 
@@ -1565,6 +1645,109 @@ mod tests {
             parse_sse_data(&new_bytes).is_empty(),
             "commit on an unsubscribed vault must not stream anything, got: {new_bytes}"
         );
+    }
+
+    #[tokio::test]
+    async fn listen_duplicate_uri_is_acked_once() {
+        let ls = listen_server().await;
+        let app = listen_router(&ls.state);
+        let scoped = format!("pkv://vault/{}", ls.vault_id);
+
+        let response = app
+            .oneshot(listen_post(
+                &ls.raw,
+                serde_json::json!({
+                    "resourceSubscriptions": [scoped.as_str(), scoped.as_str()]
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let mut stream = response.into_body().into_data_stream();
+        let mut body = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let ack: Value = loop {
+            let chunk = tokio::select! {
+                chunk = stream.next() => chunk,
+                _ = tokio::time::sleep_until(deadline) => panic!("no ack within 5s, got: {body}"),
+            };
+            match chunk {
+                Some(Ok(bytes)) => {
+                    body.push_str(&String::from_utf8_lossy(&bytes));
+                    if let Some(event) = parse_sse_data(&body).first() {
+                        break event.clone();
+                    }
+                }
+                Some(Err(err)) => panic!("body stream error: {err}"),
+                None => panic!("stream ended before ack, got: {body}"),
+            }
+        };
+
+        assert_eq!(ack["method"], "notifications/subscriptions/acknowledged");
+        assert_eq!(
+            ack["params"]["notifications"]["resourceSubscriptions"],
+            serde_json::json!([scoped]),
+            "duplicate URIs must be acked exactly once: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn listen_disconnect_releases_the_sse_subscriber_slot() {
+        // SPEC-3: dropping the client side of a listen stream must end the
+        // server task and release its SseSubscriberGuard — asserted by
+        // re-acquiring the per-user slot the guard protects.
+        let ls = listen_server().await;
+        ls.state.set_sse_per_user_limit_for_tests(1);
+        let app = listen_router(&ls.state);
+
+        let response = app
+            .oneshot(listen_post(
+                &ls.raw,
+                serde_json::json!({"resourceSubscriptions": [format!("pkv://vault/{}", ls.vault_id)]}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Read the ack event, then drop the response body: the client hung up.
+        let body = response.into_body();
+        let mut stream = body.into_data_stream();
+        let mut received = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let chunk = tokio::select! {
+                chunk = stream.next() => chunk,
+                _ = tokio::time::sleep_until(deadline) => {
+                    panic!("no ack within 5s, got: {received}")
+                }
+            };
+            match chunk {
+                Some(Ok(bytes)) => {
+                    received.push_str(&String::from_utf8_lossy(&bytes));
+                    if received.contains("notifications/subscriptions/acknowledged") {
+                        break;
+                    }
+                }
+                Some(Err(err)) => panic!("body stream error: {err}"),
+                None => panic!("stream ended before ack, got: {received}"),
+            }
+        }
+        drop(stream);
+
+        // The guard is released once the spawned stream task observes the
+        // closed channel; poll within a window instead of assuming immediacy.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if ls.state.try_acquire_sse_subscriber(&ls.user_id).is_some() {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "SSE subscriber slot was not released within 5s of client disconnect"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 
     #[tokio::test]

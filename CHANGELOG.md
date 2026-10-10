@@ -20,7 +20,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
   cancellation; stdio transport gains the same modern-era dispatch plus
   `subscriptions/listen` with `notifications/cancelled` termination; client
   notifications are now acknowledged by silence instead of a spurious
-  `-32600` error.
+  `-32600` error. The modern negotiation surface (`server/discover`
+  `supportedVersions` and the `-32022` supported list) is modern-only
+  (`2026-07-28`); legacy versions stay supported through the `initialize`
+  handshake but are no longer advertised for modern negotiation, so the
+  server never rejects a version it just listed.
 
 ### Changed
 
@@ -64,6 +68,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- HTTP `notifications/cancelled` now returns `405 Method Not Allowed` with a
+  JSON-RPC error body explaining that cancellation on Streamable HTTP is
+  performed by closing the SSE response stream. It previously returned a
+  no-op `202 Accepted`, pretending a cancellation had happened when nothing
+  could be cancelled server-side. All other notifications (e.g.
+  `notifications/initialized`) keep the `202` with an empty body.
+- MCP SSE replay suppression is now keyed by `(vault, commit)` instead of the
+  commit id alone: the commit id is a git OID, and two vaults initialized
+  from the same template in the same second produce identical root OIDs, so
+  one vault's replayed event could suppress another vault's live event with
+  the same id.
 - Zero-vault users no longer get an instantly-closing SSE stream on
   `GET /mcp`: an empty `StreamMap` made the stream end on its first poll,
   so clients without any vault fell into a reconnect storm. The stream now

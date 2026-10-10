@@ -327,7 +327,7 @@ async fn stdio_modern_tools_list_has_result_type_and_ttl() {
 }
 
 #[tokio::test]
-async fn stdio_modern_discover_lists_both_eras() {
+async fn stdio_modern_discover_lists_modern_version_only() {
     let (session, _state, _user_id, _vault_id, _tmp) =
         session_with_vault("stdio-modern-discover").await;
 
@@ -335,12 +335,48 @@ async fn stdio_modern_discover_lists_both_eras() {
     assert_eq!(lines.len(), 1);
     let resp = &lines[0];
     assert_eq!(resp["id"], 1);
-    assert_eq!(
-        resp["result"]["supportedVersions"],
-        json!(["2026-07-28", "2025-06-18"])
-    );
+    assert_eq!(resp["result"]["supportedVersions"], json!(["2026-07-28"]));
     assert_eq!(resp["result"]["resultType"], "complete");
     assert_eq!(resp["result"]["ttlMs"], 3_600_000);
+}
+
+#[tokio::test]
+async fn stdio_modern_tools_call_carries_result_type_and_server_info() {
+    let (session, _state, _user_id, _vault_id, _tmp) =
+        session_with_vault("stdio-modern-call").await;
+
+    let lines = send(
+        &session,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {
+                "name": "list_vaults",
+                "arguments": {},
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(lines.len(), 1);
+    let resp = &lines[0];
+    assert_eq!(resp["id"], 7);
+    assert_eq!(resp["result"]["resultType"], "complete");
+    assert_eq!(
+        resp["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+        pkv_sync_server::mcp::protocol::SERVER_NAME
+    );
+    assert_eq!(
+        resp["result"]["structuredContent"]["vaults"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -551,4 +587,83 @@ async fn stdio_parse_error_writes_minus_32700() {
     let lines = send_line(&session, "{not json").await;
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0]["error"]["code"], -32700);
+}
+
+#[tokio::test]
+async fn stdio_run_returns_ok_after_stdin_eof_with_active_listen() {
+    // SPEC-3: the real `run` loop (via `run_on` over a duplex pair) must
+    // terminate cleanly on stdin EOF even with a registered listen — the
+    // cleanup path the pump/drain tests never touch.
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let p = pkv_sync_server::db::pool::connect(&tmp.path().join("run.db"))
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&p).await.unwrap();
+    let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+        .await
+        .unwrap();
+    let (user_id, raw) = create_user_with_token(&state, "stdio-run-eof").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+
+    let (client, server) = duplex(1024);
+    let (server_read, server_write) = tokio::io::split(server);
+    let run_handle = tokio::spawn(pkv_sync_server::mcp::transport_stdio::run_on(
+        state.clone(),
+        vault.id.clone(),
+        raw,
+        server_read,
+        server_write,
+    ));
+
+    // Register a listen, read its ack, and only then close our write half:
+    // stdin EOF with an active listen must end the loop with Ok. The ack is
+    // read first because a duplex write half that is shut down can no longer
+    // be used, and the loop must still observe a *pending* stdin read before
+    // EOF — closing before the server parsed the line would race.
+    let (client_read, mut client_write) = tokio::io::split(client);
+    let listen = listen_request(json!(21), vec![&format!("pkv://vault/{}", vault.id)]);
+    client_write
+        .write_all(format!("{listen}\n").as_bytes())
+        .await
+        .unwrap();
+    client_write.flush().await.unwrap();
+
+    let mut stdout = String::new();
+    let mut reader = tokio::io::BufReader::new(client_read);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let mut line = String::new();
+        let read = tokio::select! {
+            read = reader.read_line(&mut line) => read,
+            _ = tokio::time::sleep_until(deadline) => break,
+        };
+        match read {
+            Ok(0) => break,
+            Ok(_) => {
+                stdout.push_str(&line);
+                if stdout.contains("notifications/subscriptions/acknowledged") {
+                    break;
+                }
+            }
+            Err(err) => panic!("stdout read error: {err}"),
+        }
+    }
+    assert!(
+        stdout.contains("notifications/subscriptions/acknowledged"),
+        "listen must be acked before EOF, got: {stdout}"
+    );
+
+    client_write.shutdown().await.unwrap();
+    drop(client_write);
+
+    let result = tokio::time::timeout(Duration::from_secs(5), run_handle)
+        .await
+        .expect("run_on must finish within 5s of stdin EOF")
+        .unwrap();
+    assert!(
+        result.is_ok(),
+        "stdin EOF must end the loop cleanly: {result:?}"
+    );
 }
