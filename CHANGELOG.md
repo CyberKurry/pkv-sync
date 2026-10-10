@@ -77,12 +77,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
     touch targets, `--pkv-font-display` headings, `--pkv-tracking-*`
     letter-spacing) so the tests keep guarding the same layout intents.
   - Optimized the plugin to satisfy the CI `npm audit --audit-level=moderate`
-    gate: bumped the vitest family from `4.1.5` to `4.1.11` (exact pins in
-    `plugin/package.json`, with matching versions and integrity hashes in
-    `plugin/package-lock.json`) to close
+    gate after it found a vitest advisory: bumped the vitest family from
+    `4.1.5` to `4.1.11` (exact pins in `plugin/package.json`, with matching
+    versions, `resolved` tarball URLs, and official-registry integrity hashes
+    in `plugin/package-lock.json`). The `resolved` fields had to move with the
+    version too: npm downloads the tarball named in `resolved`, so a version
+    bump that left `resolved` pointing at the old `.tgz` made every `npm ci`
+    (local, Plugin checks, and the Docker build) fail with `EINTEGRITY`. Closes
     GHSA-82fw-gwwq-j7x9 (path traversal via `@vitest/mocker` redirect mock).
-    Verified locally with the real 4.1.11 artifact: all 371 plugin tests pass
-    and `npm audit` reports 0 vulnerabilities.
+    Verified with the official 4.1.11 artifact: all 371 plugin tests pass,
+    `npm ci` installs `vitest@4.1.11`, and `npm audit --audit-level=moderate`
+    exits 0 with 0 vulnerabilities.
 
 ### Added
 

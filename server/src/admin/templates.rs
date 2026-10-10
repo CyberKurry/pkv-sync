@@ -683,7 +683,9 @@ mod tests {
     #[test]
     fn admin_css_keeps_page_header_actions_from_crushing_title() {
         let css = include_str!("../../static/admin.css").replace("\r\n", "\n");
-        assert!(css.contains(".page-bar {\n    position: sticky;\n    top: 0;\n    z-index: 10;\n    display: grid;"));
+        assert!(css.contains(
+            ".page-bar {\n    position: sticky;\n    top: 0;\n    z-index: 10;\n    display: grid;"
+        ));
         assert!(css.contains("grid-template-columns: minmax(0, 1fr) auto;"));
         assert!(css.contains(".page-title-row {\n    display: flex;"));
         assert!(css.contains(".page-bar h1 {\n    font-family: var(--pkv-font-display);"));
