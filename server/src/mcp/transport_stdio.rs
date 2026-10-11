@@ -57,11 +57,14 @@ impl StdioSession {
         token_raw: String,
     ) -> Result<Self> {
         // The limiter runs before the token lookup, so the only available
-        // key material is the vault id plus a per-process factor: keying on
-        // the vault alone let one process's failures burn the shared budget
-        // for every other stdio client of that vault. Within one process
-        // repeated failures still share a bucket, so brute force stays
-        // rate-limited.
+        // key material is the vault id plus a per-process factor. In
+        // practice this limiter is inert on the stdio path: `pkvsyncd mcp`
+        // builds a fresh AppState (and thus a fresh limiter instance) per
+        // process, and `authenticate` runs exactly once per process, so
+        // this key sees a single `try_acquire` no matter what it contains.
+        // The vault dimension is kept so a future in-process reuse of the
+        // limiter across sessions keys correctly, and the pid suffix keeps
+        // process instances from sharing a bucket if that ever happens.
         let auth_limit_key = format!("mcp-auth:stdio:{vault_id}:{}", std::process::id());
         let user = authenticate_token(&state, &token_raw, &auth_limit_key).await?;
         let token_hash = token::hash(&token_raw);
