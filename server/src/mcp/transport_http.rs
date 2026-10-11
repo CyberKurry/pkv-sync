@@ -437,9 +437,7 @@ struct McpSseState {
     _guard: crate::service::state::SseSubscriberGuard,
 }
 
-/// One queued SSE frame: a replayed vault change, or a lag marker. Public
-/// so the replay-suppression regression test can construct replay batches
-/// for [`replay_suppression_set`].
+/// One queued SSE frame: a replayed vault change, or a lag marker.
 ///
 /// `Lagged` carries the affected vault id when known: a live broadcast
 /// overflow names the vault so multi-vault clients can resync just that one
@@ -447,7 +445,7 @@ struct McpSseState {
 /// N-3), while the replay-level lag marker stays `None` — a single
 /// `Last-Event-ID` cannot identify which vault fell behind, so the event
 /// keeps the empty data of the documented legacy contract.
-pub enum McpSseItem {
+enum McpSseItem {
     VaultChanged {
         vault_id: String,
         commit: String,
@@ -461,9 +459,7 @@ pub enum McpSseItem {
 /// Commits carried by a replay batch, keyed by `(vault_id, commit)` so the
 /// live-stream suppression check can never match another vault's event with
 /// an identical git OID (BUG-5). `Lagged` markers contribute nothing.
-/// Public for the replay-suppression regression test, which drives this
-/// function directly instead of rebuilding the key type in the test.
-pub fn replay_suppression_set(replay_items: &VecDeque<McpSseItem>) -> HashSet<(String, String)> {
+fn replay_suppression_set(replay_items: &VecDeque<McpSseItem>) -> HashSet<(String, String)> {
     replay_items
         .iter()
         .filter_map(|item| match item {
@@ -900,6 +896,42 @@ mod tests {
             .unwrap();
         let body: Value = serde_json::from_slice(&body).unwrap();
         body["error"]["message"].as_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn replay_suppression_set_keys_by_vault_and_commit_and_skips_lagged() {
+        // BUG-5 regression guard: a commit id is a git OID, and two vaults
+        // initialized from the same template in the same second with the
+        // same message produce the same root OID, so keying suppression on
+        // the commit alone let vault A's replay suppress vault B's live
+        // event carrying the identical id. Drives the production
+        // constructor with constructed items — no real git OIDs involved —
+        // so the assertions run unconditionally on every runner.
+        let replay_items = VecDeque::from([
+            McpSseItem::VaultChanged {
+                vault_id: "vault-a".into(),
+                commit: "c1".into(),
+                data: "{}".into(),
+            },
+            // Trailing lag marker exactly as the GET handler assembles a
+            // replay batch (replay-level lag is vault-agnostic, `None`).
+            McpSseItem::Lagged { vault_id: None },
+        ]);
+        let replay_set = replay_suppression_set(&replay_items);
+        assert!(
+            replay_set.contains(&("vault-a".to_string(), "c1".to_string())),
+            "the replayed (vault, commit) pair must be in the suppression set"
+        );
+        assert!(
+            !replay_set.contains(&("vault-b".to_string(), "c1".to_string())),
+            "vault B's live event with the identical commit id must not be \
+             suppressed by vault A's replay"
+        );
+        assert_eq!(
+            replay_set.len(),
+            1,
+            "Lagged markers must not enter the suppression set: {replay_set:?}"
+        );
     }
 
     #[tokio::test]

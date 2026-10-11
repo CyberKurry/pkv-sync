@@ -9,7 +9,6 @@ use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
 use pkv_sync_server::server;
 use pkv_sync_server::service::sync::{push, PushChange, PushReq};
 use pkv_sync_server::service::{vault, AppState};
-use pkv_sync_server::storage::git::GitVaultStore;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -359,86 +358,12 @@ async fn mcp_sse_reconnect_dedupes_commit_seen_by_replay_and_live_stream() {
     );
 }
 
-#[tokio::test]
-async fn mcp_sse_replay_does_not_suppress_other_vault_with_identical_commit() {
-    // BUG-5: a commit id is a git OID, and two vaults initialized from the
-    // same template in the same second with the same message produce the
-    // same root OID. Replay suppression used to key on the commit alone, so
-    // vault A's replayed event suppressed vault B's live event carrying the
-    // identical id.
-    //
-    // Tested at the suppression-check level: a full GET-with-replay cannot
-    // produce the collision (replay needs a Last-Event-ID ancestor, and a
-    // vault whose root is the colliding commit has no earlier position). The
-    // suppression set is built by the production
-    // `transport_http::replay_suppression_set`, so a regression to bare
-    // `String` commit keys fails to compile, and this test drives it with
-    // constructed items instead of relying on real git OID equality.
-    let (_ts, state, auth, _raw) = start_test_server().await;
-    let vault_a = vault::create_vault(&state, &auth.user_id, "a")
-        .await
-        .unwrap();
-    let vault_b = vault::create_vault(&state, &auth.user_id, "b")
-        .await
-        .unwrap();
-
-    let git = pkv_sync_server::storage::git::Git2VaultStore::new(state.default_vault_root());
-    let mk_root = |vault_id: String| {
-        let git = git.clone();
-        async move {
-            git.commit_changes(
-                &vault_id,
-                None,
-                &[pkv_sync_server::storage::git::FileChange::Upsert {
-                    path: "same.md".into(),
-                    file: pkv_sync_server::storage::git::StoredFile::Text {
-                        bytes: b"x".to_vec(),
-                    },
-                }],
-                "identical root",
-            )
-            .await
-            .unwrap()
-        }
-    };
-    let oid_a = mk_root(vault_a.id.clone()).await;
-    let oid_b = mk_root(vault_b.id.clone()).await;
-    if oid_a != oid_b {
-        // The two roots only collide when git stamps them into the same
-        // wall-clock second (Signature::now has 1s granularity); on a slow
-        // runner they can straddle a boundary. The OID-equality premise is
-        // illustrative only — the suppression semantics below are exercised
-        // through the production function with constructed items, so skip
-        // the premise rather than fail.
-        std::eprintln!(
-            "skipped same-OID premise: roots landed in different seconds ({oid_a} != {oid_b})"
-        );
-        return;
-    }
-
-    // Vault A's replay batch: one replayed commit plus a trailing Lagged
-    // marker, exactly as the GET handler assembles it (replay-level lag is
-    // vault-agnostic, hence `None`). The suppression set comes from the
-    // production constructor.
-    let replay_items = std::collections::VecDeque::from([
-        pkv_sync_server::mcp::transport_http::McpSseItem::VaultChanged {
-            vault_id: "vault-a".into(),
-            commit: "c1".into(),
-            data: "{}".into(),
-        },
-        pkv_sync_server::mcp::transport_http::McpSseItem::Lagged { vault_id: None },
-    ]);
-    let replay_set = pkv_sync_server::mcp::transport_http::replay_suppression_set(&replay_items);
-    assert!(
-        replay_set.contains(&("vault-a".to_string(), "c1".to_string())),
-        "the replayed (vault, commit) pair must be in the suppression set"
-    );
-    assert!(
-        !replay_set.contains(&("vault-b".to_string(), "c1".to_string())),
-        "vault B's live event with the identical commit id must not be \
-         suppressed by vault A's replay"
-    );
-}
+// The former `mcp_sse_replay_does_not_suppress_other_vault_with_identical_commit`
+// test was removed in the R3 fixes: its suppression-set assertions moved to the
+// in-module unit test `replay_suppression_set_keys_by_vault_and_commit_and_skips_lagged`
+// in transport_http.rs (running unconditionally instead of being skipped when
+// the two demo roots straddled a wall-clock second), and its OID-collision
+// demo was illustrative-only noise in CI (see R3 N3-1/N3-3).
 
 #[tokio::test]
 async fn mcp_sse_reconnect_with_multiple_vaults_signals_lagged() {
