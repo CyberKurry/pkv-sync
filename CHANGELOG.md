@@ -32,6 +32,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
   --bind`): MCP HTTP now exists only embedded in `pkvsyncd serve`. `[mcp].
   embed_in_serve` now defaults to `true` (set `false` to disable). Existing
   standalone deployments should point clients at the main server's `/mcp`.
+- internal: the single-variant `McpTransport` enum and the no-op
+  `--transport` CLI flag were removed after the standalone removal left
+  them dead — `pkvsyncd mcp` now takes only `--vault`/`--token` (9078319).
+- internal: shared listen-filter parsing and SSE response helpers were
+  extracted with no behavior change (0def8dc).
 - MCP JSON-RPC error codes moved out of the range the 2026-07-28 spec
   freezes: rate limit `-32029` → `-63001`, auth `-32001` → `-63002` (HTTP
   statuses unchanged).
