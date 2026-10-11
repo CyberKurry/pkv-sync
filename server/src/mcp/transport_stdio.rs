@@ -198,6 +198,26 @@ impl StdioSession {
     /// this on a fixed interval; calling it directly is how tests observe
     /// stream output without a real stdin.
     pub async fn drain_listens(&self, tx: &mut mpsc::Sender<String>) {
+        // A listen outlives the request that registered it, so revalidate
+        // the token here too (HTTP rechecks per frame; stdio previously
+        // rechecked only on requests, letting a revoked session keep
+        // receiving pushes until EOF). One check per drain covers every
+        // entry; the 5s validity cache keeps the cost negligible on the
+        // 50ms tick.
+        let mut validity_cache = self.validity_cache.lock().await;
+        if !mcp_token_still_valid(
+            &self.state,
+            &self.token_hash,
+            &self.user,
+            &mut validity_cache,
+        )
+        .await
+        {
+            drop(validity_cache);
+            self.listens.lock().await.clear();
+            return;
+        }
+        drop(validity_cache);
         let mut listens = self.listens.lock().await;
         let mut lines = Vec::new();
         let dead: Vec<String> = listens
@@ -258,6 +278,17 @@ pub async fn run(state: AppState, vault_id: String, token_raw: String) -> Result
 /// stdio; tests drive both halves of a `tokio::io::duplex` so the EOF
 /// cleanup path (stdin close with a listen registered) is exercised for
 /// real.
+///
+/// The outbound channel (64 lines) is consumed by a dedicated writer task,
+/// never by this loop. Both producers — request responses from `pump` and
+/// listen pushes from `drain_listens` — run inside the select arms below,
+/// so if the loop itself received, a drain producing more lines than the
+/// channel holds (a Lagged marker plus every retained ring event = 65)
+/// would block forever on `tx.send().await` with no consumer left to
+/// advance: a permanent session deadlock (CR-1). Decoupling also makes
+/// stdin EOF safe: dropping `tx` closes the channel, the writer drains the
+/// remaining buffered lines and exits, and awaiting the JoinHandle before
+/// returning flushes everything still queued (the N-5 EOF race).
 pub async fn run_on<R, W>(
     state: AppState,
     vault_id: String,
@@ -267,14 +298,28 @@ pub async fn run_on<R, W>(
 ) -> Result<()>
 where
     R: tokio::io::AsyncRead + Unpin,
-    W: tokio::io::AsyncWrite + Unpin,
+    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     let session = StdioSession::authenticate(state, vault_id, token_raw).await?;
     let mut lines = tokio::io::BufReader::new(reader).lines();
-    let mut stdout = writer;
-    let (mut tx, mut rx) = mpsc::channel::<String>(64);
+    let (tx, mut rx) = mpsc::channel::<String>(64);
+    let writer_task = tokio::spawn(async move {
+        let mut stdout = writer;
+        while let Some(line) = rx.recv().await {
+            if stdout.write_all(line.as_bytes()).await.is_err() {
+                break;
+            }
+            if stdout.write_all(b"\n").await.is_err() {
+                break;
+            }
+            if stdout.flush().await.is_err() {
+                break;
+            }
+        }
+    });
+    let mut tx = tx;
     // 50ms poll: bounded worst-case latency for push lines; the loop only
-    // wakes on stdin, a pending outbound line, or this tick — never a hot spin.
+    // wakes on stdin or this tick — never a hot spin.
     let mut drain_tick = tokio::time::interval(LISTEN_DRAIN_INTERVAL);
     drain_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -282,31 +327,19 @@ where
         tokio::select! {
             line = lines.next_line() => {
                 let Ok(Some(line)) = line else {
-                    // stdin EOF: `select!` is randomly fair, so a response
-                    // that became ready in the same poll can lose the arm
-                    // race and would be dropped by a bare `break` (N-5).
-                    // Drain what the session already queued before exiting;
-                    // `try_recv` returns `Err(Empty)` once the channel is
-                    // spent, so this terminates immediately when nothing is
-                    // pending. (The `rx.recv` arm's `None` below needs no
-                    // such drain: a closed channel is by definition empty.)
-                    while let Ok(line) = rx.try_recv() {
-                        stdout.write_all(line.as_bytes()).await?;
-                        stdout.write_all(b"\n").await?;
-                    }
-                    stdout.flush().await?;
+                    // stdin EOF: dropping tx closes the outbound channel; the
+                    // writer task drains every line still buffered in it,
+                    // flushes, and exits on the channel-closed None.
+                    drop(tx);
+                    writer_task
+                        .await
+                        .map_err(|e| anyhow!("stdio writer task failed: {e}"))?;
                     break;
                 };
                 session.pump(&line, &mut tx).await;
             }
             _ = drain_tick.tick() => {
                 session.drain_listens(&mut tx).await;
-            }
-            outgoing = rx.recv() => {
-                let Some(line) = outgoing else { break };
-                stdout.write_all(line.as_bytes()).await?;
-                stdout.write_all(b"\n").await?;
-                stdout.flush().await?;
             }
         }
     }

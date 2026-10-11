@@ -517,6 +517,196 @@ async fn stdio_listen_streams_resource_updates_until_cancelled() {
 }
 
 #[tokio::test]
+async fn stdio_run_on_survives_drain_larger_than_outbound_channel() {
+    // CR-1: the production outbound channel holds 64 lines, but a single
+    // `drain_listens` call can produce 65 (a Lagged marker plus every event
+    // still in the 64-slot broadcast ring). When the only consumer of the
+    // channel is the same select loop that awaits `drain_listens`, the 65th
+    // `tx.send().await` waits for a slot that nothing can free — the session
+    // deadlocks and never answers stdin again. Drive `run_on` itself (not a
+    // 1024-slot test channel) over a duplex pair, publish more than 64
+    // events without draining, and require a subsequent request/response
+    // roundtrip to complete within a timeout.
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt};
+
+    let (session_state, _tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&session_state, "stdio-drain-cap").await;
+    let vault = session_state.vaults.create(&user_id, "main").await.unwrap();
+    let vault_id = vault.id.clone();
+
+    let (client, server) = duplex(64 * 1024);
+    let (server_read, server_write) = tokio::io::split(server);
+    let run_handle = tokio::spawn(pkv_sync_server::mcp::transport_stdio::run_on(
+        session_state.clone(),
+        vault_id.clone(),
+        raw,
+        server_read,
+        server_write,
+    ));
+
+    let (client_read, mut client_write) = tokio::io::split(client);
+    let listen = listen_request(json!(13), vec![&format!("pkv://vault/{vault_id}")]);
+    client_write
+        .write_all(format!("{listen}\n").as_bytes())
+        .await
+        .unwrap();
+
+    // Publish 120 events (audit's lagged-test volume) with nobody reading
+    // stdout: the next 50ms drain tick must collect a dropped marker plus
+    // the retained ring events — more lines than the outbound channel holds.
+    for idx in 0..120 {
+        session_state.events.publish(
+            &vault_id,
+            VaultEvent {
+                commit: format!("cap-{idx}"),
+                parent: None,
+                source_device_id: "dev".into(),
+                at: 1,
+                kind: EventKind::Commit,
+                changes: vec![],
+            },
+        );
+    }
+
+    // Read stdout only now, and concurrently with the follow-up request:
+    // the deadlock (if present) pins the drain inside the select loop, so
+    // the request below would never even be parsed. Reading is what frees
+    // duplex backpressure, so it must keep running for the roundtrip to be
+    // able to finish at all.
+    let mut reader = tokio::io::BufReader::new(client_read);
+    let (line_tx, mut line_rx) = mpsc::channel::<String>(256);
+    let read_handle = tokio::spawn(async move {
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    if line_tx.send(line).await.is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let probe = json!({"jsonrpc": "2.0", "id": 99, "method": "tools/list", "params": {}});
+    client_write
+        .write_all(format!("{probe}\n").as_bytes())
+        .await
+        .unwrap();
+
+    let mut stdout = String::new();
+    let mut saw_probe = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while tokio::time::Instant::now() < deadline {
+        let next = tokio::time::timeout_at(deadline, line_rx.recv()).await;
+        match next {
+            Ok(Some(line)) => {
+                if line.contains("\"id\":99") {
+                    saw_probe = true;
+                }
+                stdout.push_str(&line);
+            }
+            Ok(None) => break, // reader hit EOF before the deadline
+            Err(_) => break,   // deadline
+        }
+    }
+    if !saw_probe {
+        run_handle.abort();
+        let _ = read_handle.await;
+        panic!(
+            "run_on never answered the request sent after an oversized drain; stdout so far: {stdout}"
+        );
+    }
+
+    client_write.shutdown().await.unwrap();
+    drop(client_write);
+    let result = tokio::time::timeout(Duration::from_secs(5), run_handle)
+        .await
+        .expect("run_on must finish within 5s of stdin EOF")
+        .unwrap();
+    assert!(result.is_ok(), "run_on must exit cleanly: {result:?}");
+}
+
+#[tokio::test]
+async fn stdio_listen_notifications_carry_jsonrpc_2_0() {
+    // M-1: strict MCP clients validate every inbound message as JSON-RPC 2.0
+    // and drop ones without the version field, so the ack and every push
+    // line must serialize with "jsonrpc":"2.0".
+    let (session, state, user_id, vault_id, _tmp) = session_with_vault("stdio-jsonrpc-tag").await;
+    let scoped = format!("pkv://vault/{vault_id}");
+
+    let (tx, mut rx) = mpsc::channel::<String>(16);
+    let mut tx = tx;
+    session
+        .pump(
+            &listen_request(json!(15), vec![scoped.as_str()]).to_string(),
+            &mut tx,
+        )
+        .await;
+    let ack_line = rx.recv().await.unwrap();
+    assert!(
+        ack_line.starts_with("{\"jsonrpc\":\"2.0\""),
+        "ack must lead with the JSON-RPC version field: {ack_line}"
+    );
+
+    commit_and_broadcast(&state, &user_id, &vault_id, "tagged").await;
+    session.drain_listens(&mut tx).await;
+    let update_line = rx.recv().await.unwrap();
+    let update: Value = serde_json::from_str(&update_line).unwrap();
+    assert_eq!(update["jsonrpc"], "2.0", "line: {update_line}");
+    assert_eq!(update["method"], "notifications/resources/updated");
+}
+
+#[tokio::test]
+async fn stdio_drain_listens_stops_pushing_after_token_revocation() {
+    // M-2: stdio rechecks the token only on the request path, so a revoked
+    // session keeps pushing listen updates until EOF. The drain must
+    // revalidate (through the 5s validity cache), clear the listens, and
+    // push nothing.
+    let (state, _tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&state, "stdio-drain-revoke").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let vault_id = vault.id.clone();
+    let session = StdioSession::authenticate(state.clone(), vault.id, raw.clone())
+        .await
+        .unwrap();
+    let scoped = format!("pkv://vault/{vault_id}");
+
+    let (tx, mut rx) = mpsc::channel::<String>(16);
+    let mut tx = tx;
+    session
+        .pump(
+            &listen_request(json!(17), vec![scoped.as_str()]).to_string(),
+            &mut tx,
+        )
+        .await;
+    let _ack: Value = serde_json::from_str(&rx.recv().await.unwrap()).unwrap();
+
+    commit_and_broadcast(&state, &user_id, &vault_id, "before-revoke").await;
+    session.drain_listens(&mut tx).await;
+    let before: Value = serde_json::from_str(&rx.recv().await.unwrap()).unwrap();
+    assert_eq!(before["method"], "notifications/resources/updated");
+
+    let (token_row, _) = state
+        .tokens
+        .find_by_hash(&token::hash(&raw))
+        .await
+        .unwrap()
+        .unwrap();
+    state
+        .tokens
+        .revoke(&token_row.id, chrono::Utc::now().timestamp())
+        .await
+        .unwrap();
+
+    commit_and_broadcast(&state, &user_id, &vault_id, "after-revoke").await;
+    session.drain_listens(&mut tx).await;
+    assert_no_line(&mut rx, 150).await;
+}
+
+#[tokio::test]
 async fn stdio_listen_lagged_broadcast_emits_resources_dropped() {
     let (session, state, _user_id, vault_id, _tmp) = session_with_vault("stdio-listen-lag").await;
     let scoped = format!("pkv://vault/{vault_id}");

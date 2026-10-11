@@ -520,6 +520,28 @@ async fn read_until(resp: reqwest::Response, needles: &[&str]) -> String {
     body
 }
 
+/// Read an SSE response all the way to EOF within `timeout`, returning the
+/// body plus whether EOF was actually reached: unlike `read_until`, hitting
+/// the timeout is reported to the caller, because the assertion under test
+/// is precisely that the stream ENDS.
+async fn read_to_end_with_timeout(resp: reqwest::Response, timeout: Duration) -> (String, bool) {
+    let mut body = String::new();
+    let mut stream = resp.bytes_stream();
+    use futures_util::StreamExt;
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let chunk = tokio::select! {
+            chunk = stream.next() => chunk,
+            _ = tokio::time::sleep_until(deadline) => return (body, false),
+        };
+        match chunk {
+            Some(Ok(bytes)) => body.push_str(&String::from_utf8_lossy(&bytes)),
+            Some(Err(_)) => return (body, true),
+            None => return (body, true),
+        }
+    }
+}
+
 #[tokio::test]
 async fn http_mcp_sse_replays_after_last_event_id() {
     let (state, tmp) = test_state().await;
@@ -815,5 +837,75 @@ async fn http_mcp_sse_too_far_behind_emits_lagged() {
     assert!(
         body.contains("event: lagged"),
         "expected replay overflow to emit lagged, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn http_mcp_listen_stream_ends_on_server_shutdown() {
+    // H-2: an open `subscriptions/listen` SSE stream is exactly the kind of
+    // connection that outlives a SIGTERM, so axum's graceful shutdown never
+    // finishes while the stream stays open. The listen loop must select on
+    // the app shutdown watch (like the GET stream already does).
+    let (state, tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&state, "http-listen-shutdown").await;
+    let vault = vault::create_vault(&state, &user_id, "main").await.unwrap();
+    let scoped = format!("pkv://vault/{}", vault.id);
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let mut shutdown_rx = state.shutdown.subscribe();
+    let server_state = state.clone();
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            transport_http::router(server_state, DEPLOYMENT_KEY.into()).into_make_service(),
+        )
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.changed().await;
+        })
+        .await;
+    });
+
+    let resp = reqwest::Client::new()
+        .post(format!("http://{addr}/mcp"))
+        .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
+        .header("content-type", "application/json")
+        .header("accept", "text/event-stream")
+        .header("MCP-Protocol-Version", "2026-07-28")
+        .header("Mcp-Method", "subscriptions/listen")
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 31,
+            "method": "subscriptions/listen",
+            "params": {
+                "notifications": {"resourceSubscriptions": [scoped]},
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    state.shutdown.trigger();
+
+    let (body, ended) = read_to_end_with_timeout(resp, Duration::from_secs(5)).await;
+    handle.abort();
+    drop(tmp);
+    assert!(
+        ended,
+        "listen SSE stream must END after shutdown instead of hanging open; body so far: {body}"
+    );
+    assert!(
+        body.contains("notifications/subscriptions/acknowledged"),
+        "listen must ack before shutdown ends the stream, got: {body}"
+    );
+    assert!(
+        body.contains("\"jsonrpc\":\"2.0\""),
+        "SSE notification payloads must carry the JSON-RPC version field: {body}"
     );
 }

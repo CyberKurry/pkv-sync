@@ -58,13 +58,13 @@ pub(crate) fn acknowledged(id: &Value, lr: &ListenRequest) -> McpNotification {
     if !lr.accepted_uris.is_empty() {
         notifications.insert("resourceSubscriptions".into(), json!(&lr.accepted_uris));
     }
-    McpNotification {
-        method: "notifications/subscriptions/acknowledged".into(),
-        params: json!({
+    McpNotification::new(
+        "notifications/subscriptions/acknowledged",
+        json!({
             "notifications": notifications,
             "_meta": {META_SUBSCRIPTION_ID: id},
         }),
-    }
+    )
 }
 
 #[cfg(test)]

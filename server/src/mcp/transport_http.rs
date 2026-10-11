@@ -632,6 +632,7 @@ async fn listen_response(
     let ack = super::listen_filter::acknowledged(&id, &lr);
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(16);
     let auth_interval = auth_interval().await;
+    let shutdown_rx = state.shutdown.subscribe();
     tokio::spawn(run_listen_stream(
         ListenState {
             app: state,
@@ -642,6 +643,7 @@ async fn listen_response(
             ack: Some(ack),
             validity_cache: TokenValidityCache::default(),
             auth_interval,
+            shutdown_rx,
             _guard: sse_guard,
         },
         tx,
@@ -658,9 +660,11 @@ struct ListenState {
     ack: Option<crate::mcp::notifications::McpNotification>,
     validity_cache: TokenValidityCache,
     auth_interval: Interval,
-    // The GET handler selects on `shutdown_rx`; listen streams are purely
-    // connection-scoped (client disconnect ends them), so there is no
-    // equivalent subscription here.
+    // Listen streams are connection-scoped, which is exactly why they need
+    // the shutdown watch: a client holding the SSE open (the documented
+    // cancel path) would otherwise keep axum's graceful shutdown waiting
+    // forever. Same arm as the GET stream (BUG-R3-11 sibling).
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
     _guard: crate::service::state::SseSubscriberGuard,
 }
 
@@ -695,6 +699,9 @@ async fn run_listen_stream(mut listen: ListenState, tx: mpsc::Sender<Result<Even
         }
         tokio::select! {
             _ = tx.closed() => {
+                break;
+            }
+            _ = listen.shutdown_rx.changed() => {
                 break;
             }
             _ = listen.auth_interval.tick() => {

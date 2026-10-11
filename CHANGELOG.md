@@ -81,6 +81,32 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The MCP stdio transport no longer deadlocks when a listen drain produces
+  more lines than the outbound channel holds (a `resources/dropped` marker
+  plus every event retained in the 64-slot broadcast ring — 65 lines vs a
+  capacity of 64). The channel's only consumer was the same `select!` loop
+  that awaited `drain_listens`, so the 65th `send` waited forever on a slot
+  nothing could free and the session hung permanently (no stdin reads, no
+  responses, only SIGKILL). A dedicated writer task now owns the channel's
+  receive half and the stdout writer; the main loop keeps only the stdin
+  and drain-tick arms, and stdin EOF drops the send half and awaits the
+  writer so every queued line is flushed before the session returns.
+- MCP `subscriptions/listen` SSE streams on `POST /mcp` now end when the
+  server shuts down: the listen loop selects on the shutdown watch like
+  the `GET /mcp` stream already did, so an open listen no longer pins
+  axum's graceful shutdown (and the cleanup/abort handles behind it)
+  until the supervisor's kill timeout.
+- All MCP notifications (`notifications/subscriptions/acknowledged`,
+  `notifications/resources/updated`, `notifications/resources/dropped`,
+  and the legacy `notifications/vault_changed`) now carry
+  `"jsonrpc": "2.0"` as their first field. Strict JSON-RPC 2.0 / MCP
+  clients (rmcp, the TypeScript SDK) fail deserialization on messages
+  without the version field and silently dropped every push; clients that
+  ignored the missing field are unaffected.
+- The MCP stdio transport now rechecks token revocation inside the listen
+  drain loop (through the 5s validity cache), matching the HTTP stream's
+  per-frame recheck: a revoked session's registered listens are cleared
+  and stop pushing updates, instead of continuing until stdin EOF.
 - The MCP stdio transport no longer drops a response that raced with stdin
   EOF: the run loop now drains every line already queued on the outbound
   channel before exiting, instead of letting a ready response lose the
