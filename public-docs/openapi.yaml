@@ -1251,6 +1251,11 @@ paths:
       description: |
         Request body size is limited by the runtime `max_file_size` setting and
         is always clamped to the hard blob storage cap (512 MiB in production).
+        Concurrent uploads share a global in-flight byte budget (1 GiB by
+        default): while the budget is exhausted by other in-flight uploads,
+        this endpoint responds `429 blob_in_flight_limit` and the client
+        should retry. Each single request is still buffered server-side up
+        to its own limit.
       parameters:
         - $ref: '#/components/parameters/VaultId'
         - in: header
@@ -1695,8 +1700,9 @@ paths:
       description: |
         Stateless-RPC body of a `git clone` / `git fetch` request. The
         request body carries the want/have negotiation; the response is
-        the packfile. Body is capped at 10 MiB; legitimate negotiation
-        requests are far smaller.
+        the packfile. Bodies over 10 MiB are rejected with
+        `400 upload_pack_body_too_large`; legitimate negotiation requests
+        are far smaller.
       parameters:
         - $ref: '#/components/parameters/VaultId'
       requestBody:

@@ -196,16 +196,31 @@ async fn upload_blob(
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| ApiError::bad_request("missing_hash", "Content-Hash header required"))?;
     let max_file_size = state.runtime_cfg.max_file_size().await;
-    let body = axum::body::to_bytes(body, max_body_bytes(max_file_size))
-        .await
-        .map_err(|_| {
-            ApiError::bad_request(
-                "file_too_large",
-                format!("file exceeds max_file_size of {max_file_size} bytes"),
-            )
-        })?;
+    let limit = max_body_bytes(max_file_size);
+    // M-14: bound concurrent in-flight upload memory. Per-request
+    // buffering below is unchanged (existing behavior); this reserves the
+    // full per-request limit up front so a few parallel uploads cannot pin
+    // gigabytes of RSS. 429 (not 507) because the client can retry once
+    // other uploads drain.
+    let _in_flight_guard = state
+        .reserve_blob_in_flight_bytes(limit as u64)
+        .ok_or_else(blob_in_flight_error)?;
+    let body = axum::body::to_bytes(body, limit).await.map_err(|_| {
+        ApiError::bad_request(
+            "file_too_large",
+            format!("file exceeds max_file_size of {max_file_size} bytes"),
+        )
+    })?;
     sync::upload_blob(&state, &user.user_id, &id, hash, body).await?;
     Ok(StatusCode::CREATED)
+}
+
+fn blob_in_flight_error() -> ApiError {
+    ApiError::new(
+        StatusCode::TOO_MANY_REQUESTS,
+        "blob_in_flight_limit",
+        "global blob upload in-flight limit reached; retry when concurrent uploads drain",
+    )
 }
 
 fn max_body_bytes(max_file_size: u64) -> usize {
@@ -1817,5 +1832,94 @@ mod tests {
             .unwrap();
 
         assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    // ------------------------------------------------------------------
+    // Blob upload global in-flight byte cap (M-14)
+    // ------------------------------------------------------------------
+
+    async fn blob_upload_request(raw: &str, vault_id: &str, bytes: Vec<u8>) -> Request<Body> {
+        let hash = LocalFsBlobStore::sha256(&bytes);
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/vaults/{vault_id}/upload/blob"))
+            .header("authorization", format!("Bearer {raw}"))
+            .header("content-hash", &hash)
+            .body(Body::from(bytes))
+            .unwrap()
+    }
+
+    /// M-14: concurrent blob uploads previously had no global in-flight
+    /// limit — each request buffered up to min(max_file_size, 512 MiB)
+    /// entirely in memory, so a handful of parallel uploads could pin
+    /// gigabytes. The global cap must reject the request that would push
+    /// in-flight bytes over the ceiling with 429 (retriable).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn blob_upload_rejected_when_global_in_flight_cap_is_exhausted() {
+        let (app, state, raw) = setup_with_state().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        // Test seam: cap global in-flight upload bytes low enough that one
+        // held reservation blocks the second upload.
+        state.set_blob_in_flight_cap_for_tests(1024);
+        let _held = state
+            .reserve_blob_in_flight_bytes(1024)
+            .expect("first reservation fits the cap");
+
+        // In test builds BLOB_HARD_MAX_BYTES is 1 KiB, so a body of that
+        // size is the largest the handler will accept; its reservation is
+        // the full cap, which is now exhausted.
+        let body = vec![b'x'; 1024];
+        let resp = app
+            .clone()
+            .oneshot(blob_upload_request(&raw, &id, body).await)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "second concurrent upload must be capped, not buffered"
+        );
+        let bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["error"]["code"], "blob_in_flight_limit");
+    }
+
+    /// The cap must be a concurrency guard, not a size limit: after the
+    /// held reservation is released, the same-sized upload succeeds.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn blob_upload_succeeds_after_in_flight_reservation_is_released() {
+        let (app, state, raw) = setup_with_state().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        state.set_blob_in_flight_cap_for_tests(1024);
+        let held = state.reserve_blob_in_flight_bytes(1024).unwrap();
+        drop(held);
+
+        let body = vec![b'y'; 512];
+        let resp = app
+            .clone()
+            .oneshot(blob_upload_request(&raw, &id, body).await)
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::CREATED);
+    }
+
+    /// Sequential uploads never trip the cap (guard released on completion).
+    #[tokio::test]
+    async fn blob_upload_sequential_uploads_are_not_capped() {
+        let (app, state, raw) = setup_with_state().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        state.set_blob_in_flight_cap_for_tests(1024);
+
+        for byte in *b"abc" {
+            let body = vec![byte; 1024];
+            let resp = app
+                .clone()
+                .oneshot(blob_upload_request(&raw, &id, body).await)
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::CREATED);
+        }
     }
 }

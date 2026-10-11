@@ -91,6 +91,22 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Server: the 10 MiB cap on `git-upload-pack` request bodies is now
+  actually enforced as documented (M-14). The handler took `body: Bytes`,
+  which goes through axum's default 2 MiB `DefaultBodyLimit` — so larger
+  negotiation bodies were rejected with a bare `413` before the handler
+  ran, and the in-handler 10 MiB check returning
+  `400 upload_pack_body_too_large` was unreachable dead code. The handler
+  now reads the raw body with `to_bytes(body, 10 MiB)`: 2-10 MiB bodies
+  flow into the negotiation (legitimate for very large repos), and bodies
+  over 10 MiB get the documented `400` error envelope.
+- Server: concurrent blob uploads now share a global in-flight byte
+  budget (1 GiB by default). Each upload still buffers up to
+  `min(max_file_size, 512 MiB)` in memory — that per-request behavior is
+  unchanged — but while the budget is exhausted by other in-flight
+  uploads, new uploads get `429 blob_in_flight_limit` instead of pinning
+  unbounded concurrent memory (a few parallel uploads could previously
+  allocate gigabytes).
 - Server: admin POSTs no longer fail with `403 csrf validation failed` out
   of the box with no way forward (H-5, ultrareview 2026-10-11 §2.2). The
   example config described `public_host` as an optional URL-printing knob,

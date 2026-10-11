@@ -535,3 +535,97 @@ async fn info_refs_returns_advertisement_for_owned_vault() {
         "expected service header in response, got: {body_str}"
     );
 }
+
+/// M-14: the handler's 10 MiB cap must actually govern the upload-pack
+/// request body. The `Bytes` extractor previously hit axum's default 2 MiB
+/// limit first, so legitimate 2-10 MiB negotiation bodies got a generic
+/// 413 (and the handler's `upload_pack_body_too_large` check was
+/// unreachable dead code). A 3 MiB body must now pass the size gate —
+/// 404 "vault repository not found" here proves it did, because this test
+/// never creates the bare repo.
+#[tokio::test]
+async fn upload_pack_body_between_2_and_10_mib_is_not_rejected_as_too_large() {
+    let (ts, _state, raw, vid) = start_test_server().await;
+
+    let three_mib = vec![0u8; 3 * 1024 * 1024];
+    let resp = auth_headers(
+        client()
+            .post(format!("http://{}/git/{}/git-upload-pack", ts.addr, vid))
+            .header("content-type", "application/x-git-upload-pack-request")
+            .body(three_mib),
+        &ts.key,
+    )
+    .header("authorization", basic_auth_header(&raw))
+    .send()
+    .await
+    .unwrap();
+
+    assert_ne!(
+        resp.status(),
+        reqwest::StatusCode::PAYLOAD_TOO_LARGE,
+        "3 MiB is under the documented 10 MiB cap; the old axum default 2 MiB limit must not reject it"
+    );
+    assert_eq!(
+        resp.status(),
+        reqwest::StatusCode::NOT_FOUND,
+        "size gate passed; next failure is the missing bare repo (this test never pushed)"
+    );
+}
+
+/// Over the 10 MiB cap the response must be the documented 400 error
+/// envelope, not a bare 413.
+#[tokio::test]
+async fn upload_pack_oversize_body_returns_400_error_envelope() {
+    let (ts, _state, raw, vid) = start_test_server().await;
+
+    let oversize = vec![0u8; 10 * 1024 * 1024 + 1];
+    let resp = auth_headers(
+        client()
+            .post(format!("http://{}/git/{}/git-upload-pack", ts.addr, vid))
+            .header("content-type", "application/x-git-upload-pack-request")
+            .body(oversize),
+        &ts.key,
+    )
+    .header("authorization", basic_auth_header(&raw))
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "oversized upload-pack body must be a 400 with the documented envelope, not a raw 413"
+    );
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "upload_pack_body_too_large");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("10485760"),
+        "message should name the 10 MiB limit: {}",
+        body["error"]["message"]
+    );
+}
+
+/// A tiny body is not rejected as too large either (empty negotiation
+/// body reaches the repo/auth checks).
+#[tokio::test]
+async fn upload_pack_small_body_is_not_rejected_as_too_large() {
+    let (ts, _state, raw, vid) = start_test_server().await;
+
+    let resp = auth_headers(
+        client()
+            .post(format!("http://{}/git/{}/git-upload-pack", ts.addr, vid))
+            .header("content-type", "application/x-git-upload-pack-request")
+            .body(Vec::<u8>::new()),
+        &ts.key,
+    )
+    .header("authorization", basic_auth_header(&raw))
+    .send()
+    .await
+    .unwrap();
+
+    assert_ne!(resp.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    assert_ne!(resp.status(), reqwest::StatusCode::BAD_REQUEST);
+}

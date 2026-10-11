@@ -12,7 +12,7 @@ use crate::storage::git::Git2VaultStore;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{watch, Mutex, Notify, RwLock};
@@ -21,6 +21,12 @@ type VaultPushLocks = Arc<DashMap<String, Arc<Mutex<()>>>>;
 type VaultPathFilterCache = Arc<DashMap<String, CachedVaultPathFilter>>;
 const DEFAULT_SSE_PER_USER_LIMIT: usize = 16;
 const DEFAULT_SSE_GLOBAL_CEILING: usize = 1024;
+/// Global ceiling on blob bytes buffered for in-flight uploads at once
+/// (M-14). Each upload still buffers up to `min(max_file_size,
+/// BLOB_HARD_MAX_BYTES)` in memory — that per-request behavior is
+/// unchanged — but concurrency is capped so a few parallel uploads cannot
+/// pin gigabytes of RSS.
+pub const DEFAULT_BLOB_IN_FLIGHT_CAP_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Broadcast flag for graceful shutdown. Long-lived handlers (SSE streams)
 /// select on it so `axum::serve(...).with_graceful_shutdown(...)` can finish
@@ -121,6 +127,8 @@ pub struct AppState {
     sse_global_count: Arc<AtomicUsize>,
     push_locks: VaultPushLocks,
     vault_path_filter_cache: VaultPathFilterCache,
+    blob_in_flight_bytes: Arc<AtomicU64>,
+    blob_in_flight_cap: Arc<AtomicU64>,
 }
 
 impl AppState {
@@ -196,6 +204,8 @@ impl AppState {
             sse_global_count: Arc::new(AtomicUsize::new(0)),
             push_locks: Arc::new(DashMap::new()),
             vault_path_filter_cache: Arc::new(DashMap::new()),
+            blob_in_flight_bytes: Arc::new(AtomicU64::new(0)),
+            blob_in_flight_cap: Arc::new(AtomicU64::new(DEFAULT_BLOB_IN_FLIGHT_CAP_BYTES)),
         };
         Ok(state)
     }
@@ -255,6 +265,44 @@ impl AppState {
     pub fn remove_vault_push_lock(&self, vault_id: &str) {
         self.push_locks
             .remove_if(vault_id, |_, lock| Arc::strong_count(lock) == 1);
+    }
+
+    /// Reserve `bytes` of the global blob-upload in-flight budget (M-14).
+    /// Returns a guard that releases the reservation on drop, or `None`
+    /// when the reservation would push concurrent in-flight upload bytes
+    /// over the global cap. Callers reserve the *maximum* the request may
+    /// buffer (the per-request limit), not what has arrived so far, so the
+    /// ceiling bounds peak memory rather than racing byte arrival.
+    pub fn reserve_blob_in_flight_bytes(&self, bytes: u64) -> Option<BlobInFlightGuard> {
+        let cap = self.blob_in_flight_cap.load(Ordering::Acquire).max(1);
+        loop {
+            let current = self.blob_in_flight_bytes.load(Ordering::Acquire);
+            let next = current.checked_add(bytes)?;
+            if next > cap {
+                return None;
+            }
+            if self
+                .blob_in_flight_bytes
+                .compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                break;
+            }
+        }
+        Some(BlobInFlightGuard {
+            bytes,
+            counter: self.blob_in_flight_bytes.clone(),
+        })
+    }
+
+    /// Current global in-flight blob upload bytes (observability/tests).
+    pub fn blob_in_flight_bytes(&self) -> u64 {
+        self.blob_in_flight_bytes.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub fn set_blob_in_flight_cap_for_tests(&self, cap: u64) {
+        self.blob_in_flight_cap.store(cap.max(1), Ordering::Release);
     }
 
     pub(crate) fn cached_vault_path_filter(
@@ -446,6 +494,31 @@ pub struct SseSubscriberGuard {
     per_user_counts: Arc<DashMap<String, AtomicUsize>>,
     global_count: Arc<AtomicUsize>,
     metrics: Arc<Metrics>,
+}
+
+/// Releases a blob-upload in-flight byte reservation when dropped (M-14).
+pub struct BlobInFlightGuard {
+    bytes: u64,
+    counter: Arc<AtomicU64>,
+}
+
+impl Drop for BlobInFlightGuard {
+    fn drop(&mut self) {
+        // `fetch_update` needs Rust 1.95; MSRV is 1.85 — same alias note as
+        // `release_sse_global_count`.
+        #[allow(deprecated)]
+        let released = self
+            .counter
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current.checked_sub(self.bytes)
+            });
+        if released.is_err() {
+            tracing::error!(
+                bytes = self.bytes,
+                "blob in-flight byte counter release underflow"
+            );
+        }
+    }
 }
 
 impl Drop for SseSubscriberGuard {

@@ -117,26 +117,37 @@ pub async fn info_refs(
 const MAX_UPLOAD_PACK_BODY_BYTES: usize = 10 * 1024 * 1024;
 const UPLOAD_PACK_PROCESS_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
+fn upload_pack_body_too_large() -> ApiError {
+    ApiError::bad_request(
+        "upload_pack_body_too_large",
+        format!(
+            "git-upload-pack request body exceeds {} bytes",
+            MAX_UPLOAD_PACK_BODY_BYTES
+        ),
+    )
+}
+
 pub async fn upload_pack(
     State(state): State<AppState>,
     Path(vault_id): Path<String>,
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Result<Response, ApiError> {
     check_enabled(&state).await?;
     is_uuid_vault_id(&vault_id)?;
     let user = authenticate_basic(&state, &headers, client_ip.to_string()).await?;
     let _vault = vault::ensure_user_vault(&state, &user.user_id, &vault_id).await?;
-    if body.len() > MAX_UPLOAD_PACK_BODY_BYTES {
-        return Err(ApiError::bad_request(
-            "upload_pack_body_too_large",
-            format!(
-                "git-upload-pack request body exceeds {} bytes",
-                MAX_UPLOAD_PACK_BODY_BYTES
-            ),
-        ));
-    }
+    // M-14: read with our own limit instead of the `Bytes` extractor. The
+    // extractor path goes through axum's DefaultBodyLimit (2 MiB), which
+    // rejected oversized bodies with a bare 413 before this handler ever
+    // ran — the 10 MiB cap below was unreachable dead code. Reading via
+    // `to_bytes(body, MAX)` makes the documented 400
+    // `upload_pack_body_too_large` envelope actually govern (bodies over
+    // the limit fail here, with the same code/message the dead check had).
+    let body = axum::body::to_bytes(body, MAX_UPLOAD_PACK_BODY_BYTES)
+        .await
+        .map_err(|_| upload_pack_body_too_large())?;
 
     let repo_path = state.vault_root().join(&vault_id);
     if !repo_path.exists() {
