@@ -124,7 +124,9 @@ legacy version and answers with legacy envelopes.
   history, it emits `lagged` and the client should refresh from the sync API.
   A value containing `:` is not accepted as a resume position, and when the
   token can see more than one vault only the resuming vault's position is
-  known, so the stream also emits `lagged` for the others.
+  known, so the stream also emits `lagged` for the others. Live-broadcast
+  `lagged` events carry the affected vault id in the event data;
+  replay-level `lagged` events carry empty data.
 - **Modern clients**: POST a `subscriptions/listen` request with
   `params.notifications.resourceSubscriptions` set to
   `["pkv://vault/<id>"]` URIs (only vaults the token may see are accepted).

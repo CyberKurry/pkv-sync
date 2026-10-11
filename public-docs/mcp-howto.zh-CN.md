@@ -70,7 +70,7 @@ MCP 规范中的 `Origin` 请求头 DNS-rebinding 检查未在 `/mcp` 上实现�
 
 ## 变更通知
 
-- **旧版客户端**：携带 `Accept: text/event-stream` 的 GET `/mcp` 订阅 `vault_changed` 通知。每个事件的 id 就是 commit SHA 本身，客户端重连时可作为 `Last-Event-ID` 传回，以 replay 该 vault 错过的 commit。Replay 有上限；如果服务端无法覆盖错过的历史，会发送 `lagged`，客户端应通过同步 API 刷新。包含 `:` 的值不会被当作续传位置；当令牌可见多个 vault 时，只有正在续传的那个 vault 位置已知，因此服务端也会为其他 vault 发送 `lagged`。
+- **旧版客户端**：携带 `Accept: text/event-stream` 的 GET `/mcp` 订阅 `vault_changed` 通知。每个事件的 id 就是 commit SHA 本身，客户端重连时可作为 `Last-Event-ID` 传回，以 replay 该 vault 错过的 commit。Replay 有上限；如果服务端无法覆盖错过的历史，会发送 `lagged`，客户端应通过同步 API 刷新。包含 `:` 的值不会被当作续传位置；当令牌可见多个 vault 时，只有正在续传的那个 vault 位置已知，因此服务端也会为其他 vault 发送 `lagged`。直播产生的 `lagged` 事件在事件 data 中携带受影响的 vault id；回放级别的 `lagged` 事件 data 为空。
 - **现代客户端**：POST 一个 `subscriptions/listen` 请求，将 `params.notifications.resourceSubscriptions` 设为 `["pkv://vault/<id>"]` URI（只有令牌可见的 vault 会被接受）。`resourceSubscriptions` 中重复的 URI 会在确认（acknowledgment）中去重（以首次出现的为准）。响应是一条 SSE 流：先发送回显已接受订阅的 `notifications/subscriptions/acknowledged` 事件，随后发送 `notifications/resources/updated` 事件，其 params 携带 `uri`、`commit`、`event` 和 `_meta.subscriptionId`。如果服务端的事件缓冲区溢出（流消费较慢时一次涌入超过 64 个 commit），listen 流会发送 `notifications/resources/dropped` 通知，携带受影响的 `uri` 和同一个 `_meta` 订阅 id；客户端应当重新读取该 vault 的状态。关闭流即取消订阅。现代流不可续传：没有 `Last-Event-ID` replay，重连后客户端需要重新 listen 并对比读取结果。
 
 除非放在可信网络控制之后，否则请将 HTTP 绑定到 loopback。bearer token 会授予该用户所有笔记库的读写访问权限。

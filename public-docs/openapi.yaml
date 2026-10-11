@@ -1805,7 +1805,11 @@ paths:
         text/event-stream`; otherwise the server returns `405`. The stream
         uses bearer authentication, the deployment key, MCP replay via
         `Last-Event-ID`, and the same per-user/global SSE subscriber caps
-        as the plugin event stream.
+        as the plugin event stream. `lagged` events signal missed history:
+        live-broadcast lag events carry the affected vault id in the event
+        data, while replay-level lag events (multi-vault position unknown)
+        carry empty data; clients that ignore the data field are
+        unaffected.
       parameters:
         - in: header
           name: Accept
