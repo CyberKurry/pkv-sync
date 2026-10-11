@@ -837,6 +837,12 @@ paths:
     get:
       tags: [Health]
       summary: Health check
+      description: |
+        Unauthenticated readiness probe. Exempt from the deployment-key gate
+        so Docker `HEALTHCHECK`, the self-upgrade updaters
+        (`pkv-sync-update.sh`, `docker-updater.sh`), and load balancers can
+        poll it without the key; returns only a status string and uptime.
+        `/metrics` and all other `/api` routes still require the key.
       responses:
         '200':
           description: Server is healthy
@@ -844,8 +850,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
-        '404':
-          $ref: '#/components/responses/NotFound'
   /api/config:
     get:
       tags: [Config]

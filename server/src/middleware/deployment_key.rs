@@ -32,6 +32,16 @@ pub async fn middleware(
     if req.method() == Method::OPTIONS {
         return next.run(req).await;
     }
+    // CR-2 (ultrareview 2026-10-11 §2.1): `GET /api/health` is the readiness
+    // probe for Docker HEALTHCHECK, deploy/updater/pkv-sync-update.sh and
+    // deploy/updater/docker-updater.sh — none of which can carry the
+    // deployment key. Gating it made every self-upgrade roll back (the
+    // poll fails -> the updater restores the old binary) and left containers
+    // permanently unhealthy. Health is unauthenticated by design and leaks
+    // nothing beyond uptime. `/metrics` and every other route stay gated.
+    if req.method() == Method::GET && req.uri().path() == "/api/health" {
+        return next.run(req).await;
+    }
     let supplied = req
         .headers()
         .get(HEADER)

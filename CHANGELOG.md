@@ -81,6 +81,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Server: `GET /api/health` is now exempt from the deployment-key gate
+  (Critical, 2-month-old P0). Health probes cannot carry the key — Docker
+  `HEALTHCHECK`, `deploy/updater/pkv-sync-update.sh`, and
+  `deploy/updater/docker-updater.sh` all poll `/api/health` bare — so
+  gating it made containers report permanently unhealthy and made every
+  self-upgrade roll back (the updater's `curl -fsS` saw 404, restored the
+  old binary, and cleared the marker, while the admin UI showed "upgrade
+  successful"). Health is unauthenticated by design and returns only a
+  status string and uptime; `/metrics` and every other route keep the
+  deployment-key gate.
 - Plugin: a push that the server auto-merged (response carries
   `merge_outcomes`) no longer advances the local head when every outcome is
   `clean`. The field's presence itself proves the server head had moved past

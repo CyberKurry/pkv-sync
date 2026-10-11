@@ -123,10 +123,56 @@ async fn non_probe_api_still_requires_plugin_ua() {
 }
 
 #[tokio::test]
-async fn missing_deployment_key_returns_404() {
+async fn missing_deployment_key_returns_404_for_gated_api() {
+    let server = start_test_server().await;
+    let resp = client()
+        .get(format!("http://{}/api/config", server.addr))
+        .header("user-agent", "PKVSync-Plugin/0.1.0")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+/// CR-2: health probes (Docker HEALTHCHECK, pkv-sync-update.sh,
+/// docker-updater.sh) cannot carry the deployment key. `GET /api/health`
+/// must succeed without it, with a probe-style User-Agent (curl), exactly
+/// like the readiness polls the updaters run after swapping the binary.
+#[tokio::test]
+async fn health_probe_succeeds_without_deployment_key() {
     let server = start_test_server().await;
     let resp = client()
         .get(format!("http://{}/api/health", server.addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["status"], "ok");
+}
+
+/// Health is unauthenticated by design: a wrong key must not flip a probe
+/// into a failure (the upgrader treats any non-200 as "rolled back").
+#[tokio::test]
+async fn health_probe_succeeds_with_wrong_deployment_key() {
+    let server = start_test_server().await;
+    let resp = client()
+        .get(format!("http://{}/api/health", server.addr))
+        .header("user-agent", "curl/8.5.0")
+        .header("x-pkvsync-deployment-key", "k_wrongkey_wrongkey_wrong12")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+/// `/metrics` keeps the deployment-key gate (plus admin bearer when
+/// enabled); only the health probe is exempt.
+#[tokio::test]
+async fn metrics_still_requires_deployment_key() {
+    let server = start_test_server().await;
+    let resp = client()
+        .get(format!("http://{}/metrics", server.addr))
         .header("user-agent", "PKVSync-Plugin/0.1.0")
         .send()
         .await
