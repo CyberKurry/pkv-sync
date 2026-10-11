@@ -73,6 +73,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The MCP stdio transport no longer drops a response that raced with stdin
+  EOF: the run loop now drains every line already queued on the outbound
+  channel before exiting, instead of letting a ready response lose the
+  random-fair `select!` arm race against EOF and vanish.
 - HTTP `notifications/cancelled` now returns `405 Method Not Allowed` with a
   JSON-RPC error body explaining that cancellation on Streamable HTTP is
   performed by closing the SSE response stream. It previously returned a

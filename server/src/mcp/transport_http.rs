@@ -156,6 +156,23 @@ async fn post_mcp(
     // no server-side registry keyed by requestId, and the only supported
     // cancellation is the client dropping the SSE stream. A 202 here would
     // pretend a cancellation happened, so answer 405 with guidance instead.
+    //
+    // Three corner semantics of running this branch BEFORE era
+    // classification and header validation (audited N-2; all deliberate):
+    //
+    // (a) Legacy-era `notifications/cancelled` (no `_meta`) gets the same
+    //     405: the guidance text only fits subscriptions/listen semantics,
+    //     but legacy HTTP clients had no working cancel either — no
+    //     requestId registry ever existed on this transport, so the old
+    //     202 "accepted" was equally fictional for them.
+    // (b) Header validation is skipped for notifications: the 2026-07-28
+    //     spec leaves notification-POST header requirements undefined, so
+    //     a mismatched header must not turn a side-effect-free notification
+    //     into a hard 400.
+    // (c) The error envelope omits `id` entirely rather than echoing
+    //     `id: null`: the message is a notification, so there is nothing to
+    //     correlate. Strict JSON-RPC 2.0 §5.1 readers may warn about a
+    //     missing id; accepted trade-off.
     if request.get("id").is_none() {
         if request.get("method").and_then(Value::as_str) == Some("notifications/cancelled") {
             // Hand-built envelope: a notification has no id to echo, and the

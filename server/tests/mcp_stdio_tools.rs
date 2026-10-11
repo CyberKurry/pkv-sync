@@ -672,3 +672,86 @@ async fn stdio_run_returns_ok_after_stdin_eof_with_active_listen() {
         "stdin EOF must end the loop cleanly: {result:?}"
     );
 }
+
+#[tokio::test]
+async fn stdio_eof_drains_pending_response_before_exit() {
+    // N-5: a client that sends a request and immediately closes its write
+    // half (without reading the response first) must still get the response.
+    // `tokio::select!` is randomly fair, so when stdin EOF and a ready
+    // response line are both pending the EOF arm can win and a bare `break`
+    // would drop the response still queued in the channel.
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let p = pkv_sync_server::db::pool::connect(&tmp.path().join("run.db"))
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&p).await.unwrap();
+    let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+        .await
+        .unwrap();
+    let (user_id, raw) = create_user_with_token(&state, "stdio-eof-drain").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+
+    let (client, server) = duplex(1024);
+    let (server_read, server_write) = tokio::io::split(server);
+    let run_handle = tokio::spawn(pkv_sync_server::mcp::transport_stdio::run_on(
+        state.clone(),
+        vault.id.clone(),
+        raw,
+        server_read,
+        server_write,
+    ));
+
+    // Send one tools/list request, then shut down the write half WITHOUT
+    // reading the response first — this is exactly the dropping scenario.
+    // The line lands in the duplex buffer before the shutdown, so the server
+    // always parses and answers it before observing EOF; the only race left
+    // is which select arm the loop settles on once both are ready.
+    let (client_read, mut client_write) = tokio::io::split(client);
+    let request = json!({"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {}});
+    client_write
+        .write_all(format!("{request}\n").as_bytes())
+        .await
+        .unwrap();
+    client_write.flush().await.unwrap();
+    client_write.shutdown().await.unwrap();
+    drop(client_write);
+
+    // Drain stdout concurrently: the tools/list response is larger than the
+    // duplex buffer, so the server's write would block if nobody read it.
+    let mut reader = tokio::io::BufReader::new(client_read);
+    let reader_handle = tokio::spawn(async move {
+        let mut stdout = String::new();
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line).await {
+                Ok(0) => break,
+                Ok(_) => stdout.push_str(&line),
+                Err(err) => panic!("stdout read error: {err}"),
+            }
+        }
+        stdout
+    });
+
+    let result = tokio::time::timeout(Duration::from_secs(5), run_handle)
+        .await
+        .expect("run_on must finish within 5s of stdin EOF")
+        .unwrap();
+    assert!(
+        result.is_ok(),
+        "stdin EOF must end the loop cleanly: {result:?}"
+    );
+
+    let stdout = tokio::time::timeout(Duration::from_secs(10), reader_handle)
+        .await
+        .expect("stdout must reach EOF within 10s of run_on exiting")
+        .unwrap();
+
+    let response: Value = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
+    assert_eq!(
+        response["id"],
+        json!(7),
+        "the response queued before stdin EOF must be flushed on exit, got: {stdout}"
+    );
+}

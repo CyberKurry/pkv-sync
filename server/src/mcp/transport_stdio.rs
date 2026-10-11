@@ -281,7 +281,22 @@ where
     loop {
         tokio::select! {
             line = lines.next_line() => {
-                let Ok(Some(line)) = line else { break };
+                let Ok(Some(line)) = line else {
+                    // stdin EOF: `select!` is randomly fair, so a response
+                    // that became ready in the same poll can lose the arm
+                    // race and would be dropped by a bare `break` (N-5).
+                    // Drain what the session already queued before exiting;
+                    // `try_recv` returns `Err(Empty)` once the channel is
+                    // spent, so this terminates immediately when nothing is
+                    // pending. (The `rx.recv` arm's `None` below needs no
+                    // such drain: a closed channel is by definition empty.)
+                    while let Ok(line) = rx.try_recv() {
+                        stdout.write_all(line.as_bytes()).await?;
+                        stdout.write_all(b"\n").await?;
+                    }
+                    stdout.flush().await?;
+                    break;
+                };
                 session.pump(&line, &mut tx).await;
             }
             _ = drain_tick.tick() => {
