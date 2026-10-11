@@ -28,6 +28,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Changed
 
+- `GET /mcp` lag events now carry the affected vault id in the event data
+  (still named `lagged`; previously empty): a live broadcast overflow names
+  the vault that fell behind so multi-vault clients can resync just that
+  vault instead of rereading everything. Replay-level lag signals (a
+  `Last-Event-ID` reconnect whose position is too old or spans other
+  vaults) stay vault-agnostic and keep the empty data, since a single event
+  id cannot identify one vault. Clients that ignore the data field are
+  unaffected.
 - **Removed standalone MCP HTTP deployment** (`pkvsyncd mcp --transport http
   --bind`): MCP HTTP now exists only embedded in `pkvsyncd serve`. `[mcp].
   embed_in_serve` now defaults to `true` (set `false` to disable). Existing

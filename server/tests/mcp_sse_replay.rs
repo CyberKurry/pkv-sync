@@ -417,15 +417,16 @@ async fn mcp_sse_replay_does_not_suppress_other_vault_with_identical_commit() {
     }
 
     // Vault A's replay batch: one replayed commit plus a trailing Lagged
-    // marker, exactly as the GET handler assembles it. The suppression set
-    // comes from the production constructor.
+    // marker, exactly as the GET handler assembles it (replay-level lag is
+    // vault-agnostic, hence `None`). The suppression set comes from the
+    // production constructor.
     let replay_items = std::collections::VecDeque::from([
         pkv_sync_server::mcp::transport_http::McpSseItem::VaultChanged {
             vault_id: "vault-a".into(),
             commit: "c1".into(),
             data: "{}".into(),
         },
-        pkv_sync_server::mcp::transport_http::McpSseItem::Lagged,
+        pkv_sync_server::mcp::transport_http::McpSseItem::Lagged { vault_id: None },
     ]);
     let replay_set = pkv_sync_server::mcp::transport_http::replay_suppression_set(&replay_items);
     assert!(
@@ -519,5 +520,13 @@ async fn mcp_sse_reconnect_with_multiple_vaults_signals_lagged() {
     assert!(
         !body.contains(&format!("id: {}", b1.new_commit)),
         "vault B's commit predates the reconnection point and must not be replayed, got: {body}"
+    );
+    // The replay-level lag signal is vault-agnostic: the single
+    // Last-Event-ID cannot say which vault fell behind, so the data stays
+    // empty (only the live broadcast lag names its vault — see the
+    // get_sse_live_lagged test in transport_http).
+    assert!(
+        body.contains("event: lagged\ndata: \n"),
+        "replay-level lagged must keep empty data, got: {body}"
     );
 }

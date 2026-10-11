@@ -360,13 +360,14 @@ async fn get_mcp_sse(
                     .collect();
                 // A single Last-Event-ID only identifies one vault's position;
                 // every other vault's missed commits are unknowable, so tell
-                // the client to resync (BUG-R3-13).
+                // the client to resync (BUG-R3-13). Vault-agnostic by
+                // nature: no single vault can be named.
                 if unmatched_vaults {
-                    items.push_back(McpSseItem::Lagged);
+                    items.push_back(McpSseItem::Lagged { vault_id: None });
                 }
                 items
             }
-            Ok((None, _)) => VecDeque::from([McpSseItem::Lagged]),
+            Ok((None, _)) => VecDeque::from([McpSseItem::Lagged { vault_id: None }]),
             Err(err) => {
                 return mcp_internal_error_response(err);
             }
@@ -439,13 +440,22 @@ struct McpSseState {
 /// One queued SSE frame: a replayed vault change, or a lag marker. Public
 /// so the replay-suppression regression test can construct replay batches
 /// for [`replay_suppression_set`].
+///
+/// `Lagged` carries the affected vault id when known: a live broadcast
+/// overflow names the vault so multi-vault clients can resync just that one
+/// (aligning with the listen path's `notifications/resources/dropped`,
+/// N-3), while the replay-level lag marker stays `None` — a single
+/// `Last-Event-ID` cannot identify which vault fell behind, so the event
+/// keeps the empty data of the documented legacy contract.
 pub enum McpSseItem {
     VaultChanged {
         vault_id: String,
         commit: String,
         data: String,
     },
-    Lagged,
+    Lagged {
+        vault_id: Option<String>,
+    },
 }
 
 /// Commits carried by a replay batch, keyed by `(vault_id, commit)` so the
@@ -460,7 +470,7 @@ pub fn replay_suppression_set(replay_items: &VecDeque<McpSseItem>) -> HashSet<(S
             McpSseItem::VaultChanged {
                 vault_id, commit, ..
             } => Some((vault_id.clone(), commit.clone())),
-            McpSseItem::Lagged => None,
+            McpSseItem::Lagged { .. } => None,
         })
         .collect()
 }
@@ -472,7 +482,13 @@ impl McpSseItem {
                 .event("vault_changed")
                 .id(commit)
                 .data(data),
-            Self::Lagged => Event::default().event("lagged").data(""),
+            // The event name stays `lagged` (legacy clients match on it);
+            // the data names the vault when the signal comes from a live
+            // broadcast overflow and is empty when the lag is replay-level
+            // and vault-agnostic.
+            Self::Lagged { vault_id } => Event::default()
+                .event("lagged")
+                .data(vault_id.unwrap_or_default()),
         }
     }
 }
@@ -539,7 +555,9 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                         }
                     }
                     Some((_vault_id, Err(BroadcastStreamRecvError::Lagged(_)))) => {
-                        McpSseItem::Lagged
+                        McpSseItem::Lagged {
+                            vault_id: Some(_vault_id),
+                        }
                     }
                     None => break,
                 };
@@ -1363,6 +1381,15 @@ mod tests {
             "lagged event",
         )
         .await;
+
+        // N-3: the lag signal must carry the affected vault's identity so
+        // multi-vault clients know which vault to resync instead of rereading
+        // everything.
+        let expected = format!("data: {}", ls.vault_id);
+        assert!(
+            body.contains(&expected),
+            "live lag event must name the lagging vault ({expected}), got: {body}"
+        );
     }
 
     fn listen_body(filter: serde_json::Value) -> String {
