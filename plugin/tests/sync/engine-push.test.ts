@@ -857,7 +857,88 @@ describe("SyncEngine push", () => {
     expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe("new");
   });
 
-  it("advances head immediately when all merge outcomes are clean", async () => {
+  it("keeps head at the old base and pulls missed remote commits after an all-clean auto-merge (H-1)", async () => {
+    // Audit H-1: a push from a stale base returns merge_outcomes whenever the
+    // server auto-merged — even when every pushed path applied cleanly, the
+    // server head had moved past our base with commits we never pulled. The
+    // head must stay at the base so ③ pull covers (base, new_commit] and the
+    // missed remote change (x.md) actually arrives. The old discriminator
+    // (hasNonClean) jumped the head to the merge commit, pull(since=new_commit)
+    // returned empty, and x.md stayed stale forever.
+    const idx = new FakeIndex({ lastSyncedCommit: "c1", files: {} });
+    const vault = new FakeVault([
+      {
+        path: "y.md",
+        hash: await sha256Text("local y"),
+        size: 8,
+        kind: "text",
+        content: "local y"
+      }
+    ]);
+    const pullCalls: Array<string | null> = [];
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockImplementation(async (_vaultId: string, since: string | null) => {
+        pullCalls.push(since);
+        if (since === "c1") {
+          // Server already merged A's x.md change (C2) with our base C1.
+          return {
+            from: "c1",
+            to: "c3",
+            added: [],
+            modified: [
+              {
+                path: "x.md",
+                file_type: "text",
+                size: 8,
+                content_inline: "remote x"
+              }
+            ],
+            deleted: []
+          };
+        }
+        return { from: since, to: since, added: [], modified: [], deleted: [] };
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c3",
+        files_changed: 1,
+        // Server auto-merged: our y.md applied cleanly, but the response
+        // proves the server head had advanced past our base c1.
+        merge_outcomes: [{ path: "y.md", outcome: "clean" }]
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    // The missed remote change from the merge range MUST be applied.
+    expect(vault.writes.get("x.md")).toBe("remote x");
+    // Head advances only via the pull that covered the merge range.
+    expect(pullCalls).toContain("c1");
+    expect(idx.saved?.lastSyncedCommit).toBe("c3");
+    expect(idx.saved?.files["x.md"]?.lastSyncedHash).toBe(
+      await sha256Text("remote x")
+    );
+  });
+
+  it("records pushed file hashes without advancing head when all merge outcomes are clean (H-1 twin)", async () => {
+    // The pre-fix twin of the test above. The old expectation ("head advances
+    // immediately when all merge outcomes are clean") encoded the bug: with
+    // merge_outcomes present the server DID auto-merge, so the head must not
+    // advance on the push — the subsequent pull owns that, and the pushed
+    // files' hashes are recorded so they are not pushed twice.
     const idx = new FakeIndex({
       lastSyncedCommit: "c0",
       files: {
@@ -878,17 +959,20 @@ describe("SyncEngine push", () => {
         content: "new"
       }
     ]);
+    const pullSince: Array<string | null> = [];
     const api = {
       state: vi.fn(),
-      pull: vi.fn().mockImplementation((_vaultId: string, since: string | null) => {
-        // When called after push advances head to c1, return "up to date"
-        return Promise.resolve({
+      pull: vi.fn().mockImplementation(async (_vaultId: string, since: string | null) => {
+        // The pull must be called with the OLD base so the merge commit is
+        // inside its range; then it reports "up to date" at that head.
+        pullSince.push(since);
+        return {
           from: since,
           to: since,
           added: [],
           modified: [],
           deleted: []
-        });
+        };
       }),
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(),
@@ -912,8 +996,11 @@ describe("SyncEngine push", () => {
 
     await engine.syncNow();
 
-    // All-clean: head advances immediately (byte-identical to pre-push-first behavior)
-    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+    // Push step: head STAYS at the old base (c0) — the pull must cover the
+    // merge commit range instead of trusting the all-clean outcome.
+    expect(idx.saved?.lastSyncedCommit).toBe("c0");
+    expect(pullSince).toContain("c0");
+    // But the pushed content hash was recorded (no re-push next pass).
     expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe("new");
   });
 
@@ -1041,6 +1128,82 @@ describe("SyncEngine push", () => {
 
     expect(idx.saved?.lastSyncedCommit).toBe("c1");
     expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe("new");
+  });
+
+  it("keeps the index entry for a delete the server rejected, so pull writes a conflict copy instead of resurrecting (M-11)", async () => {
+    // Audit M-11: the local file x.md was deleted; the push carried the
+    // delete, but the server rejected it (outcome "conflict" — remote had
+    // modified x.md since our base). Removing the index entry anyway made the
+    // subsequent pull see a path that is neither locally deleted nor dirty,
+    // so it silently wrote the remote content back: the user's delete was
+    // undone with no conflict copy. The entry must survive a non-clean
+    // outcome; pull then treats the file as locally-deleted and writes a
+    // .conflict-* copy of the remote content instead.
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "x.md": {
+          lastSyncedHash: "old",
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+    // Local vault: x.md is GONE (the user deleted it).
+    const vault = new FakeVault([]);
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c2",
+        added: [],
+        // The remote modification that made the server reject our delete.
+        modified: [
+          {
+            path: "x.md",
+            file_type: "text",
+            size: 11,
+            content_inline: "remote edit"
+          }
+        ],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        // Rejected delete: the server reports conflict and produces no new
+        // commit (new_commit is the current head).
+        new_commit: "c2",
+        files_changed: 0,
+        merge_outcomes: [{ path: "x.md", outcome: "conflict" }]
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    // The index entry for the rejected delete SURVIVES (not treated as a
+    // brand-new never-pushed file on the next scan).
+    expect(idx.saved?.files["x.md"]).toBeDefined();
+    // The remote content must NOT be resurrected onto x.md's original path —
+    // it lands in a .conflict-* copy, preserving the user's delete intent.
+    expect(vault.writes.get("x.md")).toBeUndefined();
+    const conflictWrite = [...vault.writes.keys()].find((p) =>
+      p.startsWith("x.conflict-")
+    );
+    expect(conflictWrite).toBeDefined();
+    expect(vault.writes.get(conflictWrite!)).toBe("remote edit");
   });
 
   it("backflow pull overwrites local and advances head after merged push", async () => {

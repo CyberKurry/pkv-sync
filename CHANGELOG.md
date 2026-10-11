@@ -81,6 +81,53 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin: a push that the server auto-merged (response carries
+  `merge_outcomes`) no longer advances the local head when every outcome is
+  `clean`. The field's presence itself proves the server head had moved past
+  our base with commits we never pulled; advancing to the merge commit made
+  the subsequent `pull(since=new_head)` return an empty diff, so the missed
+  remote changes stayed missed forever (a silent, persistent fork with no
+  conflict copies and a "connected" status). The head now stays at the old
+  base so the pull covers `(base, new_commit]` and the merge result plus the
+  missed remote commits actually arrive; per-file hashes of the pushed
+  content are still recorded so nothing is pushed twice.
+- Plugin: realtime (`text_inline`) applies no longer silently overwrite or
+  resurrect local files whose sync state is unknown. A local file with no
+  index entry (created locally, first push not yet landed) was overwritten
+  by a same-path remote create with no conflict copy — permanent data loss
+  for content that existed nowhere else; an indexed-but-locally-deleted
+  file was silently resurrected. Both cases now refuse the inline apply
+  (`InlineApplyDirtyError`) and fall back to the full pull, which pushes
+  the local content first and surfaces the collision as `.conflict-*`
+  copies. A remote delete aimed at an un-indexed local path is likewise
+  refused instead of trashing content the sync layer never recorded.
+- Plugin: a delete the server rejected during auto-merge (outcome
+  `conflict` because the remote had modified the file) no longer removes
+  the index entry. The entry previously vanished, so the backflow pull saw
+  a path that was neither locally deleted nor dirty and silently wrote the
+  remote content back — the user's delete was undone with no trace. The
+  entry now survives, the pull treats the file as locally deleted, and the
+  remote content arrives as a `.conflict-*` copy instead of a silent
+  resurrection.
+- Plugin: switching vaults, logging out, or changing settings mid-sync no
+  longer lets the discarded engine keep writing into the current vault.
+  `rebuild()`/`invalidate()` only dropped the engine reference, so an
+  in-flight sync pass kept applying pulls and trashing files from the OLD
+  vault/server while its index writes were swallowed by the generation
+  guard — unrecorded mutations the new engine then misread as fresh local
+  edits and pushed to a different vault. Each engine generation now owns an
+  `AbortController` that the orchestrator aborts; the engine checks it
+  before every vault write/trash and at each phase boundary, unwinding with
+  a silently-handled `SyncAbortedError` (no error status, no Notice).
+- Plugin: SSE event handling and `syncNow` now share one serialization
+  chain. The event chain never awaited an in-flight sync pass, so an event
+  could apply newer content while a pull was parked mid-apply; releasing
+  the pull then wrote its stale diff back over the newer content and the
+  head ended up claiming a commit whose content had just been destroyed —
+  `pull(since=head)` never repaired it. Sync passes queue on the same chain
+  as event handlers (a fallback `syncNow` triggered from inside an event
+  runs inline, since the chain is already held), eliminating the
+  interleave.
 - `pkvsyncd mcp` over stdio now exits with an error when stdout writes
   fail (broken pipe, closed terminal) instead of silently returning
   success: the dedicated writer task that decouples stdout from the run

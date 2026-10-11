@@ -61,6 +61,20 @@ export class InlineApplyDirtyError extends Error {
   }
 }
 
+/**
+ * Expected cancellation of an in-flight sync pass. The orchestrator aborts a
+ * generation's engine on rebuild()/invalidate() (audit M-10); the engine
+ * checks the signal before every vault write/trash and unwinds with this
+ * error, which syncInner swallows silently because it is not a failure —
+ * the replacement engine owns the vault from that point on.
+ */
+export class SyncAbortedError extends Error {
+  constructor() {
+    super("sync pass aborted: engine generation was replaced");
+    this.name = "SyncAbortedError";
+  }
+}
+
 export interface SyncEngineOptions {
   vaultId: string;
   deviceName: string;
@@ -84,15 +98,33 @@ export interface SyncEngineOptions {
 }
 
 export class SyncEngine {
-  private running: Promise<void> | null = null;
   private unsubscribeEvents: (() => void) | null = null;
   private vaultSettingsCache = new Map<string, VaultSettings>();
   /**
-   * Chain head for serialising SSE event handlers. Each incoming event
-   * appends a task that awaits the previous one before running, so events
-   * never interleave between each other or with syncNow's atomic phase
+   * Aborted by the orchestrator when this generation is discarded
+   * (rebuild()/invalidate(), audit M-10). Checked before every vault
+   * write/trash and at each syncInner phase boundary so an in-flight pass
+   * against the OLD vault/server cannot mutate the CURRENT local vault.
+   */
+  private abortController = new AbortController();
+  /**
+   * Chain head for serialising SSE event handlers AND syncNow's atomic
+   * phase through one mutex (audit M-12). Each incoming event appends a
+   * task that awaits the previous one before running, and each syncNow
+   * pass appends itself the same way — so events never interleave between
+   * each other or with a sync pass's scan/push/pull/apply steps. Without
+   * the shared chain, an event could apply newer content while an in-flight
+   * pull was parked mid-apply; releasing the pull then wrote its stale diff
+   * back over the newer content and regressed the head past content that
+   * had already been delivered.
    */
   private eventChain: Promise<void> = Promise.resolve();
+  /**
+   * The in-flight (or queued) syncNow pass. Present while a pass is on the
+   * chain so additional syncNow calls coalesce onto it instead of queueing
+   * another pass behind it.
+   */
+  private activeSync: Promise<void> | null = null;
 
   constructor(private opts: SyncEngineOptions) {
     if (!opts.vaultId.trim()) throw new Error("SyncEngine requires a non-empty vaultId");
@@ -101,12 +133,57 @@ export class SyncEngine {
     }
   }
 
+  /** Cancel any in-flight sync pass and future event handling (M-10). */
+  abort(): void {
+    this.abortController.abort();
+  }
+
+  private get aborted(): boolean {
+    return this.abortController.signal.aborted;
+  }
+
+  /** Throws the typed cancellation when this generation was aborted. */
+  private throwIfAborted(): void {
+    if (this.aborted) throw new SyncAbortedError();
+  }
+
   async syncNow(): Promise<void> {
-    if (this.running) return this.running;
-    this.running = this.syncInner().finally(() => {
-      this.running = null;
-    });
-    return this.running;
+    if (this.activeSync) return this.activeSync;
+    // Queue the pass on the same chain the SSE handlers use, so a sync pass
+    // never runs concurrently with event application (M-12). When called
+    // from INSIDE the chain (an SSE fallback), the pass must still run — it
+    // cannot await itself — so a nested call bypasses the chain-queue and
+    // runs syncInner directly; the chain is already serialised by the
+    // caller holding it.
+    const nested = this.insideChain;
+    const run = nested
+      ? this.syncInner()
+      : this.eventChain.then(() => this.syncInner());
+    const completion = run.then(
+      () => {
+        if (this.activeSync === completion) this.activeSync = null;
+      },
+      (error) => {
+        if (this.activeSync === completion) this.activeSync = null;
+        throw error;
+      }
+    );
+    this.activeSync = completion;
+    // Keep the chain clean even when the pass fails.
+    if (!nested) this.eventChain = run.then(() => undefined, () => undefined);
+    return completion;
+  }
+
+  /** True while an SSE handler on the chain is invoking syncNow (M-12). */
+  private insideChain = false;
+
+  /**
+   * True once this generation's pass has been cancelled (M-10). Exposed so
+   * callers that captured the engine before a rebuild/invalidate can stop
+   * chaining follow-up work onto a dead generation.
+   */
+  isAborted(): boolean {
+    return this.aborted;
   }
 
   async flushOnUnload(timeoutMs: number): Promise<void> {
@@ -141,46 +218,55 @@ export class SyncEngine {
         // index update, leading to either lost content or a same-commit
         // echo push back to the server.
         const task = this.eventChain.then(async () => {
-          if (!ev.commit) {
-            // lagged — do a full pull
-            await this.syncNow();
-            return;
-          }
-          if (ev.kind === "rollback") {
-            await this.syncNow();
-            return;
-          }
-          let needFallbackPull = false;
-          for (const change of ev.changes) {
-            try {
-              switch (change.kind) {
-                case "text_inline":
-                  await this.applyInlineText(change.path, change.content, ev.commit);
-                  break;
-                case "delete":
-                  await this.applyDelete(change.path, ev.commit);
-                  break;
-                case "text_ref":
-                case "blob":
-                  needFallbackPull = true;
-                  break;
-              }
-            } catch (err) {
-              if (
-                change.kind === "text_inline" &&
-                !(err instanceof InlineApplyDirtyError)
-              ) {
-                this.reportInlineApplyFailure(change.path, err);
-              } else if (!(err instanceof InlineApplyDirtyError)) {
-                debugLog("[pkv-sync] inline apply failed, falling back to pull:", err);
-              }
-              needFallbackPull = true;
+          // A replaced/aborted generation must not apply events into the
+          // vault either (M-10) — drop the event entirely; the replacement
+          // engine's own sync covers the missed commits.
+          if (this.aborted) return;
+          this.insideChain = true;
+          try {
+            if (!ev.commit) {
+              // lagged — do a full pull
+              await this.syncNow();
+              return;
             }
-          }
-          if (needFallbackPull) {
-            await this.syncNow();
-          } else {
-            await this.advanceIndexHead(ev.commit);
+            if (ev.kind === "rollback") {
+              await this.syncNow();
+              return;
+            }
+            let needFallbackPull = false;
+            for (const change of ev.changes) {
+              try {
+                switch (change.kind) {
+                  case "text_inline":
+                    await this.applyInlineText(change.path, change.content, ev.commit);
+                    break;
+                  case "delete":
+                    await this.applyDelete(change.path, ev.commit);
+                    break;
+                  case "text_ref":
+                  case "blob":
+                    needFallbackPull = true;
+                    break;
+                }
+              } catch (err) {
+                if (
+                  change.kind === "text_inline" &&
+                  !(err instanceof InlineApplyDirtyError)
+                ) {
+                  this.reportInlineApplyFailure(change.path, err);
+                } else if (!(err instanceof InlineApplyDirtyError)) {
+                  debugLog("[pkv-sync] inline apply failed, falling back to pull:", err);
+                }
+                needFallbackPull = true;
+              }
+            }
+            if (needFallbackPull) {
+              await this.syncNow();
+            } else {
+              await this.advanceIndexHead(ev.commit);
+            }
+          } finally {
+            this.insideChain = false;
           }
         });
         this.eventChain = task.catch(() => undefined);
@@ -246,22 +332,31 @@ export class SyncEngine {
   }
 
   private async syncInner(): Promise<void> {
-    this.opts.setStatus("syncing");
     try {
+      this.throwIfAborted();
+      this.opts.setStatus("syncing");
       await this.refreshVaultSettings();
 
       // ① scan BEFORE any pull
       const scan = await this.scanPending();
+      this.throwIfAborted();
 
       // ② push-first: send pending changes before pulling
       await this.pushPendingWithHeadMismatchRetry(scan);
+      this.throwIfAborted();
 
       // ③ pull backflow: merged content arrives as a normal pull
       await this.pullIfChanged();
 
+      this.throwIfAborted();
       this.opts.setStatus("connected");
       await this.opts.onSyncSuccess?.();
     } catch (error) {
+      if (error instanceof SyncAbortedError) {
+        // Expected cancellation (generation replaced). No status change:
+        // the replacement engine owns the status element now.
+        return;
+      }
       if (error instanceof ApiError && error.status === 0) {
         this.opts.setStatus("offline", error.message);
       } else {
@@ -376,26 +471,50 @@ export class SyncEngine {
         this.opts.deviceName
       );
 
-    // Check if any merge outcome is non-clean (merged or conflict).
-    // If so, record per-file hashes but do NOT advance lastSyncedCommit
-    // so the subsequent pull includes the merge commit in its range.
-      const hasNonClean = response.merge_outcomes?.some(
-        (o) => o.outcome !== "clean"
-      ) ?? false;
+    // `merge_outcomes` is present ONLY when the server took the auto-merge
+    // path, which by definition means the server head had already moved past
+    // our base — commits we never pulled live in (base, new_commit]. The
+    // per-path outcomes only describe the paths WE pushed; "clean" says
+    // nothing about those missed commits. So the mere presence of the field
+    // means the head must stay at the old base and the pull in ③ must cover
+    // the merge range (audit H-1: advancing on all-clean left remote changes
+    // permanently missed, since pull(since=new_commit) returns empty).
+      const merged = response.merge_outcomes !== undefined;
 
-      if (!hasNonClean) {
-      // All-clean (or field absent) — fast path: advance head immediately
+      if (!merged) {
+      // Fast path (no auto-merge) — advance head immediately
         await this.opts.index.updateIndex((current) => {
           return markBatch(current, response.new_commit, hydrated, batchDeleted, true);
         });
         ifMatch = response.new_commit;
       } else {
-      // Non-clean merge outcome — per-file hashes recorded, HEAD STAYS.
-      // The subsequent pull will bring the merged content and advance head.
-      // Use updateIndex to avoid regressing lastSyncedCommit if a concurrent
+      // Auto-merge (any outcome mix) — per-file hashes recorded, HEAD STAYS
+      // at the old base. The subsequent pull will bring both the merged
+      // content and the missed remote commits, then advance head. Use
+      // updateIndex to avoid regressing lastSyncedCommit if a concurrent
       // SSE event advanced it between our scan and this write.
+      //
+      // Deletes are partitioned by per-path outcome (audit M-11): a delete
+      // the server applied cleanly removes the index entry, but a REJECTED
+      // delete (outcome "conflict" — the remote had modified the file)
+      // keeps its original entry. Dropping it would make the subsequent
+      // pull treat the path as brand new and silently write the remote
+      // content back, undoing the user's delete; the surviving entry keeps
+      // the path "locally deleted" from the pull's point of view, so the
+      // remote content arrives as a .conflict-* copy instead of a silent
+      // resurrection. Upserted files keep recording their pushed hash for
+      // every outcome: the pushed content has been handed to the server
+      // (merged into the result or parked in a server sidecar), so the
+      // pull must apply the authoritative result without a spurious
+      // conflict copy of content the server already holds.
+        const cleanPaths = new Set(
+          response.merge_outcomes
+            ?.filter((o) => o.outcome === "clean")
+            .map((o) => o.path) ?? []
+        );
+        const cleanDeleted = batchDeleted.filter((path) => cleanPaths.has(path));
         await this.opts.index.updateIndex((current) => {
-          return markBatch(current, current.lastSyncedCommit, hydrated, batchDeleted, false);
+          return markBatch(current, current.lastSyncedCommit, hydrated, cleanDeleted, false);
         });
       }
     }
@@ -456,6 +575,7 @@ export class SyncEngine {
 
     try {
       for (const file of [...pull.added, ...pull.modified]) {
+        this.throwIfAborted();
         if (!this.shouldApplyPulledPath(file.path, pathAccepted)) continue;
         const local = currentByPath.get(file.path);
         const indexed = index.files[file.path];
@@ -511,6 +631,7 @@ export class SyncEngine {
       }
 
       for (const path of pull.deleted) {
+        this.throwIfAborted();
         if (!shouldSyncPath(path) || !pathAccepted(path)) continue;
         const local = currentByPath.get(path);
         const indexed = index.files[path];
@@ -597,6 +718,7 @@ export class SyncEngine {
     local: LocalFileSnapshot | undefined
   ): Promise<void> {
     if (!local) return;
+    this.throwIfAborted();
     const cpath = conflictPath(path, this.opts.deviceName);
     if (local.kind === "text") {
       await this.opts.vault.writeText(cpath, local.content ?? "");
@@ -607,6 +729,7 @@ export class SyncEngine {
   }
 
   private async writeRemoteConflict(file: PullFile, atCommit: string): Promise<void> {
+    this.throwIfAborted();
     const cpath = conflictPath(file.path, "remote");
     if (file.file_type === "text") {
       const content =
@@ -633,11 +756,26 @@ export class SyncEngine {
     // updateIndex serialises through the underlying data store so two
     // concurrent inline-event handlers cannot observe stale state or
     // overwrite each other's index updates.
+    this.throwIfAborted();
     const { hash, byteLength: size } = await sha256TextWithLength(content);
     const snapshot: LocalFileSnapshot = { path, hash, size, kind: "text", content };
     await this.opts.index.updateIndex(async (index) => {
       const indexed = index.files[path];
-      if (indexed && this.opts.vault.exists(path)) {
+      const fileExists = this.opts.vault.exists(path);
+      // Presence mismatch means unknown local state (audit H-4):
+      // - local file exists but has no index entry: its content was never
+      //   pushed, so it exists nowhere else — overwriting it with remote
+      //   content would silently destroy it;
+      // - index entry exists but the local file is gone: the user deleted
+      //   it, and applying remote content here would silently resurrect it.
+      // Both refuse and fall back to the full pull, which surfaces the
+      // remote content as a .conflict-* copy instead of clobbering. The
+      // both-absent case (a genuinely new remote file) has nothing local
+      // to lose and still applies directly.
+      if (fileExists !== (indexed !== undefined)) {
+        throw new InlineApplyDirtyError(path);
+      }
+      if (indexed) {
         const localContent = await this.opts.vault.readText(path);
         const localHash = await sha256Text(localContent);
         if (localHash !== indexed.lastSyncedHash) {
@@ -677,9 +815,21 @@ export class SyncEngine {
   }
 
   private async applyDelete(path: string, commit: string): Promise<void> {
+    this.throwIfAborted();
     await this.opts.index.updateIndex(async (index) => {
       const indexed = index.files[path];
-      if (indexed && this.opts.vault.exists(path)) {
+      const fileExists = this.opts.vault.exists(path);
+      // Same reasoning as applyInlineText (audit H-4): a path with no index
+      // entry is a local file we know nothing about (never pushed), so its
+      // content is not recorded anywhere else. Refuse the inline delete and
+      // fall back to the full pull, which trashes only paths whose local
+      // state it could verify (and writes a conflict copy otherwise). A
+      // path that is neither indexed nor locally present has nothing to
+      // lose and still deletes (a no-op trash).
+      if (fileExists && indexed === undefined) {
+        throw new InlineApplyDirtyError(path);
+      }
+      if (indexed && fileExists) {
         const local = await this.opts.vault.snapshot(path, this.opts.textExtensions);
         if (isLocalDirty(local, indexed.lastSyncedHash)) {
           await this.writeConflict(path, local);

@@ -1079,6 +1079,125 @@ describe("SyncEngine pull", () => {
     expect(setStatus).toHaveBeenCalledWith("error", message);
   });
 
+  it("falls back to pull without losing an un-indexed local file on a remote inline create (H-4)", async () => {
+    // End-to-end form of the H-4 unit tests: a brand-new local file (no
+    // index entry yet) meets a same-path remote inline create. The engine
+    // must refuse the inline apply, push the local content first, and let
+    // the backflow pull deliver both versions — the server parked the
+    // second-writer (us) in a .conflict-* sidecar, which the pull applies.
+    // Neither copy is lost, and the main path keeps the remote version.
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const localHash = await sha256Text("local draft never pushed");
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([
+      {
+        path: "note.md",
+        hash: localHash,
+        size: 23,
+        kind: "text",
+        content: "local draft never pushed"
+      }
+    ]);
+    const setStatus = vi.fn();
+    const conflictPath = "note.conflict-20261011-000000-Laptop-X.md";
+    const pullSince: Array<string | null> = [];
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockImplementation(async (_vaultId: string, since: string | null) => {
+        pullSince.push(since);
+        if (since === "c0") {
+          return {
+            from: "c0",
+            to: "c1",
+            added: [],
+            modified: [
+              // The remote create kept the main path...
+              {
+                path: "note.md",
+                file_type: "text",
+                size: 13,
+                content_inline: "remote version"
+              },
+              // ...and the server's merge placed our pushed draft in a
+              // conflict sidecar (merge_apply.rs write_text_conflict_sidecar).
+              {
+                path: conflictPath,
+                file_type: "text",
+                size: 23,
+                content_inline: "local draft never pushed"
+              }
+            ],
+            deleted: []
+          };
+        }
+        return { from: since, to: since, added: [], modified: [], deleted: [] };
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c1",
+        files_changed: 1,
+        merge_outcomes: [
+          { path: "note.md", outcome: "conflict", conflict_path: conflictPath }
+        ]
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "Laptop X",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      labels: en,
+      setStatus
+    });
+
+    engine.startEventSubscription();
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+    options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [
+        {
+          kind: "text_inline",
+          path: "note.md",
+          content: "remote version"
+        }
+      ]
+    });
+
+    await vi.waitFor(() => {
+      expect(api.pull).toHaveBeenCalled();
+    });
+
+    // Push-first: the local draft was handed to the server, not clobbered.
+    expect(api.push).toHaveBeenCalledWith(
+      "v",
+      "c0",
+      [{ kind: "text", path: "note.md", content: "local draft never pushed" }],
+      "Laptop X"
+    );
+    // The backflow pull covered the merge commit range and delivered BOTH
+    // versions: the remote content on the main path and the local draft in
+    // the server's conflict sidecar.
+    expect(pullSince).toContain("c0");
+    expect(vault.writes.get("note.md")).toBe("remote version");
+    expect(vault.writes.get(conflictPath)).toBe("local draft never pushed");
+    // No error notice for the dirty refusal — it is the expected path.
+    expect(notices).toEqual([]);
+    expect(setStatus).not.toHaveBeenCalledWith("error", expect.any(String));
+  });
+
   it("silently falls back to pull when inline apply finds dirty local content", async () => {
     vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
     const cleanHash = await sha256Text("clean");
