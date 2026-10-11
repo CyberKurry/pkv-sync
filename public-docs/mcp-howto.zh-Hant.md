@@ -64,14 +64,14 @@ MCP 規範中的 `Origin` 請求頭 DNS-rebinding 檢查未在 `/mcp` 上實作�
 
 ## MCP 2026-07-28（現代）用戶端
 
-同一個端點同時服務兩個協定時代。現代用戶端在 `params._meta` 中發送逐請求協定欄位（`io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`），並且必須在 `MCP-Protocol-Version` 請求頭中重複版本、在 `Mcp-Method` 請求頭中重複方法；當請求攜帶 `params.name` 時，還要在 `Mcp-Name` 請求頭中重複名稱（非純 ASCII 時以 `=?base64?...?=` 形式 base64 編碼）。任一請求頭與請求體不符都會返回 HTTP `400` 和 code `-32020`。請求不支援的版本會返回 HTTP `400` 和 code `-32022`，並附上受支援版本列表（`2026-07-28`）。未知方法返回 HTTP `404` 和 `-32601`；不含 `id` 的純通知訊息以 HTTP `202` 應答且無回應體。
+同一個端點同時服務兩個協定時代。現代用戶端在 `params._meta` 中發送逐請求協定欄位（`io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`），並且必須在 `MCP-Protocol-Version` 請求頭中重複版本、在 `Mcp-Method` 請求頭中重複方法；當請求攜帶 `params.name` 時，還要在 `Mcp-Name` 請求頭中重複名稱（非純 ASCII 時以 `=?base64?...?=` 形式 base64 編碼）。任一請求頭與請求體不符都會返回 HTTP `400` 和 code `-32020`。請求不支援的版本會返回 HTTP `400` 和 code `-32022`，並附上受支援版本列表（`2026-07-28`）。未知方法返回 HTTP `404` 和 `-32601`；不含 `id` 的純通知訊息以 HTTP `202` 應答且無回應體，但 `notifications/cancelled` 除外——它返回 `405`：在 Streamable HTTP 上，取消是透過關閉 SSE 回應串流完成的。
 
 現代結果帶有 `resultType`，`tools/list` 和 `server/discover` 還會額外帶有 `ttlMs`/`cacheScope` 快取提示。`server/discover` 會報告 `supportedVersions`，用戶端可以在連線前據此選擇協定時代。（僅現代版本；舊版 `initialize` 協商不在此列表內）舊版 `initialize` 用戶端仍可使用：伺服器會回顯所請求的舊版本，並以舊版封裝應答。
 
 ## 變更通知
 
 - **舊版用戶端**：攜帶 `Accept: text/event-stream` 的 GET `/mcp` 訂閱 `vault_changed` 通知。每個事件的 id 就是 commit SHA 本身，用戶端重連時可作為 `Last-Event-ID` 傳回，以 replay 該 vault 錯過的 commit。Replay 有上限；如果服務端無法覆蓋錯過的歷史，會發送 `lagged`，用戶端應透過同步 API 重新整理。包含 `:` 的值不會被當作續傳位置；當權杖可見多個 vault 時，只有正在續傳的那個 vault 位置已知，因此服務端也會為其他 vault 發送 `lagged`。
-- **現代用戶端**：POST 一個 `subscriptions/listen` 請求，將 `params.notifications.resourceSubscriptions` 設為 `["pkv://vault/<id>"]` URI（只有權杖可見的 vault 會被接受）。回應是一條 SSE 串流：先傳送回顯已接受訂閱的 `notifications/subscriptions/acknowledged` 事件，隨後傳送 `notifications/resources/updated` 事件，其 params 攜帶 `uri`、`commit`、`event` 和 `_meta.subscriptionId`。關閉串流即取消訂閱。現代串流不可續傳：沒有 `Last-Event-ID` replay，重連後用戶端需要重新 listen 並比對讀取結果。
+- **現代用戶端**：POST 一個 `subscriptions/listen` 請求，將 `params.notifications.resourceSubscriptions` 設為 `["pkv://vault/<id>"]` URI（只有權杖可見的 vault 會被接受）。`resourceSubscriptions` 中重複的 URI 會在確認（acknowledgment）中去重（以首次出現的為準）。回應是一條 SSE 串流：先傳送回顯已接受訂閱的 `notifications/subscriptions/acknowledged` 事件，隨後傳送 `notifications/resources/updated` 事件，其 params 攜帶 `uri`、`commit`、`event` 和 `_meta.subscriptionId`。如果伺服器的事件緩衝區溢出（串流消費較慢時一次湧入超過 64 個 commit），listen 串流會傳送 `notifications/resources/dropped` 通知，攜帶受影響的 `uri` 和同一個 `_meta` 訂閱 id；用戶端應當重新讀取該 vault 的狀態。關閉串流即取消訂閱。現代串流不可續傳：沒有 `Last-Event-ID` replay，重連後用戶端需要重新 listen 並比對讀取結果。
 
 除非放在可信網路控制之後，否則請把 HTTP 綁定到 loopback。bearer token 會授予該使用者所有筆記庫的讀寫存取權限。
 

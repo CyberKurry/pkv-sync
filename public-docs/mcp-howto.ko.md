@@ -66,14 +66,14 @@ MCP 사양의 `Origin` 헤더 DNS-rebinding 검사는 `/mcp`에서 의도적으�
 
 ## MCP 2026-07-28(모던) 클라이언트
 
-같은 endpoint가 두 프로토콜 시대를 모두 서비스합니다. 모던 클라이언트는 `params._meta`에 요청별 프로토콜 필드(`io.modelcontextprotocol/protocolVersion`과 `io.modelcontextprotocol/clientCapabilities`)를 담아 보내고, `MCP-Protocol-Version` 헤더에 버전을, `Mcp-Method` 헤더에 메서드를 반드시 반복해야 합니다. 요청에 `params.name`이 있으면 `Mcp-Name` 헤더에도 이름을 반복합니다(순수 ASCII가 아니면 `=?base64?...?=` 형식으로 base64 인코딩). 헤더와 body가 일치하지 않으면 HTTP `400`과 code `-32020`을 반환합니다. 지원되지 않는 버전을 요청하면 HTTP `400`과 code `-32022`, 지원 버전 목록(`2026-07-28`)을 반환합니다. 알 수 없는 메서드는 HTTP `404`와 `-32601`을 반환하며, `id`가 없는 알림 전용 메시지는 body 없이 HTTP `202`로 응답됩니다.
+같은 endpoint가 두 프로토콜 시대를 모두 서비스합니다. 모던 클라이언트는 `params._meta`에 요청별 프로토콜 필드(`io.modelcontextprotocol/protocolVersion`과 `io.modelcontextprotocol/clientCapabilities`)를 담아 보내고, `MCP-Protocol-Version` 헤더에 버전을, `Mcp-Method` 헤더에 메서드를 반드시 반복해야 합니다. 요청에 `params.name`이 있으면 `Mcp-Name` 헤더에도 이름을 반복합니다(순수 ASCII가 아니면 `=?base64?...?=` 형식으로 base64 인코딩). 헤더와 body가 일치하지 않으면 HTTP `400`과 code `-32020`을 반환합니다. 지원되지 않는 버전을 요청하면 HTTP `400`과 code `-32022`, 지원 버전 목록(`2026-07-28`)을 반환합니다. 알 수 없는 메서드는 HTTP `404`와 `-32601`을 반환하며, `id`가 없는 알림 전용 메시지는 body 없이 HTTP `202`로 응답됩니다. 단, `notifications/cancelled`는 예외로 `405`를 반환합니다. Streamable HTTP에서의 취소는 SSE 응답 스트림을 닫는 방식으로 수행됩니다.
 
 모던 결과에는 `resultType`이 포함되고, `tools/list`와 `server/discover`에는 추가로 `ttlMs`/`cacheScope` 캐시 힌트가 붙습니다. `server/discover`는 `supportedVersions`를 알려주므로 클라이언트는 연결 전에 자신의 시대를 선택할 수 있습니다.(모던 버전만 해당. 레거시 `initialize` 협상은 이 목록 밖에서 이루어집니다) 레거시 `initialize` 클라이언트도 계속 사용할 수 있습니다. 서버는 요청된 레거시 버전을 되돌려주고 레거시 봉투로 응답합니다.
 
 ## 변경 알림
 
 - **레거시 클라이언트**: `Accept: text/event-stream`을 가진 GET `/mcp`는 `vault_changed` notifications를 구독합니다. 각 event의 id는 commit SHA 자체이며, 재연결 시 `Last-Event-ID`로 되돌려 보내 해당 vault의 missed commits를 replay할 수 있습니다. Replay에는 상한이 있습니다. 서버가 missed history를 커버할 수 없으면 `lagged`를 내보내며, 클라이언트는 sync API에서 새로 고쳐야 합니다. `:`를 포함한 값은 재개 위치로 허용되지 않습니다. 토큰이 여러 vault를 볼 수 있으면 재개하는 vault의 위치만 알 수 있으므로, 나머지 vault에 대해서도 `lagged`를 내보냅니다.
-- **모던 클라이언트**: `subscriptions/listen` 요청을 POST하고 `params.notifications.resourceSubscriptions`를 `["pkv://vault/<id>"]` URI로 설정합니다(토큰이 볼 수 있는 vault만 수락됩니다). 응답은 SSE 스트림으로, 먼저 수락된 구독을 되돌려주는 `notifications/subscriptions/acknowledged` event를 보내고, 이어서 params에 `uri`, `commit`, `event`, `_meta.subscriptionId`를 담은 `notifications/resources/updated` event를 보냅니다. 스트림을 닫으면 구독이 취소됩니다. 모던 스트림은 재개할 수 없습니다. `Last-Event-ID` replay가 없으므로 재연결 후에는 다시 listen하고 읽은 내용을 비교해야 합니다.
+- **모던 클라이언트**: `subscriptions/listen` 요청을 POST하고 `params.notifications.resourceSubscriptions`를 `["pkv://vault/<id>"]` URI로 설정합니다(토큰이 볼 수 있는 vault만 수락됩니다). `resourceSubscriptions`에서 중복된 URI는 acknowledgment에서(첫 번째 등장이 우선하여) 중복 제거됩니다. 응답은 SSE 스트림으로, 먼저 수락된 구독을 되돌려주는 `notifications/subscriptions/acknowledged` event를 보내고, 이어서 params에 `uri`, `commit`, `event`, `_meta.subscriptionId`를 담은 `notifications/resources/updated` event를 보냅니다. 서버의 이벤트 버퍼가 넘치면(스트림 소비가 느린 동안 64 commit을 초과하는 버스트가 도착하면) listen 스트림은 영향을 받은 `uri`와 동일한 `_meta` 구독 id를 담은 `notifications/resources/dropped` 알림을 보냅니다. 클라이언트는 해당 vault의 상태를 다시 읽어야 합니다. 스트림을 닫으면 구독이 취소됩니다. 모던 스트림은 재개할 수 없습니다. `Last-Event-ID` replay가 없으므로 재연결 후에는 다시 listen하고 읽은 내용을 비교해야 합니다.
 
 신뢰할 수 있는 네트워크 제어 뒤에 두지 않는 한 HTTP를 loopback에 bind하세요. bearer token은 해당 사용자가 소유한 모든 vault에 대한 읽기 및 쓰기 접근 권한을 부여합니다.
 

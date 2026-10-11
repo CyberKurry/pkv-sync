@@ -1753,7 +1753,13 @@ paths:
         response stream. A `subscriptions/listen` POST switches the response to an SSE
         stream (ack-first, `notifications/resources/updated` for
         `pkv://vault/<id>` URIs, cancel by closing the stream, not
-        resumable).
+        resumable; duplicate URIs in `resourceSubscriptions` are
+        deduplicated with first occurrence winning in the acknowledgment;
+        when the server's event buffer overflows — a burst of more than 64
+        commits while the stream is slow — the stream emits a
+        `notifications/resources/dropped` notification carrying the
+        affected `uri` and the same `_meta` subscription id, and the client
+        should re-read that vault's state).
 
         MCP search caps each request to 5000 visible tree files, 500
         returned matches, and 256 MiB of searched text in production.

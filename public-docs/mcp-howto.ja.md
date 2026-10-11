@@ -66,14 +66,14 @@ MCP 仕様の `Origin` ヘッダーによる DNS-rebinding チェックは `/mcp
 
 ## MCP 2026-07-28（モダン）クライアント
 
-同じ endpoint が両方のプロトコル時代に対応します。モダンクライアントは `params._meta` にリクエストごとのプロトコルフィールド（`io.modelcontextprotocol/protocolVersion` と `io.modelcontextprotocol/clientCapabilities`）を送信し、`MCP-Protocol-Version` ヘッダーにバージョンを、`Mcp-Method` ヘッダーにメソッドを繰り返さなければなりません。リクエストが `params.name` を持つ場合は、`Mcp-Name` ヘッダーにも名前を繰り返します（純 ASCII でない場合は `=?base64?...?=` 形式で base64 エンコード）。ヘッダーと body が一致しない場合、HTTP `400` と code `-32020` を返します。サポート対象外のバージョンを要求すると HTTP `400` と code `-32022`、サポートされているバージョンのリスト（`2026-07-28`）を返します。不明なメソッドは HTTP `404` と `-32601` を返し、`id` のない通知のみのメッセージは body なしの HTTP `202` で応答されます。
+同じ endpoint が両方のプロトコル時代に対応します。モダンクライアントは `params._meta` にリクエストごとのプロトコルフィールド（`io.modelcontextprotocol/protocolVersion` と `io.modelcontextprotocol/clientCapabilities`）を送信し、`MCP-Protocol-Version` ヘッダーにバージョンを、`Mcp-Method` ヘッダーにメソッドを繰り返さなければなりません。リクエストが `params.name` を持つ場合は、`Mcp-Name` ヘッダーにも名前を繰り返します（純 ASCII でない場合は `=?base64?...?=` 形式で base64 エンコード）。ヘッダーと body が一致しない場合、HTTP `400` と code `-32020` を返します。サポート対象外のバージョンを要求すると HTTP `400` と code `-32022`、サポートされているバージョンのリスト（`2026-07-28`）を返します。不明なメソッドは HTTP `404` と `-32601` を返し、`id` のない通知のみのメッセージは body なしの HTTP `202` で応答されます。ただし `notifications/cancelled` は例外で、`405` を返します。Streamable HTTP でのキャンセルは、SSE 応答ストリームを閉じることで行われます。
 
 モダンな結果には `resultType` が含まれ、`tools/list` と `server/discover` にはさらに `ttlMs`/`cacheScope` キャッシュヒントが付きます。`server/discover` は `supportedVersions` を報告するため、クライアントは接続前に自分の時代を選択できます。（モダン版のみ。レガシーの `initialize` ネゴシエーションはこのリストの外で扱われます）レガシーの `initialize` クライアントも引き続き利用できます。サーバーは要求されたレガシーバージョンをエコーし、レガシーエンベロープで応答します。
 
 ## 変更通知
 
 - **レガシークライアント**: `Accept: text/event-stream` を持つ GET `/mcp` は `vault_changed` notifications を購読します。各 event の id は commit SHA そのもので、再接続時に `Last-Event-ID` として送り返すことで、その vault の missed commits を replay できます。Replay には上限があります。サーバーが missed history をカバーできない場合は `lagged` を送信し、クライアントは sync API から更新する必要があります。`:` を含む値は再開位置として受け付けられません。トークンから複数の vault が見える場合、再開する vault の位置しか分からないため、他の vault に対しても `lagged` を送信します。
-- **モダンクライアント**: `subscriptions/listen` リクエストを POST し、`params.notifications.resourceSubscriptions` に `["pkv://vault/<id>"]` URI を設定します（トークンが見える vault のみ受け付けられます）。応答は SSE ストリームで、まず受け入れられた購読をエコーする `notifications/subscriptions/acknowledged` event を送り、その後 params に `uri`、`commit`、`event`、`_meta.subscriptionId` を持つ `notifications/resources/updated` event を送信します。ストリームを閉じると購読はキャンセルされます。モダンなストリームは再開できません。`Last-Event-ID` replay はないため、再接続後は再度 listen して読み取った内容を比較します。
+- **モダンクライアント**: `subscriptions/listen` リクエストを POST し、`params.notifications.resourceSubscriptions` に `["pkv://vault/<id>"]` URI を設定します（トークンが見える vault のみ受け付けられます）。`resourceSubscriptions` 内の重複した URI は、acknowledgment で（最初の出現を優先して）重複排除されます。応答は SSE ストリームで、まず受け入れられた購読をエコーする `notifications/subscriptions/acknowledged` event を送り、その後 params に `uri`、`commit`、`event`、`_meta.subscriptionId` を持つ `notifications/resources/updated` event を送信します。サーバーのイベントバッファが溢れた場合（ストリームの消費が遅い間に 64 commit を超えるバーストが発生した場合）、listen ストリームは影響を受ける `uri` と同じ `_meta` の subscription id を持つ `notifications/resources/dropped` 通知を送ります。クライアントはその vault の状態を読み直すべきです。ストリームを閉じると購読はキャンセルされます。モダンなストリームは再開できません。`Last-Event-ID` replay はないため、再接続後は再度 listen して読み取った内容を比較します。
 
 信頼できるネットワーク制御の背後に置かない限り、HTTP は loopback に bind してください。bearer token は、そのユーザーが所有するすべての vault への読み書きアクセスを与えます。
 

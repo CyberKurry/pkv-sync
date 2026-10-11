@@ -105,7 +105,9 @@ between any header and the body returns HTTP `400` with code `-32020`.
 Requesting an unsupported version returns HTTP `400` with code `-32022` and
 the supported list (`2026-07-28`). Unknown methods return HTTP
 `404` with `-32601`, and notification-only messages (no `id`) are answered
-with HTTP `202` and no body.
+with HTTP `202` and no body, except `notifications/cancelled`, which returns
+`405`: cancellation over Streamable HTTP is done by closing the SSE
+response stream.
 
 Modern results carry `resultType`, and `tools/list` and `server/discover`
 additionally carry `ttlMs`/`cacheScope` cache hints. `server/discover`
@@ -126,10 +128,17 @@ legacy version and answers with legacy envelopes.
 - **Modern clients**: POST a `subscriptions/listen` request with
   `params.notifications.resourceSubscriptions` set to
   `["pkv://vault/<id>"]` URIs (only vaults the token may see are accepted).
+  Duplicate URIs in `resourceSubscriptions` are deduplicated (first
+  occurrence wins) in the acknowledgment.
   The response is an SSE stream that opens with a
   `notifications/subscriptions/acknowledged` event echoing the accepted
   subscriptions, then emits `notifications/resources/updated` events whose
-  params carry `uri`, `commit`, `event`, and `_meta.subscriptionId`. Cancel
+  params carry `uri`, `commit`, `event`, and `_meta.subscriptionId`. If the
+  server's event buffer overflows (a burst of more than 64 commits while the
+  stream is slow), the listen stream emits a
+  `notifications/resources/dropped` notification carrying the affected
+  `uri` and the same `_meta` subscription id; the client should re-read
+  that vault's state. Cancel
   by closing the stream. The modern stream is not resumable: there is no
   `Last-Event-ID` replay, so after a reconnect the client listens again and
   diffs what it reads.
