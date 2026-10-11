@@ -289,6 +289,13 @@ pub async fn run(state: AppState, vault_id: String, token_raw: String) -> Result
 /// stdin EOF safe: dropping `tx` closes the channel, the writer drains the
 /// remaining buffered lines and exits, and awaiting the JoinHandle before
 /// returning flushes everything still queued (the N-5 EOF race).
+///
+/// The writer reports its final outcome (`Result<(), std::io::Error>`) over
+/// a oneshot when it ends — after the channel closes and drains, or on the
+/// first write/flush error, where it stops draining immediately. The loop
+/// selects on that outcome so a mid-session broken pipe ends the run at
+/// once, and the EOF path awaits it (with the JoinHandle as backup for a
+/// panic/abort) so `run_on` returns Err instead of a silent Ok.
 pub async fn run_on<R, W>(
     state: AppState,
     vault_id: String,
@@ -303,19 +310,28 @@ where
     let session = StdioSession::authenticate(state, vault_id, token_raw).await?;
     let mut lines = tokio::io::BufReader::new(reader).lines();
     let (tx, mut rx) = mpsc::channel::<String>(64);
+    let (outcome_tx, mut outcome_rx) =
+        tokio::sync::oneshot::channel::<std::result::Result<(), std::io::Error>>();
     let writer_task = tokio::spawn(async move {
         let mut stdout = writer;
-        while let Some(line) = rx.recv().await {
-            if stdout.write_all(line.as_bytes()).await.is_err() {
-                break;
+        let outcome = loop {
+            let Some(line) = rx.recv().await else {
+                // Channel closed: every buffered line was written.
+                break Ok(());
+            };
+            if let Err(err) = stdout.write_all(line.as_bytes()).await {
+                break Err(err);
             }
-            if stdout.write_all(b"\n").await.is_err() {
-                break;
+            if let Err(err) = stdout.write_all(b"\n").await {
+                break Err(err);
             }
-            if stdout.flush().await.is_err() {
-                break;
+            if let Err(err) = stdout.flush().await {
+                break Err(err);
             }
-        }
+        };
+        // Dropping `rx` here also makes every later `tx.send` fail fast
+        // instead of queueing lines nobody will ever write.
+        let _ = outcome_tx.send(outcome);
     });
     let mut tx = tx;
     // 50ms poll: bounded worst-case latency for push lines; the loop only
@@ -329,11 +345,8 @@ where
                 let Ok(Some(line)) = line else {
                     // stdin EOF: dropping tx closes the outbound channel; the
                     // writer task drains every line still buffered in it,
-                    // flushes, and exits on the channel-closed None.
+                    // flushes, and reports its outcome below.
                     drop(tx);
-                    writer_task
-                        .await
-                        .map_err(|e| anyhow!("stdio writer task failed: {e}"))?;
                     break;
                 };
                 session.pump(&line, &mut tx).await;
@@ -341,8 +354,32 @@ where
             _ = drain_tick.tick() => {
                 session.drain_listens(&mut tx).await;
             }
+            outcome = &mut outcome_rx => {
+                // The writer ended mid-session: stdout is broken (or the
+                // task panicked and dropped the sender), so nothing further
+                // can be delivered — end the run now rather than answer
+                // into the void until stdin EOF.
+                return match outcome {
+                    Ok(Err(err)) => Err(anyhow!("stdio write failed: {err}")),
+                    Ok(Ok(())) => Err(anyhow!("stdio writer stopped before stdin EOF")),
+                    Err(_) => Err(anyhow!(
+                        "stdio writer task ended without reporting an outcome"
+                    )),
+                };
+            }
         }
     }
+    // Join first: the handle resolving proves the writer finished, so every
+    // queued line has been written (or the failing write has happened); a
+    // panic/abort surfaces here as a JoinError. The oneshot then carries
+    // the write outcome itself.
+    writer_task
+        .await
+        .map_err(|e| anyhow!("stdio writer task failed: {e}"))?;
+    outcome_rx
+        .await
+        .map_err(|_| anyhow!("stdio writer task ended without reporting an outcome"))?
+        .map_err(|err| anyhow!("stdio write failed: {err}"))?;
     Ok(())
 }
 

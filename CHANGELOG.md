@@ -81,6 +81,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- `pkvsyncd mcp` over stdio now exits with an error when stdout writes
+  fail (broken pipe, closed terminal) instead of silently returning
+  success: the dedicated writer task that decouples stdout from the run
+  loop was swallowing write/flush errors, so a session whose stdout died
+  kept processing requests and ended with exit code 0 even though no
+  response was ever delivered. The writer now reports its final outcome to
+  the run loop, which surfaces the I/O error and terminates the session.
 - The MCP stdio transport no longer deadlocks when a listen drain produces
   more lines than the outbound channel holds (a `resources/dropped` marker
   plus every event retained in the 64-slot broadcast ring — 65 lines vs a

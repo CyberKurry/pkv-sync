@@ -945,3 +945,84 @@ async fn stdio_eof_drains_pending_response_before_exit() {
         "the response queued before stdin EOF must be flushed on exit, got: {stdout}"
     );
 }
+
+/// Writer half whose every poll_* returns the same error, so the first line
+/// the dedicated writer task attempts is guaranteed to fail.
+struct FailingWriter;
+
+impl tokio::io::AsyncWrite for FailingWriter {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        _buf: &[u8],
+    ) -> std::task::Poll<std::result::Result<usize, std::io::Error>> {
+        std::task::Poll::Ready(Err(std::io::Error::other("writer is broken")))
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+        std::task::Poll::Ready(Err(std::io::Error::other("writer is broken")))
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+        std::task::Poll::Ready(Err(std::io::Error::other("writer is broken")))
+    }
+}
+
+#[tokio::test]
+async fn stdio_run_on_propagates_writer_errors() {
+    // P0a follow-up: the pre-deadlock-fix loop did `write_all(...).await?`,
+    // so a broken pipe made `run_on` return Err. The dedicated writer task
+    // swallowed those errors (`break` and exit Ok), so a session whose
+    // stdout died returned Ok(()) even though every write failed. The
+    // writer must report its final outcome and `run_on` must map it into
+    // its Result.
+    use tokio::io::AsyncWriteExt;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let p = pkv_sync_server::db::pool::connect(&tmp.path().join("run.db"))
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&p).await.unwrap();
+    let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
+        .await
+        .unwrap();
+    let (user_id, raw) = create_user_with_token(&state, "stdio-writer-err").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+
+    // A duplex read half supplies stdin: one request (so the writer task has
+    // a line to attempt), then EOF.
+    let (mut client_write, server_read) = tokio::io::duplex(64);
+    let run_handle = tokio::spawn(pkv_sync_server::mcp::transport_stdio::run_on(
+        state.clone(),
+        vault.id.clone(),
+        raw,
+        server_read,
+        FailingWriter,
+    ));
+
+    let request = json!({"jsonrpc": "2.0", "id": 31, "method": "tools/list", "params": {}});
+    client_write
+        .write_all(format!("{request}\n").as_bytes())
+        .await
+        .unwrap();
+    client_write.flush().await.unwrap();
+    drop(client_write);
+
+    let result = tokio::time::timeout(Duration::from_secs(5), run_handle)
+        .await
+        .expect("run_on must finish within 5s of a failing writer")
+        .unwrap();
+    let err = result
+        .expect_err("run_on must return Err when the writer half is broken")
+        .to_string();
+    assert!(
+        err.contains("broken pipe") || err.contains("writer"),
+        "error should name the writer failure, got: {err}"
+    );
+}
