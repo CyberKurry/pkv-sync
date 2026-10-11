@@ -50,6 +50,7 @@ async fn start_server_with_excludes(globs: Vec<String>) -> TestServer {
             ..Default::default()
         },
         mcp: Default::default(),
+        admin: Default::default(),
     });
 
     let db = pool::connect(&cfg.storage.db_path).await.unwrap();

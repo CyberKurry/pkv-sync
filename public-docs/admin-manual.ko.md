@@ -173,6 +173,10 @@ Settings 페이지는 SQLite에 저장된 값을 편집합니다. 변경 사항�
 
 **Network and update checks** — `public_host`, bind address, trusted proxies, `[update_check].repo`는 시작 시 `config.toml`에서 읽습니다. 업데이트 확인 활성 상태와 간격은 SQLite에 저장되는 런타임 설정입니다. 허용 범위는 60초부터 30일까지입니다.
 
+`public_host`는 "선택 사항"이라는 인상보다 훨씬 중요합니다. CSRF 보호 대상인 admin POST(사용자·초대·토큰 생성, 설정 변경, 업그레이드 요청)는 요청의 `Origin`을 이 값과 비교하므로, **설정하지 않으면 모든 admin 폼 제출이 `403 csrf validation failed`로 실패합니다**. 로그인은 되지만 아무것도 변경할 수 없습니다. TLS로 운영하는 모든 배포에서 설정하세요. admin 세션 쿠키의 `Secure` 플래그와 공유 URL 생성에도 사용됩니다.
+
+`public_host`를 설정할 수 없는 평문 HTTP 관리 화면(로컬 개발, SSH 터널을 통한 admin)에는 `[admin].allow_insecure_admin = true`가 명시적인 예외 설정입니다. admin의 오리진(CSRF) 검증이 **비활성화**되어 어느 오리진에서든 `/admin/*`로 POST할 수 있고, 세션 쿠키는 `Secure` 플래그 없이 발급됩니다. 이 설정을 루프백이 아닌 바인드이면서 `public_host` 없이 조합하면 서버는 시작을 거부하고, 활성 상태 동안 시작 로그에 경고를 남깁니다. 루프백 또는 완전히 신뢰하는 네트워크에서만 사용하세요. 로그인과 초기 설정의 double-submit-cookie CSRF 검증은 어느 경우에도 활성 상태로 유지됩니다.
+
 ## 활동
 
 활동 로그는 push, pull, create_vault, delete_vault, view_commit, view_history, view_diff 같은 동기화, vault 수명 주기, 읽기 전용 탐색 작업을 기록합니다. 포함 항목:

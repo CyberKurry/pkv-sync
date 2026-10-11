@@ -14,6 +14,8 @@ pub struct Config {
     pub update_check: UpdateCheckConfig,
     #[serde(default)]
     pub mcp: McpConfig,
+    #[serde(default)]
+    pub admin: AdminConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -60,6 +62,17 @@ pub struct UpdateCheckConfig {
 pub struct McpConfig {
     #[serde(default = "default_true")]
     pub embed_in_serve: bool,
+}
+
+/// `[admin]` section. `allow_insecure_admin` is the explicit H-5 escape
+/// hatch for deployments without `[server].public_host`: CSRF-protected
+/// admin POSTs fail closed when `public_host` is unset, so operators who
+/// cannot set it (loopback/SSH-tunnel plain-HTTP admin) opt in here. The
+/// hatch skips the admin origin check entirely — see `admin/csrf.rs`.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+pub struct AdminConfig {
+    #[serde(default)]
+    pub allow_insecure_admin: bool,
 }
 
 impl Default for McpConfig {
@@ -151,6 +164,25 @@ impl Config {
         if !valid_update_check_repo(&self.update_check.repo) {
             return Err(ConfigError::Invalid(
                 "update_check.repo must be in owner/repo format using ASCII letters, digits, '.', '_', or '-'"
+                    .into(),
+            ));
+        }
+        // H-5: the allow_insecure_admin hatch disables the admin origin
+        // (CSRF) check. It is only for loopback or explicitly trusted
+        // networks over plain HTTP; refuse to start when it would expose an
+        // unprotected admin UI on a non-loopback bind without public_host.
+        if self.admin.allow_insecure_admin
+            && self
+                .server
+                .public_host
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+            && !self.server.bind_addr.ip().is_loopback()
+        {
+            return Err(ConfigError::Invalid(
+                "[admin].allow_insecure_admin requires a loopback [server].bind_addr when [server].public_host is not set: the hatch disables the admin CSRF origin check, and a non-loopback bind would expose that unprotected admin UI to the network. Set [server].public_host (and run behind TLS) or bind a loopback address."
                     .into(),
             ));
         }
@@ -500,5 +532,98 @@ mod tests {
 
         assert!(!source.contains(serialize_ident));
         assert!(!source.contains(as_str_method));
+    }
+
+    // ------------------------------------------------------------------
+    // [admin].allow_insecure_admin (H-5 escape hatch)
+    // ------------------------------------------------------------------
+
+    fn admin_hatch_config(
+        bind: &str,
+        public_host: Option<&str>,
+        hatch: bool,
+    ) -> tempfile::NamedTempFile {
+        let public_host_line = public_host
+            .map(|h| format!("public_host = \"{h}\"\n"))
+            .unwrap_or_default();
+        write_temp(&format!(
+            r#"
+            [server]
+            bind_addr = "{bind}"
+            deployment_key = "k_0123456789abcdef0123456789abcdef"
+            {public_host_line}
+            [storage]
+            data_dir = "/x"
+            db_path = "/x/y"
+
+            [network]
+            trusted_proxies = []
+
+            [admin]
+            allow_insecure_admin = {hatch}
+            "#
+        ))
+    }
+
+    #[test]
+    fn admin_hatch_defaults_to_false_when_section_absent() {
+        let f = write_temp(
+            r#"
+            [server]
+            bind_addr = "127.0.0.1:6710"
+            deployment_key = "k_0123456789abcdef0123456789abcdef"
+
+            [storage]
+            data_dir = "/x"
+            db_path = "/x/y"
+
+            [network]
+            trusted_proxies = []
+            "#,
+        );
+        let cfg = Config::load(f.path()).unwrap();
+        assert!(!cfg.admin.allow_insecure_admin);
+    }
+
+    /// H-5: loopback bind + no public_host + hatch on is the supported
+    /// plain-HTTP admin deployment (local dev / SSH-tunnelled box).
+    #[test]
+    fn admin_hatch_permits_loopback_without_public_host() {
+        let f = admin_hatch_config("127.0.0.1:6710", None, true);
+        let cfg = Config::load(f.path()).expect("loopback + hatch must load");
+        assert!(cfg.admin.allow_insecure_admin);
+        assert!(cfg.server.public_host.is_none());
+    }
+
+    /// H-5: the hatch is for trusted-network/loopback HTTP only. Refusing to
+    /// start on a non-loopback bind without public_host keeps the operator
+    /// from silently exposing a CSRF-unprotected admin UI to the network.
+    #[test]
+    fn admin_hatch_refuses_non_loopback_without_public_host() {
+        for bind in ["0.0.0.0:6710", "192.168.1.10:6710", "[::]:6710"] {
+            let f = admin_hatch_config(bind, None, true);
+            let err = Config::load(f.path()).unwrap_err();
+            assert!(
+                err.to_string().contains("allow_insecure_admin"),
+                "expected allow_insecure_admin validation error for {bind}, got: {err}"
+            );
+        }
+    }
+
+    /// public_host configured is the secure path; the hatch is irrelevant.
+    #[test]
+    fn admin_hatch_is_ignored_when_public_host_is_set() {
+        let f = admin_hatch_config("0.0.0.0:6710", Some("sync.example.com"), true);
+        Config::load(f.path()).expect("public_host + any hatch value must load");
+    }
+
+    /// Without the hatch, an unconfigured public_host keeps failing closed
+    /// at the CSRF layer (validation must not reject it — deployments simply
+    /// get read-mostly admin until they set public_host or the hatch).
+    #[test]
+    fn missing_public_host_without_hatch_still_loads_but_csrf_fails_closed() {
+        let f = admin_hatch_config("0.0.0.0:6710", None, false);
+        let cfg = Config::load(f.path()).expect("config still loads (warn only)");
+        assert!(!cfg.admin.allow_insecure_admin);
     }
 }

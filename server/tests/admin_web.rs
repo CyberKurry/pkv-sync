@@ -55,6 +55,7 @@ async fn app_with_state() -> (Router, AppState) {
             ..Default::default()
         },
         mcp: Default::default(),
+        admin: Default::default(),
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
     (server::build_app(state.clone(), &cfg, limiter), state)
@@ -82,6 +83,47 @@ async fn read_body(resp: Response<Body>) -> String {
         .await
         .unwrap();
     String::from_utf8(bytes.to_vec()).unwrap()
+}
+
+/// Same as `app_with_state` but with `public_host` unset — the H-5 default
+/// deployment where CSRF fails closed for admin POSTs.
+async fn app_with_state_no_public_host() -> (Router, AppState) {
+    let data_dir = tempfile::tempdir().unwrap().keep();
+    let db_path = data_dir.join("metadata.db");
+    let pool = pool::connect(&db_path).await.unwrap();
+    pool::migrate_up(&pool).await.unwrap();
+    let state = AppState::new(pool, data_dir.clone(), "test".into(), false)
+        .await
+        .unwrap();
+    state
+        .users
+        .create(NewUser {
+            username: "admin".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
+    let cfg = Config {
+        server: ServerConfig {
+            bind_addr: "127.0.0.1:6710".parse().unwrap(),
+            deployment_key: "k_test_admin_web".into(),
+            public_host: None,
+        },
+        storage: StorageConfig { data_dir, db_path },
+        network: NetworkConfig {
+            trusted_proxies: vec!["127.0.0.1/32".parse::<IpNet>().unwrap()],
+        },
+        logging: LoggingConfig::default(),
+        update_check: pkv_sync_server::config::UpdateCheckConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        mcp: Default::default(),
+        admin: Default::default(),
+    };
+    let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
+    (server::build_app(state.clone(), &cfg, limiter), state)
 }
 
 fn set_form_origin(req: &mut Request<Body>) {
@@ -1596,4 +1638,180 @@ async fn self_disable_returns_admin_html_error() {
     assert!(body.contains("data-error-dialog-title=\"You cannot disable your own admin session.\""));
     assert!(body.contains("<h1>User Details</h1>"));
     assert!(!body.contains("\"code\":\"self_disable\""));
+}
+
+// ----------------------------------------------------------------------
+// [admin].allow_insecure_admin escape hatch (H-5)
+// ----------------------------------------------------------------------
+
+/// Build the app the way `build_app` does but with `[admin].
+/// allow_insecure_admin` semantics: no public_host + hatch on. The server
+/// refuses to start for non-loopback binds in that state, so the router
+/// test pins the loopback case, which is the supported deployment.
+async fn hatch_app() -> (Router, AppState) {
+    let data_dir = tempfile::tempdir().unwrap().keep();
+    let db_path = data_dir.join("metadata.db");
+    let pool = pool::connect(&db_path).await.unwrap();
+    pool::migrate_up(&pool).await.unwrap();
+    let state = AppState::new(pool, data_dir.clone(), "test".into(), false)
+        .await
+        .unwrap();
+    state
+        .users
+        .create(NewUser {
+            username: "admin".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
+    let cfg = Config {
+        server: ServerConfig {
+            bind_addr: "127.0.0.1:6710".parse().unwrap(),
+            deployment_key: "k_test_admin_web".into(),
+            public_host: None,
+        },
+        storage: StorageConfig { data_dir, db_path },
+        network: NetworkConfig {
+            trusted_proxies: vec!["127.0.0.1/32".parse::<IpNet>().unwrap()],
+        },
+        logging: LoggingConfig::default(),
+        update_check: pkv_sync_server::config::UpdateCheckConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        mcp: Default::default(),
+        admin: pkv_sync_server::config::AdminConfig {
+            allow_insecure_admin: true,
+        },
+    };
+    let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
+    (server::build_app(state.clone(), &cfg, limiter), state)
+}
+
+async fn login_cookie_without_origin(app: &Router) -> String {
+    // /admin/login keeps its double-submit-cookie CSRF path regardless of
+    // the hatch, so login works without an Origin header.
+    let (csrf, csrf_cookie) = login_csrf(app).await;
+    let mut login_req = request(
+        Method::POST,
+        "/admin/login",
+        Body::from(format!(
+            "username=admin&password=passw0rd%21%21&login_csrf={csrf}"
+        )),
+    );
+    login_req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    login_req
+        .headers_mut()
+        .insert(header::COOKIE, csrf_cookie.parse().unwrap());
+    let login_resp = app.clone().oneshot(login_req).await.unwrap();
+    assert_eq!(login_resp.status(), StatusCode::SEE_OTHER);
+    login_resp
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("set-cookie")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string()
+}
+
+/// H-5 red test: no public_host + allow_insecure_admin=true → an
+/// authenticated admin POST with NO Origin header succeeds (today: 403
+/// "csrf validation failed" out of the box, making the admin UI unusable).
+#[tokio::test]
+async fn hatch_allows_admin_post_without_origin_when_public_host_unset() {
+    let (app, state) = hatch_app().await;
+    let session_cookie = login_cookie_without_origin(&app).await;
+
+    let mut req = request(
+        Method::POST,
+        "/admin/users",
+        Body::from("username=hatchuser&password=HatchPassw0rd1%21"),
+    );
+    req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.clone().oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        resp.headers().get(header::LOCATION).unwrap(),
+        "/admin/users"
+    );
+    let created = state
+        .users
+        .find_by_username("hatchuser")
+        .await
+        .unwrap()
+        .expect("user created through the hatch-enabled admin POST");
+    assert!(!created.is_admin);
+}
+
+/// Fail-closed default (hatch off): same request must still 403. This is
+/// the current behavior and must not regress.
+#[tokio::test]
+async fn no_hatch_admin_post_without_origin_still_403() {
+    let (app, _state) = app_with_state_no_public_host().await;
+    let session_cookie = login_cookie_without_origin(&app).await;
+
+    let mut req = request(
+        Method::POST,
+        "/admin/users",
+        Body::from("username=nohatch&password=HatchPassw0rd1%21"),
+    );
+    req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body = read_body(resp).await;
+    assert_eq!(body, "csrf validation failed");
+}
+
+/// The insecure deployment also keeps the Secure cookie flag off (plain
+/// HTTP cannot use it) — pins that the hatch does not accidentally turn
+/// `secure` on.
+#[tokio::test]
+async fn hatch_keeps_session_cookie_without_secure_flag() {
+    let (app, _state) = hatch_app().await;
+    let (csrf, csrf_cookie) = login_csrf(&app).await;
+    let mut login_req = request(
+        Method::POST,
+        "/admin/login",
+        Body::from(format!(
+            "username=admin&password=passw0rd%21%21&login_csrf={csrf}"
+        )),
+    );
+    login_req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    login_req
+        .headers_mut()
+        .insert(header::COOKIE, csrf_cookie.parse().unwrap());
+    let resp = app.clone().oneshot(login_req).await.unwrap();
+    let set_cookie = resp
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("set-cookie")
+        .to_str()
+        .unwrap();
+    assert!(
+        !set_cookie.to_ascii_lowercase().contains("secure"),
+        "plain-HTTP hatch deployment must not set Secure: {set_cookie}"
+    );
+    let _ = csrf_cookie;
 }

@@ -50,6 +50,7 @@ async fn start_test_server() -> TestServer {
             ..Default::default()
         },
         mcp: Default::default(),
+        admin: Default::default(),
     });
     let pool = pool::connect(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();

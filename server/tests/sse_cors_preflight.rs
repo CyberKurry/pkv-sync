@@ -58,6 +58,7 @@ async fn app() -> (axum::Router, tempfile::TempDir) {
             ..Default::default()
         },
         mcp: Default::default(),
+        admin: Default::default(),
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
     (server::build_app(state, &cfg, limiter), tmp)

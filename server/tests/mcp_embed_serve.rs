@@ -62,6 +62,7 @@ async fn app(embed_in_serve: Option<bool>) -> (axum::Router, AppState, String) {
             logging: LoggingConfig::default(),
             update_check: Default::default(),
             mcp: McpConfig { embed_in_serve },
+            admin: Default::default(),
         },
         // No [mcp] section: the default (embed) must come from deserialization.
         None => {

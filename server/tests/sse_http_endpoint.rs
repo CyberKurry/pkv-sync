@@ -59,6 +59,7 @@ async fn start_test_server_with_sse_limit(
             ..Default::default()
         },
         mcp: Default::default(),
+        admin: Default::default(),
     });
 
     let db = pool::connect(&cfg.storage.db_path).await.unwrap();

@@ -58,6 +58,7 @@ fn make_config(data_dir: &Path) -> Config {
             ..Default::default()
         },
         mcp: Default::default(),
+        admin: Default::default(),
     }
 }
 

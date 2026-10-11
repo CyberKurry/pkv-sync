@@ -21,6 +21,30 @@ fn requires_check(req: &Request) -> bool {
 }
 
 pub(crate) fn same_origin(req: &Request) -> bool {
+    // H-5 escape hatch: with [admin].allow_insecure_admin and no
+    // public_host, treat the request as same-origin always. This is the
+    // honest insecure mode — we do NOT derive an origin from the
+    // request-controlled Host header (that would fake protection); the
+    // origin check is simply off, and config validation limits the hatch
+    // to loopback binds. The double-submit-cookie CSRF paths for
+    // /admin/login and /setup stay active regardless. With public_host
+    // configured there is nothing to escape: the strict check governs.
+    let policy_has_public_host = req
+        .extensions()
+        .get::<crate::admin::handlers::AdminCookiePolicy>()
+        .is_some_and(|p| {
+            p.public_host
+                .as_deref()
+                .is_some_and(|h| !h.trim().is_empty())
+        });
+    if !policy_has_public_host
+        && req
+            .extensions()
+            .get::<crate::admin::handlers::AdminInsecureHatch>()
+            .is_some_and(|hatch| hatch.0)
+    {
+        return true;
+    }
     same_origin_parts(
         req.headers(),
         req.extensions()
@@ -285,5 +309,92 @@ mod tests {
         );
         assert_eq!(normalize_public_host("example.test"), Some("example.test"));
         assert_eq!(normalize_public_host("   "), None);
+    }
+
+    // ------------------------------------------------------------------
+    // [admin].allow_insecure_admin (H-5 escape hatch)
+    // ------------------------------------------------------------------
+
+    fn req_no_origin() -> Request {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/admin/users")
+            .header(header::HOST, "127.0.0.1:6710")
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    fn with_policy(mut req: Request, secure: bool, public_host: Option<&str>) -> Request {
+        req.extensions_mut()
+            .insert(crate::admin::handlers::AdminCookiePolicy {
+                secure,
+                public_host: public_host.map(str::to_string),
+            });
+        req
+    }
+
+    /// H-5 red test: with the hatch on and no public_host, an admin POST
+    /// with no Origin/Referer must pass (today it 403s — admin is unusable
+    /// out of the box). The hatch means "treat as same-origin always".
+    #[test]
+    fn hatch_passes_admin_post_without_origin_when_public_host_unset() {
+        let mut req = with_policy(req_no_origin(), false, None);
+        req.extensions_mut()
+            .insert(crate::admin::handlers::AdminInsecureHatch(true));
+        assert!(
+            same_origin(&req),
+            "allow_insecure_admin must bypass the origin check"
+        );
+    }
+
+    /// The hatch also accepts any Origin (documented risk: cross-site
+    /// requests against the admin UI are no longer rejected by this layer).
+    #[test]
+    fn hatch_accepts_any_origin_when_public_host_unset() {
+        let mut req = req_no_origin();
+        req.headers_mut()
+            .insert(header::ORIGIN, "https://attacker.test".parse().unwrap());
+        let mut req = with_policy(req, false, None);
+        req.extensions_mut()
+            .insert(crate::admin::handlers::AdminInsecureHatch(true));
+        assert!(same_origin(&req));
+    }
+
+    /// Fail-closed default is unchanged: no public_host and no hatch still
+    /// rejects, even when Origin happens to match Host.
+    #[test]
+    fn no_hatch_and_no_public_host_still_fails_closed() {
+        let mut req = req_no_origin();
+        req.headers_mut()
+            .insert(header::ORIGIN, "http://127.0.0.1:6710".parse().unwrap());
+        let mut req = with_policy(req, false, None);
+        req.extensions_mut()
+            .insert(crate::admin::handlers::AdminInsecureHatch(false));
+        assert!(!same_origin(&req));
+    }
+
+    /// The hatch is an escape hatch for the missing-public_host case only;
+    /// with public_host configured the strict check still governs (and can
+    /// still reject).
+    #[test]
+    fn hatch_does_not_weaken_check_when_public_host_is_set() {
+        let mut req = req_no_origin();
+        req.headers_mut()
+            .insert(header::ORIGIN, "https://attacker.test".parse().unwrap());
+        let mut req = with_policy(req, true, Some("example.test"));
+        req.extensions_mut()
+            .insert(crate::admin::handlers::AdminInsecureHatch(true));
+        assert!(
+            !same_origin(&req),
+            "public_host set → strict origin check must still reject cross-origin"
+        );
+    }
+
+    /// No hatch extension present at all (unit-scoped router tests) keeps
+    /// the fail-closed default.
+    #[test]
+    fn missing_hatch_extension_keeps_fail_closed_default() {
+        let req = with_policy(req_no_origin(), false, None);
+        assert!(!same_origin(&req));
     }
 }

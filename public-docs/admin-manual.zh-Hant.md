@@ -171,6 +171,10 @@ Blob 檔案是內容定址的，可能會保留到垃圾回收確認其超過寬
 
 **網路與更新檢查** — `public_host`、監聽位址、可信代理以及 `[update_check].repo` 在啟動時從 `config.toml` 讀取。更新檢查的啟用狀態和間隔是保存在 SQLite 中的執行階段設定；允許範圍為 60 秒到 30 天。
 
+`public_host` 的作用遠不止「可選」：受 CSRF 保護的 admin POST（建立使用者、邀請、權杖，修改設定，請求升級）都會把請求的 `Origin` 與它比對，因此**未設定時所有 admin 表單提交都會以 `403 csrf validation failed` 失敗**——能登入，但什麼都改不了。每個 TLS 部署都應設定它；它同時決定 admin 工作階段 cookie 是否帶 `Secure` 標記，並用於建構分享 URL。
+
+對於確實無法設定 `public_host` 的明文 HTTP 管理介面（本機開發，或經 SSH 通道存取的 admin），`[admin].allow_insecure_admin = true` 是明確的逃生開關：admin 的來源（CSRF）檢查**被關閉**——任何來源都可以向 `/admin/*` 發起 POST——並且工作階段 cookie 不帶 `Secure` 標記。該開關與非回環綁定且無 `public_host` 組合時伺服器會拒絕啟動；開關生效期間啟動日誌會給出警告。僅應在回環位址或完全可信的網路中使用；登入與初始設定的 double-submit-cookie CSRF 檢查在任何情況下都保持啟用。
+
 ## 活動日誌
 
 活動日誌記錄 push、pull、create_vault、delete_vault、view_commit、view_history、view_diff 等同步、筆記庫生命週期與唯讀瀏覽操作，包括：

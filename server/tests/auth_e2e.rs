@@ -65,6 +65,7 @@ async fn start_server(mode: Option<RegistrationMode>) -> TestServer {
             ..Default::default()
         },
         mcp: Default::default(),
+        admin: Default::default(),
     });
     let cfg2 = cfg.clone();
     let handle = tokio::spawn(async move {

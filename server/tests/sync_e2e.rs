@@ -51,6 +51,7 @@ async fn start_server_with_seeded_user() -> TestServer {
             ..Default::default()
         },
         mcp: Default::default(),
+        admin: Default::default(),
     });
 
     let db = pool::connect(&cfg.storage.db_path).await.unwrap();

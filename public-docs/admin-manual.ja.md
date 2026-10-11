@@ -173,6 +173,10 @@ Settings ページは SQLite に保存された値を編集します。変更は
 
 **Network and update checks** — `public_host`、bind address、trusted proxies、`[update_check].repo` は起動時に `config.toml` から読み込まれます。更新確認の有効化と間隔は SQLite に保存されるランタイム設定です。許可範囲は 60 秒から 30 日です。
 
+`public_host` は「オプション」以上に重要です。CSRF 保護された admin POST（ユーザー・招待・トークンの作成、設定変更、アップグレード要求）はリクエストの `Origin` とこの値を照合するため、**未設定だとすべての admin フォーム送信が `403 csrf validation failed` で失敗します**。ログインはできても何も変更できません。TLS で運用するすべてのデプロイで設定してください。admin セッション cookie の `Secure` フラグと共有 URL の生成にも使われます。
+
+`public_host` を設定できない平文 HTTP の管理画面（ローカル開発や SSH トンネル経由の admin）向けには、`[admin].allow_insecure_admin = true` が明示的な例外設定です。admin のオリジン（CSRF）検証が**無効化**され、どのオリジンからでも `/admin/*` に POST でき、セッション cookie は `Secure` フラグなしで発行されます。この設定を非ループバックのバインドかつ `public_host` なしで組み合わせるとサーバーは起動を拒否し、有効期間中は起動時のログに警告が出ます。ループバックか完全に信頼できるネットワークでのみ使用してください。ログインとセットアップの double-submit-cookie CSRF 検証はいずれの場合も有効のままです。
+
 ## アクティビティ
 
 アクティビティログは push、pull、create_vault、delete_vault、view_commit、view_history、view_diff などの同期、vault ライフサイクル、読み取り専用閲覧操作を記録します。含まれる項目:

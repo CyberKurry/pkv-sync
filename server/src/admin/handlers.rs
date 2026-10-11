@@ -60,6 +60,13 @@ pub struct AdminCookiePolicy {
     pub public_host: Option<String>,
 }
 
+/// H-5 escape hatch: when `[admin].allow_insecure_admin = true` and
+/// `public_host` is unset, the CSRF layer treats admin requests as
+/// same-origin (the documented risk: the origin check no longer rejects
+/// cross-site requests). Set as a request extension by `build_app`.
+#[derive(Clone, Copy)]
+pub struct AdminInsecureHatch(pub bool);
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/admin/static/admin.css", get(crate::admin::admin_css))

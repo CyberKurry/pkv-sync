@@ -64,6 +64,7 @@ async fn start_test_server() -> (
         mcp: McpConfig {
             embed_in_serve: true,
         },
+        admin: Default::default(),
     });
 
     let db = pool::connect(&cfg.storage.db_path).await.unwrap();

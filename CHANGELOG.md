@@ -9,6 +9,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Added
 
+- Server: `[admin].allow_insecure_admin` (default `false`) — an explicit
+  escape hatch for deployments that cannot set `[server].public_host`
+  (loopback local dev, or an admin UI reached over an SSH tunnel). With it
+  on and `public_host` unset, the admin CSRF origin check is bypassed —
+  requests are treated as same-origin always, which is the documented risk:
+  any origin may post to `/admin/*`, and the session cookie is issued
+  without the `Secure` flag. The server refuses to start when the hatch is
+  combined with a non-loopback bind and no `public_host`, and logs a
+  startup warning while it is active. The double-submit-cookie CSRF paths
+  for `/admin/login` and `/setup` stay active regardless.
 - MCP 2026-07-28 dual-era support on `/mcp` (embedded) and stdio: modern
   per-request `_meta` protocol handling with `MCP-Protocol-Version`/
   `Mcp-Method`/`Mcp-Name` header validation (`-32020`), `server/discover`,
@@ -81,6 +91,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Server: admin POSTs no longer fail with `403 csrf validation failed` out
+  of the box with no way forward (H-5, ultrareview 2026-10-11 §2.2). The
+  example config described `public_host` as an optional URL-printing knob,
+  but every CSRF-protected admin POST (users, invites, tokens, settings,
+  upgrade requests) compares `Origin` against it — so deployments that
+  copied the example could log in and then do nothing. `public_host` is
+  still the secure path (now documented as required for admin write
+  actions); the new `[admin].allow_insecure_admin` hatch covers the
+  plain-HTTP loopback cases.
 - Server: `GET /api/health` is now exempt from the deployment-key gate
   (Critical, 2-month-old P0). Health probes cannot carry the key — Docker
   `HEALTHCHECK`, `deploy/updater/pkv-sync-update.sh`, and

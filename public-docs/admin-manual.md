@@ -273,6 +273,23 @@ and `[update_check].repo` are read from `config.toml` at startup. Update-check
 enabled/disabled state and interval are runtime settings stored in SQLite; the
 allowed interval range is 60 seconds to 30 days.
 
+`public_host` matters more than "optional" suggests: CSRF-protected admin
+POSTs (creating users, invites, tokens, changing settings, requesting an
+upgrade) compare the request's `Origin` against it, so **without it every
+admin form submission fails with `403 csrf validation failed`** — you can
+log in but cannot change anything. Set it on every TLS deployment; it also
+marks the admin session cookie `Secure` and builds share URLs.
+
+For a plain-HTTP admin UI that genuinely cannot set `public_host` (local
+dev, or an admin reached over an SSH tunnel), `[admin].allow_insecure_admin
+= true` is the explicit escape hatch: the admin origin (CSRF) check is
+**disabled** — any origin may post to `/admin/*` — and the session cookie is
+issued without the `Secure` flag. The server refuses to start when the hatch
+is combined with a non-loopback bind and no `public_host`, and it logs a
+startup warning while the hatch is active. Only use it on loopback or a
+fully trusted network; the login and setup double-submit-cookie CSRF checks
+stay active either way.
+
 ## Activity
 
 The activity log records sync, vault lifecycle, and read-only browsing

@@ -50,6 +50,7 @@ fn app_with_public_host(
             ..Default::default()
         },
         mcp: Default::default(),
+        admin: Default::default(),
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
     server::build_app(state, &cfg, limiter)
@@ -75,6 +76,7 @@ fn app_without_public_host(state: AppState, data_dir: std::path::PathBuf) -> Rou
             ..Default::default()
         },
         mcp: Default::default(),
+        admin: Default::default(),
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
     server::build_app(state, &cfg, limiter)

@@ -62,6 +62,21 @@ fn public_host_footgun_warning(
     Some("binding a non-loopback address without [server].public_host: admin session cookies will not be marked Secure and CSRF-protected admin POSTs will be rejected. Set [server].public_host (and run behind TLS) in config.toml.")
 }
 
+/// Returns a startup warning when `[admin].allow_insecure_admin` is active:
+/// the admin CSRF origin check is disabled, so any origin can post to the
+/// admin UI. Config validation restricts the hatch to loopback binds (or a
+/// configured public_host), so this is the explicit "I trust this network"
+/// trade-off. Only logged when the hatch actually governs (no public_host).
+fn insecure_admin_hatch_warning(
+    allow_insecure_admin: bool,
+    public_host: Option<&str>,
+) -> Option<&'static str> {
+    if !allow_insecure_admin || public_host.is_some_and(|h| !h.trim().is_empty()) {
+        return None;
+    }
+    Some("[admin].allow_insecure_admin is enabled without [server].public_host: the admin CSRF origin check is DISABLED for this deployment (any origin may post to /admin/*). Only use this on loopback or a fully trusted network over plain HTTP; the session cookie is also issued without the Secure flag.")
+}
+
 /// Construct the fully-stacked axum Router for production use.
 pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Router {
     let trusted = real_ip::TrustedProxies::from_vec(cfg.network.trusted_proxies.clone());
@@ -90,9 +105,17 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
         secure: cfg.server.public_host.is_some(),
         public_host: cfg.server.public_host.clone(),
     };
+    // H-5: the hatch is only meaningful without public_host (with
+    // public_host the strict origin check governs). `secure` stays tied to
+    // public_host: a hatch deployment is plain HTTP, where a Secure cookie
+    // would be dropped by the browser.
+    let insecure_hatch = cfg.admin.allow_insecure_admin && cfg.server.public_host.is_none();
     let admin_routes = admin::handlers::router()
         .layer(tower_cookies::CookieManagerLayer::new())
         .layer(axum::extract::Extension(admin_cookie_policy))
+        .layer(axum::extract::Extension(
+            admin::handlers::AdminInsecureHatch(insecure_hatch),
+        ))
         .layer(axum::middleware::from_fn_with_state(
             rate_limit::RequestRateLimiter::admin_web(),
             rate_limit::admin_web_middleware,
@@ -488,6 +511,14 @@ pub async fn run(cfg: Arc<Config>) -> crate::Result<()> {
         eprintln!();
         eprintln!("WARNING: {warning}");
     }
+    if let Some(warning) = insecure_admin_hatch_warning(
+        cfg.admin.allow_insecure_admin,
+        cfg.server.public_host.as_deref(),
+    ) {
+        tracing::warn!("{warning}");
+        eprintln!();
+        eprintln!("WARNING: {warning}");
+    }
     eprintln!();
 
     let listener = tokio::net::TcpListener::bind(cfg.server.bind_addr)
@@ -557,6 +588,29 @@ mod tests {
         assert!(
             public_host_footgun_warning(lan, Some("   ")).is_some(),
             "blank public_host is treated as unset"
+        );
+    }
+
+    #[test]
+    fn insecure_admin_hatch_warning_only_when_hatch_governs() {
+        // H-5: the warning fires exactly when the hatch is active AND
+        // public_host is unset (the state where the CSRF origin check is
+        // disabled). public_host set → strict check governs → no warning.
+        assert!(
+            insecure_admin_hatch_warning(true, None).is_some(),
+            "hatch without public_host must warn"
+        );
+        assert!(
+            insecure_admin_hatch_warning(true, Some("   ")).is_some(),
+            "blank public_host is treated as unset"
+        );
+        assert!(
+            insecure_admin_hatch_warning(true, Some("sync.example.com")).is_none(),
+            "public_host set → hatch is inert, no warning"
+        );
+        assert!(
+            insecure_admin_hatch_warning(false, None).is_none(),
+            "hatch off → no warning"
         );
     }
 
@@ -631,6 +685,7 @@ mod tests {
                 repo: "cyberkurry/pkv-sync".into(),
             },
             mcp: crate::config::McpConfig::default(),
+            admin: crate::config::AdminConfig::default(),
         };
 
         let (state, _limiter) = prepare_state_and_limiter(&cfg).await.unwrap();

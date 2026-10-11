@@ -7,8 +7,13 @@ bind_addr = "127.0.0.1:6710"
 # Share URL format: https://sync.example.com/k_xxx/
 deployment_key = "k_replace_me"
 
-# Optional public host used for printing share URLs.
+# Optional, but REQUIRED for the admin web UI's write actions: CSRF-protected
+# admin POSTs (/admin/users, /admin/settings, ...) accept only requests whose
+# Origin matches this host, so without it every admin form submission fails
+# with 403 "csrf validation failed". Also used to build share URLs and marks
+# the admin session cookie Secure. Set it on every TLS deployment:
 # public_host = "sync.example.com"
+# Local/SSH-tunnel plain-HTTP admin without public_host: see [admin] below.
 
 [storage]
 # PKV Sync data directory. Contains metadata.db, vaults/, blobs/.
@@ -19,6 +24,15 @@ db_path = "/var/lib/pkv-sync/metadata.db"
 # Only trust X-Forwarded-For from these proxies.
 # Same-machine Caddy/Nginx defaults:
 trusted_proxies = ["127.0.0.1/32", "::1/128"]
+
+[admin]
+# Escape hatch for deployments that cannot set [server].public_host (loopback
+# or trusted-network plain-HTTP admin). When true, the admin CSRF origin
+# check is DISABLED — any origin may post to /admin/* — and the session
+# cookie is issued without the Secure flag. The server refuses to start if
+# this is combined with a non-loopback bind and no public_host. Only enable
+# on loopback or a fully trusted network.
+# allow_insecure_admin = false
 
 [mcp]
 # MCP Streamable HTTP is served only embedded in the main `pkvsyncd serve`
