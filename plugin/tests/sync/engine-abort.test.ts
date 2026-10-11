@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { subscribeVaultEvents, type SubscribeOptions } from "../../src/api/events-client";
 import {
   SyncEngine,
   type IndexPersistence,
@@ -7,6 +8,10 @@ import {
 import { sha256Text } from "../../src/sync/hash";
 import type { LocalFileSnapshot, LocalIndex } from "../../src/sync/types";
 import { shouldSyncPath } from "../../src/sync/vault-adapter";
+
+vi.mock("../../src/api/events-client", () => ({
+  subscribeVaultEvents: vi.fn()
+}));
 
 class FakeVault {
   writes = new Map<string, string>();
@@ -58,6 +63,17 @@ class FakeVault {
     this.deletions.push(path);
     this.files = this.files.filter((file) => file.path !== path);
   }
+
+  async snapshot(path: string): Promise<LocalFileSnapshot> {
+    const content = await this.readText(path);
+    return {
+      path,
+      hash: await sha256Text(content),
+      size: content.length,
+      kind: "text",
+      content
+    };
+  }
 }
 
 class FakeIndex implements IndexPersistence {
@@ -93,6 +109,7 @@ function deferred<T>() {
 
 describe("SyncEngine abort (M-10)", () => {
   beforeEach(() => {
+    vi.mocked(subscribeVaultEvents).mockReset();
     vi.stubGlobal("window", globalThis);
   });
 
@@ -426,5 +443,339 @@ describe("SyncEngine abort (M-10)", () => {
       syncApiSpy.mockRestore();
       adapterSpy.mockRestore();
     }
+  });
+
+  it("does not write a downloaded binary after aborting mid-download (M-10 per-file granularity)", async () => {
+    // M-10 residual: applyPull's blob branch has awaits (downloadBlob,
+    // sha256Bytes) between its phase-level abort check and writeBinary.
+    // Aborting during the download must still prevent the vault write.
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const gate = deferred<void>();
+    let downloadStarted = false;
+    const bytes = new Uint8Array([1, 2, 3]).buffer;
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn(async () => {
+        return {
+          from: "c0",
+          to: "c1",
+          added: [
+            {
+              path: "img.bin",
+              file_type: "blob" as const,
+              size: 3,
+              blob_hash:
+                // sha256 of the downloaded bytes (Uint8Array [1,2,3])
+                "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81"
+            }
+          ],
+          modified: [],
+          deleted: []
+        };
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(async () => {
+        downloadStarted = true;
+        await gate.promise;
+        return bytes;
+      }),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    const syncing = engine.syncNow();
+    await vi.waitFor(() => expect(downloadStarted).toBe(true));
+
+    engine.abort();
+    gate.resolve();
+    await syncing;
+
+    // The download completed, but the vault write must not have happened.
+    expect(vault.binaryWrites.get("img.bin")).toBeUndefined();
+    expect(vault.binaryWrites.size).toBe(0);
+    expect(idx.saved?.lastSyncedCommit ?? "c0").toBe("c0");
+  });
+
+  it("does not write pulled text after aborting mid-download (M-10 per-file granularity)", async () => {
+    // M-10 residual: applyPull's text branch awaits downloadTextFile (and
+    // hashing) between the phase-level check and writeText. Aborting during
+    // the download must still prevent the write.
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const gate = deferred<void>();
+    let downloadStarted = false;
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn(async () => {
+        return {
+          from: "c0",
+          to: "c1",
+          added: [
+            {
+              path: "note.md",
+              file_type: "text" as const,
+              size: 8
+            }
+          ],
+          modified: [],
+          deleted: []
+        };
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn(async () => {
+        downloadStarted = true;
+        await gate.promise;
+        return "downloaded remote text";
+      })
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    const syncing = engine.syncNow();
+    await vi.waitFor(() => expect(downloadStarted).toBe(true));
+
+    engine.abort();
+    gate.resolve();
+    await syncing;
+
+    expect(vault.writes.get("note.md")).toBeUndefined();
+    expect(vault.writes.size).toBe(0);
+    expect(idx.saved?.lastSyncedCommit ?? "c0").toBe("c0");
+  });
+
+  it("does not write inline SSE text after aborting mid-apply (M-10 per-file granularity)", async () => {
+    // M-10 residual: applyInlineText awaits sha256TextWithLength (and its
+    // dirty-check reads) inside its updateIndex before writeText;
+    // aborting in that window must still prevent the write. The test parks
+    // the handler inside the dirty-check's readText so the abort lands
+    // deterministically after the handler started but before the write.
+    const syncedContent = "synced";
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "x.md": {
+          lastSyncedHash: await sha256Text(syncedContent),
+          lastSyncedAt: 1,
+          kind: "text",
+          size: syncedContent.length
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "x.md",
+        hash: await sha256Text(syncedContent),
+        size: syncedContent.length,
+        kind: "text",
+        content: syncedContent
+      }
+    ]);
+    const gate = deferred<void>();
+    let readStarted = false;
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const originalRead = vault.readText.bind(vault);
+    vault.readText = async (path: string) => {
+      readStarted = true;
+      await gate.promise;
+      return originalRead(path);
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      setStatus: vi.fn()
+    });
+
+    engine.startEventSubscription();
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+
+    void options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [{ kind: "text_inline", path: "x.md", content: "remote content" }]
+    });
+    await vi.waitFor(() => expect(readStarted).toBe(true));
+
+    engine.abort();
+    gate.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(vault.writes.size).toBe(0);
+    expect(idx.idx.files["x.md"]?.lastSyncedHash).toBe(
+      await sha256Text(syncedContent)
+    );
+    expect(idx.idx.lastSyncedCommit).toBe("c0");
+  });
+
+  it("does not trash after aborting mid-snapshot (M-10 per-file granularity)", async () => {
+    // M-10 residual: applyDelete awaits vault.snapshot inside its
+    // updateIndex before trash; aborting in that window must still prevent
+    // the trash. The local file is CLEAN (index hash matches) so the
+    // handler takes the direct-trash path — the only surviving abort
+    // checks would be the new one immediately before the trash call.
+    const content = "doomed";
+    const cleanHash = await sha256Text(content);
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "doomed.md": {
+          lastSyncedHash: cleanHash,
+          lastSyncedAt: 1,
+          kind: "text",
+          size: content.length
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "doomed.md",
+        hash: cleanHash,
+        size: content.length,
+        kind: "text",
+        content
+      }
+    ]);
+    const gate = deferred<void>();
+    let snapshotStarted = false;
+    const originalSnapshot = vault.snapshot.bind(vault);
+    vault.snapshot = async (path: string) => {
+      snapshotStarted = true;
+      await gate.promise;
+      return originalSnapshot(path);
+    };
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn(),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      setStatus: vi.fn()
+    });
+
+    engine.startEventSubscription();
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+
+    void options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [{ kind: "delete", path: "doomed.md" }]
+    });
+    await vi.waitFor(() => expect(snapshotStarted).toBe(true));
+
+    engine.abort();
+    gate.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(vault.deletions).toEqual([]);
+    expect(vault.exists("doomed.md")).toBe(true);
+  });
+
+  it("does not advance the index head after aborting a no-change pull (M-10)", async () => {
+    // M-10 residual: applyPull's empty-diff fast path calls
+    // advanceIndexHead with no abort check; an aborted generation must not
+    // move the head (the replacement engine owns the vault/index).
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const gate = deferred<void>();
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn(async () => {
+        await gate.promise;
+        return {
+          from: "c0",
+          to: "c1",
+          added: [],
+          modified: [],
+          deleted: []
+        };
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    const syncing = engine.syncNow();
+    await vi.waitFor(() => expect(api.pull).toHaveBeenCalled());
+
+    engine.abort();
+    gate.resolve();
+    await syncing;
+
+    expect(idx.saved?.lastSyncedCommit ?? "c0").toBe("c0");
   });
 });

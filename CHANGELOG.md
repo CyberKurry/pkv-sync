@@ -118,16 +118,28 @@ and this project adheres to semantic versioning starting at v1.0.0.
   edits and pushed to a different vault. Each engine generation now owns an
   `AbortController` that the orchestrator aborts; the engine checks it
   before every vault write/trash and at each phase boundary, unwinding with
-  a silently-handled `SyncAbortedError` (no error status, no Notice).
+  a silently-handled `SyncAbortedError` (no error status, no Notice). The
+  check also runs immediately before each individual mutating vault call —
+  after the download/hash/dirty-check awaits that precede it in
+  `applyInlineText`, `applyDelete`, and `applyPull`'s per-file loop — and
+  before the final index advance on both the empty-diff fast path and the
+  applied-pull completion, so an abort landing inside those await windows
+  can no longer let the very next write, trash, or head advance through.
 - Plugin: SSE event handling and `syncNow` now share one serialization
   chain. The event chain never awaited an in-flight sync pass, so an event
   could apply newer content while a pull was parked mid-apply; releasing
   the pull then wrote its stale diff back over the newer content and the
   head ended up claiming a commit whose content had just been destroyed —
   `pull(since=head)` never repaired it. Sync passes queue on the same chain
-  as event handlers (a fallback `syncNow` triggered from inside an event
-  runs inline, since the chain is already held), eliminating the
-  interleave.
+  as event handlers, eliminating the interleave. The queue-vs-inline
+  decision is keyed on explicit entry points, not engine-global state: an
+  external `syncNow` (poll timer, rebuild kick) is always enqueued as a
+  chain task, so it waits out any event handler that is mid-apply even
+  when no pass is in flight to coalesce onto, while an SSE fallback
+  `syncNow` runs inline within the event's own task slot (queueing there
+  would wait for a task that cannot start until the fallback returns: a
+  self-deadlock, and so would coalescing onto an external pass queued
+  behind that same task).
 - `pkvsyncd mcp` over stdio now exits with an error when stdout writes
   fail (broken pipe, closed terminal) instead of silently returning
   success: the dedicated writer task that decouples stdout from the run

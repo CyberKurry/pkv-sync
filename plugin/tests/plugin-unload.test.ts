@@ -4,6 +4,7 @@ import PKVSyncPlugin from "../src/main";
 type EngineHarness = {
   stopEventSubscription(): void;
   flushOnUnload(timeoutMs: number): Promise<void>;
+  abort(): void;
 };
 
 type PluginUnloadHarness = {
@@ -37,13 +38,14 @@ describe("PKVSyncPlugin unload", () => {
     });
     plugin.engine = {
       stopEventSubscription: () => events.push("stop"),
-      flushOnUnload
+      flushOnUnload,
+      abort: () => events.push("abort")
     };
 
     await plugin.onunload();
 
     expect(flushOnUnload).toHaveBeenCalledWith(3000);
-    expect(events).toEqual(["cancel", "stop", "flush:3000:7"]);
+    expect(events).toEqual(["cancel", "stop", "flush:3000:7", "abort"]);
     expect(clearInterval).toHaveBeenCalledWith(11);
     expect(clearInterval).toHaveBeenCalledWith(12);
     expect(plugin.syncGeneration).toBe(8);

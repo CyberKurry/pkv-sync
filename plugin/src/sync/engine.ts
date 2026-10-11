@@ -110,13 +110,13 @@ export class SyncEngine {
   /**
    * Chain head for serialising SSE event handlers AND syncNow's atomic
    * phase through one mutex (audit M-12). Each incoming event appends a
-   * task that awaits the previous one before running, and each syncNow
-   * pass appends itself the same way — so events never interleave between
-   * each other or with a sync pass's scan/push/pull/apply steps. Without
-   * the shared chain, an event could apply newer content while an in-flight
-   * pull was parked mid-apply; releasing the pull then wrote its stale diff
-   * back over the newer content and regressed the head past content that
-   * had already been delivered.
+   * task that awaits the previous one before running, and each external
+   * syncNow pass appends itself the same way — so events never interleave
+   * between each other or with a sync pass's scan/push/pull/apply steps.
+   * Without the shared chain, an event could apply newer content while an
+   * in-flight pull was parked mid-apply; releasing the pull then wrote its
+   * stale diff back over the newer content and regressed the head past
+   * content that had already been delivered.
    */
   private eventChain: Promise<void> = Promise.resolve();
   /**
@@ -149,16 +149,17 @@ export class SyncEngine {
 
   async syncNow(): Promise<void> {
     if (this.activeSync) return this.activeSync;
-    // Queue the pass on the same chain the SSE handlers use, so a sync pass
-    // never runs concurrently with event application (M-12). When called
-    // from INSIDE the chain (an SSE fallback), the pass must still run — it
-    // cannot await itself — so a nested call bypasses the chain-queue and
-    // runs syncInner directly; the chain is already serialised by the
-    // caller holding it.
-    const nested = this.insideChain;
-    const run = nested
-      ? this.syncInner()
-      : this.eventChain.then(() => this.syncInner());
+    // M-12: the pass runs as a chain task, so it both (a) waits for any
+    // event handler that is mid-apply — the chain-runner equivalent of
+    // "chain busy": the pass cannot start until the running task's
+    // write/advanceIndexHead finish — and (b) holds the chain while it
+    // runs, making events delivered mid-pass queue behind it. A bare
+    // off-chain run (the old engine-global "nested" bypass) reopened the
+    // pass/event interleave the chain exists to prevent: an external
+    // syncNow (poll timer, rebuild kick) arriving while an event handler
+    // was mid-apply, with no pass in flight to coalesce onto, ran
+    // syncInner directly OFF the chain, concurrently with that event.
+    const run = this.runInsideChain(() => this.syncInner());
     const completion = run.then(
       () => {
         if (this.activeSync === completion) this.activeSync = null;
@@ -169,13 +170,38 @@ export class SyncEngine {
       }
     );
     this.activeSync = completion;
-    // Keep the chain clean even when the pass fails.
-    if (!nested) this.eventChain = run.then(() => undefined, () => undefined);
     return completion;
   }
 
-  /** True while an SSE handler on the chain is invoking syncNow (M-12). */
-  private insideChain = false;
+  /**
+   * syncNow for the SSE fallback paths, which already run INSIDE a chain
+   * task. The chain is held by the caller's own task, so queueing would
+   * wait for the very task that queued it — a self-deadlock (and so
+   * would coalescing onto an external pass that is itself queued behind
+   * this task). The pass instead runs inline within that task's slot:
+   * serialization is preserved because nothing else starts on the chain
+   * until the task — now including this pass — finishes. Nested-ness is
+   * declared at the call site, never inferred from engine-global state:
+   * an external syncNow must always queue, which is exactly the M-12
+   * bypass-window fix.
+   */
+  private syncNowInsideChainTask(): Promise<void> {
+    return this.syncInner();
+  }
+
+  /**
+   * Run `task` as a chain task: ordered after everything already on the
+   * chain, so it never starts while another task (an SSE event handler
+   * or a sync pass) is mid-execution (M-12).
+   */
+  private runInsideChain(task: () => Promise<void>): Promise<void> {
+    const run = this.eventChain.then(async () => {
+      await task();
+    });
+    // Keep the chain clean even when the task fails.
+    this.eventChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
 
   /**
    * True once this generation's pass has been cancelled (M-10). Exposed so
@@ -217,59 +243,53 @@ export class SyncEngine {
         // read a stale local file between event A's writeText and A's
         // index update, leading to either lost content or a same-commit
         // echo push back to the server.
-        const task = this.eventChain.then(async () => {
+        void this.runInsideChain(async () => {
           // A replaced/aborted generation must not apply events into the
           // vault either (M-10) — drop the event entirely; the replacement
           // engine's own sync covers the missed commits.
           if (this.aborted) return;
-          this.insideChain = true;
-          try {
-            if (!ev.commit) {
-              // lagged — do a full pull
-              await this.syncNow();
-              return;
-            }
-            if (ev.kind === "rollback") {
-              await this.syncNow();
-              return;
-            }
-            let needFallbackPull = false;
-            for (const change of ev.changes) {
-              try {
-                switch (change.kind) {
-                  case "text_inline":
-                    await this.applyInlineText(change.path, change.content, ev.commit);
-                    break;
-                  case "delete":
-                    await this.applyDelete(change.path, ev.commit);
-                    break;
-                  case "text_ref":
-                  case "blob":
-                    needFallbackPull = true;
-                    break;
-                }
-              } catch (err) {
-                if (
-                  change.kind === "text_inline" &&
-                  !(err instanceof InlineApplyDirtyError)
-                ) {
-                  this.reportInlineApplyFailure(change.path, err);
-                } else if (!(err instanceof InlineApplyDirtyError)) {
-                  debugLog("[pkv-sync] inline apply failed, falling back to pull:", err);
-                }
-                needFallbackPull = true;
-              }
-            }
-            if (needFallbackPull) {
-              await this.syncNow();
-            } else {
-              await this.advanceIndexHead(ev.commit);
-            }
-          } finally {
-            this.insideChain = false;
+          if (!ev.commit) {
+            // lagged — do a full pull
+            await this.syncNowInsideChainTask();
+            return;
           }
-        });
-        this.eventChain = task.catch(() => undefined);
+          if (ev.kind === "rollback") {
+            await this.syncNowInsideChainTask();
+            return;
+          }
+          let needFallbackPull = false;
+          for (const change of ev.changes) {
+            try {
+              switch (change.kind) {
+                case "text_inline":
+                  await this.applyInlineText(change.path, change.content, ev.commit);
+                  break;
+                case "delete":
+                  await this.applyDelete(change.path, ev.commit);
+                  break;
+                case "text_ref":
+                case "blob":
+                  needFallbackPull = true;
+                  break;
+              }
+            } catch (err) {
+              if (
+                change.kind === "text_inline" &&
+                !(err instanceof InlineApplyDirtyError)
+              ) {
+                this.reportInlineApplyFailure(change.path, err);
+              } else if (!(err instanceof InlineApplyDirtyError)) {
+                debugLog("[pkv-sync] inline apply failed, falling back to pull:", err);
+              }
+              needFallbackPull = true;
+            }
+          }
+          if (needFallbackPull) {
+            await this.syncNowInsideChainTask();
+          } else {
+            await this.advanceIndexHead(ev.commit);
+          }
+        }).catch(() => undefined);
       },
       onError: (err: Error) => {
         debugLog("[pkv-sync] SSE event stream error; automatic reconnect will continue:", err);
@@ -558,6 +578,9 @@ export class SyncEngine {
   private async applyPull(pull: PullResponse): Promise<PendingScan | null> {
     if (!pull.to) return null;
     if (pull.added.length === 0 && pull.modified.length === 0 && pull.deleted.length === 0) {
+      // An abort that lands during the pull request must still stop the
+      // head advance (M-10): the replacement engine owns the index.
+      this.throwIfAborted();
       await this.advanceIndexHead(pull.to);
       return null;
     }
@@ -594,6 +617,10 @@ export class SyncEngine {
           if (isLocalDirty(local, indexed?.lastSyncedHash)) {
             await this.writeConflict(file.path, local);
           }
+          // The download/hash awaits above can straddle an abort (M-10
+          // per-file granularity): re-check so a replaced generation
+          // never writes into the vault it no longer owns.
+          this.throwIfAborted();
           await this.opts.vault.writeText(file.path, content);
           touched.push({
             path: file.path,
@@ -619,6 +646,9 @@ export class SyncEngine {
           if (actualHash !== file.blob_hash) {
             throw new Error(`Blob hash mismatch for ${file.path}`);
           }
+          // Same as the text branch: the download/hash awaits can
+          // straddle an abort, so re-check before the vault write.
+          this.throwIfAborted();
           await this.opts.vault.writeBinary(file.path, bytes);
           touched.push({
             path: file.path,
@@ -638,6 +668,9 @@ export class SyncEngine {
         if (isLocalDirty(local, indexed?.lastSyncedHash)) {
           await this.writeConflict(path, local);
         }
+        // writeConflict above awaits; an abort landing in that window
+        // must still stop the trash (M-10 per-file granularity).
+        this.throwIfAborted();
         await this.opts.vault.trash(path);
         deleted.push(path);
       }
@@ -649,6 +682,10 @@ export class SyncEngine {
     let appliedIndex: LocalIndex | null = null;
     const touchedSynced = touched.filter((file) => shouldSyncPath(file.path));
     const deletedApplied = deleted.filter((path) => shouldSyncPath(path) && pathAccepted(path));
+    // Final index advance: the per-file loop's last await may have
+    // straddled an abort (M-10) — a replaced generation must not move the
+    // head the replacement engine is about to own.
+    this.throwIfAborted();
     await this.opts.index.updateIndex((current) => {
       let next = markSynced(current, pull.to, touchedSynced);
       next = markDeleted(next, pull.to, deletedApplied);
@@ -796,6 +833,9 @@ export class SyncEngine {
       }
       // Write file inside the atomic update so a concurrent applyInlineText
       // cannot interleave its writeText between our dirty check and our save.
+      // The dirty-check reads above await; an abort landing in that window
+      // must still stop the write (M-10 per-file granularity).
+      this.throwIfAborted();
       await this.opts.vault.writeText(path, content);
       return markSynced(index, commit, [snapshot]);
     });
@@ -836,6 +876,9 @@ export class SyncEngine {
           return index;
         }
       }
+      // The snapshot await above can straddle an abort (M-10 per-file
+      // granularity): re-check before the trash.
+      this.throwIfAborted();
       await this.opts.vault.trash(path);
       return markDeleted(index, commit, [path]);
     });
