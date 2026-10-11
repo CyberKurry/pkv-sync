@@ -360,15 +360,7 @@ async fn get_mcp_sse(
     // OID, and identical root commits across vaults (same template, same
     // second) collide, so vault A's replay would suppress vault B's live
     // event (BUG-5).
-    let replay_commit_ids: HashSet<(String, String)> = replay_items
-        .iter()
-        .filter_map(|item| match item {
-            McpSseItem::VaultChanged {
-                vault_id, commit, ..
-            } => Some((vault_id.clone(), commit.clone())),
-            McpSseItem::Lagged => None,
-        })
-        .collect();
+    let replay_commit_ids = replay_suppression_set(&replay_items);
     crate::api::vaults::debug_pause_after_replay_for_tests().await;
     let auth_interval = auth_interval().await;
     let (tx, rx) = mpsc::channel(16);
@@ -427,13 +419,33 @@ struct McpSseState {
     _guard: crate::service::state::SseSubscriberGuard,
 }
 
-enum McpSseItem {
+/// One queued SSE frame: a replayed vault change, or a lag marker. Public
+/// so the replay-suppression regression test can construct replay batches
+/// for [`replay_suppression_set`].
+pub enum McpSseItem {
     VaultChanged {
         vault_id: String,
         commit: String,
         data: String,
     },
     Lagged,
+}
+
+/// Commits carried by a replay batch, keyed by `(vault_id, commit)` so the
+/// live-stream suppression check can never match another vault's event with
+/// an identical git OID (BUG-5). `Lagged` markers contribute nothing.
+/// Public for the replay-suppression regression test, which drives this
+/// function directly instead of rebuilding the key type in the test.
+pub fn replay_suppression_set(replay_items: &VecDeque<McpSseItem>) -> HashSet<(String, String)> {
+    replay_items
+        .iter()
+        .filter_map(|item| match item {
+            McpSseItem::VaultChanged {
+                vault_id, commit, ..
+            } => Some((vault_id.clone(), commit.clone())),
+            McpSseItem::Lagged => None,
+        })
+        .collect()
 }
 
 impl McpSseItem {
