@@ -172,6 +172,16 @@ async fn push_caps_total_inline_text_in_single_event() {
 /// still 404'd until the later metadata transaction committed. This pins
 /// the causal order: when the Commit event arrives, the blob must already
 /// be authorized for download, i.e. its `blob_refs` row must exist.
+///
+/// Guard-quality note (ultrareview-r2 T-4): this probe RACES the fix — the
+/// probe task below only runs after `push` yields the runtime, so its
+/// SELECT competes with the metadata transaction and can observe the
+/// committed row even under the old publish-first ordering (measured: it
+/// passes ~1/5 runs on the reverted code). It is kept because it pins the
+/// client-visible behavior; the DETERMINISTIC ordering guard is
+/// `push::tests::push_metadata_commits_before_commit_event_is_broadcast`
+/// (server/src/service/sync/push.rs), which reads a cfg(test) probe log
+/// recorded at the two seam points and fails 5/5 on the reverted order.
 #[tokio::test]
 async fn blob_refs_are_durable_before_commit_event_is_broadcast() {
     let (state, user, vid, _tmp) = setup().await;
@@ -240,6 +250,13 @@ async fn blob_refs_are_durable_before_commit_event_is_broadcast() {
 /// endpoint must immediately succeed — with the old ordering this 404s
 /// deterministically because the broadcast completes before
 /// `record_push_metadata` even starts.
+///
+/// Guard-quality note (ultrareview-r2 T-4): like its sibling above, this
+/// probe races the fix (probe task runs only after `push` yields) and can
+/// pass on the reverted publish-first order. It pins client-visible
+/// behavior; the deterministic ordering guard lives in
+/// `push::tests::push_metadata_commits_before_commit_event_is_broadcast`
+/// (server/src/service/sync/push.rs).
 #[tokio::test]
 async fn blob_download_succeeds_as_soon_as_commit_event_is_received() {
     let (state, user, vid, _tmp) = setup().await;

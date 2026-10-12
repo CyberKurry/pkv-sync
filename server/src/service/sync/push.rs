@@ -34,6 +34,49 @@ const VAULT_PUSH_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
 #[cfg(not(test))]
 const VAULT_PUSH_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Test-only probe for the M-8 ordering invariant: `record_push_metadata`
+/// (which commits the `blob_refs` rows `download_blob` authorizes against)
+/// must complete before `events.publish` broadcasts the Commit event.
+///
+/// `cfg(test)` keeps this out of production builds entirely — which also
+/// means integration tests under `tests/` cannot see it (the lib is built
+/// with `cfg(test)` off for them), so the discriminating assertion lives
+/// in this module's unit tests; the end-to-end probes in
+/// `tests/sse_push_notify.rs` remain as client-visible pins.
+///
+/// Callers pass the vault id as the tag so concurrent tests in the same
+/// process each read back only their own entries; the global sequence
+/// counter makes the recorded order total.
+#[cfg(test)]
+mod push_order_probe {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Mutex;
+
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    static ENTRIES: Mutex<Vec<(String, u64, &'static str)>> = Mutex::new(Vec::new());
+
+    pub(crate) fn record(tag: &str, label: &'static str) {
+        let seq = SEQ.fetch_add(1, Ordering::SeqCst);
+        ENTRIES
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push((tag.to_string(), seq, label));
+    }
+
+    /// Labels recorded under `tag`, ordered by the global sequence counter.
+    pub(crate) fn recorded_order(tag: &str) -> Vec<&'static str> {
+        let mut entries: Vec<(u64, &'static str)> = ENTRIES
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .filter(|(entry_tag, _, _)| entry_tag == tag)
+            .map(|(_, seq, label)| (*seq, *label))
+            .collect();
+        entries.sort_by_key(|(seq, _)| *seq);
+        entries.into_iter().map(|(_, label)| label).collect()
+    }
+}
+
 fn git_write_error(e: GitStoreError) -> ApiError {
     match e {
         GitStoreError::PathConflict(path) => ApiError::bad_request(
@@ -569,6 +612,8 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
             }
         }
     }
+    #[cfg(test)]
+    push_order_probe::record(vault_id, "publish");
     state.events.publish(
         vault_id,
         VaultEvent {
@@ -874,6 +919,8 @@ async fn record_push_metadata(input: PushMetadataInput<'_>) -> Result<(), ApiErr
         .await
         .map_err(ApiError::from)?;
     tx.commit().await.map_err(ApiError::from)?;
+    #[cfg(test)]
+    push_order_probe::record(input.vault_id, "metadata");
     Ok(())
 }
 
@@ -1549,6 +1596,57 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err.code, "missing_blob");
+    }
+
+    /// M-8 (ultrareview 2026-10-12 T-4): the end-to-end probes in
+    /// `tests/sse_push_notify.rs` race the fix — the probe task only runs
+    /// after `push` yields, so its SELECT can observe the committed
+    /// `blob_refs` row even under the old publish-first ordering. This test
+    /// makes the causal order deterministic by reading the push_order_probe
+    /// log taken at the two seam points inside `commit_prepared_push`:
+    /// the metadata transaction (which includes the `blob_refs` insert)
+    /// must commit BEFORE `events.publish` broadcasts the Commit event.
+    /// With the pre-fix ordering (publish first, then record) the recorded
+    /// order is ["publish", "metadata"] and this test fails.
+    #[tokio::test]
+    async fn push_metadata_commits_before_commit_event_is_broadcast() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let data = Bytes::from_static(b"hello");
+        let hash = LocalFsBlobStore::sha256(&data);
+        upload_blob(&state, &user.user_id, &vid, &hash, data)
+            .await
+            .unwrap();
+        assert!(
+            push_order_probe::recorded_order(&vid).is_empty(),
+            "probe entries are keyed by vault id; a fresh vault starts empty"
+        );
+
+        push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: None,
+                changes: vec![PushChange::Blob {
+                    path: "img.png".into(),
+                    blob_hash: hash,
+                    size: 5,
+                    mime: None,
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            push_order_probe::recorded_order(&vid),
+            vec!["metadata", "publish"],
+            "record_push_metadata (blob_refs included) must commit before \
+             events.publish broadcasts the Commit event; the old \
+             publish-first order made download_blob 404 for subscribers"
+        );
     }
 
     #[tokio::test]

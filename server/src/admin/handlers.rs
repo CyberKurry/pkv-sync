@@ -2484,6 +2484,23 @@ mod tests {
             .unwrap()
     }
 
+    /// Same as `login_request_with_csrf`, but negotiates the UI language
+    /// through the real client mechanism (`Accept-Language`; no cookie set,
+    /// exercising the header fallback in `i18n::detect`).
+    async fn login_request_with_csrf_zh_cn(
+        app: &axum::Router,
+    ) -> axum::http::Request<axum::body::Body> {
+        let (csrf, cookie) = login_csrf(app).await;
+        axum::http::Request::builder()
+            .method("POST")
+            .uri("/admin/login")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("accept-language", "zh-CN,zh;q=0.9,en;q=0.5")
+            .header(axum::http::header::COOKIE, cookie)
+            .body(login_request_body(&format!("&login_csrf={csrf}")))
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn admin_login_rotates_existing_sessions_for_user() {
         use crate::admin::session;
@@ -2577,6 +2594,153 @@ mod tests {
             String::from_utf8(to_bytes(resp.into_body(), 16384).await.unwrap().to_vec()).unwrap();
         assert!(body.contains(crate::admin::i18n::AdminText::en().invalid_credentials));
         assert!(!body.contains("Account disabled"));
+    }
+
+    /// M-15 (ultrareview-r2 T-3): `inactive_admin_login_uses_generic_error`
+    /// alone cannot pin the i18n wiring — `AdminText::en().invalid_credentials`
+    /// ("Invalid credentials") is byte-identical to the pre-fix hardcoded
+    /// literal, so reverting `login_post` to that literal kept the test
+    /// green. Rendering the failure in zh-CN through the real negotiation
+    /// path (`Accept-Language`, no cookie) makes the wiring observable: with
+    /// the hardcoded literal the zh-CN response still contains the English
+    /// string and this test fails.
+    #[tokio::test]
+    async fn inactive_admin_login_error_renders_in_negotiated_language() {
+        use axum::body::to_bytes;
+        use tower::ServiceExt;
+
+        let (app, _state, _user) = admin_login_test_app(false).await;
+
+        let resp = app
+            .clone()
+            .oneshot(login_request_with_csrf_zh_cn(&app).await)
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), axum::http::StatusCode::UNAUTHORIZED);
+        let body =
+            String::from_utf8(to_bytes(resp.into_body(), 16384).await.unwrap().to_vec()).unwrap();
+        let zh = crate::admin::i18n::AdminText::zh_cn();
+        assert!(
+            body.contains(zh.invalid_credentials),
+            "zh-CN login failure must render the localized invalid_credentials ({}), \
+             proving login_post passes the negotiated AdminText through to login_error; \
+             got body: {body:?}",
+            zh.invalid_credentials
+        );
+        assert!(
+            !body.contains(crate::admin::i18n::AdminText::en().invalid_credentials),
+            "for a zh-CN client the English literal must not appear; its presence \
+             means the handler bypasses the negotiated AdminText"
+        );
+    }
+
+    /// M-15 (ultrareview-r2 T-3): the file-kind labels had only builder-level
+    /// tests ("non-empty, non-English"), never a render assertion. This pins
+    /// the actual wiring: `vault_files_page` negotiates the language from the
+    /// request and passes the AdminText into `file_entry_view`, whose
+    /// `kind_binary`/`kind_text` choice lands in the rendered HTML. A revert
+    /// to the hardcoded English labels ("Binary"/"Text") makes the zh-CN
+    /// assertion fail.
+    #[tokio::test]
+    async fn vault_files_page_renders_kind_labels_in_negotiated_language() {
+        use crate::db::pool;
+        use crate::service::sync::{push as sync_push, upload_blob, PushChange, PushReq};
+        use crate::storage::blob::LocalFsBlobStore;
+        use axum::body::{to_bytes, Body};
+        use axum::extract::Extension;
+        use axum::http::Request;
+        use bytes::Bytes;
+        use tower::ServiceExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+        let user = state
+            .users
+            .create(NewUser {
+                username: "admin".into(),
+                password_hash: crate::auth::password::hash("passw0rd!!").unwrap(),
+                is_admin: true,
+            })
+            .await
+            .unwrap();
+        let vault = crate::service::vault::create_vault(&state, &user.id, "main")
+            .await
+            .unwrap();
+
+        // A binary (BlobPointer) file so the "binary" kind label renders.
+        let data = Bytes::from_static(b"hello");
+        let hash = LocalFsBlobStore::sha256(&data);
+        upload_blob(&state, &user.id, &vault.id, &hash, data)
+            .await
+            .unwrap();
+        let auth_user = crate::auth::AuthenticatedUser {
+            user_id: user.id.clone(),
+            username: user.username.clone(),
+            is_admin: true,
+            token_id: "t".into(),
+            device_id: "d".into(),
+        };
+        sync_push(
+            &state,
+            &auth_user,
+            &vault.id,
+            None,
+            None,
+            PushReq {
+                device_name: None,
+                changes: vec![PushChange::Blob {
+                    path: "img.png".into(),
+                    blob_hash: hash,
+                    size: 5,
+                    mime: None,
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let session_id = session::create_session(&state, &user.id).await.unwrap();
+        let app = router()
+            .with_state(state)
+            .layer(tower_cookies::CookieManagerLayer::new())
+            .layer(Extension(AdminCookiePolicy {
+                secure: false,
+                public_host: None,
+            }));
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/admin/vaults/{}/files", vault.id))
+                    .header("accept-language", "zh-CN,zh;q=0.9,en;q=0.5")
+                    .header("cookie", format!("{}={}", session::COOKIE_NAME, session_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        let body =
+            String::from_utf8(to_bytes(resp.into_body(), 262144).await.unwrap().to_vec()).unwrap();
+        let zh = crate::admin::i18n::AdminText::zh_cn();
+        assert!(
+            body.contains(zh.kind_binary),
+            "zh-CN vault files page must render the localized kind_binary ({}); \
+             got body: {body:?}",
+            zh.kind_binary
+        );
+        assert!(
+            !body.contains(crate::admin::i18n::AdminText::en().kind_binary),
+            "for a zh-CN client the English 'Binary' label must not appear; its \
+             presence means file_entry_view bypasses the negotiated AdminText"
+        );
     }
 
     #[tokio::test]
