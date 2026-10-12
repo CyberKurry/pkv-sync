@@ -130,6 +130,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
   probe cannot answer (zero visible vaults, or an unreadable repository):
   only a commit that is definitely absent from every visible vault does
   (R2-6).
+- Plugin: an engine abort that lands mid-way through applying a realtime
+  (SSE) inline update is now silent (R2-7): cancelling a sync pass by
+  switching vaults, changing settings or logging out no longer pops a
+  false "failed to apply realtime update … sync pass aborted" Notice nor
+  sets the status to error — the replacement engine owns the vault and
+  the status element from the moment the generation is replaced.
 
 - The shutdown signal now latches even when it is triggered before any
   subscriber exists (`watch::Sender::send` drops the value with zero

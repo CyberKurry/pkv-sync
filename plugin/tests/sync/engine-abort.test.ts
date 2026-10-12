@@ -8,6 +8,7 @@ import {
 import { sha256Text } from "../../src/sync/hash";
 import type { LocalFileSnapshot, LocalIndex } from "../../src/sync/types";
 import { shouldSyncPath } from "../../src/sync/vault-adapter";
+import { notices } from "../mocks/obsidian";
 
 vi.mock("../../src/api/events-client", () => ({
   subscribeVaultEvents: vi.fn()
@@ -438,6 +439,110 @@ describe("SyncEngine abort (M-10)", () => {
       syncApiSpy.mockRestore();
       adapterSpy.mockRestore();
     }
+  });
+
+  it("aborts mid inline-apply silently: no Notice, no error status (R2-7)", async () => {
+    // R2-7: the M-10 per-file abort check inside applyInlineText's
+    // updateIndex throws SyncAbortedError between the dirty check and
+    // writeText. That error bubbles into the SSE change-loop catch, which
+    // treated every non-InlineApplyDirtyError error as an inline-apply
+    // FAILURE: reportInlineApplyFailure popped a "sync failed" Notice and
+    // setStatus("error", ...) for a pass that was merely cancelled because
+    // its engine generation was replaced — the replacement engine owns the
+    // vault, the index AND the status element from that point on. The
+    // abort must surface as complete silence: no Notice, no status change,
+    // and no fallback pull either (the replacement engine's own sync
+    // covers the missed commits).
+    const syncedContent = "synced";
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "x.md": {
+          lastSyncedHash: await sha256Text(syncedContent),
+          lastSyncedAt: 1,
+          kind: "text",
+          size: syncedContent.length
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "x.md",
+        hash: await sha256Text(syncedContent),
+        size: syncedContent.length,
+        kind: "text",
+        content: syncedContent
+      }
+    ]);
+    const gate = deferred<void>();
+    let readStarted = false;
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const setStatus = vi.fn();
+    const originalRead = vault.readText.bind(vault);
+    vault.readText = async (path: string) => {
+      readStarted = true;
+      await gate.promise;
+      return originalRead(path);
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      setStatus
+    });
+
+    notices.length = 0;
+    engine.startEventSubscription();
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+
+    void options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [{ kind: "text_inline", path: "x.md", content: "remote content" }]
+    });
+    await vi.waitFor(() => expect(readStarted).toBe(true));
+
+    // The generation is replaced while the handler is parked inside its
+    // dirty-check read — the mid-apply abort window from R2-7.
+    engine.abort();
+    gate.resolve();
+    // Deterministic settle: a syncNow queues BEHIND the aborted event task
+    // on the same serialised chain, and an aborted engine's syncInner
+    // returns before its first setStatus/pull — so when this resolves, the
+    // event task (including its catch path) has fully settled.
+    await engine.syncNow();
+
+    expect(vault.writes.size).toBe(0);
+    expect(notices).toEqual([]);
+    expect(setStatus).not.toHaveBeenCalledWith("error", expect.any(String));
+    // No fallback pull either: the replacement engine owns the state.
+    expect(api.pull).not.toHaveBeenCalled();
+    expect(idx.idx.lastSyncedCommit).toBe("c0");
   });
 
   it("does not write a downloaded binary after aborting mid-download (M-10 per-file granularity)", async () => {

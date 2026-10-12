@@ -272,6 +272,15 @@ export class SyncEngine {
                   break;
               }
             } catch (err) {
+              // An abort mid-apply is not a failure (R2-7): the engine
+              // generation was replaced and the replacement engine owns
+              // the vault, the index AND the status element from here on.
+              // Swallow silently — no Notice, no error status, no fallback
+              // pull (the replacement engine's own sync covers the missed
+              // commits) — the same contract syncInner already honors.
+              if (err instanceof SyncAbortedError) {
+                return;
+              }
               if (
                 change.kind === "text_inline" &&
                 !(err instanceof InlineApplyDirtyError)
