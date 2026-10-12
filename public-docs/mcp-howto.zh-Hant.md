@@ -36,7 +36,7 @@ PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
-stdio 同時支援兩個協定時代。現代 2026-07-28 用戶端在請求中發送 `_meta` 協定欄位，並收到現代結果封裝；舊版用戶端透過 `initialize` 協商，伺服器會回顯所請求的舊版本。現代 stdio 用戶端還可以對限定的筆記庫呼叫 `subscriptions/listen`；工作階段隨後會持續輸出 `notifications/resources/updated` 行，直到用戶端傳送攜帶該 listen 請求 id 的 `notifications/cancelled` 通知（或退出）。
+stdio 同時支援兩個協定時代。現代 2026-07-28 用戶端在請求中發送 `_meta` 協定欄位，並收到現代結果封裝；舊版用戶端透過 `initialize` 協商，伺服器會回顯所請求的、它已知的版本（包括 `2026-07-28`），未知版本則回退到最新的舊版本（`2025-11-25`）。現代 stdio 用戶端還可以對限定的筆記庫呼叫 `subscriptions/listen`；工作階段隨後會持續輸出 `notifications/resources/updated` 行，直到用戶端傳送攜帶該 listen 請求 id 的 `notifications/cancelled` 通知（或退出）。
 
 ## Streamable HTTP transport
 
@@ -58,15 +58,15 @@ Authorization: Bearer pks_xxx
 
 部署金鑰來自與主 PKV Sync 服務相同的設定檔。缺少或錯誤的部署金鑰會在 bearer token 驗證前直接回傳 HTTP `404`。
 
-MCP HTTP 使用固定視窗限流，每 60 秒最多 120 次請求。超限時，伺服器會返回 HTTP `429`，JSON-RPC error code 為 `-63001`。失敗的 MCP bearer token 認證返回 HTTP `401` 和 code `-63002`，並且同樣在進程內限流：stdio 和 HTTP transport 合計每 60 秒最多 30 次失敗嘗試。
+MCP HTTP 使用固定視窗限流，每 60 秒最多 120 次請求。超限時，伺服器會返回 HTTP `429`，JSON-RPC error code 為 `-63001`。失敗的 MCP bearer token 認證返回 HTTP `401` 和 code `-63002`，並且同樣按 transport 實例在進程內限流：內嵌的 HTTP 端點共享伺服器進程的限流器，而每個 `pkvsyncd mcp` 進程會自建狀態，因而擁有自己的限流器，每 60 秒最多 30 次失敗嘗試。
 
 MCP 規範中的 `Origin` 請求頭 DNS-rebinding 檢查未在 `/mcp` 上實作，這是有意為之：該端點要求非環境憑證的部署金鑰和 bearer 裝置 token（瀏覽器無法在跨源請求中附帶這兩者），管理員會話 cookie 會被拒絕，並且沒有任何 CORS 政策向瀏覽器源暴露該端點。如果某個部署關閉了這些前提中的任何一項，就應當為 `/mcp` 自行前置 `Origin` 檢查。
 
 ## MCP 2026-07-28（現代）用戶端
 
-同一個端點同時服務兩個協定時代。現代用戶端在 `params._meta` 中發送逐請求協定欄位（`io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`），並且必須在 `MCP-Protocol-Version` 請求頭中重複版本、在 `Mcp-Method` 請求頭中重複方法；當請求攜帶 `params.name` 時，還要在 `Mcp-Name` 請求頭中重複名稱（非純 ASCII 時以 `=?base64?...?=` 形式 base64 編碼）。任一請求頭與請求體不符都會返回 HTTP `400` 和 code `-32020`。請求不支援的版本會返回 HTTP `400` 和 code `-32022`，並附上受支援版本列表（`2026-07-28`）。未知方法返回 HTTP `404` 和 `-32601`；不含 `id` 的純通知訊息以 HTTP `202` 應答且無回應體，但 `notifications/cancelled` 除外——它返回 `405`：在 Streamable HTTP 上，取消是透過關閉 SSE 回應串流完成的。
+同一個端點同時服務兩個協定時代。現代用戶端在 `params._meta` 中發送逐請求協定欄位（`io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`），並且必須在 `MCP-Protocol-Version` 請求頭中重複版本、在 `Mcp-Method` 請求頭中重複方法；當請求攜帶 `params.name` 時，還要在 `Mcp-Name` 請求頭中重複名稱（非純 ASCII 時以 `=?base64?...?=` 形式 base64 編碼）。任一請求頭與請求體不符都會返回 HTTP `400` 和 code `-32020`。請求不支援的版本會返回 HTTP `400` 和 code `-32022`，並附上受支援版本列表（`2026-07-28`）。現代請求中的無效參數（例如 `_meta` 格式錯誤，或工具 `arguments` 不是物件）會返回 HTTP `400` 和 code `-32602`。未知方法返回 HTTP `404` 和 `-32601`；不含 `id` 的純通知訊息以 HTTP `202` 應答且無回應體，但 `notifications/cancelled` 除外——它返回 `405`：在 Streamable HTTP 上，取消是透過關閉 SSE 回應串流完成的。
 
-現代結果帶有 `resultType`，`tools/list` 和 `server/discover` 還會額外帶有 `ttlMs`/`cacheScope` 快取提示。`server/discover` 會報告 `supportedVersions`，用戶端可以在連線前據此選擇協定時代。（僅現代版本；舊版 `initialize` 協商不在此列表內）舊版 `initialize` 用戶端仍可使用：伺服器會回顯所請求的舊版本，並以舊版封裝應答。
+現代結果帶有 `resultType`，`tools/list` 和 `server/discover` 還會額外帶有 `ttlMs`/`cacheScope` 快取提示。`server/discover` 會報告 `supportedVersions`，用戶端可以在連線前據此選擇協定時代。（僅現代版本；舊版 `initialize` 協商不在此列表內）舊版 `initialize` 用戶端仍可使用：伺服器會回顯所請求的舊版本；若請求的是現代版本 `2026-07-28` 則原樣回顯，未知版本則回退到最新的舊版本（`2025-11-25`），並以舊版封裝應答。
 
 ## 變更通知
 

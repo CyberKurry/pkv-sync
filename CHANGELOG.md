@@ -91,6 +91,22 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- `pkvsyncd user add` and `user passwd` now enforce the documented strong
+  password policy (at least 12 characters with uppercase, lowercase, and a
+  digit) instead of the old 8-character minimum, and `user passwd` revokes
+  every existing device token and bumps the user's auth epoch the way the
+  HTTP password change does, so a stolen token no longer survives an
+  operator password reset (ultrareview L-13).
+- Legacy MCP `initialize` now echoes the requested version when the server
+  knows it — including the modern `2026-07-28` it advertises — and falls
+  back to the newest legacy version (`2025-11-25`) for an unknown one.
+  Previously a client that asked for the advertised modern version got
+  `2025-06-18` back, and unknown versions defaulted to that older legacy
+  version (ultrareview L-3).
+- Public docs now state that the MCP bearer-failure limiter budget is per
+  transport instance rather than shared between stdio and HTTP, and that
+  modern-era invalid params also map to HTTP `400` with code `-32602`
+  (ultrareview L-2, L-10).
 - Client IP resolution now walks `X-Forwarded-For` right-to-left and skips
   every address that falls inside `trusted_proxies` before taking the first
   untrusted one. With two or more trusted hops the previous rightmost-entry

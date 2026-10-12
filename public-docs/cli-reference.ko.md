@@ -98,8 +98,8 @@ pkvsyncd user set-active <USERNAME> --active <true|false>
 
 ### 서브커맨드
 
-- `add <USERNAME> [--admin]`: 사용자를 생성하며, 비밀번호를 대화형으로 입력받습니다.
-- `passwd <USERNAME>`: 사용자의 비밀번호를 재설정하며, 새 값을 대화형으로 입력받습니다.
+- `add <USERNAME> [--admin]`: 사용자를 생성하며, 비밀번호를 대화형으로 입력받습니다. 비밀번호는 12자 이상이어야 하며 대문자, 소문자, 숫자를 포함해야 합니다.
+- `passwd <USERNAME>`: 사용자의 비밀번호를 재설정하며, 새 값을 대화형으로 입력받습니다. 동일한 정책이 적용되며, 해당 사용자의 기존 device token은 모두 폐기되므로 도난당한 token이 재설정 후에도 살아남지 못합니다.
 - `list`: 모든 사용자를 관리자/활성 상태 및 생성 시각과 함께 나열합니다.
 - `set-active <USERNAME> --active <true|false>`: 사용자를 비활성화하거나 다시 활성화합니다. 비활성화된 사용자는 토큰은 유지되지만 로그인이나 동기화는 불가능합니다.
 

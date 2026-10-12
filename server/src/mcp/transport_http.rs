@@ -1912,10 +1912,22 @@ mod tests {
         let known = response_json(known).await;
         assert_eq!(known["result"]["protocolVersion"], "2024-11-05");
 
+        let advertised = app
+            .clone()
+            .oneshot(post_initialize(crate::mcp::protocol::MODERN_VERSION))
+            .await
+            .unwrap();
+        assert_eq!(advertised.status(), StatusCode::OK);
+        let advertised = response_json(advertised).await;
+        assert_eq!(
+            advertised["result"]["protocolVersion"],
+            crate::mcp::protocol::MODERN_VERSION
+        );
+
         let unknown = app.oneshot(post_initialize("1999-01-01")).await.unwrap();
         assert_eq!(unknown.status(), StatusCode::OK);
         let unknown = response_json(unknown).await;
-        assert_eq!(unknown["result"]["protocolVersion"], "2025-06-18");
+        assert_eq!(unknown["result"]["protocolVersion"], "2025-11-25");
     }
 
     #[tokio::test]

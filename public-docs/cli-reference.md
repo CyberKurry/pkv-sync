@@ -112,8 +112,8 @@ pkvsyncd user set-active <USERNAME> --active <true|false>
 
 ### Subcommands
 
-- `add <USERNAME> [--admin]`: create a user, prompting for the password interactively.
-- `passwd <USERNAME>`: reset a user's password, prompting for the new value.
+- `add <USERNAME> [--admin]`: create a user, prompting for the password interactively. The password must be at least 12 characters and include uppercase, lowercase, and a digit.
+- `passwd <USERNAME>`: reset a user's password, prompting for the new value. The same policy applies, and all existing device tokens for that user are revoked so a stolen token does not survive the reset.
 - `list`: list all users with their admin/active status and creation time.
 - `set-active <USERNAME> --active <true|false>`: disable or re-enable a user. Disabled users keep their tokens but cannot log in or sync.
 

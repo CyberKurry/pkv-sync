@@ -46,11 +46,13 @@ pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 
 stdio speaks both protocol eras. Modern 2026-07-28 clients send per-request
 `_meta` protocol fields and receive modern result envelopes; legacy clients
-negotiate through `initialize`, and the server echoes the requested legacy
-version. Modern stdio clients can also call `subscriptions/listen` for the
-scoped vault; the session then prints `notifications/resources/updated`
-lines until the client sends a `notifications/cancelled` notification
-carrying the listen's request id (or exits).
+negotiate through `initialize`, and the server echoes the requested version
+when it knows it — including `2026-07-28` — and otherwise answers with the
+newest legacy version (`2025-11-25`). Modern stdio clients can also call
+`subscriptions/listen` for the scoped vault; the session then prints
+`notifications/resources/updated` lines until the client sends a
+`notifications/cancelled` notification carrying the listen's request id (or
+exits).
 
 ## Streamable HTTP transport
 
@@ -83,7 +85,9 @@ MCP HTTP is fixed-window rate limited at 120 requests per 60 seconds. When the
 limit is exceeded, the server responds with HTTP `429` and a JSON-RPC error
 using code `-63001`. Failed MCP bearer-token authentication responds with
 HTTP `401` and code `-63002`, and is also rate limited in-process at 30
-attempts per 60 seconds across stdio and HTTP transports.
+attempts per 60 seconds per transport instance: the embedded HTTP endpoint
+shares the server process's limiter, while each `pkvsyncd mcp` process builds
+its own state and therefore its own limiter.
 
 The MCP specification's `Origin`-header DNS-rebinding check is intentionally
 not implemented on `/mcp`: the endpoint requires the non-ambient deployment
@@ -103,7 +107,9 @@ when the request carries `params.name` — the name in an `Mcp-Name` header
 (base64-encoded as `=?base64?...?=` when it is not plain ASCII). A mismatch
 between any header and the body returns HTTP `400` with code `-32020`.
 Requesting an unsupported version returns HTTP `400` with code `-32022` and
-the supported list (`2026-07-28`). Unknown methods return HTTP
+the supported list (`2026-07-28`). Invalid params in a modern request — for
+example a malformed `_meta` or non-object tool `arguments` — return HTTP
+`400` with code `-32602`. Unknown methods return HTTP
 `404` with `-32601`, and notification-only messages (no `id`) are answered
 with HTTP `202` and no body, except `notifications/cancelled`, which returns
 `405`: cancellation over Streamable HTTP is done by closing the SSE
@@ -112,8 +118,10 @@ response stream.
 Modern results carry `resultType`, and `tools/list` and `server/discover`
 additionally carry `ttlMs`/`cacheScope` cache hints. `server/discover`
 reports `supportedVersions` so a client can pick its era before connecting. (modern only; legacy `initialize` negotiation stays outside this list)
-Legacy `initialize` clients are still served: the server echoes the requested
-legacy version and answers with legacy envelopes.
+Legacy `initialize` clients are still served: the server echoes a requested
+legacy version, echoes `2026-07-28` verbatim when that modern version is
+requested, and falls back to the newest legacy version (`2025-11-25`) for an
+unknown one; answers use legacy envelopes.
 
 ## Change notifications
 

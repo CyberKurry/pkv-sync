@@ -38,7 +38,7 @@ token을 직접 전달할 수도 있습니다.
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
-stdio는 두 프로토콜 시대를 모두 지원합니다. 모던 2026-07-28 클라이언트는 요청마다 `_meta` 프로토콜 필드를 보내고 모던 결과 봉투를 받습니다. 레거시 클라이언트는 `initialize`로 협상하며, 서버는 요청된 레거시 버전을 그대로 되돌려줍니다. 모던 stdio 클라이언트는 스코프된 vault에 대해 `subscriptions/listen`을 호출할 수도 있습니다. 세션은 클라이언트가 해당 listen의 요청 id를 담은 `notifications/cancelled` 알림을 보내거나(또는 종료할 때까지) `notifications/resources/updated` 줄을 계속 출력합니다.
+stdio는 두 프로토콜 시대를 모두 지원합니다. 모던 2026-07-28 클라이언트는 요청마다 `_meta` 프로토콜 필드를 보내고 모던 결과 봉투를 받습니다. 레거시 클라이언트는 `initialize`로 협상하며, 서버는 알고 있는 요청 버전(`2026-07-28` 포함)을 그대로 되돌려주고, 알 수 없는 버전이면 최신 레거시 버전(`2025-11-25`)으로 응답합니다. 모던 stdio 클라이언트는 스코프된 vault에 대해 `subscriptions/listen`을 호출할 수도 있습니다. 세션은 클라이언트가 해당 listen의 요청 id를 담은 `notifications/cancelled` 알림을 보내거나(또는 종료할 때까지) `notifications/resources/updated` 줄을 계속 출력합니다.
 
 ## Streamable HTTP transport
 
@@ -60,15 +60,15 @@ Authorization: Bearer pks_xxx
 
 배포 키는 주 PKV Sync 서버와 같은 설정 파일에서 읽습니다. 키가 없거나 잘못되면 bearer token 인증 전에 HTTP `404`를 반환합니다.
 
-MCP HTTP는 고정 창 방식으로 60초당 120개 요청으로 제한됩니다. 제한을 초과하면 서버는 HTTP `429`와 JSON-RPC error code `-63001`을 반환합니다. 실패한 MCP bearer token 인증은 HTTP `401`과 code `-63002`를 반환하며, 프로세스 내에서도 제한됩니다. stdio와 HTTP transports 합산 60초당 최대 30회 실패 시도까지 허용됩니다.
+MCP HTTP는 고정 창 방식으로 60초당 120개 요청으로 제한됩니다. 제한을 초과하면 서버는 HTTP `429`와 JSON-RPC error code `-63001`을 반환합니다. 실패한 MCP bearer token 인증은 HTTP `401`과 code `-63002`를 반환하며, 프로세스 내에서도 transport 인스턴스별로 제한됩니다. 내장 HTTP endpoint는 서버 프로세스의 limiter를 공유하고, 각 `pkvsyncd mcp` 프로세스는 자체 상태와 limiter를 만듭니다. 60초당 최대 30회 실패 시도까지 허용됩니다.
 
 MCP 사양의 `Origin` 헤더 DNS-rebinding 검사는 `/mcp`에서 의도적으로 구현하지 않았습니다. 이 endpoint는 비앰비언트(non-ambient) 배포 키와 bearer device token을 필수로 요구하고(브라우저는 이 둘을 cross-origin 요청에 첨부할 수 없음), admin session cookie는 거부되며, 어떤 CORS 정책도 이 endpoint를 브라우저 origin에 노출하지 않기 때문입니다. 이 전제 중 하나라도 비활성화하는 배포는 `/mcp` 앞에 자체 `Origin` 검사를 두어야 합니다.
 
 ## MCP 2026-07-28(모던) 클라이언트
 
-같은 endpoint가 두 프로토콜 시대를 모두 서비스합니다. 모던 클라이언트는 `params._meta`에 요청별 프로토콜 필드(`io.modelcontextprotocol/protocolVersion`과 `io.modelcontextprotocol/clientCapabilities`)를 담아 보내고, `MCP-Protocol-Version` 헤더에 버전을, `Mcp-Method` 헤더에 메서드를 반드시 반복해야 합니다. 요청에 `params.name`이 있으면 `Mcp-Name` 헤더에도 이름을 반복합니다(순수 ASCII가 아니면 `=?base64?...?=` 형식으로 base64 인코딩). 헤더와 body가 일치하지 않으면 HTTP `400`과 code `-32020`을 반환합니다. 지원되지 않는 버전을 요청하면 HTTP `400`과 code `-32022`, 지원 버전 목록(`2026-07-28`)을 반환합니다. 알 수 없는 메서드는 HTTP `404`와 `-32601`을 반환하며, `id`가 없는 알림 전용 메시지는 body 없이 HTTP `202`로 응답됩니다. 단, `notifications/cancelled`는 예외로 `405`를 반환합니다. Streamable HTTP에서의 취소는 SSE 응답 스트림을 닫는 방식으로 수행됩니다.
+같은 endpoint가 두 프로토콜 시대를 모두 서비스합니다. 모던 클라이언트는 `params._meta`에 요청별 프로토콜 필드(`io.modelcontextprotocol/protocolVersion`과 `io.modelcontextprotocol/clientCapabilities`)를 담아 보내고, `MCP-Protocol-Version` 헤더에 버전을, `Mcp-Method` 헤더에 메서드를 반드시 반복해야 합니다. 요청에 `params.name`이 있으면 `Mcp-Name` 헤더에도 이름을 반복합니다(순수 ASCII가 아니면 `=?base64?...?=` 형식으로 base64 인코딩). 헤더와 body가 일치하지 않으면 HTTP `400`과 code `-32020`을 반환합니다. 지원되지 않는 버전을 요청하면 HTTP `400`과 code `-32022`, 지원 버전 목록(`2026-07-28`)을 반환합니다. 모던 요청의 잘못된 params(예: `_meta` 형식 오류, tool `arguments`가 object가 아닌 경우)도 HTTP `400`과 code `-32602`를 반환합니다. 알 수 없는 메서드는 HTTP `404`와 `-32601`을 반환하며, `id`가 없는 알림 전용 메시지는 body 없이 HTTP `202`로 응답됩니다. 단, `notifications/cancelled`는 예외로 `405`를 반환합니다. Streamable HTTP에서의 취소는 SSE 응답 스트림을 닫는 방식으로 수행됩니다.
 
-모던 결과에는 `resultType`이 포함되고, `tools/list`와 `server/discover`에는 추가로 `ttlMs`/`cacheScope` 캐시 힌트가 붙습니다. `server/discover`는 `supportedVersions`를 알려주므로 클라이언트는 연결 전에 자신의 시대를 선택할 수 있습니다.(모던 버전만 해당. 레거시 `initialize` 협상은 이 목록 밖에서 이루어집니다) 레거시 `initialize` 클라이언트도 계속 사용할 수 있습니다. 서버는 요청된 레거시 버전을 되돌려주고 레거시 봉투로 응답합니다.
+모던 결과에는 `resultType`이 포함되고, `tools/list`와 `server/discover`에는 추가로 `ttlMs`/`cacheScope` 캐시 힌트가 붙습니다. `server/discover`는 `supportedVersions`를 알려주므로 클라이언트는 연결 전에 자신의 시대를 선택할 수 있습니다.(모던 버전만 해당. 레거시 `initialize` 협상은 이 목록 밖에서 이루어집니다) 레거시 `initialize` 클라이언트도 계속 사용할 수 있습니다. 서버는 요청된 레거시 버전을 되돌려주고, 모던 버전 `2026-07-28`이 요청되면 그대로 되돌려주며, 알 수 없는 버전은 최신 레거시 버전(`2025-11-25`)으로 폴백해 레거시 봉투로 응답합니다.
 
 ## 변경 알림
 

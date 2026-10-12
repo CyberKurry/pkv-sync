@@ -98,8 +98,8 @@ pkvsyncd user set-active <USERNAME> --active <true|false>
 
 ### 子命令
 
-- `add <USERNAME> [--admin]`：建立使用者，並以互動方式提示輸入密碼。
-- `passwd <USERNAME>`：重設使用者密碼，並提示輸入新值。
+- `add <USERNAME> [--admin]`：建立使用者，並以互動方式提示輸入密碼。密碼必須至少 12 個字元，並包含大寫字母、小寫字母和數字。
+- `passwd <USERNAME>`：重設使用者密碼，並提示輸入新值。新密碼同樣必須符合上述策略，且該使用者所有現有裝置 token 都會被撤銷，被盜 token 無法在這次重設後繼續使用。
 - `list`：列出所有使用者，包含其管理員／啟用狀態與建立時間。
 - `set-active <USERNAME> --active <true|false>`：停用或重新啟用使用者。被停用的使用者仍保有自身的 token，但無法登入或同步。
 

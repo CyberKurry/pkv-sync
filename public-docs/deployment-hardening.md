@@ -322,7 +322,7 @@ Review these from the Admin WebUI:
 Registration and login failures are rate limited. Setup, public registration,
 user self-service password changes, and Admin-created or Admin-reset passwords
 must be at least 12 characters and include uppercase, lowercase, and a digit;
-CLI-created users still need strong passwords.
+CLI-created users and CLI password resets enforce the same policy.
 
 Authenticated sync API routes are also fixed-window rate limited at 600
 requests per 60 seconds per route, method, client IP, and bearer token. Keep

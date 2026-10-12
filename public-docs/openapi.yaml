@@ -1753,7 +1753,9 @@ paths:
         header/body mismatch returns `400` with code `-32020` — including a
         modern-version header on a body without modern `_meta` — and an
         unsupported version returns `400` with code `-32022` plus the
-        supported list (`2026-07-28`). Modern results carry
+        supported list (`2026-07-28`). Invalid params in a modern request
+        (for example a malformed `_meta` or non-object tool `arguments`)
+        return `400` with code `-32602`. Modern results carry
         `resultType`, `tools/list` and `server/discover` additionally carry
         `ttlMs`/`cacheScope`, and unknown methods return `404` with `-32601`;
         legacy-era errors stay 200-wrapped JSON-RPC envelopes.
@@ -1795,8 +1797,9 @@ paths:
           description: Accepted notification (no `id`) — empty body
         '400':
           description: >-
-            Modern-era header/version mismatch (`-32020`) or unsupported
-            protocol version (`-32022` with the supported list)
+            Modern-era header/version mismatch (`-32020`), unsupported
+            protocol version (`-32022` with the supported list), or invalid
+            params (`-32602`)
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':

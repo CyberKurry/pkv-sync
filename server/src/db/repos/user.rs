@@ -176,11 +176,15 @@ impl UserRepo for SqliteUserRepo {
     }
 
     async fn update_password(&self, id: &str, new_hash: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+        let affected = sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
             .bind(new_hash)
             .bind(id)
             .execute(&self.pool)
-            .await?;
+            .await?
+            .rows_affected();
+        if affected > 0 {
+            self.bump_auth_epoch();
+        }
         Ok(())
     }
 
@@ -378,6 +382,26 @@ mod tests {
         repo.update_password(&u.id, "new").await.unwrap();
         let r = repo.find_by_id(&u.id).await.unwrap().unwrap();
         assert_eq!(r.password_hash, "new");
+    }
+
+    #[tokio::test]
+    async fn update_password_bumps_auth_epoch_only_for_existing_users() {
+        let repo = fresh_repo().await;
+        let u = repo
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "old".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+
+        let before = repo.auth_epoch();
+        repo.update_password(&u.id, "new").await.unwrap();
+        assert_eq!(repo.auth_epoch(), before + 1);
+
+        repo.update_password("missing-user", "new").await.unwrap();
+        assert_eq!(repo.auth_epoch(), before + 1);
     }
 
     #[tokio::test]

@@ -65,6 +65,40 @@ fn assert_failure(output: Output) -> String {
     stderr
 }
 
+const STRONG_PASSWORD: &str = "Str0ngPassw0rd!";
+const NEW_STRONG_PASSWORD: &str = "N3wStr0ngPass!";
+
+fn write_test_config(tmp: &tempfile::TempDir) -> (String, String) {
+    let data = tmp.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let db_path = data.join("metadata.db");
+    let cfg = tmp.path().join("config.toml");
+    std::fs::write(
+        &cfg,
+        format!(
+            r#"
+[server]
+bind_addr = "127.0.0.1:0"
+deployment_key = "k_0123456789abcdef0123456789abcdef"
+
+[storage]
+data_dir = "{}"
+db_path = "{}"
+
+[network]
+trusted_proxies = ["127.0.0.1/32"]
+"#,
+            data.display().to_string().replace('\\', "/"),
+            db_path.display().to_string().replace('\\', "/")
+        ),
+    )
+    .unwrap();
+    (
+        cfg.to_str().unwrap().to_string(),
+        db_path.to_str().unwrap().to_string(),
+    )
+}
+
 #[test]
 fn user_commands_accept_password_from_stdin() {
     let tmp = tempfile::tempdir().unwrap();
@@ -99,7 +133,7 @@ trusted_proxies = ["127.0.0.1/32"]
     assert_success(run(&["-c", cfg, "migrate", "up"], None));
     let add = assert_success(run(
         &["-c", cfg, "user", "add", "bob"],
-        Some("passw0rd!!\n"),
+        Some("Str0ngPassw0rd!\n"),
     ));
     assert!(add.contains("created user bob"));
 
@@ -116,7 +150,7 @@ trusted_proxies = ["127.0.0.1/32"]
     ));
     assert_success(run(
         &["-c", cfg, "user", "passwd", "bob"],
-        Some("newpass1234\n"),
+        Some("N3wStr0ngPass!\n"),
     ));
 }
 
@@ -173,4 +207,90 @@ fn user_add_rejects_invalid_username_before_loading_config() {
         !stderr.contains("missing-config-that-should-not-be-read.toml"),
         "{stderr}"
     );
+}
+
+#[test]
+fn user_add_rejects_weak_password() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (cfg, _db) = write_test_config(&tmp);
+    assert_success(run(&["-c", &cfg, "migrate", "up"], None));
+
+    let stderr = assert_failure(run(&["-c", &cfg, "user", "add", "bob"], Some("passw0rd\n")));
+
+    assert!(stderr.contains("at least 12 characters"), "{stderr}");
+    let list = assert_success(run(&["-c", &cfg, "user", "list"], None));
+    assert!(!list.contains("bob"), "{list}");
+}
+
+#[test]
+fn user_passwd_rejects_weak_password() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (cfg, _db) = write_test_config(&tmp);
+    assert_success(run(&["-c", &cfg, "migrate", "up"], None));
+    assert_success(run(
+        &["-c", &cfg, "user", "add", "bob"],
+        Some(STRONG_PASSWORD),
+    ));
+
+    let stderr = assert_failure(run(
+        &["-c", &cfg, "user", "passwd", "bob"],
+        Some("weakpass1\n"),
+    ));
+
+    assert!(stderr.contains("at least 12 characters"), "{stderr}");
+}
+
+#[test]
+fn user_passwd_revokes_existing_tokens() {
+    use pkv_sync_server::auth::token;
+    use pkv_sync_server::db::pool;
+    use pkv_sync_server::db::repos::{
+        NewToken, SqliteTokenRepo, SqliteUserRepo, TokenRepo, UserRepo,
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    let (cfg, db_path) = write_test_config(&tmp);
+    assert_success(run(&["-c", &cfg, "migrate", "up"], None));
+    assert_success(run(
+        &["-c", &cfg, "user", "add", "bob"],
+        Some(STRONG_PASSWORD),
+    ));
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let issued_token_hash = rt.block_on(async {
+        let pool = pool::connect(std::path::Path::new(&db_path)).await.unwrap();
+        let users = SqliteUserRepo::new(pool.clone());
+        let tokens = SqliteTokenRepo::new(pool);
+        let user = users.find_by_username("bob").await.unwrap().unwrap();
+        let raw = token::generate();
+        let hash = token::hash(&raw);
+        tokens
+            .create(NewToken {
+                user_id: &user.id,
+                token_hash: &hash,
+                device_id: "cli-test-device",
+                device_name: "CLI test device",
+            })
+            .await
+            .unwrap();
+        hash
+    });
+
+    assert_success(run(
+        &["-c", &cfg, "user", "passwd", "bob"],
+        Some(NEW_STRONG_PASSWORD),
+    ));
+
+    rt.block_on(async {
+        let pool = pool::connect(std::path::Path::new(&db_path)).await.unwrap();
+        let tokens = SqliteTokenRepo::new(pool);
+        assert!(
+            tokens
+                .find_by_hash(&issued_token_hash)
+                .await
+                .unwrap()
+                .is_none(),
+            "an existing device token must be rejected after a CLI password reset"
+        );
+    });
 }

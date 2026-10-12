@@ -78,12 +78,19 @@ pub fn error_response(id: &Value, err: ProtocolError) -> Value {
     }
 }
 
+/// Negotiates the version a legacy `initialize` gets back. The requested
+/// version is echoed when it is one the server knows — including the modern
+/// `2026-07-28` it advertises — and an unknown version falls back to the
+/// newest legacy version rather than an arbitrary older one.
 pub fn legacy_negotiate_initialize(requested: &str) -> &'static str {
+    if requested == MODERN_VERSION {
+        return MODERN_VERSION;
+    }
     LEGACY_VERSIONS
         .iter()
         .find(|v| **v == requested)
         .copied()
-        .unwrap_or("2025-06-18")
+        .unwrap_or(LEGACY_VERSIONS[LEGACY_VERSIONS.len() - 1])
 }
 
 pub fn decorate_result(mut result: Value, cache: Option<(u64, &str)>) -> Value {
@@ -238,9 +245,21 @@ mod tests {
     }
 
     #[test]
-    fn legacy_negotiate_echoes_known_and_defaults() {
-        assert_eq!(legacy_negotiate_initialize("2024-11-05"), "2024-11-05");
-        assert_eq!(legacy_negotiate_initialize("1999-01-01"), "2025-06-18");
+    fn legacy_negotiate_echoes_known_and_defaults_to_newest_legacy() {
+        for version in LEGACY_VERSIONS {
+            assert_eq!(legacy_negotiate_initialize(version), version);
+        }
+        assert_eq!(
+            legacy_negotiate_initialize(MODERN_VERSION),
+            MODERN_VERSION,
+            "a legacy initialize asking for the advertised modern version gets it back"
+        );
+        assert_eq!(legacy_negotiate_initialize("1999-01-01"), "2025-11-25");
+        assert_eq!(
+            legacy_negotiate_initialize("2025-06-18"),
+            "2025-06-18",
+            "older legacy versions are still echoed, not upgraded"
+        );
     }
 
     #[test]

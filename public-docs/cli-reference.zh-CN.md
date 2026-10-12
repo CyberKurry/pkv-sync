@@ -98,8 +98,8 @@ pkvsyncd user set-active <USERNAME> --active <true|false>
 
 ### 子命令
 
-- `add <USERNAME> [--admin]`：创建一个用户，并以交互方式提示输入密码。
-- `passwd <USERNAME>`：重置某用户的密码，交互式提示输入新密码。
+- `add <USERNAME> [--admin]`：创建一个用户，并以交互方式提示输入密码。密码必须至少 12 个字符，并包含大写字母、小写字母和数字。
+- `passwd <USERNAME>`：重置某用户的密码，交互式提示输入新密码。新密码同样必须满足上述策略，且该用户的所有现有设备 token 都会被吊销，被盗 token 无法在这次重置后继续使用。
 - `list`：列出所有用户，包括其管理员/启用状态以及创建时间。
 - `set-active <USERNAME> --active <true|false>`：禁用或重新启用某个用户。被禁用的用户保留其令牌，但无法登录或同步。
 
