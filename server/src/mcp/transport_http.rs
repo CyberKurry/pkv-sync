@@ -123,7 +123,7 @@ async fn post_mcp(
     // and parse arbitrarily large bodies.
     let (user, raw) = match bearer_user(&state, &headers, &auth_limit_key.0).await {
         Ok(authenticated) => authenticated,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let max_file_size = state.runtime_cfg.max_file_size().await;
     let body = match to_bytes(body, mcp_json_body_limit_bytes(max_file_size)).await {
@@ -281,7 +281,7 @@ async fn get_mcp_sse(
     }
     let (user, raw) = match bearer_user(&state, &headers, &auth_limit_key.0).await {
         Ok(authenticated) => authenticated,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let token_hash = crate::auth::token::hash(raw);
     let vaults =
@@ -842,27 +842,31 @@ async fn bearer_user<'a>(
     state: &AppState,
     headers: &'a HeaderMap,
     limit_key: &str,
-) -> Result<(AuthenticatedUser, &'a str), Response> {
+) -> Result<(AuthenticatedUser, &'a str), Box<Response>> {
     let Some(raw) = bearer_token(headers) else {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(jsonrpc_error(Value::Null, ERR_AUTH, "missing bearer token")),
-        )
-            .into_response());
+        return Err(Box::new(
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(jsonrpc_error(Value::Null, ERR_AUTH, "missing bearer token")),
+            )
+                .into_response(),
+        ));
     };
     match authenticate_token(state, raw, limit_key).await {
         Ok(user) => Ok((user, raw)),
         Err(err) => {
             let message = err.to_string();
-            Err((
-                StatusCode::UNAUTHORIZED,
-                Json(jsonrpc_error(
-                    Value::Null,
-                    ERR_AUTH,
-                    mcp_auth_error_public_message(&message),
-                )),
-            )
-                .into_response())
+            Err(Box::new(
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(jsonrpc_error(
+                        Value::Null,
+                        ERR_AUTH,
+                        mcp_auth_error_public_message(&message),
+                    )),
+                )
+                    .into_response(),
+            ))
         }
     }
 }
