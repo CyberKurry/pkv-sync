@@ -58,6 +58,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 - MCP JSON-RPC error codes moved out of the range the 2026-07-28 spec
   freezes: rate limit `-32029` → `-63001`, auth `-32001` → `-63002` (HTTP
   statuses unchanged).
+- internal: dropped MCP tests that asserted on their own source text
+  (`include_str!` substring checks in `mcp/tools.rs`, plus the
+  `Serialize`/`as_str` guard in `config.rs`) — the behaviors they pinned
+  stay covered by the behavioral suite — and replaced the stdio
+  credential-error branch's `let _ = err` payload discard with a
+  by-pattern drop. No runtime behavior change.
 
 ### Security
 

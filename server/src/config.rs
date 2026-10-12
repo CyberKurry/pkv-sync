@@ -524,16 +524,6 @@ mod tests {
         assert!(cfg.mcp.embed_in_serve);
     }
 
-    #[test]
-    fn config_types_do_not_keep_unused_serialization_helpers() {
-        let source = include_str!("config.rs");
-        let serialize_ident = concat!("Serial", "ize");
-        let as_str_method = concat!("pub fn as", "_str");
-
-        assert!(!source.contains(serialize_ident));
-        assert!(!source.contains(as_str_method));
-    }
-
     // ------------------------------------------------------------------
     // [admin].allow_insecure_admin (H-5 escape hatch)
     // ------------------------------------------------------------------

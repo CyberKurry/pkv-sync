@@ -425,8 +425,10 @@ pub(crate) async fn authenticate_token(
             reservation.success();
             Ok(user)
         }
-        Err(AuthErr::Credential(err)) => {
-            let _ = err;
+        // The credential-error payload is deliberately dropped: its wording
+        // distinguishes "invalid format" from "revoked", and none of it may
+        // reach the caller — only GENERIC_MCP_AUTH_ERROR is returned.
+        Err(AuthErr::Credential(_)) => {
             reservation.failure();
             Err(anyhow!(GENERIC_MCP_AUTH_ERROR))
         }
@@ -439,7 +441,12 @@ pub(crate) async fn authenticate_token(
 }
 
 enum AuthErr {
-    Credential(anyhow::Error),
+    /// The internal rejection reason (bad format, revoked, disabled, user
+    /// gone) is recorded at construction but deliberately never read: the
+    /// caller only ever surfaces `GENERIC_MCP_AUTH_ERROR`, and logging it
+    /// would put caller-controlled noise in the log. Dropped by pattern in
+    /// `authenticate_token`, so no `let _ = err;` statement is needed.
+    Credential(#[allow(dead_code)] anyhow::Error),
     Internal(anyhow::Error),
 }
 

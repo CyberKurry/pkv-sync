@@ -1116,8 +1116,7 @@ mod tests {
     #[tokio::test]
     async fn modern_tools_list_returns_decorated_result() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -1151,8 +1150,7 @@ mod tests {
     #[tokio::test]
     async fn modern_server_discover_lists_both_eras() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -1189,8 +1187,7 @@ mod tests {
     #[tokio::test]
     async fn modern_cancelled_notification_is_405_with_sse_guidance() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -1224,8 +1221,7 @@ mod tests {
     #[tokio::test]
     async fn modern_initialized_notification_returns_202_with_empty_body() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -1253,8 +1249,7 @@ mod tests {
     #[tokio::test]
     async fn header_mismatch_is_400_header_mismatch() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -1279,8 +1274,7 @@ mod tests {
     #[tokio::test]
     async fn missing_client_capabilities_is_400_invalid_params() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -1302,8 +1296,7 @@ mod tests {
     #[tokio::test]
     async fn unsupported_version_is_400_with_supported_list() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -1334,8 +1327,7 @@ mod tests {
     #[tokio::test]
     async fn unknown_method_modern_is_404_method_not_found() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -1358,8 +1350,7 @@ mod tests {
     #[tokio::test]
     async fn modern_header_with_legacy_body_is_rejected_not_downgraded() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -1392,8 +1383,7 @@ mod tests {
     #[tokio::test]
     async fn legacy_tools_call_invalid_params_stays_200_wrapped() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -1881,8 +1871,7 @@ mod tests {
     #[tokio::test]
     async fn legacy_initialize_echoes_requested_version() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
@@ -2260,8 +2249,7 @@ mod tests {
     #[tokio::test]
     async fn legacy_listen_is_method_not_found() {
         let state = state().await;
-        let (user_id, raw) = create_user_token(&state, "u1").await;
-        let _ = user_id;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
         let app = router_with_rate_limiter(
             state,
             crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
