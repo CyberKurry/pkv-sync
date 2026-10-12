@@ -38,7 +38,7 @@ token を直接渡すこともできます。
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
-stdio は両方のプロトコル時代に対応します。モダンな 2026-07-28 クライアントはリクエストごとに `_meta` プロトコルフィールドを送信し、モダンな結果エンベロープを受け取ります。レガシークライアントは `initialize` でネゴシエートし、サーバーは既知の要求バージョン（`2026-07-28` を含む）をエコーし、未知のバージョンには最新のレガシーバージョン（`2025-11-25`）を返します。モダンな stdio クライアントはスコープされた vault に対して `subscriptions/listen` を呼び出すこともできます。セッションはクライアントがその listen のリクエスト id を持つ `notifications/cancelled` 通知を送る（または終了する）まで、`notifications/resources/updated` 行を出力し続けます。
+stdio は両方のプロトコル時代に対応します。モダンな 2026-07-28 クライアントはリクエストごとに `_meta` プロトコルフィールドを送信し、モダンな結果エンベロープを受け取ります。レガシークライアントは `initialize` でネゴシエートし、サーバーは既知の要求バージョン（`2026-07-28` を含む）をエコーし、未知のバージョンには最新のレガシーバージョン（`2025-11-25`）を返します。モダンな stdio クライアントはスコープされた vault に対して `subscriptions/listen` を呼び出すこともできます。セッションはクライアントがその listen のリクエスト id を持つ `notifications/cancelled` 通知を送る（または終了する）まで、`notifications/resources/updated` 行を出力し続けます。JSON-RPC batch はどちらの transport でもサポートされません。batch 行（JSON 配列）には、沈黙ではなく `-32600 "batch requests are not supported"` のエラー行を 1 行返します。
 
 ## Streamable HTTP transport
 
@@ -66,7 +66,7 @@ MCP 仕様の `Origin` ヘッダーによる DNS-rebinding チェックは `/mcp
 
 ## MCP 2026-07-28（モダン）クライアント
 
-同じ endpoint が両方のプロトコル時代に対応します。モダンクライアントは `params._meta` にリクエストごとのプロトコルフィールド（`io.modelcontextprotocol/protocolVersion` と `io.modelcontextprotocol/clientCapabilities`）を送信し、`MCP-Protocol-Version` ヘッダーにバージョンを、`Mcp-Method` ヘッダーにメソッドを繰り返さなければなりません。リクエストが `params.name` を持つ場合は、`Mcp-Name` ヘッダーにも名前を繰り返します（純 ASCII でない場合は `=?base64?...?=` 形式で base64 エンコード）。ヘッダーと body が一致しない場合、HTTP `400` と code `-32020` を返します。サポート対象外のバージョンを要求すると HTTP `400` と code `-32022`、サポートされているバージョンのリスト（`2026-07-28`）を返します。モダンリクエストの invalid params（`_meta` の形式不正や、tool の `arguments` が object でない場合など）も HTTP `400` と code `-32602` を返します。不明なメソッドは HTTP `404` と `-32601` を返し、`id` のない通知のみのメッセージは body なしの HTTP `202` で応答されます。ただし `notifications/cancelled` は例外で、`405` を返します。Streamable HTTP でのキャンセルは、SSE 応答ストリームを閉じることで行われます。
+同じ endpoint が両方のプロトコル時代に対応します。モダンクライアントは `params._meta` にリクエストごとのプロトコルフィールド（`io.modelcontextprotocol/protocolVersion` と `io.modelcontextprotocol/clientCapabilities`）を送信し、`MCP-Protocol-Version` ヘッダーにバージョンを、`Mcp-Method` ヘッダーにメソッドを繰り返さなければなりません。リクエストが `params.name` を持つ場合は、`Mcp-Name` ヘッダーにも名前を繰り返します（純 ASCII でない場合は `=?base64?...?=` 形式で base64 エンコード）。ヘッダーと body が一致しない場合、HTTP `400` と code `-32020` を返します。サポート対象外のバージョンを要求すると HTTP `400` と code `-32022`、サポートされているバージョンのリスト（`2026-07-28`）を返します。モダンリクエストの invalid params（`_meta` の形式不正や、tool の `arguments` が object でない場合など）も HTTP `400` と code `-32602` を返します。不明なメソッドは HTTP `404` と `-32601` を返し、`id` のない通知のみのメッセージは body なしの HTTP `202` で応答されます。ただし `notifications/cancelled` は例外で、`405` を返します。Streamable HTTP でのキャンセルは、SSE 応答ストリームを閉じることで行われます。JSON-RPC batch はどちらの transport でもサポートされません。`POST /mcp` の配列 body は HTTP `400` と code `-32600`（`batch requests are not supported`）を返し、stdio が batch 行に返すエラーと同じ扱いになります。受け入れたふりをして `202` を返すことはありません。
 
 モダンな結果には `resultType` が含まれ、`tools/list` と `server/discover` にはさらに `ttlMs`/`cacheScope` キャッシュヒントが付きます。`server/discover` は `supportedVersions` を報告するため、クライアントは接続前に自分の時代を選択できます。（モダン版のみ。レガシーの `initialize` ネゴシエーションはこのリストの外で扱われます）レガシーの `initialize` クライアントも引き続き利用できます。サーバーは要求されたレガシーバージョンをエコーし、モダンバージョン `2026-07-28` が要求された場合はそのままエコーし、未知のバージョンは最新のレガシーバージョン（`2025-11-25`）にフォールバックして、レガシーエンベロープで応答します。
 

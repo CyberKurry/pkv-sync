@@ -247,6 +247,40 @@ async fn http_mcp_lists_tools_and_does_not_create_session_state() {
 }
 
 #[tokio::test]
+async fn http_mcp_batch_array_is_rejected_not_accepted() {
+    // R2-4 (the HTTP half of L-4): a JSON-RPC batch is a JSON array, so it has
+    // no top-level `id` and used to fall into the notification branch: `202
+    // Accepted`, no body, nothing executed. 202 is not an error a client would
+    // retry or report, so a batching client waited forever. stdio already
+    // answers `-32600 "batch requests are not supported"`; HTTP must reject
+    // the shape with the same code instead of pretending to accept it.
+    let (state, _tmp) = test_state().await;
+    let (_user_id, raw) = create_user_with_token(&state, "http-batch").await;
+
+    let batches = [
+        json!([
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+        ]),
+        // An empty batch is still a batch, not a notification.
+        json!([]),
+    ];
+    for batch in batches {
+        let (status, _headers, body) = post_mcp(state.clone(), Some(&raw), batch.clone()).await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "batch {batch} must be rejected, got body: {body}"
+        );
+        assert_eq!(body["error"]["code"], -32600, "batch {batch}: {body}");
+        assert!(
+            body["error"]["message"].as_str().unwrap().contains("batch"),
+            "the error must name the unsupported shape, got: {body}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn http_mcp_calls_read_only_tool_with_authenticated_user() {
     let (state, _tmp) = test_state().await;
     let (user_id, raw) = create_user_with_token(&state, "http-call").await;
@@ -959,6 +993,139 @@ async fn http_mcp_sse_too_far_behind_emits_lagged() {
     assert!(
         body.contains("event: lagged"),
         "expected replay overflow to emit lagged, got: {body}"
+    );
+}
+
+/// R2-6: a token that can see no vaults has nothing to be behind on. The
+/// existence probe used to run anyway and report "unlocatable", so every
+/// reconnect of a zero-vault user emitted `lagged` — a full-resync client
+/// would spin forever.
+#[tokio::test]
+async fn http_mcp_sse_zero_vault_reconnect_does_not_emit_lagged() {
+    let (state, tmp) = test_state().await;
+    let (_user_id, raw) = create_user_with_token(&state, "http-sse-zero-vault").await;
+    // No vault created on purpose.
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server_state = state.clone();
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            transport_http::router(server_state, DEPLOYMENT_KEY.into()).into_make_service(),
+        )
+        .await;
+    });
+
+    // A well-formed but unlocatable resume position (40 hex zeros).
+    let resp = reqwest::Client::new()
+        .get(format!("http://{addr}/mcp"))
+        .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
+        .header("accept", "text/event-stream")
+        .header("last-event-id", "0".repeat(40))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Give the stream a moment: nothing must arrive (no lagged event).
+    let mut stream = resp.bytes_stream();
+    use futures_util::StreamExt;
+    let saw_anything = tokio::time::timeout(std::time::Duration::from_millis(300), async {
+        while let Some(chunk) = stream.next().await {
+            let text = String::from_utf8_lossy(&chunk.unwrap()).to_string();
+            if text.contains("lagged") {
+                return true;
+            }
+        }
+        false
+    })
+    .await;
+    handle.abort();
+    drop(tmp);
+
+    let lagged_seen = saw_anything.unwrap_or(false);
+    assert!(
+        !lagged_seen,
+        "a zero-vault reconnect must not be told to resync"
+    );
+}
+
+/// R2-6: a storage hiccup during the existence probe must not be answered
+/// as "commit does not exist" — that forced a healthy, caught-up client
+/// into a full resync. A vault whose storage directory is unreadable makes
+/// `open_bare` fail, which used to count as Missing.
+#[tokio::test]
+async fn http_mcp_sse_probe_failure_does_not_emit_lagged() {
+    let (state, tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&state, "http-sse-probe-err").await;
+    let vault = vault::create_vault(&state, &user_id, "main").await.unwrap();
+    let auth = authenticated_user(&state, &raw, "http-sse-probe-err").await;
+    let pushed = sync::push(
+        &state,
+        &auth,
+        &vault.id,
+        None,
+        None,
+        PushReq {
+            device_name: Some("seed".into()),
+            changes: vec![PushChange::Text {
+                path: "a.md".into(),
+                content: "one".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    // Break the vault's storage so the probe cannot open the repository:
+    // replace the bare repo path with a regular file.
+    let vault_path = state.default_vault_root().join(&vault.id);
+    std::fs::remove_dir_all(&vault_path).unwrap();
+    std::fs::write(&vault_path, b"not a repo").unwrap();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server_state = state.clone();
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            transport_http::router(server_state, DEPLOYMENT_KEY.into()).into_make_service(),
+        )
+        .await;
+    });
+
+    let resp = reqwest::Client::new()
+        .get(format!("http://{addr}/mcp"))
+        .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
+        .header("accept", "text/event-stream")
+        .header("last-event-id", &pushed.new_commit)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let mut stream = resp.bytes_stream();
+    use futures_util::StreamExt;
+    let saw_lagged = tokio::time::timeout(std::time::Duration::from_millis(300), async {
+        while let Some(chunk) = stream.next().await {
+            let text = String::from_utf8_lossy(&chunk.unwrap()).to_string();
+            if text.contains("event: lagged") {
+                return true;
+            }
+        }
+        false
+    })
+    .await
+    .unwrap_or(false);
+    handle.abort();
+    drop(tmp);
+
+    assert!(
+        !saw_lagged,
+        "an unreadable repository must not force a full resync"
     );
 }
 

@@ -141,6 +141,24 @@ async fn post_mcp(
                 .into_response();
         }
     };
+    // JSON-RPC batch (an array of requests): not supported on either
+    // transport. An array has no top-level `id`, so before R2-4 it fell into
+    // the notification branch below and was answered with a bare `202` — no
+    // action taken, no body, and no status a client would treat as failure,
+    // so a batching client waited forever. stdio already answers the same
+    // shape with the same `-32600`; rejecting here keeps the two transports
+    // honest about the same limit (L-4/R2-4).
+    if request.is_array() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(jsonrpc_error(
+                Value::Null,
+                -32600,
+                "invalid request: batch requests are not supported",
+            )),
+        )
+            .into_response();
+    }
     // Notification (no id): accepted → 202, no body (transport spec).
     // Exception: `notifications/cancelled` cannot work over HTTP — there is
     // no server-side registry keyed by requestId, and the only supported
@@ -799,21 +817,51 @@ fn mcp_last_event_id(headers: &HeaderMap) -> LastEventId {
 /// an unlocatable resume position surface `lagged` instead of a silent
 /// plain live stream. Any failure counts as absent: the honest direction
 /// for a repo we cannot inspect is a resync, never silence.
-async fn commit_exists_in_vault(state: &AppState, vault_id: &str, commit: &str) -> bool {
+/// Outcome of the object-database probe (R2-6): `Unknown` is a storage
+/// hiccup (bad vault path, unreadable repository, panicked blocking task),
+/// which must not be answered as "the commit does not exist" — forcing a
+/// full resync on a healthy client because the disk blinked is the wrong
+/// direction.
+enum CommitProbe {
+    Found,
+    Missing,
+    Unknown,
+}
+
+async fn commit_exists_in_vault(state: &AppState, vault_id: &str, commit: &str) -> CommitProbe {
     let Ok(vault_path) = crate::storage::git::storage_vault_path(state.vault_root(), vault_id)
     else {
-        return false;
+        return CommitProbe::Unknown;
     };
     let Ok(oid) = git2::Oid::from_str(commit) else {
-        return false;
+        return CommitProbe::Unknown;
     };
-    tokio::task::spawn_blocking(move || {
+    let probe = tokio::task::spawn_blocking(move || {
         git2::Repository::open_bare(vault_path)
             .map(|repo| repo.find_commit(oid).is_ok())
-            .unwrap_or(false)
+            .map_err(|err| err.message().to_string())
     })
-    .await
-    .unwrap_or(false)
+    .await;
+    match probe {
+        Ok(Ok(true)) => CommitProbe::Found,
+        Ok(Ok(false)) => CommitProbe::Missing,
+        Ok(Err(message)) => {
+            tracing::warn!(
+                vault_id = %vault_id,
+                error = %message,
+                "could not probe whether the resume commit exists; not forcing a resync"
+            );
+            CommitProbe::Unknown
+        }
+        Err(join_err) => {
+            tracing::warn!(
+                vault_id = %vault_id,
+                error = %join_err,
+                "commit-existence probe task failed; not forcing a resync"
+            );
+            CommitProbe::Unknown
+        }
+    }
 }
 
 async fn mcp_replay_events_after(
@@ -843,16 +891,33 @@ async fn mcp_replay_events_after(
     // reconnect): one git oid-exists lookup per vault until one claims it.
     // If no vault the token can see contains it, the resume position is
     // unlocatable — report it like a replay lag rather than silence (M-3).
-    if events_all.is_empty() {
+    // R2-6: a token that can see no vaults has nothing to be "behind" on —
+    // probing (and then reporting lagged on every reconnect, making
+    // full-resync clients spin) was pure downside.
+    if events_all.is_empty() && !vaults.is_empty() {
         let mut known_to_any_vault = false;
+        let mut probe_was_unknown = false;
         for vault in vaults {
-            if commit_exists_in_vault(state, &vault.id, commit).await {
-                known_to_any_vault = true;
-                break;
+            match commit_exists_in_vault(state, &vault.id, commit).await {
+                CommitProbe::Found => {
+                    known_to_any_vault = true;
+                    break;
+                }
+                CommitProbe::Missing => {}
+                CommitProbe::Unknown => probe_was_unknown = true,
             }
         }
-        if !known_to_any_vault {
+        if !known_to_any_vault && !probe_was_unknown {
+            // Definitely absent from every vault the token can see.
             return Ok((None, false));
+        }
+        if !known_to_any_vault {
+            // Could not tell: fall through to a plain live stream rather
+            // than forcing a full resync on a possibly-healthy client.
+            tracing::debug!(
+                commit = %commit,
+                "resume-commit existence could not be determined; serving a live stream"
+            );
         }
     }
     // Only the vault whose history contains `commit` yields events; with more

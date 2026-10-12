@@ -77,7 +77,12 @@ fn auth_for(user_id: &str) -> pkv_sync_server::auth::AuthenticatedUser {
     }
 }
 
-async fn commit_and_broadcast(state: &AppState, user_id: &str, vault_id: &str, tag: &str) {
+async fn commit_and_broadcast(
+    state: &AppState,
+    user_id: &str,
+    vault_id: &str,
+    tag: &str,
+) -> String {
     let user = auth_for(user_id);
     let git = Git2VaultStore::new(state.default_vault_root());
     let commit = git
@@ -97,7 +102,7 @@ async fn commit_and_broadcast(state: &AppState, user_id: &str, vault_id: &str, t
     state.events.publish(
         vault_id,
         VaultEvent {
-            commit,
+            commit: commit.clone(),
             parent: None,
             source_device_id: user.device_id,
             at: 1,
@@ -105,11 +110,23 @@ async fn commit_and_broadcast(state: &AppState, user_id: &str, vault_id: &str, t
             changes: vec![],
         },
     );
+    commit
 }
 
 async fn assert_no_line(rx: &mut mpsc::Receiver<String>, window_ms: u64) {
     if let Ok(line) = tokio::time::timeout(Duration::from_millis(window_ms), rx.recv()).await {
         panic!("expected silence, got line: {line:?}");
+    }
+}
+
+/// Next line as JSON, with a bounded wait so a regression that emits nothing
+/// fails the test instead of hanging the harness.
+async fn expect_line(rx: &mut mpsc::Receiver<String>, what: &str) -> Value {
+    match tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
+        Ok(Some(line)) => serde_json::from_str(&line)
+            .unwrap_or_else(|err| panic!("{what}: unparsable line {line:?}: {err}")),
+        Ok(None) => panic!("{what}: channel closed with no line"),
+        Err(_) => panic!("{what}: no line within 2s"),
     }
 }
 
@@ -729,8 +746,11 @@ async fn stdio_listen_notifications_carry_jsonrpc_2_0() {
 async fn stdio_drain_listens_stops_pushing_after_token_revocation() {
     // M-2: stdio rechecks the token only on the request path, so a revoked
     // session keeps pushing listen updates until EOF. The drain must
-    // revalidate (through the 5s validity cache), clear the listens, and
-    // push nothing.
+    // revalidate (through the 5s validity cache), drop the listens, and push
+    // nothing more. R2-3: dropping an active subscription is terminal and
+    // used to be silent — the client kept waiting for events that could
+    // never come — so the drain first emits one `resources/dropped` per live
+    // listen (with its subscriptionId), then goes quiet.
     let (state, _tmp) = test_state().await;
     let (user_id, raw) = create_user_with_token(&state, "stdio-drain-revoke").await;
     let vault = state.vaults.create(&user_id, "main").await.unwrap();
@@ -769,7 +789,92 @@ async fn stdio_drain_listens_stops_pushing_after_token_revocation() {
 
     commit_and_broadcast(&state, &user_id, &vault_id, "after-revoke").await;
     session.drain_listens(&mut tx).await;
+
+    let dropped = expect_line(&mut rx, "terminal notice for the revoked listen").await;
+    assert_eq!(dropped["method"], "notifications/resources/dropped");
+    assert_eq!(dropped["params"]["uri"], scoped);
+    assert_eq!(
+        dropped["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"],
+        17
+    );
+
+    // The cleared registry must stay cleared: a later commit reaches no
+    // listener even though the session keeps draining.
+    commit_and_broadcast(&state, &user_id, &vault_id, "after-revoke-2").await;
+    session.drain_listens(&mut tx).await;
     assert_no_line(&mut rx, 150).await;
+}
+
+#[tokio::test]
+async fn stdio_drain_listens_survives_transient_token_lookup_errors() {
+    // R2-3: a transient database error during the drain's token recheck used
+    // to be indistinguishable from a revocation (`let Ok(Some(..)) = ... else
+    // cache false`). One hiccup therefore cleared every listen and cached the
+    // "revoked" answer for 5s: the session went permanently silent, with no
+    // error, no notification and no closed channel — the client could not
+    // tell it from "no events happened". The drain must skip the tick, keep
+    // the subscriptions, and push again once the database answers.
+    let (state, _tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&state, "stdio-drain-transient").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let vault_id = vault.id.clone();
+    let session = StdioSession::authenticate(state.clone(), vault.id, raw)
+        .await
+        .unwrap();
+    let scoped = format!("pkv://vault/{vault_id}");
+
+    let (tx, mut rx) = mpsc::channel::<String>(16);
+    let mut tx = tx;
+    session
+        .pump(
+            &listen_request(json!(23), vec![scoped.as_str()]).to_string(),
+            &mut tx,
+        )
+        .await;
+    let _ack: Value = serde_json::from_str(&rx.recv().await.unwrap()).unwrap();
+
+    let commit = commit_and_broadcast(&state, &user_id, &vault_id, "during-outage").await;
+
+    // The validity cache still holds the `Valid` answer from the listen
+    // registration moments ago (std Instant, 5s TTL), so the drain below
+    // must be forced to actually query: revoking ANOTHER user's token bumps
+    // the global token epoch, invalidating the cache without touching this
+    // session's row.
+    let (other_id, _other_raw) = create_user_with_token(&state, "stdio-drain-other").await;
+    state
+        .tokens
+        .revoke_all_for_user(&other_id, chrono::Utc::now().timestamp(), None)
+        .await
+        .unwrap();
+
+    // Genuine repository errors, not "row missing": the lookup table is
+    // absent for the duration of the outage (a closed pool would work too,
+    // but it cannot be reopened to prove recovery).
+    sqlx::query("ALTER TABLE tokens RENAME TO tokens_transient_outage")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    session.drain_listens(&mut tx).await;
+    assert_no_line(&mut rx, 200).await;
+
+    // The outage ends before the 5s validity-cache window does: an
+    // implementation that cached the failure would still refuse to serve
+    // this tick.
+    sqlx::query("ALTER TABLE tokens_transient_outage RENAME TO tokens")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    session.drain_listens(&mut tx).await;
+
+    let update = expect_line(&mut rx, "push after the transient outage").await;
+    assert_eq!(update["method"], "notifications/resources/updated");
+    assert_eq!(update["params"]["commit"], commit);
+
+    // And it is a subscription, not a one-off: later commits keep flowing.
+    let next = commit_and_broadcast(&state, &user_id, &vault_id, "after-outage").await;
+    session.drain_listens(&mut tx).await;
+    let update = expect_line(&mut rx, "push for the next commit").await;
+    assert_eq!(update["params"]["commit"], next);
 }
 
 #[tokio::test]

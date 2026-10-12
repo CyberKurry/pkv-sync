@@ -1762,7 +1762,10 @@ paths:
         Notification-only messages (no `id`) are answered with `202` and no
         body, except `notifications/cancelled`, which returns `405` —
         cancellation on Streamable HTTP is performed by closing the SSE
-        response stream. A `subscriptions/listen` POST switches the response to an SSE
+        response stream. JSON-RPC batches (an array body) are not supported
+        on either transport: an array is rejected with `400` and code
+        `-32600` (`batch requests are not supported`), the same error the
+        stdio transport answers a batch line with. A `subscriptions/listen` POST switches the response to an SSE
         stream (ack-first, `notifications/resources/updated` for
         `pkv://vault/<id>` URIs, cancel by closing the stream, not
         resumable; duplicate URIs in `resourceSubscriptions` are

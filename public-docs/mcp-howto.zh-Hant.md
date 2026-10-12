@@ -36,7 +36,7 @@ PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
-stdio 同時支援兩個協定時代。現代 2026-07-28 用戶端在請求中發送 `_meta` 協定欄位，並收到現代結果封裝；舊版用戶端透過 `initialize` 協商，伺服器會回顯所請求的、它已知的版本（包括 `2026-07-28`），未知版本則回退到最新的舊版本（`2025-11-25`）。現代 stdio 用戶端還可以對限定的筆記庫呼叫 `subscriptions/listen`；工作階段隨後會持續輸出 `notifications/resources/updated` 行，直到用戶端傳送攜帶該 listen 請求 id 的 `notifications/cancelled` 通知（或退出）。
+stdio 同時支援兩個協定時代。現代 2026-07-28 用戶端在請求中發送 `_meta` 協定欄位，並收到現代結果封裝；舊版用戶端透過 `initialize` 協商，伺服器會回顯所請求的、它已知的版本（包括 `2026-07-28`），未知版本則回退到最新的舊版本（`2025-11-25`）。現代 stdio 用戶端還可以對限定的筆記庫呼叫 `subscriptions/listen`；工作階段隨後會持續輸出 `notifications/resources/updated` 行，直到用戶端傳送攜帶該 listen 請求 id 的 `notifications/cancelled` 通知（或退出）。兩種 transport 都不支援 JSON-RPC batch：batch 行（JSON 陣列）會以單條 `-32600 "batch requests are not supported"` 錯誤行應答，而不是靜默。
 
 ## Streamable HTTP transport
 
@@ -64,7 +64,7 @@ MCP 規範中的 `Origin` 請求頭 DNS-rebinding 檢查未在 `/mcp` 上實作�
 
 ## MCP 2026-07-28（現代）用戶端
 
-同一個端點同時服務兩個協定時代。現代用戶端在 `params._meta` 中發送逐請求協定欄位（`io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`），並且必須在 `MCP-Protocol-Version` 請求頭中重複版本、在 `Mcp-Method` 請求頭中重複方法；當請求攜帶 `params.name` 時，還要在 `Mcp-Name` 請求頭中重複名稱（非純 ASCII 時以 `=?base64?...?=` 形式 base64 編碼）。任一請求頭與請求體不符都會返回 HTTP `400` 和 code `-32020`。請求不支援的版本會返回 HTTP `400` 和 code `-32022`，並附上受支援版本列表（`2026-07-28`）。現代請求中的無效參數（例如 `_meta` 格式錯誤，或工具 `arguments` 不是物件）會返回 HTTP `400` 和 code `-32602`。未知方法返回 HTTP `404` 和 `-32601`；不含 `id` 的純通知訊息以 HTTP `202` 應答且無回應體，但 `notifications/cancelled` 除外——它返回 `405`：在 Streamable HTTP 上，取消是透過關閉 SSE 回應串流完成的。
+同一個端點同時服務兩個協定時代。現代用戶端在 `params._meta` 中發送逐請求協定欄位（`io.modelcontextprotocol/protocolVersion` 和 `io.modelcontextprotocol/clientCapabilities`），並且必須在 `MCP-Protocol-Version` 請求頭中重複版本、在 `Mcp-Method` 請求頭中重複方法；當請求攜帶 `params.name` 時，還要在 `Mcp-Name` 請求頭中重複名稱（非純 ASCII 時以 `=?base64?...?=` 形式 base64 編碼）。任一請求頭與請求體不符都會返回 HTTP `400` 和 code `-32020`。請求不支援的版本會返回 HTTP `400` 和 code `-32022`，並附上受支援版本列表（`2026-07-28`）。現代請求中的無效參數（例如 `_meta` 格式錯誤，或工具 `arguments` 不是物件）會返回 HTTP `400` 和 code `-32602`。未知方法返回 HTTP `404` 和 `-32601`；不含 `id` 的純通知訊息以 HTTP `202` 應答且無回應體，但 `notifications/cancelled` 除外——它返回 `405`：在 Streamable HTTP 上，取消是透過關閉 SSE 回應串流完成的。兩種 transport 都不支援 JSON-RPC batch：`POST /mcp` 的陣列請求體會返回 HTTP `400` 和 code `-32600`（`batch requests are not supported`），與 stdio 對 batch 行的應答一致，而不是假裝接受並返回 `202`。
 
 現代結果帶有 `resultType`，`tools/list` 和 `server/discover` 還會額外帶有 `ttlMs`/`cacheScope` 快取提示。`server/discover` 會報告 `supportedVersions`，用戶端可以在連線前據此選擇協定時代。（僅現代版本；舊版 `initialize` 協商不在此列表內）舊版 `initialize` 用戶端仍可使用：伺服器會回顯所請求的舊版本；若請求的是現代版本 `2026-07-28` 則原樣回顯，未知版本則回退到最新的舊版本（`2025-11-25`），並以舊版封裝應答。
 

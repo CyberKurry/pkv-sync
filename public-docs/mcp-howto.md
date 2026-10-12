@@ -52,7 +52,9 @@ newest legacy version (`2025-11-25`). Modern stdio clients can also call
 `subscriptions/listen` for the scoped vault; the session then prints
 `notifications/resources/updated` lines until the client sends a
 `notifications/cancelled` notification carrying the listen's request id (or
-exits).
+exits). JSON-RPC batches are not supported on either transport: a batch line
+(a JSON array) is answered with a single `-32600 "batch requests are not
+supported"` error line instead of silence.
 
 ## Streamable HTTP transport
 
@@ -113,7 +115,10 @@ example a malformed `_meta` or non-object tool `arguments` — return HTTP
 `404` with `-32601`, and notification-only messages (no `id`) are answered
 with HTTP `202` and no body, except `notifications/cancelled`, which returns
 `405`: cancellation over Streamable HTTP is done by closing the SSE
-response stream.
+response stream. JSON-RPC batches are not supported on either transport:
+an array body on `POST /mcp` returns HTTP `400` with code `-32600`
+(`batch requests are not supported`) — the same error stdio answers a batch
+line with — rather than a `202` that pretends to have accepted it.
 
 Modern results carry `resultType`, and `tools/list` and `server/discover`
 additionally carry `ttlMs`/`cacheScope` cache hints. `server/discover`

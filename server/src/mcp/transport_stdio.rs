@@ -1,6 +1,6 @@
 use crate::auth::{token, AuthenticatedUser};
 use crate::db::repos::{TokenRepo, UserRepo, VaultRepo};
-use crate::mcp::auth::{mcp_token_still_valid, TokenValidityCache};
+use crate::mcp::auth::{mcp_token_validity, TokenValidity, TokenValidityCache};
 use crate::mcp::protocol::Era;
 use crate::mcp::tools;
 use crate::service::events::VaultEvent;
@@ -29,6 +29,11 @@ pub struct StdioSession {
     token_hash: String,
     validity_cache: Mutex<TokenValidityCache>,
     listens: Mutex<HashMap<String, ListenEntry>>,
+    /// One-shot report latch for a transient token-revalidation outage: the
+    /// drain tick runs every 50ms, so a database outage must not log on every
+    /// tick. Set on the transition into a transient streak, cleared the next
+    /// time the token check answers.
+    transient_token_check_reported: std::sync::atomic::AtomicBool,
 }
 
 struct ListenEntry {
@@ -83,6 +88,7 @@ impl StdioSession {
             token_hash,
             validity_cache: Mutex::new(TokenValidityCache::default()),
             listens: Mutex::new(HashMap::new()),
+            transient_token_check_reported: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -92,8 +98,14 @@ impl StdioSession {
     /// the listen drain — since a registered listen outlives its request
     /// and would otherwise keep pushing to a revoked session until EOF.
     async fn token_still_valid(&self) -> bool {
+        matches!(self.token_validity().await, TokenValidity::Valid)
+    }
+
+    /// Same recheck, but with the transient/terminal distinction the drain
+    /// needs (R2-3).
+    async fn token_validity(&self) -> TokenValidity {
         let mut validity_cache = self.validity_cache.lock().await;
-        mcp_token_still_valid(
+        mcp_token_validity(
             &self.state,
             &self.token_hash,
             &self.user,
@@ -225,9 +237,61 @@ impl StdioSession {
         // receiving pushes until EOF). One check per drain covers every
         // entry; the 5s validity cache keeps the cost negligible on the
         // 50ms tick.
-        if !self.token_still_valid().await {
-            self.listens.lock().await.clear();
-            return;
+        match self.token_validity().await {
+            TokenValidity::Valid => {
+                self.transient_token_check_reported
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+            }
+            TokenValidity::Revoked => {
+                // Terminal. The subscription cannot be served any more, and
+                // silence would leave the client believing it is still
+                // subscribed (stdio has no channel close to lean on), so the
+                // client gets one `notifications/resources/dropped` per
+                // active listen — the same "you missed events, re-read the
+                // resource" vocabulary the lagged path already uses — before
+                // the registry is cleared.
+                let mut listens = self.listens.lock().await;
+                let lines: Vec<String> = listens
+                    .values()
+                    .map(|entry| {
+                        serde_json::to_string(&crate::mcp::notifications::resources_dropped(
+                            &entry.vault_id,
+                            &entry.id,
+                        ))
+                        .unwrap_or_default()
+                    })
+                    .collect();
+                let dropped = listens.len();
+                listens.clear();
+                drop(listens);
+                for line in lines {
+                    let _ = tx.send(line).await;
+                }
+                if dropped > 0 {
+                    tracing::warn!(
+                        vault_id = %self.vault_id,
+                        subscriptions = dropped,
+                        "stdio session token is no longer valid; dropped its listen subscriptions"
+                    );
+                }
+                return;
+            }
+            TokenValidity::Transient => {
+                // The database did not answer, so nothing is known about the
+                // token: keep every listen and retry on the next tick.
+                // Clearing here (pre-R2-3) turned one database hiccup into a
+                // permanently silent session.
+                if !self
+                    .transient_token_check_reported
+                    .swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    tracing::warn!(
+                        vault_id = %self.vault_id,
+                        "token revalidation hit a transient database error; keeping listen subscriptions and retrying"
+                    );
+                }
+                return;
+            }
         }
         let mut listens = self.listens.lock().await;
         let mut lines = Vec::new();

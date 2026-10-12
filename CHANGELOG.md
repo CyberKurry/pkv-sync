@@ -114,6 +114,23 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- MCP token revalidation now distinguishes a transient database error from
+  a revocation (R2-3): a failed lookup is no longer cached as "revoked"
+  and the stdio drain keeps its listen subscriptions and retries instead of
+  silently wiping them; a genuinely revoked session now receives one
+  `notifications/resources/dropped` per subscription before the pushes
+  stop, instead of silence.
+- JSON-RPC batch requests (array bodies) are rejected on the HTTP MCP
+  endpoint with `400` / `-32600 "batch requests are not supported"` (R2-4),
+  matching the stdio transport — a batch previously received a bare `202`
+  that accepted nothing and left batching clients waiting forever.
+- The bearer-token parser accepts multiple spaces between the scheme and
+  the credential (RFC 7235 `1*SP`), for both REST and MCP (R2-5).
+- MCP SSE reconnects no longer force a `lagged` resync when the resume
+  probe cannot answer (zero visible vaults, or an unreadable repository):
+  only a commit that is definitely absent from every visible vault does
+  (R2-6).
+
 - The shutdown signal now latches even when it is triggered before any
   subscriber exists (`watch::Sender::send` drops the value with zero
   receivers), so a SIGTERM arriving before the SSE handlers subscribe can
