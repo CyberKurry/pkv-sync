@@ -16,6 +16,9 @@ use tokio::sync::Mutex;
 
 pub(crate) const GENERIC_MCP_AUTH_ERROR: &str = "invalid or revoked token";
 pub(crate) const GENERIC_MCP_INTERNAL_ERROR: &str = "internal server error";
+/// Marker for a non-object `tools/call` `arguments` value; mapped to
+/// `-32602 invalid params` by both era dispatchers (L-5).
+const INVALID_TOOL_ARGUMENTS: &str = "invalid params: arguments must be an object";
 
 const LISTEN_DRAIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 
@@ -123,6 +126,26 @@ impl StdioSession {
                 return;
             }
         };
+        if msg.is_array() {
+            // JSON-RPC batch (an array of requests). Batches are not
+            // supported, and silence here would leave a client waiting
+            // forever for responses that never come (L-4) — answer the
+            // line with a single invalid-request error instead. HTTP
+            // answers the same shape with 202 (the 2026-07-28 spec leaves
+            // batches undefined), but stdio has no status code to lean on,
+            // so an explicit error is the only honest answer.
+            let _ = tx
+                .send(
+                    jsonrpc_error(
+                        Value::Null,
+                        -32600,
+                        "invalid request: batch requests are not supported",
+                    )
+                    .to_string(),
+                )
+                .await;
+            return;
+        }
         if msg.get("id").is_none() {
             if msg.get("method").and_then(Value::as_str) == Some("notifications/cancelled") {
                 if let Some(rid) = msg.pointer("/params/requestId") {
@@ -504,6 +527,9 @@ pub(crate) async fn handle_jsonrpc(
                         "id": id,
                         "result": result
                     }),
+                    Err(err) if err.to_string() == INVALID_TOOL_ARGUMENTS => {
+                        jsonrpc_error(id, -32602, INVALID_TOOL_ARGUMENTS)
+                    }
                     Err(err) => {
                         let message = mcp_tool_error_public_message(&err);
                         jsonrpc_error(id, -32000, &message)
@@ -559,6 +585,9 @@ pub(crate) async fn handle_modern_jsonrpc(
                         let result = crate::mcp::protocol::decorate_result(result, None);
                         json!({"jsonrpc": "2.0", "id": id, "result": result})
                     }
+                    Err(err) if err.to_string() == INVALID_TOOL_ARGUMENTS => {
+                        jsonrpc_error(id, -32602, INVALID_TOOL_ARGUMENTS)
+                    }
                     Err(err) => {
                         let message = mcp_tool_error_public_message(&err);
                         jsonrpc_error(id, -32000, &message)
@@ -577,6 +606,14 @@ async fn call_tool(
     vault_scope: Option<&str>,
     params: ToolCallParams,
 ) -> Result<Value> {
+    // Non-object `arguments` (e.g. `[1,2]` or `"x"`) must fail here with a
+    // recognizable marker, not inside the per-tool `from_value` — that
+    // path classifies the failure as an internal error (-32000 plus an
+    // ERROR log), misreporting a client mistake as server breakage (L-5).
+    // Both dispatch eras map the marker to -32602 invalid params.
+    if !params.arguments.is_object() && !params.arguments.is_null() {
+        return Err(anyhow!(INVALID_TOOL_ARGUMENTS));
+    }
     let arguments = match params.arguments {
         Value::Null => json!({}),
         other => other,

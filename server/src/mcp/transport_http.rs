@@ -114,21 +114,12 @@ async fn post_mcp(
     if !is_json_content_type(&headers) {
         return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
     }
-    let max_file_size = state.runtime_cfg.max_file_size().await;
-    let body = match to_bytes(body, mcp_json_body_limit_bytes(max_file_size)).await {
-        Ok(body) => body,
-        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
-    };
-    let request = match serde_json::from_slice::<Value>(&body) {
-        Ok(request) => request,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(jsonrpc_error(Value::Null, -32700, "parse error")),
-            )
-                .into_response();
-        }
-    };
+    // Header-only checks first, body work only after authentication (M-4):
+    // a bearer check needs nothing from the stream, and reading the body
+    // costs up to ~100 MiB of buffering plus a JSON parse. The old order
+    // answered invalid credentials with the parse error (and did all the
+    // work first), so unauthenticated callers could make the server buffer
+    // and parse arbitrarily large bodies.
     let Some(raw) = bearer(&headers) else {
         return (
             StatusCode::UNAUTHORIZED,
@@ -147,6 +138,21 @@ async fn post_mcp(
                     ERR_AUTH,
                     mcp_auth_error_public_message(&message),
                 )),
+            )
+                .into_response();
+        }
+    };
+    let max_file_size = state.runtime_cfg.max_file_size().await;
+    let body = match to_bytes(body, mcp_json_body_limit_bytes(max_file_size)).await {
+        Ok(body) => body,
+        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    };
+    let request = match serde_json::from_slice::<Value>(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(jsonrpc_error(Value::Null, -32700, "parse error")),
             )
                 .into_response();
         }
@@ -212,7 +218,8 @@ async fn post_mcp(
                     .into_response();
             }
             if request.get("method").and_then(Value::as_str) == Some("subscriptions/listen") {
-                let raw = bearer(&headers).expect("checked earlier");
+                // `raw` was extracted and validated before the body was
+                // read (M-4); reuse it instead of re-parsing the header.
                 return listen_response(state, user, crate::auth::token::hash(raw), request).await;
             }
             handle_modern_jsonrpc(&state, &user, None, request).await
@@ -342,37 +349,44 @@ async fn get_mcp_sse(
     crate::api::vaults::debug_pause_after_subscribe_for_tests().await;
 
     let replay_items: VecDeque<McpSseItem> = match mcp_last_event_id(&headers) {
-        Some(commit) => match mcp_replay_events_after(&state, &vaults, &commit).await {
-            Ok((Some(events), unmatched_vaults)) => {
-                let mut items: VecDeque<McpSseItem> = events
-                    .into_iter()
-                    .filter_map(|(vault_id, event)| {
-                        let commit = event.commit.clone();
-                        let notification =
-                            crate::mcp::notifications::vault_changed(commit.clone(), event);
-                        let data = serde_json::to_string(&notification).ok()?;
-                        Some(McpSseItem::VaultChanged {
-                            vault_id,
-                            commit,
-                            data,
+        // Invalid values skip replay entirely: the client asked to resume
+        // from a position the server cannot interpret, so the first event
+        // is the documented lagged signal (full resync) — never a plain
+        // live stream that leaves the client believing it is caught up.
+        LastEventId::Invalid(_) => VecDeque::from([McpSseItem::Lagged { vault_id: None }]),
+        LastEventId::Commit(commit) => {
+            match mcp_replay_events_after(&state, &vaults, &commit).await {
+                Ok((Some(events), unmatched_vaults)) => {
+                    let mut items: VecDeque<McpSseItem> = events
+                        .into_iter()
+                        .filter_map(|(vault_id, event)| {
+                            let commit = event.commit.clone();
+                            let notification =
+                                crate::mcp::notifications::vault_changed(commit.clone(), event);
+                            let data = serde_json::to_string(&notification).ok()?;
+                            Some(McpSseItem::VaultChanged {
+                                vault_id,
+                                commit,
+                                data,
+                            })
                         })
-                    })
-                    .collect();
-                // A single Last-Event-ID only identifies one vault's position;
-                // every other vault's missed commits are unknowable, so tell
-                // the client to resync (BUG-R3-13). Vault-agnostic by
-                // nature: no single vault can be named.
-                if unmatched_vaults {
-                    items.push_back(McpSseItem::Lagged { vault_id: None });
+                        .collect();
+                    // A single Last-Event-ID only identifies one vault's position;
+                    // every other vault's missed commits are unknowable, so tell
+                    // the client to resync (BUG-R3-13). Vault-agnostic by
+                    // nature: no single vault can be named.
+                    if unmatched_vaults {
+                        items.push_back(McpSseItem::Lagged { vault_id: None });
+                    }
+                    items
                 }
-                items
+                Ok((None, _)) => VecDeque::from([McpSseItem::Lagged { vault_id: None }]),
+                Err(err) => {
+                    return mcp_internal_error_response(err);
+                }
             }
-            Ok((None, _)) => VecDeque::from([McpSseItem::Lagged { vault_id: None }]),
-            Err(err) => {
-                return mcp_internal_error_response(err);
-            }
-        },
-        None => VecDeque::new(),
+        }
+        LastEventId::Absent => VecDeque::new(),
     };
     // Suppression is keyed by (vault_id, commit): a bare commit id is a git
     // OID, and identical root commits across vaults (same template, same
@@ -753,6 +767,60 @@ async fn run_listen_stream(mut listen: ListenState, tx: mpsc::Sender<Result<Even
     }
 }
 
+/// Parsed `Last-Event-ID` header (M-3). `Absent` means no resume was
+/// requested (plain live stream, no replay). A present-but-unusable value
+/// (`Invalid`: empty, contains `:`, or not a 40-hex OID) must NOT degrade
+/// to "no resume requested" — the client explicitly asked to resume, so it
+/// gets the documented `lagged` signal and no replay. `Commit` is a
+/// syntactically valid OID that replay will try to locate.
+enum LastEventId {
+    Absent,
+    /// The offending value is carried for debuggability (matching the
+    /// audit's enum shape) but deliberately never echoed into any
+    /// response: the lagged contract carries no payload.
+    #[allow(dead_code)]
+    Invalid(String),
+    Commit(String),
+}
+
+fn mcp_last_event_id(headers: &HeaderMap) -> LastEventId {
+    let Some(header_value) = headers.get("last-event-id") else {
+        return LastEventId::Absent;
+    };
+    // The public docs reject `:`-bearing values as resume positions, and a
+    // commit id here is a bare SHA-1 OID (40 hex digits).
+    let raw = header_value.to_str().ok().unwrap_or_default().trim();
+    if raw.len() == 40 && !raw.contains(':') && raw.bytes().all(|b| b.is_ascii_hexdigit()) {
+        LastEventId::Commit(raw.to_string())
+    } else {
+        LastEventId::Invalid(raw.to_string())
+    }
+}
+
+/// Whether `commit` exists in the vault's object database (M-3). An empty
+/// replay batch is ambiguous — "nothing was missed" and "cannot locate the
+/// commit" (GC'd history, rollback, state imported from another server)
+/// both come back as `Events(vec![])` — so this distinguishes them and lets
+/// an unlocatable resume position surface `lagged` instead of a silent
+/// plain live stream. Any failure counts as absent: the honest direction
+/// for a repo we cannot inspect is a resync, never silence.
+async fn commit_exists_in_vault(state: &AppState, vault_id: &str, commit: &str) -> bool {
+    let Ok(vault_path) = crate::storage::git::storage_vault_path(state.vault_root(), vault_id)
+    else {
+        return false;
+    };
+    let Ok(oid) = git2::Oid::from_str(commit) else {
+        return false;
+    };
+    tokio::task::spawn_blocking(move || {
+        git2::Repository::open_bare(vault_path)
+            .map(|repo| repo.find_commit(oid).is_ok())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
+}
+
 async fn mcp_replay_events_after(
     state: &AppState,
     vaults: &[crate::db::repos::Vault],
@@ -775,6 +843,23 @@ async fn mcp_replay_events_after(
             }
         }
     }
+    // A non-empty batch proves some vault located the commit, so the
+    // existence check only runs in the empty case (the common caught-up
+    // reconnect): one git oid-exists lookup per vault until one claims it.
+    // If no vault the token can see contains it, the resume position is
+    // unlocatable — report it like a replay lag rather than silence (M-3).
+    if events_all.is_empty() {
+        let mut known_to_any_vault = false;
+        for vault in vaults {
+            if commit_exists_in_vault(state, &vault.id, commit).await {
+                known_to_any_vault = true;
+                break;
+            }
+        }
+        if !known_to_any_vault {
+            return Ok((None, false));
+        }
+    }
     // Only the vault whose history contains `commit` yields events; with more
     // than one vault the others' positions are unknown and the caller appends
     // a lagged signal (BUG-R3-13).
@@ -782,22 +867,17 @@ async fn mcp_replay_events_after(
     Ok((Some(events_all), unmatched_vaults))
 }
 
-fn mcp_last_event_id(headers: &HeaderMap) -> Option<String> {
-    let raw = headers
-        .get("last-event-id")
-        .and_then(|value| value.to_str().ok())?
-        .trim();
-    if raw.is_empty() || raw.contains(':') {
-        return None;
-    }
-    Some(raw.to_string())
-}
-
+/// Extract the bearer token from the Authorization header. RFC 9110 §11.1
+/// makes the auth-scheme case-insensitive, so `bearer`/`BEARER`/`BeArEr`
+/// all match; exactly one space separates scheme and token (JSON-RPC
+/// clients send the canonical form, and tolerating more whitespace would
+/// blur what the token bytes are).
 fn bearer(headers: &HeaderMap) -> Option<&str> {
-    headers
+    let value = headers
         .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
+        .and_then(|value| value.to_str().ok())?;
+    let (scheme, rest) = value.split_once(' ')?;
+    scheme.eq_ignore_ascii_case("bearer").then_some(rest)
 }
 
 #[cfg(test)]
@@ -1431,6 +1511,225 @@ mod tests {
         );
     }
 
+    fn get_sse(raw: &str, last_event_id: Option<&str>) -> HttpRequest<Body> {
+        let mut builder = HttpRequest::builder()
+            .method("GET")
+            .uri("/mcp")
+            .header(header::ACCEPT, "text/event-stream")
+            .header(deployment_key::HEADER, "k_test")
+            .header(header::AUTHORIZATION, format!("Bearer {raw}"));
+        if let Some(id) = last_event_id {
+            builder = builder.header("Last-Event-ID", id);
+        }
+        builder.body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn get_sse_unparsable_last_event_id_signals_lagged() {
+        // M-3: a Last-Event-ID containing ':' cannot name a resume
+        // position. It used to be read as "no resume requested" — a plain
+        // live stream with no lag marker, so a client that asked to resume
+        // believed it was caught up. The stream's first event must be the
+        // documented `lagged` signal (full resync).
+        let ls = listen_server().await;
+        let app = listen_router(&ls.state);
+        // A commit exists and must NOT be replayed: replay is skipped
+        // entirely when the resume position is unusable.
+        commit_to_vault(&ls).await;
+
+        let response = app
+            .oneshot(get_sse(&ls.raw, Some("bad:value")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        let mut body = String::new();
+        read_sse_until(
+            &mut body,
+            &mut stream,
+            |body| body.contains("event: lagged"),
+            "lagged event",
+        )
+        .await;
+
+        assert!(
+            body.trim_start().starts_with("event: lagged"),
+            "lagged must be the first event, got: {body}"
+        );
+        assert!(
+            body.contains("event: lagged\ndata: \n"),
+            "replay-level lag is vault-agnostic and keeps empty data, got: {body}"
+        );
+        assert!(
+            !body.contains("event: vault_changed"),
+            "an unusable resume position must not replay anything, got: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_sse_unknown_commit_last_event_id_signals_lagged() {
+        // M-3: a well-formed 40-hex OID that no vault the token can see
+        // contains (GC'd history, rollback, or state imported from another
+        // server) used to replay as an empty batch with no marker — a
+        // silent permanent fork for single-vault clients. It must surface
+        // `lagged` too.
+        let ls = listen_server().await;
+        let app = listen_router(&ls.state);
+        commit_to_vault(&ls).await;
+
+        let unknown = "0".repeat(40);
+        let response = app.oneshot(get_sse(&ls.raw, Some(&unknown))).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        let mut body = String::new();
+        read_sse_until(
+            &mut body,
+            &mut stream,
+            |body| body.contains("event: lagged"),
+            "lagged event",
+        )
+        .await;
+
+        assert!(
+            body.trim_start().starts_with("event: lagged"),
+            "lagged must be the first event, got: {body}"
+        );
+        assert!(
+            !body.contains("event: vault_changed"),
+            "an unlocatable resume position must not replay anything, got: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_sse_caught_up_last_event_id_signals_no_lag_and_stays_live() {
+        // M-3 control: resuming at the current head is the normal
+        // caught-up reconnect — no lagged marker may be emitted (that
+        // would force a pointless full resync), and the live stream must
+        // keep delivering later commits.
+        let ls = listen_server().await;
+        let app = listen_router(&ls.state);
+        let head = commit_to_vault(&ls).await;
+
+        let response = app.oneshot(get_sse(&ls.raw, Some(&head))).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        let mut body = String::new();
+
+        let next = commit_to_vault_after(&ls, Some(&head)).await;
+        read_sse_until(
+            &mut body,
+            &mut stream,
+            |body| body.contains(&format!("id: {next}")),
+            "live commit after caught-up reconnect",
+        )
+        .await;
+
+        assert!(
+            !body.contains("event: lagged"),
+            "a caught-up reconnect must not signal lag, got: {body}"
+        );
+        assert!(
+            !body.contains(&format!("id: {head}")),
+            "the resume commit itself must not be replayed, got: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn post_mcp_authenticates_before_reading_the_body() {
+        // M-4: authentication needs only headers, but the handler used to
+        // buffer (up to ~100 MiB) and parse the body first — so a request
+        // with invalid credentials and an unparsable body got the 400
+        // parse error instead of 401, and unauthenticated clients could
+        // make the server do the body work. 401 must win.
+        let state = state().await;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let request = HttpRequest::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("content-type", "application/json")
+            .header(deployment_key::HEADER, "k_test")
+            .header(header::AUTHORIZATION, "Bearer not-a-real-token")
+            .body(Body::from("{not json"))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn bearer_scheme_match_is_case_insensitive() {
+        // L-1: RFC 9110 §11.1 makes the auth-scheme case-insensitive;
+        // `bearer <token>` used to be rejected as "missing bearer token".
+        let state = state().await;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let body = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}
+        })
+        .to_string();
+        for scheme in ["bearer", "BEARER", "BeArEr"] {
+            let request = HttpRequest::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header(deployment_key::HEADER, "k_test")
+                .header(header::AUTHORIZATION, format!("{scheme} {raw}"))
+                .body(Body::from(body.clone()))
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::OK,
+                "scheme {scheme:?} must authenticate like Bearer"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_tools_call_array_arguments_is_invalid_params() {
+        // L-5 (HTTP legacy era): `arguments: [1,2]` used to fail inside
+        // the per-tool from_value and surface as -32000 "internal server
+        // error" with an ERROR log — a client mistake misreported as
+        // server breakage. It must be -32602 like other params errors.
+        let state = state().await;
+        let (_user_id, raw) = create_user_token(&state, "u1").await;
+        let app = router_with_rate_limiter(
+            state,
+            crate::middleware::rate_limit::RequestRateLimiter::mcp_http(),
+            "k_test".into(),
+        );
+        let body = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "list_files", "arguments": [1, 2]}
+        })
+        .to_string();
+        let request = HttpRequest::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("content-type", "application/json")
+            .header(deployment_key::HEADER, "k_test")
+            .header(header::AUTHORIZATION, format!("Bearer {raw}"))
+            .body(Body::from(body))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response).await;
+        assert_eq!(body["error"]["code"], -32602);
+        assert_eq!(
+            body["error"]["message"], "invalid params: arguments must be an object",
+            "got: {body}"
+        );
+    }
+
     fn listen_body(filter: serde_json::Value) -> String {
         serde_json::json!({
             "jsonrpc": "2.0", "id": 1, "method": "subscriptions/listen",
@@ -1489,12 +1788,16 @@ mod tests {
     }
 
     async fn commit_to_vault(ls: &ListenServer) -> String {
+        commit_to_vault_after(ls, None).await
+    }
+
+    async fn commit_to_vault_after(ls: &ListenServer, parent: Option<&str>) -> String {
         use crate::service::sync::{push, PushChange, PushReq};
         push(
             &ls.state,
             &auth_for(&ls.user_id),
             &ls.vault_id,
-            None,
+            parent,
             None,
             PushReq {
                 device_name: Some("listen-test".into()),

@@ -91,6 +91,30 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- MCP `GET /mcp` now honors an unusable `Last-Event-ID` instead of
+  silently treating it as "no resume requested": a value that is empty,
+  contains `:`, or is not a 40-hex OID makes the stream's first event a
+  `lagged` marker (full resync, the documented contract), and a
+  well-formed OID that no vault the token can see contains — GC'd
+  history, a rollback, or state imported from another server — gets the
+  same marker instead of an empty replay that left single-vault clients
+  believing they were caught up (ultrareview M-3).
+- `POST /mcp` authenticates the bearer token before reading or parsing
+  the request body: invalid credentials now get `401` without the server
+  buffering up to ~100 MiB first, and the listen path reuses the already
+  validated token instead of re-parsing the Authorization header
+  (ultrareview M-4).
+- The `/mcp` Authorization scheme is now case-insensitive per RFC 9110
+  §11.1: `bearer`/`BEARER`/`BeArEr` prefixes authenticate like `Bearer`
+  (exactly one space still separates scheme and token) (ultrareview L-1).
+- `pkvsyncd mcp` over stdio answers a JSON-RPC batch line (a JSON array)
+  with a `-32600 "batch requests are not supported"` error instead of
+  silence — a batched client previously waited forever for responses
+  that never came (ultrareview L-4).
+- MCP `tools/call` with a non-object `arguments` value (e.g. `[1,2]`)
+  now returns `-32602 invalid params: arguments must be an object` on
+  both the legacy and modern eras instead of `-32000 internal server
+  error` plus an error-level log (ultrareview L-5).
 - Pushes now persist their metadata (activity, stats, and the `blob_refs`
   rows that authorize downloads) before broadcasting the commit event.
   Previously the event was published first, opening a window where other

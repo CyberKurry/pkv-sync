@@ -775,6 +775,96 @@ async fn stdio_unknown_notification_is_silence() {
 }
 
 #[tokio::test]
+async fn stdio_batch_array_line_answers_invalid_request() {
+    // L-4: a JSON-RPC batch (array) line used to parse as Value::Array,
+    // fall into the no-id branch, and produce silence — a client that sent
+    // a batch waited forever. Answer with -32600 instead.
+    let (session, _state, _user_id, _vault_id, _tmp) =
+        session_with_vault("stdio-batch-array").await;
+
+    let lines = send_line(&session, r#"[{"jsonrpc":"2.0"}]"#).await;
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["error"]["code"], -32600);
+    assert!(
+        lines[0]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("batch"),
+        "error must name batch support, got: {}",
+        lines[0]
+    );
+}
+
+#[tokio::test]
+async fn stdio_batch_array_with_ids_answers_invalid_request() {
+    // L-4 variant: batches that DO carry member ids still cannot be
+    // answered member-wise; the whole line gets the single -32600 error.
+    let (session, _state, _user_id, _vault_id, _tmp) = session_with_vault("stdio-batch-ids").await;
+
+    let lines = send_line(
+        &session,
+        r#"[{"jsonrpc":"2.0","id":1,"method":"tools/list"},{"jsonrpc":"2.0","id":2,"method":"tools/list"}]"#,
+    )
+    .await;
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["error"]["code"], -32600);
+}
+
+#[tokio::test]
+async fn stdio_tools_call_array_arguments_is_invalid_params() {
+    // L-5: non-object `arguments` used to fail the per-tool from_value and
+    // surface as -32000 "internal server error" (plus an ERROR log) —
+    // misreporting a client mistake as server breakage. Both eras must
+    // answer -32602 invalid params instead.
+    let (session, _state, _user_id, _vault_id, _tmp) = session_with_vault("stdio-args-array").await;
+
+    let legacy = send(
+        &session,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "legacy-array-args",
+            "method": "tools/call",
+            "params": {"name": "list_files", "arguments": [1, 2]}
+        }),
+    )
+    .await;
+    assert_eq!(legacy.len(), 1);
+    assert_eq!(legacy[0]["id"], "legacy-array-args");
+    assert_eq!(legacy[0]["error"]["code"], -32602);
+    assert_eq!(
+        legacy[0]["error"]["message"], "invalid params: arguments must be an object",
+        "got: {}",
+        legacy[0]
+    );
+
+    let modern = send(
+        &session,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "modern-array-args",
+            "method": "tools/call",
+            "params": {
+                "name": "list_files",
+                "arguments": [1, 2],
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(modern.len(), 1);
+    assert_eq!(modern[0]["id"], "modern-array-args");
+    assert_eq!(modern[0]["error"]["code"], -32602);
+    assert_eq!(
+        modern[0]["error"]["message"], "invalid params: arguments must be an object",
+        "got: {}",
+        modern[0]
+    );
+}
+
+#[tokio::test]
 async fn stdio_parse_error_writes_minus_32700() {
     let (session, _state, _user_id, _vault_id, _tmp) =
         session_with_vault("stdio-parse-error").await;

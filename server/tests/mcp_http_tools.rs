@@ -119,7 +119,14 @@ async fn http_mcp_auth_failures_are_limited_per_client_source() {
 }
 
 #[tokio::test]
-async fn http_mcp_rejects_oversized_json_bodies_before_auth() {
+async fn http_mcp_rejects_oversized_json_bodies() {
+    // M-4 reordered the handler: authentication (header-only) runs before
+    // the body is buffered, so a bad token now gets 401 without any body
+    // work — covered by the in-module
+    // `post_mcp_authenticates_before_reading_the_body` test. What this
+    // test still pins is the size limit itself: an *authenticated* request
+    // above `min(6*max_file_size+1 MiB, 100 MiB)` is rejected 413 before
+    // the JSON parse.
     let (state, _tmp) = test_state().await;
     state
         .runtime_cfg_repo
@@ -128,6 +135,7 @@ async fn http_mcp_rejects_oversized_json_bodies_before_auth() {
         .unwrap();
     let cfg = state.runtime_cfg_repo.load().await.unwrap();
     state.runtime_cfg.replace(cfg).await;
+    let (_user_id, raw) = create_user_with_token(&state, "oversized-body").await;
     let body = format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"tools/list","padding":"{}"}}"#,
         "x".repeat(2 * 1024 * 1024)
@@ -137,7 +145,7 @@ async fn http_mcp_rejects_oversized_json_bodies_before_auth() {
         .uri("/mcp")
         .header("content-type", "application/json")
         .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
-        .header("authorization", "Bearer not-a-token")
+        .header("authorization", format!("Bearer {raw}"))
         .body(Body::from(body))
         .unwrap();
     req.extensions_mut().insert(ConnectInfo(
