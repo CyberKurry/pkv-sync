@@ -97,11 +97,6 @@ class FakeIndex implements IndexPersistence {
     return this.idx;
   }
 
-  async saveIndex(index: LocalIndex): Promise<void> {
-    this.saved = index;
-    this.idx = index;
-  }
-
   async updateIndex(
     updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>
   ): Promise<void> {
@@ -132,11 +127,6 @@ class RacyIndex extends FakeIndex {
         [this.path]: this.entry
       }
     };
-  }
-
-  async saveIndex(index: LocalIndex): Promise<void> {
-    this.injectConcurrentUpdate();
-    await super.saveIndex(index);
   }
 
   async updateIndex(

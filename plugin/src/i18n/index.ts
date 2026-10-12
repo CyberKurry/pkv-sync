@@ -5,9 +5,9 @@ import { zh } from "./zh";
 import { zhHant } from "./zh-Hant";
 import type { PluginLanguage } from "../settings";
 
-export type Lang = Exclude<PluginLanguage, "auto">;
+type Lang = Exclude<PluginLanguage, "auto">;
 export type Strings = typeof en;
-export type FormatValue = string | number | boolean | null | undefined;
+type FormatValue = string | number | boolean | null | undefined;
 
 const languageBundles = {
   en,
@@ -17,7 +17,7 @@ const languageBundles = {
   ko
 } satisfies Record<Lang, Strings>;
 
-export const languageReviewStatus = {
+const languageReviewStatus = {
   en: false,
   "zh-CN": false,
   "zh-Hant": false,

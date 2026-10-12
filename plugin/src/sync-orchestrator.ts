@@ -46,10 +46,6 @@ export class SyncOrchestrator {
       api: new SyncApi(this.plugin.api()),
       index: {
         loadIndex: () => this.plugin.loadSyncIndex(scopeKey),
-        saveIndex: async (index) => {
-          if (generation !== this.plugin.syncGeneration) return;
-          await this.plugin.saveSyncIndex(index, scopeKey);
-        },
         updateIndex: async (updater) => {
           if (generation !== this.plugin.syncGeneration) return;
           await this.plugin.updateSyncIndex(updater, scopeKey);

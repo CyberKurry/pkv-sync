@@ -3,7 +3,7 @@ interface ParsedServerUrl {
   deploymentKey: string;
 }
 
-export class ServerUrlError extends Error {}
+class ServerUrlError extends Error {}
 
 export function parseServerUrl(input: string, fallbackKey = ""): ParsedServerUrl {
   const trimmed = input.trim();

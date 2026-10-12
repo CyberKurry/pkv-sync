@@ -4,7 +4,6 @@ import type { LocalIndex } from "./sync/types";
 
 export interface PluginData {
   settings?: Partial<PKVSyncSettings>;
-  syncIndex?: LocalIndex;
   syncIndexes?: Record<string, LocalIndex>;
   [key: string]: unknown;
 }

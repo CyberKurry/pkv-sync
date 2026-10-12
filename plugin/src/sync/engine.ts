@@ -36,7 +36,6 @@ interface PendingScan {
 
 export interface IndexPersistence {
   loadIndex(): Promise<LocalIndex>;
-  saveIndex(index: LocalIndex): Promise<void>;
   /**
    * Atomic read-modify-write of the sync index. Two concurrent calls are
    * serialised through the underlying plugin data store so neither caller

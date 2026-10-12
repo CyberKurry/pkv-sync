@@ -85,10 +85,6 @@ class FakeIndex implements IndexPersistence {
   async loadIndex(): Promise<LocalIndex> {
     return this.idx;
   }
-  async saveIndex(index: LocalIndex): Promise<void> {
-    this.saved = index;
-    this.idx = index;
-  }
   async updateIndex(
     updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>
   ): Promise<void> {
@@ -254,7 +250,7 @@ describe("SyncEngine inline apply dirty detection", () => {
   /// Regression: two concurrent applyInlineText calls
   /// must end with BOTH files reflected in the index. With the pre-fix
   /// load-modify-save pattern, the second call's loadIndex read the same
-  /// stale state as the first, so its saveIndex overwrote the first's
+  /// stale state as the first, so its full-index write overwrote the first's
   /// entry — losing one of the files.
   it("two concurrent applyInlineText calls both reach the index without loss", async () => {
     const vault = new FakeVault();

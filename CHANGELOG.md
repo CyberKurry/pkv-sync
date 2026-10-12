@@ -70,6 +70,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
   (RFC 9110 §11.1, L-1); the POST/SSE 401 block, the HTTP SSE token
   rechecks and the stdio token recheck were collapsed into shared helpers
   (R-1/R-3/R-4). No other behavior change.
+- internal: removed plugin exports and helpers left with zero call sites
+  after a re-grep: `IndexPersistence.saveIndex` (with its generation-guarded
+  adapter in `SyncOrchestrator` — every index write already goes through
+  `updateIndex`, and the removed path bypassed the generation guard),
+  `pendingFiles()` in `sync/index-store.ts` (duplicated
+  `SyncEngine.scanPendingFrom` while ignoring exclude/allowlist), the
+  `ServerUrlError` export, the `DEFAULT_STATUS_LABELS` fallback (all three
+  `statusText` call sites pass the localized bundle), the singular
+  `PluginData.syncIndex` field, and the redundant `export` keywords on
+  `i18n/index.ts`'s module-internal `Lang`/`FormatValue`/
+  `languageReviewStatus` (ultrareview P-1..P-6). No behavior change.
 
 ### Security
 

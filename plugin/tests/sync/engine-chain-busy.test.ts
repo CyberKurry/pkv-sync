@@ -58,10 +58,6 @@ class FakeIndex implements IndexPersistence {
   async loadIndex(): Promise<LocalIndex> {
     return this.idx;
   }
-  async saveIndex(index: LocalIndex): Promise<void> {
-    this.saved = index;
-    this.idx = index;
-  }
   async updateIndex(
     updater: (index: LocalIndex) => LocalIndex | Promise<LocalIndex>
   ): Promise<void> {

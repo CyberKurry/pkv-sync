@@ -119,12 +119,3 @@ export function markDeleted(
 ): LocalIndex {
   return applyFilesAndDeletes(index, commit, [], paths, true);
 }
-
-export function pendingFiles(
-  index: LocalIndex,
-  current: LocalFileSnapshot[]
-): LocalFileSnapshot[] {
-  return current.filter(
-    (file) => index.files[file.path]?.lastSyncedHash !== file.hash
-  );
-}

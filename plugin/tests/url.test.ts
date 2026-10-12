@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-  ServerUrlError,
-  isFetchableServerUrl,
-  parseServerUrl
-} from "../src/url";
+import { isFetchableServerUrl, parseServerUrl } from "../src/url";
+
+const HTTPS_REQUIRED =
+  "Server URL must use https unless it points to localhost";
 
 describe("parseServerUrl", () => {
   it("parses share URL with key path", () => {
@@ -28,7 +27,9 @@ describe("parseServerUrl", () => {
   });
 
   it("rejects non-loopback http URLs", () => {
-    expect(() => parseServerUrl("http://sync.example.com", "k_1")).toThrow(ServerUrlError);
+    expect(() => parseServerUrl("http://sync.example.com", "k_1")).toThrow(
+      HTTPS_REQUIRED
+    );
   });
 
   it("allows loopback http URLs for local development", () => {
@@ -39,13 +40,21 @@ describe("parseServerUrl", () => {
   });
 
   it("rejects non-localhost 127/8 http URLs", () => {
-    expect(() => parseServerUrl("http://127.0.0.2:6710/k_local/")).toThrow(ServerUrlError);
-    expect(() => parseServerUrl("http://127.1.2.3:6710/k_local/")).toThrow(ServerUrlError);
+    expect(() => parseServerUrl("http://127.0.0.2:6710/k_local/")).toThrow(
+      HTTPS_REQUIRED
+    );
+    expect(() => parseServerUrl("http://127.1.2.3:6710/k_local/")).toThrow(
+      HTTPS_REQUIRED
+    );
   });
 
   it("rejects http URLs on unspecified bind addresses", () => {
-    expect(() => parseServerUrl("http://0.0.0.0:6710/k_local/")).toThrow(ServerUrlError);
-    expect(() => parseServerUrl("http://[::]:6710/k_local/")).toThrow(ServerUrlError);
+    expect(() => parseServerUrl("http://0.0.0.0:6710/k_local/")).toThrow(
+      HTTPS_REQUIRED
+    );
+    expect(() => parseServerUrl("http://[::]:6710/k_local/")).toThrow(
+      HTTPS_REQUIRED
+    );
   });
 
   it("allows local development http URLs on IPv4-mapped loopback hosts", () => {
@@ -56,11 +65,11 @@ describe("parseServerUrl", () => {
   });
 
   it("rejects missing key", () => {
-    expect(() => parseServerUrl("https://x")).toThrow(ServerUrlError);
+    expect(() => parseServerUrl("https://x")).toThrow("Deployment key is required");
   });
 
   it("rejects invalid URL", () => {
-    expect(() => parseServerUrl("not url", "k")).toThrow(ServerUrlError);
+    expect(() => parseServerUrl("not url", "k")).toThrow("Invalid server URL");
   });
 });
 

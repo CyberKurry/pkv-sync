@@ -15,9 +15,9 @@ describe("shared plugin types", () => {
       'export type PluginUpdateSource = "server" | "github";'
     );
 
-    expect(i18n).toContain('export type Lang = Exclude<PluginLanguage, "auto">;');
+    expect(i18n).toContain('type Lang = Exclude<PluginLanguage, "auto">;');
     expect(i18n).not.toContain(
-      'export type Lang = "en" | "zh-CN" | "zh-Hant" | "ja" | "ko";'
+      'type Lang = "en" | "zh-CN" | "zh-Hant" | "ja" | "ko";'
     );
   });
 });

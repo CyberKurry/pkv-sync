@@ -16,18 +16,10 @@ type StatusLabels = Pick<
   | "statusError"
 >;
 
-const DEFAULT_STATUS_LABELS: StatusLabels = {
-  statusConnected: "connected",
-  statusNotConfigured: "not configured",
-  statusSyncing: "syncing",
-  statusOffline: "offline",
-  statusError: "error"
-};
-
 export function statusText(
   status: SyncStatus,
   detail = "",
-  labels: StatusLabels = DEFAULT_STATUS_LABELS
+  labels: StatusLabels
 ): string {
   const suffix = detail ? `: ${detail}` : "";
   switch (status) {

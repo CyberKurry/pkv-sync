@@ -5,8 +5,7 @@ import {
   markFilesDeleted,
   markFilesSynced,
   markSynced,
-  normalizeIndex,
-  pendingFiles
+  normalizeIndex
 } from "../../src/sync/index-store";
 import type { LocalFileSnapshot } from "../../src/sync/types";
 
@@ -60,19 +59,6 @@ describe("index-store", () => {
     );
     expect(idx.lastSyncedCommit).toBe("c1");
     expect(idx.files["a.md"].lastSyncedHash).toBe("h1");
-  });
-
-  it("pendingFiles returns changed files only", () => {
-    const idx = markSynced(
-      { lastSyncedCommit: null, files: {} },
-      "c1",
-      [f("a.md", "h1")]
-    );
-    expect(
-      pendingFiles(idx, [f("a.md", "h1"), f("b.md", "h2")]).map(
-        (x) => x.path
-      )
-    ).toEqual(["b.md"]);
   });
 
   it("markDeleted removes paths", () => {
