@@ -152,6 +152,48 @@ pub enum GitStoreError {
     Panic,
 }
 
+/// Test-only observation point for the H-3 read-batch guard (T-2).
+///
+/// `read_files` is an inherent method on the concrete [`Git2VaultStore`], and
+/// `AppState::git_store` hands that concrete type to `tools::search`, so
+/// there is no seam to inject a recording `GitVaultStore` decorator. The
+/// H-3 invariant — an entry over the content budget never gets materialized —
+/// cannot be pinned through the request's error either, because the budget
+/// error text is identical whether the check runs before or after the read.
+/// This probe is compiled out of every non-test build and records the
+/// `paths` argument of each `read_files` call, which is exactly the moment
+/// the entry would be materialized.
+#[cfg(test)]
+pub(crate) mod read_probe {
+    use std::sync::{Mutex, OnceLock};
+
+    fn recorded() -> &'static Mutex<Vec<Vec<String>>> {
+        static RECORDED: OnceLock<Mutex<Vec<Vec<String>>>> = OnceLock::new();
+        RECORDED.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    /// Record one `read_files` batch. Every batch in the test binary is
+    /// recorded, so assertions must key on a path unique to their test
+    /// (lib tests run in parallel in one process).
+    pub(crate) fn record(paths: &[String]) {
+        recorded()
+            .lock()
+            .expect("read probe mutex poisoned")
+            .push(paths.to_vec());
+    }
+
+    /// Every recorded batch that contains `path`.
+    pub(crate) fn batches_containing(path: &str) -> Vec<Vec<String>> {
+        recorded()
+            .lock()
+            .expect("read probe mutex poisoned")
+            .iter()
+            .filter(|batch| batch.iter().any(|recorded| recorded == path))
+            .cloned()
+            .collect()
+    }
+}
+
 #[async_trait]
 pub trait GitVaultStore: Send + Sync {
     async fn ensure_repo(&self, vault_id: &str) -> Result<(), GitStoreError>;
@@ -216,6 +258,8 @@ impl Git2VaultStore {
         let p = self.repo_path(vault_id)?;
         let at = at.map(|s| s.to_string());
         let paths: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+        #[cfg(test)]
+        read_probe::record(&paths);
         tokio::task::spawn_blocking(move || -> Result<Vec<Option<StoredFile>>, GitStoreError> {
             let repo = Repository::open_bare(&p)?;
             let oid = match at {

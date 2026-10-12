@@ -1658,6 +1658,7 @@ mod tests {
     use crate::db::repos::{NewUser, RuntimeConfigRepo, UserRepo};
     use crate::service::{vault, vault_settings};
     use crate::storage::blob::{BlobStore, LocalFsBlobStore};
+    use crate::storage::git::read_probe;
     use crate::storage::git::{FileChange, GitVaultStore};
     use bytes::Bytes;
 
@@ -2826,13 +2827,15 @@ mod tests {
         assert!(err.to_string().contains("search content budget exceeded"));
     }
 
-    // H-3 pin: the documented search contract across the budget boundary.
-    // With the cfg(test) budget of 64 KiB, two exact-fit 32 KiB files plus a
-    // small third file containing the query overrun the budget at the third
-    // file. This must error with the budget message both before the fix
-    // (post-read accumulation) and after it (pre-read gating on tree entry
-    // sizes) — it pins the externally visible semantics while the fix moves
-    // the decision point earlier.
+    // H-3 user-visible contract across the budget boundary: with the cfg(test)
+    // budget of 64 KiB, two exact-fit 32 KiB files plus a small third file
+    // containing the query overrun the budget at the third file, and the
+    // request must fail with the budget message. This pins ONLY that
+    // externally visible error, which is byte-identical before and after the
+    // H-3 fix (post-read accumulation vs pre-read gating on tree entry
+    // sizes) — it says nothing about what was materialized. The memory bound
+    // itself is pinned by `search_oversized_entry_never_reaches_a_read_batch`
+    // below (T-2/T-9).
     #[tokio::test]
     async fn search_budget_overrun_at_next_file_errors() {
         let (state, user_id, vault_id, _tmp) = state_user_vault().await;
@@ -2881,6 +2884,103 @@ mod tests {
         assert!(
             err.to_string().contains("search content budget exceeded"),
             "expected budget error, got: {err}"
+        );
+    }
+
+    /// T-2: H-3's invariant is a memory bound, not an error message. An entry
+    /// larger than the whole content budget must never be handed to
+    /// `read_files`, because `read_files` materializes every path it is given
+    /// (that is how 64 x 100 MiB reached ~6.4 GiB before the budget fired).
+    /// The user-visible error cannot pin this: post-read accumulation emits
+    /// the same "search content budget exceeded". The read batches themselves
+    /// are observed through the test-only probe in `storage::git::read_probe`
+    /// (see its docs for why a recording `GitVaultStore` decorator cannot be
+    /// injected here).
+    #[tokio::test]
+    async fn search_oversized_entry_never_reaches_a_read_batch() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        git.commit_changes(
+            &vault_id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "small.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"needle".to_vec(),
+                    },
+                },
+                FileChange::Upsert {
+                    path: "zz-oversized.md".into(),
+                    file: StoredFile::Text {
+                        bytes: vec![b'x'; SEARCH_MAX_TOTAL_BYTES + 1],
+                    },
+                },
+            ],
+            "seed",
+        )
+        .await
+        .unwrap();
+
+        let err = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: vault_id.clone(),
+                query: "needle".into(),
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("search content budget exceeded"),
+            "expected budget error, got: {err}"
+        );
+
+        let oversized_batches = read_probe::batches_containing("zz-oversized.md");
+        assert!(
+            oversized_batches.is_empty(),
+            "an entry larger than the whole budget must never enter a read batch (H-3); \
+             observed read_files batches containing it: {oversized_batches:?}"
+        );
+
+        // Positive control: the probe must actually observe read batches,
+        // otherwise the assertion above would also hold if nothing were
+        // recorded at all.
+        let control_vault = vault::create_vault(&state, &user_id, "control")
+            .await
+            .unwrap();
+        git.commit_changes(
+            &control_vault.id,
+            None,
+            &[FileChange::Upsert {
+                path: "control.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"needle".to_vec(),
+                },
+            }],
+            "seed",
+        )
+        .await
+        .unwrap();
+        let control = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: control_vault.id,
+                query: "needle".into(),
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(control.matches.len(), 1);
+        assert!(
+            !read_probe::batches_containing("control.md").is_empty(),
+            "control: the read probe must record read_files batches"
         );
     }
 
