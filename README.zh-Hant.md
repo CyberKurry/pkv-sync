@@ -115,9 +115,11 @@ PKV Sync 1.0 是第一個穩定版。公開 REST API、CLI、儲存布局、外�
 cargo fmt --all -- --check
 cargo clippy --workspace -- -D warnings
 cargo test --workspace
-npm --prefix plugin run typecheck
-npm --prefix plugin exec vitest run
-npm --prefix plugin run build
+
+cd plugin
+npm run typecheck
+npm exec vitest run
+npm run build
 ```
 
 CI 在 Linux 和 Windows 上跑完整 Rust 矩陣，加上外掛的 test／typecheck／build／package、Docker 構建，以及發布二進位的冒煙測試。

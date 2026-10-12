@@ -174,9 +174,11 @@ GitHub 릴리스마다 Linux amd64／arm64 바이너리, Windows x64 바이너�
 cargo fmt --all -- --check
 cargo clippy --workspace -- -D warnings
 cargo test --workspace
-npm --prefix plugin run typecheck
-npm --prefix plugin exec vitest run
-npm --prefix plugin run build
+
+cd plugin
+npm run typecheck
+npm exec vitest run
+npm run build
 ```
 
 CI 는 Linux 와 Windows 에서 전체 Rust 매트릭스, 플러그인

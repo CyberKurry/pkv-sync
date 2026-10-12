@@ -182,9 +182,11 @@ binary, a multi-arch GHCR Docker image, the Obsidian plugin zip, and
 cargo fmt --all -- --check
 cargo clippy --workspace -- -D warnings
 cargo test --workspace
-npm --prefix plugin run typecheck
-npm --prefix plugin exec vitest run
-npm --prefix plugin run build
+
+cd plugin
+npm run typecheck
+npm exec vitest run
+npm run build
 ```
 
 CI runs the full Rust matrix on Linux and Windows, plus plugin

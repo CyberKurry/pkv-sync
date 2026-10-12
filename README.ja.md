@@ -176,9 +176,11 @@ OpenAPI 仕様が互換性の正本となります。0.x で作られた SQLite 
 cargo fmt --all -- --check
 cargo clippy --workspace -- -D warnings
 cargo test --workspace
-npm --prefix plugin run typecheck
-npm --prefix plugin exec vitest run
-npm --prefix plugin run build
+
+cd plugin
+npm run typecheck
+npm exec vitest run
+npm run build
 ```
 
 CI では Linux と Windows の Rust フルマトリクスに加え、プラグインの
