@@ -202,15 +202,6 @@ export class SyncEngine {
     return run;
   }
 
-  /**
-   * True once this generation's pass has been cancelled (M-10). Exposed so
-   * callers that captured the engine before a rebuild/invalidate can stop
-   * chaining follow-up work onto a dead generation.
-   */
-  isAborted(): boolean {
-    return this.aborted;
-  }
-
   async flushOnUnload(timeoutMs: number): Promise<void> {
     let timeoutId: number | undefined;
     try {

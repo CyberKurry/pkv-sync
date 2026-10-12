@@ -81,6 +81,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
   `PluginData.syncIndex` field, and the redundant `export` keywords on
   `i18n/index.ts`'s module-internal `Lang`/`FormatValue`/
   `languageReviewStatus` (ultrareview P-1..P-6). No behavior change.
+- internal: removed `SyncEngine.isAborted()` — added during the R1 abort
+  work with zero call sites — plus `HistoryApi.commitDetail()` and the
+  `CommitDetail`/`CommitChange` types it alone referenced (zero callers
+  since their introduction). The dead-export guard is now behavioral
+  (R2-8): `tests/dead-exports.test.ts` enumerates every export and public
+  class member through the TypeScript compiler API and fails naming any
+  identifier nothing under src/ or tests/ consumes, instead of regexing
+  source text for a hand-listed set of historical symbols. No behavior
+  change.
 
 ### Security
 

@@ -1,6 +1,5 @@
 import { ApiClient } from "./client";
 import type {
-  CommitDetail,
   CommitSummary,
   HistoricalFile,
   UnifiedDiff
@@ -16,15 +15,6 @@ export class HistoryApi {
     return this.api.request<CommitSummary[]>(
       "GET",
       `/api/vaults/${vaultId}/commits?${query.toString()}`,
-      undefined,
-      true
-    );
-  }
-
-  commitDetail(vaultId: string, commit: string): Promise<CommitDetail> {
-    return this.api.request<CommitDetail>(
-      "GET",
-      `/api/vaults/${vaultId}/commits/${encodeURIComponent(commit)}`,
       undefined,
       true
     );

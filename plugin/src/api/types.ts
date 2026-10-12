@@ -64,13 +64,6 @@ export interface ApiErrorBody {
 
 export type CommitChangeType = "added" | "modified" | "deleted";
 
-export interface CommitChange {
-  path: string;
-  change_type: CommitChangeType;
-  old_path: string | null;
-  binary: boolean;
-}
-
 export interface CommitSummary {
   commit: string;
   parent: string | null;
@@ -78,10 +71,6 @@ export interface CommitSummary {
   timestamp: number;
   author_device: string | null;
   change_type?: CommitChangeType;
-}
-
-export interface CommitDetail extends CommitSummary {
-  changes: CommitChange[];
 }
 
 export interface UnifiedDiff {
