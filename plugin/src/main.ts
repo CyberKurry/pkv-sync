@@ -517,7 +517,8 @@ export default class PKVSyncPlugin extends Plugin {
         historyRestoreVersion: t.historyRestoreVersion,
         historyRollbackToHere: t.historyRollbackToHere,
         historyMoreActions: t.historyMoreActions,
-        historyUnknownDevice: t.historyUnknownDevice
+        historyUnknownDevice: t.historyUnknownDevice,
+        loading: t.loading
       },
       onDiffPrevious: diffAvailable
         ? (entry) =>
@@ -664,7 +665,8 @@ export default class PKVSyncPlugin extends Plugin {
         diffPrevious: t.diffPrevious,
         diffRestoreLeft: t.diffRestoreLeft,
         diffRestoreRight: t.diffRestoreRight,
-        historyRetry: t.historyRetry
+        historyRetry: t.historyRetry,
+        loading: t.loading
       },
       onRestore: (commit, isBinary) => this.confirmRestore(path, commit, isBinary)
     }).open();
@@ -683,7 +685,7 @@ export default class PKVSyncPlugin extends Plugin {
       fileName: path.split("/").pop() || path,
       atCommitShort: shortCommit(commit),
       atTimeRelative:
-        (timestamp && formatRelativeUnixSeconds(timestamp)) ||
+        (timestamp && formatRelativeUnixSeconds(timestamp, t)) ||
         (timestamp && formatUnixSeconds(timestamp, this.settings.timezone)) ||
         shortCommit(commit),
       hasUnsyncedLocalChanges,

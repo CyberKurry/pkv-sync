@@ -1,3 +1,5 @@
+import { format, type Strings } from "./i18n";
+
 export const DEFAULT_TIMEZONE = "Asia/Shanghai";
 
 export const TIMEZONE_OPTIONS = [
@@ -62,20 +64,37 @@ export function formatUnixSeconds(
   return `${value("year")}-${value("month")}-${value("day")} ${value("hour")}:${value("minute")}:${value("second")}`;
 }
 
+type RelativeTimeLabels = Pick<
+  Strings,
+  | "timeJustNow"
+  | "timeSecondsAgo"
+  | "timeMinutesAgo"
+  | "timeHoursAgo"
+  | "timeDayAgo"
+  | "timeDaysAgo"
+>;
+
 export function formatRelativeUnixSeconds(
   timestamp: number | null | undefined,
+  labels: RelativeTimeLabels,
   nowSeconds = Math.floor(Date.now() / 1000)
 ): string {
   if (timestamp === null || timestamp === undefined) return "";
   if (!Number.isFinite(timestamp) || !Number.isFinite(nowSeconds)) return "";
   const diff = Math.max(0, Math.floor(nowSeconds - timestamp));
-  if (diff < 60) return diff <= 1 ? "just now" : `${diff} sec ago`;
+  if (diff < 60) {
+    return diff <= 1
+      ? labels.timeJustNow
+      : format(labels.timeSecondsAgo, { count: diff });
+  }
   const minutes = Math.floor(diff / 60);
-  if (minutes < 60) return minutes === 1 ? "1 min ago" : `${minutes} min ago`;
+  if (minutes < 60) return format(labels.timeMinutesAgo, { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return hours === 1 ? "1 hr ago" : `${hours} hr ago`;
+  if (hours < 24) return format(labels.timeHoursAgo, { count: hours });
   const days = Math.floor(hours / 24);
-  return days === 1 ? "1 day ago" : `${days} days ago`;
+  return days === 1
+    ? labels.timeDayAgo
+    : format(labels.timeDaysAgo, { count: days });
 }
 
 export function formatDetailedUnixSeconds(

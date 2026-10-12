@@ -57,6 +57,7 @@ export class SyncOrchestrator {
               statusText(status, detail, this.plugin.text())
             )
           : undefined,
+      labels: this.plugin.text(),
       onSyncSuccess: () => this.plugin.recordSyncSuccess(generation),
       deviceId: this.plugin.settings.deviceId,
       serverUrl: this.plugin.settings.serverUrl,

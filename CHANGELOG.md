@@ -114,6 +114,18 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The plugin UI strings that still bypassed the i18n bundles now come from
+  the five language files (ultrareview I-1..I-4): the conflict Notice
+  (`conflictNotice`, `{path}`), `formatRelativeUnixSeconds`'s hardcoded
+  `just now`/`min ago`/`hr ago`/`day ago` output — used for the last
+  successful sync time, the sync status details, the expanded sync
+  timestamp and the last update check — the settings header
+  (`Self-hosted vault synchronization`, `Synced • …`, `Loading account...`
+  and the username/invite-code/new-vault-name placeholders, plus the
+  `(optional)` suffix), and the diff/history modals' `Loading...`
+  placeholder and `Rollback to here` fallback (now a required label). The
+  sync engine also receives the configured bundle instead of falling back
+  to the browser locale for its notices.
 - `pkvsyncd user add` and `user passwd` now enforce the documented strong
   password policy (at least 12 characters with uppercase, lowercase, and a
   digit) instead of the old 8-character minimum, and `user passwd` revokes

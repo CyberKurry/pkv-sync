@@ -94,6 +94,29 @@ describe("DiffModal async rendering", () => {
     expect(contentEl.empty).not.toHaveBeenCalled();
     expect(contentEl.createDiv).not.toHaveBeenCalled();
   });
+
+  it("renders the loading placeholder from the supplied labels", () => {
+    const modal = new DiffModal({} as never, {
+      api: {
+        diff: vi.fn(() => deferred<UnifiedDiff>().promise),
+        fileHistory: vi.fn(async () => [])
+      } as never,
+      vaultId: "vault-1",
+      path: "note.md",
+      to: "c1",
+      labels: { ...labels, loading: "loc-loading" }
+    });
+    const contentEl = modal.contentEl as unknown as {
+      createDiv: ReturnType<typeof vi.fn>;
+    };
+
+    modal.open();
+
+    expect(contentEl.createDiv).toHaveBeenCalledWith({
+      cls: "pkvsync-diff-loading",
+      text: "loc-loading"
+    });
+  });
 });
 
 const labels: DiffModalLabels = {
@@ -105,7 +128,8 @@ const labels: DiffModalLabels = {
   diffPrevious: "Previous",
   diffRestoreLeft: "Restore left",
   diffRestoreRight: "Restore right",
-  historyRetry: "Retry"
+  historyRetry: "Retry",
+  loading: "Loading..."
 };
 
 function deferred<T>(): {

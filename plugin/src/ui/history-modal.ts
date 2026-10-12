@@ -23,9 +23,10 @@ export interface HistoryModalLabels {
   historyViewDiffHead: string;
   historyViewContent: string;
   historyRestoreVersion: string;
-  historyRollbackToHere?: string;
+  historyRollbackToHere: string;
   historyMoreActions: string;
   historyUnknownDevice: string;
+  loading: string;
 }
 
 export interface HistoryModalOptions {
@@ -96,7 +97,10 @@ export class HistoryModal extends Modal {
 
   private renderShell(): void {
     this.renderHeader();
-    this.contentEl.createDiv({ cls: "pkvsync-history-loading", text: "Loading..." });
+    this.contentEl.createDiv({
+      cls: "pkvsync-history-loading",
+      text: this.options.labels.loading
+    });
   }
 
   private async load(): Promise<void> {
@@ -213,9 +217,7 @@ export class HistoryModal extends Modal {
         if (view.canRollback && this.options.onRollback) {
           menu.addItem((mi) =>
             mi
-              .setTitle(
-                this.options.labels.historyRollbackToHere ?? "Rollback to here"
-              )
+              .setTitle(this.options.labels.historyRollbackToHere)
               .setWarning(true)
               .onClick(() => {
                 void this.options.onRollback?.(row);

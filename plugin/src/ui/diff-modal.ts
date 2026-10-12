@@ -20,6 +20,7 @@ export interface DiffModalLabels {
   diffRestoreLeft: string;
   diffRestoreRight: string;
   historyRetry: string;
+  loading: string;
 }
 
 export interface DiffModalOptions {
@@ -86,7 +87,10 @@ export class DiffModal extends Modal {
     this.contentEl.createEl("h2", {
       text: diffTitle(this.options.path, this.options.from, this.options.to)
     });
-    this.contentEl.createDiv({ cls: "pkvsync-diff-loading", text: "Loading..." });
+    this.contentEl.createDiv({
+      cls: "pkvsync-diff-loading",
+      text: this.options.labels.loading
+    });
     void this.load();
   }
 

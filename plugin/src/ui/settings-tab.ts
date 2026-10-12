@@ -74,7 +74,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
   private renderConnection(panel: HTMLElement): void {
     const t = this.plugin.text();
     this.renderHeader(panel, {
-      detail: "Self-hosted vault synchronization",
+      detail: t.selfHostedVaultSync,
       tone: "muted"
     });
     this.renderLanguage(panel);
@@ -202,14 +202,14 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     this.renderSectionLabel(panel, t.account);
 
     const username = this.renderTextField(panel, t.username, {
-      placeholder: "Enter username"
+      placeholder: t.usernamePlaceholder
     });
     const password = this.renderTextField(panel, t.password, {
       placeholder: "********",
       type: "password"
     });
-    const inviteCode = this.renderTextField(panel, `${t.inviteCode} (optional)`, {
-      placeholder: "Enter invite code"
+    const inviteCode = this.renderTextField(panel, t.inviteCodeOptional, {
+      placeholder: t.inviteCodePlaceholder
     });
 
     const row = panel.createDiv({ cls: "pkv-sync-button-row" });
@@ -230,10 +230,10 @@ export class PKVSyncSettingTab extends PluginSettingTab {
   private renderSynced(panel: HTMLElement, renderId: number): void {
     const t = this.plugin.text();
     const lastSync =
-      formatRelativeUnixSeconds(this.plugin.settings.lastSyncSuccessAt) ||
+      formatRelativeUnixSeconds(this.plugin.settings.lastSyncSuccessAt, t) ||
       t.neverSynced;
     this.renderHeader(panel, {
-      detail: `Synced • ${lastSync}`,
+      detail: format(t.syncedSummary, { time: lastSync }),
       tone: "success",
       expandedDetail: this.syncDetailTime()
     });
@@ -241,7 +241,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     this.renderThemeMode(panel);
 
     const body = panel.createDiv({ cls: "pkv-sync-synced-body" });
-    body.createDiv({ cls: "pkv-sync-loading", text: "Loading account..." });
+    body.createDiv({ cls: "pkv-sync-loading", text: t.loadingAccount });
     void this.renderAccountDetails(body, renderId);
   }
 
@@ -466,8 +466,10 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       cls: "pkv-sync-update-meta",
       text: format(t.lastUpdateCheck, {
         time:
-          formatRelativeUnixSeconds(this.plugin.settings.lastUpdateCheckAt) ||
-          t.neverSynced
+          formatRelativeUnixSeconds(
+            this.plugin.settings.lastUpdateCheckAt,
+            t
+          ) || t.neverSynced
       })
     });
 
@@ -551,7 +553,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     const row = body.createDiv({ cls: "pkv-sync-create-row" });
     const input = row.createEl("input", {
       cls: "pkv-sync-input",
-      attr: { placeholder: "New vault name..." }
+      attr: { placeholder: t.newVaultNamePlaceholder }
     });
     this.renderButton(row, t.createVault, "primary", async () => {
       const vaultName = input.value.trim();

@@ -91,7 +91,7 @@ export interface SyncEngineOptions {
     status: "connected" | "syncing" | "offline" | "error",
     detail?: string
   ): void;
-  labels?: Pick<Strings, "inlineApplyFailed">;
+  labels?: Pick<Strings, "inlineApplyFailed" | "conflictNotice">;
   onSyncSuccess?(): void | Promise<void>;
   vaultSettingsReader?: (vaultId: string) => Promise<VaultSettings>;
 }
@@ -761,7 +761,9 @@ export class SyncEngine {
     } else if (local.bytes) {
       await this.opts.vault.writeBinary(cpath, local.bytes);
     }
-    new Notice(`PKV Sync conflict: ${cpath}`);
+    new Notice(
+      format((this.opts.labels ?? strings()).conflictNotice, { path: cpath })
+    );
   }
 
   private async writeRemoteConflict(file: PullFile, atCommit: string): Promise<void> {
@@ -784,7 +786,9 @@ export class SyncEngine {
       );
       await this.opts.vault.writeBinary(cpath, bytes);
     }
-    new Notice(`PKV Sync conflict: ${cpath}`);
+    new Notice(
+      format((this.opts.labels ?? strings()).conflictNotice, { path: cpath })
+    );
   }
 
   private async applyInlineText(path: string, content: string, commit: string): Promise<void> {

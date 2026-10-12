@@ -505,6 +505,74 @@ describe("language selector settings", () => {
   });
 });
 
+describe("localized settings chrome", () => {
+  it("renders the synced header and account placeholder from the string bundle", () => {
+    const body = new MockElement("div");
+    const lastSyncSuccessAt = Math.floor(Date.now() / 1000) - 120;
+    const plugin = {
+      settings: {
+        language: "auto",
+        themeMode: "auto",
+        lastSyncSuccessAt
+      },
+      text: () => ({
+        ...en,
+        syncedSummary: "loc-synced • {time}",
+        loadingAccount: "loc-account-loading"
+      }),
+      saveSettings: vi.fn().mockResolvedValue(undefined),
+      api: () => ({ me: vi.fn(), tokens: vi.fn() })
+    };
+    const tab = Object.create(PKVSyncSettingTab.prototype) as {
+      plugin: typeof plugin;
+      syncTimeExpanded: boolean;
+      renderId: number;
+      renderSynced: (panel: MockElement, renderId: number) => void;
+      syncDetailTime: () => string;
+      isMobileLayout: () => boolean;
+    };
+    tab.plugin = plugin;
+    tab.syncTimeExpanded = false;
+    tab.renderId = 1;
+    tab.syncDetailTime = () => "";
+    tab.isMobileLayout = () => false;
+
+    tab.renderSynced(body, 1);
+
+    expect(body.textContent()).toContain("loc-synced • 2 min ago");
+    expect(body.textContent()).toContain("loc-account-loading");
+  });
+
+  it("renders the last update check through the bundle's relative time keys", () => {
+    const body = new MockElement("div");
+    const lastUpdateCheckAt = Math.floor(Date.now() / 1000) - 120;
+    const plugin = {
+      manifest: { version: "0.8.0" },
+      settings: {
+        checkForUpdates: true,
+        updateSource: "server",
+        lastUpdateCheckAt,
+        timezone: "Asia/Shanghai"
+      },
+      availableUpdate: null,
+      text: () => ({ ...en, timeMinutesAgo: "loc-{count}-min" }),
+      saveSettings: vi.fn().mockResolvedValue(undefined),
+      scheduleUpdateChecks: vi.fn(),
+      checkForPluginUpdates: vi.fn(),
+      applyPluginUpdate: vi.fn()
+    };
+    const tab = Object.create(PKVSyncSettingTab.prototype) as {
+      plugin: typeof plugin;
+      renderUpdates: (body: MockElement) => void;
+    };
+    tab.plugin = plugin;
+
+    tab.renderUpdates(body);
+
+    expect(body.textContent()).toContain("Last checked: loc-2-min");
+  });
+});
+
 describe("theme mode settings", () => {
   it("renders theme mode as one icon button that cycles to the next mode", async () => {
     const saveSettings = vi.fn().mockResolvedValue(undefined);

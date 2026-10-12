@@ -114,6 +114,28 @@ describe("HistoryModal async rendering", () => {
     expect(contentEl.empty).not.toHaveBeenCalled();
     expect(contentEl.createDiv).not.toHaveBeenCalled();
   });
+
+  it("renders the loading placeholder from the supplied labels", () => {
+    const modal = new HistoryModal({} as never, {
+      api: {
+        fileHistory: vi.fn(() => deferred<CommitSummary[]>().promise)
+      } as never,
+      vaultId: "vault-1",
+      path: "Notes/example.md",
+      timezone: "Asia/Shanghai",
+      labels: { ...labels, loading: "loc-loading" }
+    });
+    const contentEl = modal.contentEl as unknown as {
+      createDiv: ReturnType<typeof vi.fn>;
+    };
+
+    modal.open();
+
+    expect(contentEl.createDiv).toHaveBeenCalledWith({
+      cls: "pkvsync-history-loading",
+      text: "loc-loading"
+    });
+  });
 });
 
 const labels: HistoryModalLabels = {
@@ -126,7 +148,8 @@ const labels: HistoryModalLabels = {
   historyRestoreVersion: "Restore",
   historyRollbackToHere: "Rollback",
   historyMoreActions: "More actions",
-  historyUnknownDevice: "Unknown device"
+  historyUnknownDevice: "Unknown device",
+  loading: "Loading..."
 };
 
 function renderRows(rows: CommitSummary[]): MockElement {

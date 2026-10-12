@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { en } from "../src/i18n/en";
+import { zh } from "../src/i18n/zh";
 import {
   formatDetailedUnixSeconds,
   formatRelativeUnixSeconds,
@@ -19,8 +21,24 @@ describe("plugin time formatting", () => {
     expect(formatUnixSeconds(0, "Asia/Shanghai")).toBe("1970-01-01 08:00:00");
   });
 
-  it("formats recent sync times as compact relative text", () => {
-    expect(formatRelativeUnixSeconds(1_000, 1_130)).toBe("2 min ago");
+  it("formats recent sync times as compact, localized relative text", () => {
+    expect(formatRelativeUnixSeconds(1_000, en, 1_130)).toBe("2 min ago");
+    expect(formatRelativeUnixSeconds(1_000, zh, 1_130)).toBe("2 分钟前");
+  });
+
+  it("keeps singular and sub-minute relative forms", () => {
+    expect(formatRelativeUnixSeconds(1_000, en, 1_001)).toBe("just now");
+    expect(formatRelativeUnixSeconds(1_000, en, 1_030)).toBe("30 sec ago");
+    expect(formatRelativeUnixSeconds(1_000, en, 1_060)).toBe("1 min ago");
+    expect(formatRelativeUnixSeconds(1_000, en, 4_600)).toBe("1 hr ago");
+    expect(formatRelativeUnixSeconds(0, en, 86_400)).toBe("1 day ago");
+    expect(formatRelativeUnixSeconds(0, en, 172_800)).toBe("2 days ago");
+  });
+
+  it("returns an empty string for missing or non-finite timestamps", () => {
+    expect(formatRelativeUnixSeconds(null, en)).toBe("");
+    expect(formatRelativeUnixSeconds(undefined, en)).toBe("");
+    expect(formatRelativeUnixSeconds(Number.NaN, en)).toBe("");
   });
 
   it("formats expanded sync timestamps with slashes and no timezone suffix", () => {
