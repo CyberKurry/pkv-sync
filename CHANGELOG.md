@@ -114,6 +114,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The shutdown signal now latches even when it is triggered before any
+  subscriber exists (`watch::Sender::send` drops the value with zero
+  receivers), so a SIGTERM arriving before the SSE handlers subscribe can
+  no longer be missed.
+
 - The plugin UI strings that still bypassed the i18n bundles now come from
   the five language files (ultrareview I-1..I-4): the conflict Notice
   (`conflictNotice`, `{path}`), `formatRelativeUnixSeconds`'s hardcoded

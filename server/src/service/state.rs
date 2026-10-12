@@ -44,7 +44,12 @@ impl ShutdownSignal {
     }
 
     pub fn trigger(&self) {
-        let _ = self.tx.send(true);
+        // `send` returns without storing the value when no receiver is
+        // alive, so a shutdown triggered before any subscriber appeared
+        // would be silently lost (R2 review: the `*shutdown_rx.borrow()`
+        // pre-check in `shutdown_signal` could then never fire).
+        // `send_replace` latches the value regardless of receiver count.
+        self.tx.send_replace(true);
     }
 
     pub fn subscribe(&self) -> watch::Receiver<bool> {
@@ -582,6 +587,22 @@ fn directory_size_bytes(root: &Path) -> std::io::Result<u64> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shutdown_trigger_latches_without_a_live_receiver() {
+        use futures_util::FutureExt;
+
+        let signal = ShutdownSignal::new();
+        // No subscriber exists yet: a plain `send` would drop the value.
+        signal.trigger();
+        let rx = signal.subscribe();
+        assert!(*rx.borrow(), "a trigger before any subscriber must latch");
+        let mut rx2 = signal.subscribe();
+        assert!(
+            rx2.wait_for(|v| *v).now_or_never().is_some(),
+            "wait_for must resolve immediately on an already-triggered signal"
+        );
+    }
+
     use super::*;
     use crate::db::pool;
     use crate::db::repos::{BlobRefRepo, IdempotencyRepo, VaultRepo};
