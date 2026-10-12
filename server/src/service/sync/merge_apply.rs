@@ -632,21 +632,30 @@ mod tests {
 
     #[test]
     fn conflict_sidecar_validation_accepts_normalized_percent_literals() {
-        for (raw, normalized) in [
-            ("note%252E.md", "note%2E.md"),
-            ("%252E%252E/foo.md", "%2E%2E/foo.md"),
-            ("%252Egit/foo.md", "%2Egit/foo.md"),
-        ] {
-            let original = path::normalize(raw).unwrap();
-            assert_eq!(original, normalized);
+        // Double-encoded traversal/git-dir wire forms are rejected by
+        // normalize outright (ultrareview M-6): they can no longer enter
+        // storage as `%2E`-literals that later reads would reject.
+        for raw in ["%252E%252E/foo.md", "%252Egit/foo.md"] {
+            assert!(
+                path::normalize(raw).is_err(),
+                "normalize should reject double-encoded wire form {raw}"
+            );
+        }
 
-            let conflict = conflict_path_for(&original, "Laptop");
+        // A normalized path may legitimately contain a literal `%` (as
+        // long as it is a decode fixed point, i.e. no `%XX` escape
+        // remains); conflict sidecars generated next to it must stay
+        // valid push paths.
+        for original in ["note%2G.md", "100%.md", "pct%/note.md"] {
+            let normalized =
+                path::normalize(original).expect("fixed-point percent path should normalize");
+            assert_eq!(normalized, original);
+
+            let conflict = conflict_path_for(&normalized, "Laptop");
 
             assert!(
-                conflict.starts_with(normalized.trim_end_matches(".md"))
-                    || conflict.starts_with("%2E%2E/foo.conflict-")
-                    || conflict.starts_with("%2Egit/foo.conflict-"),
-                "conflict path should preserve normalized literal percent escape near original file: {conflict}"
+                conflict.starts_with(normalized.trim_end_matches(".md")),
+                "conflict path should preserve normalized literal percent near original file: {conflict}"
             );
             assert!(
                 !conflict.starts_with("conflict.conflict-"),

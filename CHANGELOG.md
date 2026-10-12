@@ -120,6 +120,20 @@ and this project adheres to semantic versioning starting at v1.0.0.
   Previously the event was published first, opening a window where other
   devices saw a freshly pushed blob pointer but `download_blob` returned
   404 until the metadata transaction landed (ultrareview M-8).
+- Path normalization is now idempotent: percent-escapes are decoded to a
+  fixed point (up to 4 rounds; still-unstable chains like `%252525…` are
+  rejected with a new `percent-encoding nests too deeply` error) before
+  validation, and the fully decoded form is the canonical stored path.
+  Previously a single decode let a double-encoded wire path such as
+  `%252E%252E/foo.md` pass push validation and land in git as the literal
+  `%2E%2E/foo.md` — which every subsequent read/write decoded again into
+  `../foo.md` and rejected, so the file could be written once but never
+  read, updated, or deleted through any API (ultrareview M-6). Such wire
+  forms are now rejected at push with `400 invalid_path` (the fully
+  decoded traversal/git/absolute form is what gets validated), while
+  single-encoded paths keep working and now roundtrip through reads
+  byte-identically. Server-generated auto-merge conflict sidecars reuse
+  the already-canonical stored path, so reads never re-decode them.
 
 - Server: the MCP `search` and `link_graph` tools no longer materialize
   file contents beyond their byte budgets (H-3, ultrareview 2026-10-11

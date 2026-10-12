@@ -381,6 +381,97 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn push_rejects_double_percent_encoded_traversal_paths() {
+        // `%252E%252E/foo.md` used to pass push validation (one decode
+        // yields the harmless literal `%2E%2E`), but the stored path then
+        // failed every later normalize call: writable but never readable
+        // (ultrareview M-6).
+        let (state, user, vid, _tmp) = setup().await;
+        for wire_path in [
+            "%252E%252E/foo.md",
+            "notes/%252E%252E/foo.md",
+            "%252Egit/config",
+            "%25252E%25252E/foo.md",
+        ] {
+            let err = push(
+                &state,
+                &user,
+                &vid,
+                None,
+                None,
+                PushReq {
+                    device_name: Some("test".into()),
+                    changes: vec![PushChange::Text {
+                        path: wire_path.into(),
+                        content: "payload".into(),
+                    }],
+                },
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(
+                err.status,
+                axum::http::StatusCode::BAD_REQUEST,
+                "push should reject {wire_path}"
+            );
+            assert_eq!(err.code, "invalid_path", "push should reject {wire_path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn pushed_single_encoded_unicode_path_roundtrips_through_reads() {
+        let (state, user, vid, _tmp) = setup().await;
+        let resp = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("test".into()),
+                changes: vec![PushChange::Text {
+                    path: "%E6%96%87%E5%AD%97/%E3%81%BF%E3%81%9F%E3%81%84.md".into(),
+                    content: "roundtrip".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.files_changed, 1);
+
+        let pulled = pull(&state, &user.user_id, &vid, None).await.unwrap();
+        assert_eq!(pulled.added.len(), 1);
+        assert_eq!(pulled.added[0].path, "文字/みたい.md");
+        assert_eq!(pulled.added[0].content_inline.as_deref(), Some("roundtrip"));
+
+        let stored = read_file(&state, &user.user_id, &vid, "文字/みたい.md", None)
+            .await
+            .unwrap()
+            .expect("stored file should be readable under its canonical path");
+        let StoredFile::Text { bytes } = stored else {
+            panic!("expected text file");
+        };
+        assert_eq!(bytes, b"roundtrip".to_vec());
+
+        // Reading through the original wire form must resolve to the same
+        // canonical stored path instead of failing a second decode.
+        let wire = read_file(
+            &state,
+            &user.user_id,
+            &vid,
+            "%E6%96%87%E5%AD%97/%E3%81%BF%E3%81%9F%E3%81%84.md",
+            None,
+        )
+        .await
+        .unwrap()
+        .expect("wire-form path should read back after normalization");
+        let StoredFile::Text { bytes } = wire else {
+            panic!("expected text file");
+        };
+        assert_eq!(bytes, b"roundtrip".to_vec());
+    }
+
+    #[tokio::test]
     async fn push_same_idempotency_key_reuses_response() {
         let (state, user, vid, _tmp) = setup().await;
         fn same_req() -> PushReq {
