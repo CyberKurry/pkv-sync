@@ -164,6 +164,136 @@ async fn push_caps_total_inline_text_in_single_event() {
     assert_eq!(ref_count, 1);
 }
 
+/// Regression M-8 (ultrareview 2026-10-11 §2.3): the push Commit event used
+/// to be broadcast BEFORE `record_push_metadata` inserted the push's
+/// `blob_refs` rows. Pulls read the git tree directly, so the moment a
+/// subscriber saw the event, the new `BlobPointer` was already visible —
+/// yet `download_blob` (which gates on `blob_refs.is_referenced_by_vault`)
+/// still 404'd until the later metadata transaction committed. This pins
+/// the causal order: when the Commit event arrives, the blob must already
+/// be authorized for download, i.e. its `blob_refs` row must exist.
+#[tokio::test]
+async fn blob_refs_are_durable_before_commit_event_is_broadcast() {
+    let (state, user, vid, _tmp) = setup().await;
+    let mut rx = state.events.subscribe(&vid);
+
+    let data = bytes::Bytes::from_static(b"hello");
+    let hash = LocalFsBlobStore::sha256(&data);
+    pkv_sync_server::service::sync::upload_blob(&state, &user.user_id, &vid, &hash, data)
+        .await
+        .unwrap();
+
+    // The subscriber's first receive fires while `push` is still between
+    // `events.publish` and `record_push_metadata` — the event is already
+    // in the broadcast channel by then. Whatever the push path does after
+    // the broadcast, the blob_refs row must already be visible in the same
+    // database the download endpoint authorizes against.
+    let probe_state = state.clone();
+    let probe_vault = vid.clone();
+    let probe_hash = hash.clone();
+    let seen = tokio::spawn(async move {
+        let event = rx.recv().await.expect("commit event");
+        assert!(matches!(event.kind, EventKind::Commit));
+        assert_eq!(event.commit.len(), 40);
+        // Exactly the gate `download_blob` performs; with the old
+        // publish-before-record ordering this deterministically counts 0.
+        let referenced: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM blob_refs WHERE vault_id = ? AND blob_hash = ?")
+                .bind(&probe_vault)
+                .bind(&probe_hash)
+                .fetch_one(&probe_state.pool)
+                .await
+                .unwrap();
+        referenced.0
+    });
+
+    push(
+        &state,
+        &user,
+        &vid,
+        None,
+        None,
+        PushReq {
+            device_name: None,
+            changes: vec![PushChange::Blob {
+                path: "img.png".into(),
+                blob_hash: hash,
+                size: 5,
+                mime: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let refs_at_event_time = seen.await.unwrap();
+    assert_eq!(
+        refs_at_event_time, 1,
+        "blob_refs must be committed before the Commit event is broadcast; \
+         download_blob would 404 for the freshly pushed blob otherwise"
+    );
+}
+
+/// Regression M-8 (ultrareview 2026-10-11 §2.3): same ordering guarantee,
+/// asserted through the public download path rather than the raw table.
+/// When a client has received the push Commit event, the blob download
+/// endpoint must immediately succeed — with the old ordering this 404s
+/// deterministically because the broadcast completes before
+/// `record_push_metadata` even starts.
+#[tokio::test]
+async fn blob_download_succeeds_as_soon_as_commit_event_is_received() {
+    let (state, user, vid, _tmp) = setup().await;
+    let mut rx = state.events.subscribe(&vid);
+
+    let data = bytes::Bytes::from_static(b"hello");
+    let hash = LocalFsBlobStore::sha256(&data);
+    pkv_sync_server::service::sync::upload_blob(&state, &user.user_id, &vid, &hash, data)
+        .await
+        .unwrap();
+
+    let probe_state = state.clone();
+    let probe_user = user.clone();
+    let probe_vault = vid.clone();
+    let probe_hash = hash.clone();
+    let seen = tokio::spawn(async move {
+        let event = rx.recv().await.expect("commit event");
+        assert!(matches!(event.kind, EventKind::Commit));
+        match &event.changes[0] {
+            EventChange::Blob { blob_hash, .. } => assert_eq!(blob_hash, &probe_hash),
+            other => panic!("expected Blob change, got {:?}", other),
+        }
+        pkv_sync_server::service::sync::download_blob(
+            &probe_state,
+            &probe_user.user_id,
+            &probe_vault,
+            &probe_hash,
+        )
+        .await
+    });
+
+    push(
+        &state,
+        &user,
+        &vid,
+        None,
+        None,
+        PushReq {
+            device_name: None,
+            changes: vec![PushChange::Blob {
+                path: "img.png".into(),
+                blob_hash: hash,
+                size: 5,
+                mime: None,
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let downloaded = seen.await.unwrap().unwrap();
+    assert_eq!(downloaded, Some(bytes::Bytes::from_static(b"hello")));
+}
+
 #[tokio::test]
 async fn push_blob_emits_blob_event() {
     let (state, user, vid, _tmp) = setup().await;

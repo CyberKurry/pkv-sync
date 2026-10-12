@@ -485,23 +485,16 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
             .with_label_values(&["delete"])
             .inc_by(prepared.delete_changes);
     }
-    // Publish to SSE subscribers IMMEDIATELY after the commit lands in git, before
-    // any of the metadata-side bookkeeping (idempotency cache write, activity log).
-    // Plan J explicitly requires this ordering so subscribers do not pay for DB
-    // writes in the sub-second latency budget. Failures elsewhere (metadata,
-    // idempotency) do not roll back the commit — the broadcast is therefore
-    // honest about what state the git tree is in.
-    state.events.publish(
-        vault_id,
-        VaultEvent {
-            commit: new_commit.clone(),
-            parent: input.parent.clone(),
-            source_device_id: user.device_id.clone(),
-            at: event_at,
-            kind: EventKind::Commit,
-            changes: prepared.event_changes,
-        },
-    );
+    // Persist push metadata (activity, stats, and the blob_refs rows that
+    // authorize downloads) BEFORE broadcasting the commit event. Pulls read
+    // the git tree directly, so a subscriber that acts on the event can
+    // resolve a BlobPointer immediately — publishing first opened a window
+    // where download_blob 404'd for a blob the tree already referenced
+    // (ultrareview 2026-10-11 M-8). The old "publish first, then record"
+    // ordering (Plan J latency argument) is superseded: the broadcast now
+    // promises both the git commit AND its downloadable blobs. Metadata
+    // failures still do not roll back the commit — the repair path below
+    // runs first and only a successful recording publishes.
     let resp = PushResp {
         new_commit: new_commit.clone(),
         files_changed: prepared.git_changes.len(),
@@ -576,6 +569,17 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
             }
         }
     }
+    state.events.publish(
+        vault_id,
+        VaultEvent {
+            commit: new_commit.clone(),
+            parent: input.parent.clone(),
+            source_device_id: user.device_id.clone(),
+            at: event_at,
+            kind: EventKind::Commit,
+            changes: prepared.event_changes,
+        },
+    );
     tracing::info!(
         user_id = %user.user_id,
         vault_id = %vault_id,

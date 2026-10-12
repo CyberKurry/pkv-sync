@@ -91,6 +91,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Pushes now persist their metadata (activity, stats, and the `blob_refs`
+  rows that authorize downloads) before broadcasting the commit event.
+  Previously the event was published first, opening a window where other
+  devices saw a freshly pushed blob pointer but `download_blob` returned
+  404 until the metadata transaction landed (ultrareview M-8).
+
 - Server: the MCP `search` and `link_graph` tools no longer materialize
   file contents beyond their byte budgets (H-3, ultrareview 2026-10-11
   §2.2). Both tools used to collect read-chunks by count (64 entries) and
