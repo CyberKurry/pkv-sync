@@ -354,12 +354,14 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
 
     // Read candidate files in batches of MCP_READ_BATCH_SIZE through a single
     // repo open each, instead of opening the bare repo once per file. The
-    // budget/limit/UTF-8 decision points match the per-file loop exactly.
+    // budget decision is made from tree-entry sizes BEFORE read_files
+    // materializes blob contents, so an entry that does not fit in the
+    // remaining budget never enters the chunk (H-3).
     let mut iter = tree
         .into_iter()
         .filter(|entry| sync::path_visible_on_read(&filter, &entry.path));
     loop {
-        let mut chunk: Vec<(String, usize)> = Vec::new();
+        let mut candidates: Vec<(String, u64)> = Vec::new();
         for entry in iter.by_ref() {
             if matches.len() >= limit {
                 break;
@@ -367,13 +369,21 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
             if entry.is_blob_pointer || !classifier.is_text_path(&entry.path) {
                 continue;
             }
-            chunk.push((
+            candidates.push((
                 entry.path,
-                usize::try_from(entry.size).unwrap_or(usize::MAX),
+                usize::try_from(entry.size).unwrap_or(usize::MAX) as u64,
             ));
-            if chunk.len() >= MCP_READ_BATCH_SIZE {
+            if candidates.len() >= MCP_READ_BATCH_SIZE {
                 break;
             }
+        }
+        let (chunk, budget_exhausted) = collect_budgeted_chunk(
+            &mut candidates.into_iter(),
+            MCP_READ_BATCH_SIZE,
+            (SEARCH_MAX_TOTAL_BYTES.saturating_sub(searched_bytes)) as u64,
+        );
+        if budget_exhausted {
+            bail!("search content budget exceeded");
         }
         if chunk.is_empty() {
             break;
@@ -386,7 +396,12 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
             if matches.len() >= limit {
                 break;
             }
-            searched_bytes = searched_bytes.saturating_add(size);
+            // Defense in depth: the chunk collector above already gates on
+            // tree entry sizes, so this post-read accumulation should never
+            // fire in practice. It stays because tree sizes could lie (a
+            // corrupted or racing repo), and a lying tree must not turn the
+            // budget into a silent success.
+            searched_bytes = searched_bytes.saturating_add(size as usize);
             if searched_bytes > SEARCH_MAX_TOTAL_BYTES {
                 bail!("search content budget exceeded");
             }
@@ -449,25 +464,37 @@ pub async fn link_graph(
             && sync::path_visible_on_read(&filter, &entry.path)
     });
     loop {
-        let mut chunk: Vec<String> = Vec::new();
+        let mut candidates: Vec<(String, u64)> = Vec::new();
         for entry in iter.by_ref() {
             if graph_files.len() >= limit {
                 truncated = true;
                 break;
             }
-            chunk.push(entry.path);
-            if chunk.len() >= MCP_READ_BATCH_SIZE {
+            candidates.push((entry.path, entry.size));
+            if candidates.len() >= MCP_READ_BATCH_SIZE {
                 break;
             }
+        }
+        let (chunk, budget_exhausted) = collect_budgeted_chunk(
+            &mut candidates.into_iter(),
+            MCP_READ_BATCH_SIZE,
+            (LINK_GRAPH_MAX_TOTAL_BYTES.saturating_sub(scanned_bytes)) as u64,
+        );
+        if budget_exhausted {
+            // The next entry does not fit in the remaining byte budget: stop
+            // scanning entirely rather than erroring — link_graph's contract
+            // is a truncated result, not a failed request (H-3).
+            truncated = true;
+            break;
         }
         if chunk.is_empty() {
             break;
         }
-        let paths: Vec<&str> = chunk.iter().map(|path| path.as_str()).collect();
+        let paths: Vec<&str> = chunk.iter().map(|(path, _)| path.as_str()).collect();
         let files = git
             .read_files(&input.vault_id, input.at.as_deref(), &paths)
             .await?;
-        for (path, file) in chunk.into_iter().zip(files) {
+        for ((path, _size), file) in chunk.into_iter().zip(files) {
             if graph_files.len() >= limit {
                 truncated = true;
                 break;
@@ -478,6 +505,11 @@ pub async fn link_graph(
             }) else {
                 continue;
             };
+            // Defense in depth: the chunk collector above already gates on
+            // tree entry sizes, so this post-read accumulation should never
+            // fire in practice. It stays because tree sizes could lie (a
+            // corrupted or racing repo), and a lying tree must not turn the
+            // budget into a silent success.
             scanned_bytes = scanned_bytes.saturating_add(text.len());
             if scanned_bytes > LINK_GRAPH_MAX_TOTAL_BYTES {
                 truncated = true;
@@ -1467,6 +1499,36 @@ async fn ensure_owned_vault(state: &AppState, user_id: &str, vault_id: &str) -> 
 
 fn api_error_to_anyhow(error: ApiError) -> anyhow::Error {
     anyhow!("{}: {}", error.code, error.message)
+}
+
+/// Collects up to `batch` (path,size) entries whose cumulative size fits in
+/// `remaining_budget`. Returns the chunk and whether collection stopped
+/// because the budget was exhausted by the NEXT entry (either alone or
+/// cumulatively).
+///
+/// The budget is decided from tree-entry sizes so oversized entries never
+/// reach `read_files` and get materialized into memory (H-3: 64 entries x
+/// 100 MiB blobs used to accumulate ~6.4 GiB before the budget check fired).
+fn collect_budgeted_chunk(
+    iter: &mut impl Iterator<Item = (String, u64)>,
+    batch: usize,
+    remaining_budget: u64,
+) -> (Vec<(String, u64)>, bool) {
+    let mut chunk: Vec<(String, u64)> = Vec::new();
+    let mut used: u64 = 0;
+    for entry in iter.by_ref() {
+        let fits_alone = entry.1 <= remaining_budget;
+        let fits_cumulatively = used.saturating_add(entry.1) <= remaining_budget;
+        if !fits_alone || !fits_cumulatively {
+            return (chunk, true);
+        }
+        used += entry.1;
+        chunk.push(entry);
+        if chunk.len() >= batch {
+            break;
+        }
+    }
+    (chunk, false)
 }
 
 #[cfg(test)]
@@ -2497,6 +2559,117 @@ mod tests {
         .unwrap_err();
 
         assert!(err.to_string().contains("search content budget exceeded"));
+    }
+
+    // H-3 pin: the documented search contract across the budget boundary.
+    // With the cfg(test) budget of 64 KiB, two exact-fit 32 KiB files plus a
+    // small third file containing the query overrun the budget at the third
+    // file. This must error with the budget message both before the fix
+    // (post-read accumulation) and after it (pre-read gating on tree entry
+    // sizes) — it pins the externally visible semantics while the fix moves
+    // the decision point earlier.
+    #[tokio::test]
+    async fn search_budget_overrun_at_next_file_errors() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        git.commit_changes(
+            &vault_id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "a.md".into(),
+                    file: StoredFile::Text {
+                        bytes: vec![b'a'; 32 * 1024],
+                    },
+                },
+                FileChange::Upsert {
+                    path: "b.md".into(),
+                    file: StoredFile::Text {
+                        bytes: vec![b'b'; 32 * 1024],
+                    },
+                },
+                FileChange::Upsert {
+                    path: "c.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"needle at the end".to_vec(),
+                    },
+                },
+            ],
+            "seed",
+        )
+        .await
+        .unwrap();
+
+        let err = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id,
+                query: "needle".into(),
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("search content budget exceeded"),
+            "expected budget error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn collect_budgeted_chunk_rejects_entry_larger_than_whole_budget() {
+        let mut iter = vec![("a.md".to_string(), (64 * 1024 + 1) as u64)].into_iter();
+        let (chunk, budget_exhausted) =
+            collect_budgeted_chunk(&mut iter, MCP_READ_BATCH_SIZE, (64 * 1024) as u64);
+        assert!(chunk.is_empty(), "oversized entry must not be included");
+        assert!(budget_exhausted);
+    }
+
+    #[test]
+    fn collect_budgeted_chunk_stops_when_cumulative_total_would_exceed() {
+        let mut iter = vec![
+            ("a.md".to_string(), (24 * 1024) as u64),
+            ("b.md".to_string(), (24 * 1024) as u64),
+            ("c.md".to_string(), (24 * 1024) as u64),
+        ]
+        .into_iter();
+        let (chunk, budget_exhausted) =
+            collect_budgeted_chunk(&mut iter, MCP_READ_BATCH_SIZE, (64 * 1024) as u64);
+        let paths: Vec<&str> = chunk.iter().map(|(path, _)| path.as_str()).collect();
+        assert_eq!(paths, vec!["a.md", "b.md"]);
+        assert!(budget_exhausted);
+    }
+
+    #[test]
+    fn collect_budgeted_chunk_exhausted_iterator_is_not_budget_exhaustion() {
+        let mut iter = vec![
+            ("a.md".to_string(), (24 * 1024) as u64),
+            ("b.md".to_string(), (24 * 1024) as u64),
+        ]
+        .into_iter();
+        let (chunk, budget_exhausted) =
+            collect_budgeted_chunk(&mut iter, MCP_READ_BATCH_SIZE, (64 * 1024) as u64);
+        assert_eq!(chunk.len(), 2);
+        assert!(!budget_exhausted);
+    }
+
+    #[test]
+    fn collect_budgeted_chunk_accepts_exact_fit_without_flagging_exhaustion() {
+        let mut iter = vec![
+            ("a.md".to_string(), (32 * 1024) as u64),
+            ("b.md".to_string(), (32 * 1024) as u64),
+        ]
+        .into_iter();
+        let (chunk, budget_exhausted) =
+            collect_budgeted_chunk(&mut iter, MCP_READ_BATCH_SIZE, (64 * 1024) as u64);
+        assert_eq!(chunk.len(), 2);
+        assert!(
+            !budget_exhausted,
+            "filling the budget exactly is not exhaustion"
+        );
     }
 
     #[tokio::test]

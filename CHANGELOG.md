@@ -91,6 +91,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Server: the MCP `search` and `link_graph` tools no longer materialize
+  file contents beyond their byte budgets (H-3, ultrareview 2026-10-11
+  §2.2). Both tools used to collect read-chunks by count (64 entries) and
+  only accumulated the 256 MiB text budget after the contents were already
+  in memory, so a vault holding 64 ~100 MiB text files made a single
+  request peak at ~6.4 GiB RSS before the budget check fired. Tree entry
+  sizes now gate the chunk before `read_files` runs: an entry that does
+  not fit in the remaining budget never enters the batch, bounding
+  worst-case read memory to the budget itself. Error/truncation contracts
+  are unchanged (`search` still fails with `search content budget
+  exceeded`; `link_graph` still returns `truncated: true`).
 - Server: the 10 MiB cap on `git-upload-pack` request bodies is now
   actually enforced as documented (M-14). The handler took `body: Bytes`,
   which goes through axum's default 2 MiB `DefaultBodyLimit` — so larger
