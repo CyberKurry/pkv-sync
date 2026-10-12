@@ -15,6 +15,7 @@ use std::collections::{HashSet, VecDeque};
 use std::convert::Infallible;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::sync::watch;
 use tokio::time::{Interval, MissedTickBehavior};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
@@ -406,6 +407,26 @@ fn sse_response(rx: mpsc::Receiver<Result<Event, Infallible>>) -> Response {
     response
 }
 
+/// Resolves once the shutdown watch reports `true`, **immediately** when the
+/// current value is already `true`.
+///
+/// `Receiver::changed()` alone is not enough (R2-2): both SSE handlers
+/// authenticate, list vaults and claim an SSE slot *before* they subscribe,
+/// so a shutdown that lands in that window leaves the new receiver with
+/// `true` already marked as seen — `changed()` would then wait forever, the
+/// SSE body would never end, and `with_graceful_shutdown` would still block
+/// until TimeoutStopSec/SIGKILL, which is exactly the symptom H-2 removed.
+/// `wait_for` checks the current value first, so a pre-triggered signal ends
+/// the stream on the first poll.
+///
+/// The `wait_for` guard is deliberately dropped inside this helper: carrying
+/// the `Ref` out as the arm's output would keep a mutable borrow of the
+/// receiver alive across the `select!` arm body and conflict with the
+/// per-frame state borrows there.
+async fn shutdown_requested(rx: &mut watch::Receiver<bool>) {
+    let _ = rx.wait_for(|requested| *requested).await;
+}
+
 struct McpSseState {
     app: AppState,
     token_hash: String,
@@ -504,7 +525,11 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
             _ = tx.closed() => {
                 break;
             }
-            _ = sse.shutdown_rx.changed() => {
+            // `shutdown_requested`, not `changed()`: a receiver created after
+            // the shutdown signal already fired has the current `true` value
+            // marked as seen, so `changed()` never becomes ready and this
+            // stream would hold graceful shutdown open until SIGKILL (R2-2).
+            _ = shutdown_requested(&mut sse.shutdown_rx) => {
                 break;
             }
             _ = sse.auth_interval.tick() => {
@@ -681,7 +706,11 @@ async fn run_listen_stream(mut listen: ListenState, tx: mpsc::Sender<Result<Even
             _ = tx.closed() => {
                 break;
             }
-            _ = listen.shutdown_rx.changed() => {
+            // Same pre-triggered-signal race as the GET stream (R2-2): the
+            // listen handler authenticates and claims an SSE slot before it
+            // subscribes, so a shutdown that lands in that window must still
+            // end this body immediately.
+            _ = shutdown_requested(&mut listen.shutdown_rx) => {
                 break;
             }
             _ = listen.auth_interval.tick() => {

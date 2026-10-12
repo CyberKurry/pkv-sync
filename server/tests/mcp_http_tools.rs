@@ -1031,3 +1031,126 @@ async fn http_mcp_listen_stream_ends_on_server_shutdown() {
         "SSE notification payloads must carry the JSON-RPC version field: {body}"
     );
 }
+
+/// Serve the MCP router on an ephemeral port WITHOUT a graceful-shutdown
+/// future, so a request still reaches the handler after
+/// `state.shutdown.trigger()` has fired. The R2-2 window (signal first,
+/// `subscribe()` second) cannot be reproduced behind a real graceful
+/// shutdown: the listener would already be closed and the request would
+/// never be served.
+async fn serve_without_graceful_shutdown(
+    state: AppState,
+) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(
+            listener,
+            transport_http::router(state, DEPLOYMENT_KEY.into()).into_make_service(),
+        )
+        .await;
+    });
+    (addr, handle)
+}
+
+#[tokio::test]
+async fn http_mcp_get_stream_ends_when_shutdown_precedes_request() {
+    // R2-2: shutdown can land in the window between the SIGTERM handler
+    // calling `shutdown.trigger()` and this request subscribing to the watch
+    // (token auth, vault listing, SSE-guard acquisition all happen in
+    // between). A receiver created AFTER the trigger already has `true`
+    // marked as seen, so `changed()` never fires — the SSE body never ends
+    // and `with_graceful_shutdown` still waits for TimeoutStopSec/SIGKILL,
+    // which is exactly what H-2 set out to remove. The existing
+    // `..._ends_on_server_shutdown` test only covers signal-after-subscribe.
+    let (state, tmp) = test_state().await;
+    let (_user_id, raw) = create_user_with_token(&state, "http-sse-pre-shutdown-get").await;
+    let (addr, handle) = serve_without_graceful_shutdown(state.clone()).await;
+
+    // The real server subscribes to this watch at startup and holds the
+    // receiver for its whole lifetime (`shutdown_signal` does
+    // `state.shutdown.subscribe()` before it awaits the signal), and
+    // `watch::Sender::send` is a no-op while `receiver_count() == 0`. Keeping
+    // an equivalent receiver alive here is what makes `trigger()` latch: the
+    // SSE handler's later `subscribe()` then starts out with `true` already
+    // marked as seen, which is the R2-2 window.
+    let _server_receiver = state.shutdown.subscribe();
+    state.shutdown.trigger();
+    assert!(
+        *_server_receiver.borrow(),
+        "precondition: the shutdown signal must latch while a receiver is live"
+    );
+
+    let resp = reqwest::Client::new()
+        .get(format!("http://{addr}/mcp"))
+        .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
+        .header("accept", "text/event-stream")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let (body, ended) = read_to_end_with_timeout(resp, Duration::from_secs(5)).await;
+    handle.abort();
+    drop(tmp);
+    assert!(
+        ended,
+        "GET SSE stream must END when shutdown was already triggered before the request; body so far: {body}"
+    );
+}
+
+#[tokio::test]
+async fn http_mcp_listen_stream_ends_when_shutdown_precedes_request() {
+    // R2-2, listen side: same window as the GET test above, on the stream
+    // that H-2's fix added an arm to. A triggered-before-subscribe receiver
+    // must still close the body.
+    let (state, tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&state, "http-listen-pre-shutdown").await;
+    let vault = vault::create_vault(&state, &user_id, "main").await.unwrap();
+    let scoped = format!("pkv://vault/{}", vault.id);
+    let (addr, handle) = serve_without_graceful_shutdown(state.clone()).await;
+
+    // Same latch precondition as the GET test above: a live receiver (the
+    // real server's `shutdown_signal` subscription) is what makes the
+    // pre-request `trigger()` observable to a receiver that subscribes later.
+    let _server_receiver = state.shutdown.subscribe();
+    state.shutdown.trigger();
+    assert!(
+        *_server_receiver.borrow(),
+        "precondition: the shutdown signal must latch while a receiver is live"
+    );
+
+    let resp = reqwest::Client::new()
+        .post(format!("http://{addr}/mcp"))
+        .bearer_auth(&raw)
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
+        .header("content-type", "application/json")
+        .header("accept", "text/event-stream")
+        .header("MCP-Protocol-Version", "2026-07-28")
+        .header("Mcp-Method", "subscriptions/listen")
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 32,
+            "method": "subscriptions/listen",
+            "params": {
+                "notifications": {"resourceSubscriptions": [scoped]},
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let (body, ended) = read_to_end_with_timeout(resp, Duration::from_secs(5)).await;
+    handle.abort();
+    drop(tmp);
+    assert!(
+        ended,
+        "listen SSE stream must END when shutdown was already triggered before the request; body so far: {body}"
+    );
+}

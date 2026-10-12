@@ -404,6 +404,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
   - `server/tests/mcp_sse_replay.rs`: `wait_for_file` now takes `&Path`
     instead of `&PathBuf` (new-enforcement `clippy::ptr_arg`).
 
+- Server: both `/mcp` SSE streams — `GET /mcp` and `subscriptions/listen`
+  — now end when the shutdown signal was already set *before* the request
+  subscribed to the watch. Both handlers authenticate, list vaults and
+  claim an SSE subscriber slot before they call `subscribe()`, so a SIGTERM
+  landing in that window left the new receiver with `true` already marked
+  as seen; the select arms used `changed()`, which only fires on a later
+  transition, so the bodies never ended and `with_graceful_shutdown` still
+  waited for `TimeoutStopSec`/SIGKILL — the exact symptom the shutdown arms
+  exist to remove (ultrareview R2-2). Both arms now await a `wait_for`
+  helper that resolves on the current value as well as on a change.
+
 ## [1.5.1] - 2026-09-11
 
 ### Changed
