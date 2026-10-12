@@ -524,9 +524,21 @@ async fn stdio_run_on_survives_drain_larger_than_outbound_channel() {
     // channel is the same select loop that awaits `drain_listens`, the 65th
     // `tx.send().await` waits for a slot that nothing can free — the session
     // deadlocks and never answers stdin again. Drive `run_on` itself (not a
-    // 1024-slot test channel) over a duplex pair, publish more than 64
-    // events without draining, and require a subsequent request/response
-    // roundtrip to complete within a timeout.
+    // 1024-slot test channel) over a duplex pair and require a subsequent
+    // request/response roundtrip to complete within a timeout.
+    //
+    // R2-1: the burst must not be published before the listen is actually
+    // registered. `VaultEventBus::publish` drops events on the floor while
+    // `receiver_count() == 0`, and on a current-thread runtime the duplex
+    // `write_all` above completes without yielding, so publishing straight
+    // after writing the listen line loses all 120 events and the overflow
+    // this test exists to trigger never happens — the test then passes on
+    // the pre-CR-1 implementation too. `StdioSession::listen` registers the
+    // broadcast receiver *before* it queues the ack, so reading the ack back
+    // proves a receiver exists; only then is the burst published. The
+    // dropped marker is asserted as well, so a future regression that stops
+    // the overflow from being produced fails here instead of passing
+    // vacuously.
     use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt};
 
     let (session_state, _tmp) = test_state().await;
@@ -545,34 +557,9 @@ async fn stdio_run_on_survives_drain_larger_than_outbound_channel() {
     ));
 
     let (client_read, mut client_write) = tokio::io::split(client);
-    let listen = listen_request(json!(13), vec![&format!("pkv://vault/{vault_id}")]);
-    client_write
-        .write_all(format!("{listen}\n").as_bytes())
-        .await
-        .unwrap();
-
-    // Publish 120 events (audit's lagged-test volume) with nobody reading
-    // stdout: the next 50ms drain tick must collect a dropped marker plus
-    // the retained ring events — more lines than the outbound channel holds.
-    for idx in 0..120 {
-        session_state.events.publish(
-            &vault_id,
-            VaultEvent {
-                commit: format!("cap-{idx}"),
-                parent: None,
-                source_device_id: "dev".into(),
-                at: 1,
-                kind: EventKind::Commit,
-                changes: vec![],
-            },
-        );
-    }
-
-    // Read stdout only now, and concurrently with the follow-up request:
-    // the deadlock (if present) pins the drain inside the select loop, so
-    // the request below would never even be parsed. Reading is what frees
-    // duplex backpressure, so it must keep running for the roundtrip to be
-    // able to finish at all.
+    // Drain stdout from the very start: the ack has to be observed before the
+    // burst is published, and reading is also what frees duplex backpressure,
+    // so it must keep running for the roundtrip below to be able to finish.
     let mut reader = tokio::io::BufReader::new(client_read);
     let (line_tx, mut line_rx) = mpsc::channel::<String>(256);
     let read_handle = tokio::spawn(async move {
@@ -590,21 +577,100 @@ async fn stdio_run_on_survives_drain_larger_than_outbound_channel() {
         }
     });
 
+    let listen = listen_request(json!(13), vec![&format!("pkv://vault/{vault_id}")]);
+    client_write
+        .write_all(format!("{listen}\n").as_bytes())
+        .await
+        .unwrap();
+
+    let mut stdout = String::new();
+    let ack_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut saw_ack = false;
+    while tokio::time::Instant::now() < ack_deadline {
+        match tokio::time::timeout_at(ack_deadline, line_rx.recv()).await {
+            Ok(Some(line)) => {
+                stdout.push_str(&line);
+                if line.contains("notifications/subscriptions/acknowledged") {
+                    saw_ack = true;
+                    break;
+                }
+            }
+            Ok(None) => break, // reader hit EOF before the ack
+            Err(_) => break,   // deadline
+        }
+    }
+    if !saw_ack {
+        run_handle.abort();
+        let _ = read_handle.await;
+        panic!("listen was never acknowledged; stdout so far: {stdout}");
+    }
+
+    // Publish 120 events (audit's lagged-test volume) now that the receiver is
+    // registered — the publishes are synchronous, so no drain tick can
+    // interleave and shrink the pending backlog below the ring capacity. The
+    // next 50ms drain tick must collect a dropped marker plus the 64 retained
+    // ring events: one line more than the outbound channel holds.
+    for idx in 0..120 {
+        session_state.events.publish(
+            &vault_id,
+            VaultEvent {
+                commit: format!("cap-{idx}"),
+                parent: None,
+                source_device_id: "dev".into(),
+                at: 1,
+                kind: EventKind::Commit,
+                changes: vec![],
+            },
+        );
+    }
+
+    // The oversized drain must actually reach the client: the dropped marker
+    // (then the 64 retained ring events). On the pre-CR-1 single-loop
+    // implementation the batch is produced but never written — the 65th
+    // `tx.send().await` pins the loop inside the drain arm, and the same loop
+    // is the only writer, so the client sees nothing more. Waiting for the
+    // marker before probing keeps the failure deterministic instead of racing
+    // the probe past the blocked drain.
+    let mut saw_dropped = false;
+    let drain_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < drain_deadline {
+        match tokio::time::timeout_at(drain_deadline, line_rx.recv()).await {
+            Ok(Some(line)) => {
+                stdout.push_str(&line);
+                if line.contains("notifications/resources/dropped") {
+                    saw_dropped = true;
+                    break;
+                }
+            }
+            Ok(None) => break, // reader hit EOF before the deadline
+            Err(_) => break,   // deadline
+        }
+    }
+    if !saw_dropped {
+        run_handle.abort();
+        let _ = read_handle.await;
+        panic!(
+            "an oversized drain must emit notifications/resources/dropped to the client; \
+             stdout so far: {stdout}"
+        );
+    }
+
+    // The follow-up request is the deadlock probe: a loop pinned inside the
+    // drain never parses stdin again, so this response never arrives.
     let probe = json!({"jsonrpc": "2.0", "id": 99, "method": "tools/list", "params": {}});
     client_write
         .write_all(format!("{probe}\n").as_bytes())
         .await
         .unwrap();
 
-    let mut stdout = String::new();
     let mut saw_probe = false;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    while tokio::time::Instant::now() < deadline {
-        let next = tokio::time::timeout_at(deadline, line_rx.recv()).await;
-        match next {
+    let probe_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while tokio::time::Instant::now() < probe_deadline {
+        match tokio::time::timeout_at(probe_deadline, line_rx.recv()).await {
             Ok(Some(line)) => {
                 if line.contains("\"id\":99") {
                     saw_probe = true;
+                    break;
                 }
                 stdout.push_str(&line);
             }
