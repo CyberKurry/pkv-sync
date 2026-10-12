@@ -2,9 +2,9 @@
   "name": "pkv-sync-monorepo",
   "private": true,
   "scripts": {
-    "plugin:build": "npm --prefix plugin run build",
-    "plugin:dev": "npm --prefix plugin run dev",
-    "plugin:test": "npm --prefix plugin test",
-    "plugin:typecheck": "npm --prefix plugin run typecheck"
+    "plugin:build": "cd plugin && npm run build",
+    "plugin:dev": "cd plugin && npm run dev",
+    "plugin:test": "cd plugin && npm test",
+    "plugin:typecheck": "cd plugin && npm run typecheck"
   }
 }

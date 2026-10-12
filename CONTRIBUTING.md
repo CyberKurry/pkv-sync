@@ -6,8 +6,8 @@ PKV Sync is early-stage. Please open an issue before large changes.
 
 ```bash
 cargo test -p pkv-sync-server
-npm --prefix plugin test
-npm --prefix plugin run typecheck
+(cd plugin && npm test)
+(cd plugin && npm run typecheck)
 ```
 
 ## Commits
