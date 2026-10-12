@@ -159,19 +159,24 @@ jobs:
           cache-dependency-path: plugin/package-lock.json
 
       - name: Install plugin dependencies
-        run: npm ci --prefix plugin
+        working-directory: plugin
+        run: npm ci
 
       - name: Test plugin
-        run: npm --prefix plugin test
+        working-directory: plugin
+        run: npm test
 
       - name: Typecheck plugin
-        run: npm --prefix plugin run typecheck
+        working-directory: plugin
+        run: npm run typecheck
 
       - name: Package plugin
-        run: npm --prefix plugin run package
+        working-directory: plugin
+        run: npm run package
 
       - name: Audit plugin dependencies
-        run: npm audit --prefix plugin --audit-level=moderate
+        working-directory: plugin
+        run: npm audit --audit-level=moderate
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
