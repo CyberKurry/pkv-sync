@@ -1666,6 +1666,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_files_fails_closed_when_vault_allowlist_cannot_compile() {
+        // A vault allowlist that exceeds the compile limits used to be
+        // silently replaced by an empty one, hiding every allowlisted
+        // hidden file; reads must fail closed instead (ultrareview M-7).
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_two_files(&state, &vault_id, "note.md", ".obsidian/app.json").await;
+        let too_many = (0..600)
+            .map(|i| format!(".hidden{i}/**"))
+            .collect::<Vec<_>>();
+        set_vault_allowlist(&state, &vault_id, too_many).await;
+
+        let err = list_files(&state, &user_id, ListFilesInput { vault_id, at: None })
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("extra_sync_globs"),
+            "must surface the vault allowlist compile failure, got: {err}"
+        );
+    }
+
+    #[tokio::test]
     async fn read_file_hides_filtered_path() {
         let (state, user_id, vault_id, _tmp) = state_user_vault().await;
         seed_two_files(&state, &vault_id, "note.md", "secret.md").await;

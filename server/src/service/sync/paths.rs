@@ -19,30 +19,49 @@ pub(super) async fn sync_path_filter(
         return Ok(filter);
     }
     let settings = vault_settings::load(state, vault_id).await?;
-    let user_excludes =
-        match crate::service::exclude::EffectiveExcludes::compile(runtime_exclude_globs) {
-            Ok(set) => set,
-            Err(err) => {
-                tracing::warn!(
-                    vault_id = %vault_id,
-                    error = %err,
-                    "extra_exclude_globs failed to compile; ignoring all configured exclude globs"
-                );
-                crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap()
-            }
-        };
-    let vault_allowlist =
-        match crate::service::exclude::EffectiveExcludes::compile(&settings.extra_sync_globs) {
-            Ok(set) => set,
-            Err(err) => {
-                tracing::warn!(
-                    vault_id = %vault_id,
-                    error = %err,
-                    "extra_sync_globs failed to compile; ignoring vault allowlist"
-                );
-                crate::service::exclude::EffectiveExcludes::compile(&[]).unwrap()
-            }
-        };
+    // Both glob sources fail closed. An allowlist that silently degrades
+    // to an empty set would hide every hidden file the admin explicitly
+    // allowlisted (and reject their pushes with path_excluded) while the
+    // only trace was a warn log (ultrareview M-7); the same holds for the
+    // runtime exclude set. The admin/runtime-config save paths compile
+    // before persisting, so reaching this branch means the stored data is
+    // corrupt or was written by an older unvalidated path — the message
+    // names the setting and the violated limit (never glob contents) so
+    // the misconfiguration is visible and fixable.
+    let user_excludes = crate::service::exclude::EffectiveExcludes::compile(runtime_exclude_globs)
+        .map_err(|err| {
+            tracing::error!(
+                vault_id = %vault_id,
+                error = %err,
+                "extra_exclude_globs failed to compile; failing closed"
+            );
+            ApiError::new(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "server_excludes_invalid",
+                format!(
+                    "server extra_exclude_globs failed to compile; \
+                     fix or clear the server exclude configuration: {err}"
+                ),
+            )
+        })?;
+    let vault_allowlist = crate::service::exclude::EffectiveExcludes::compile(
+        &settings.extra_sync_globs,
+    )
+    .map_err(|err| {
+        tracing::error!(
+            vault_id = %vault_id,
+            error = %err,
+            "vault extra_sync_globs failed to compile; failing closed"
+        );
+        ApiError::new(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "vault_settings_invalid",
+            format!(
+                "vault extra_sync_globs failed to compile; \
+                         fix or clear the vault allowlist in settings: {err}"
+            ),
+        )
+    })?;
     let filter = crate::service::exclude::SyncPathFilter::new(user_excludes, vault_allowlist);
     state.cache_vault_path_filter(vault_id, runtime_exclude_globs, filter.clone());
     Ok(filter)

@@ -1655,6 +1655,15 @@ async fn vault_settings_post(
     } else {
         parse_glob_lines(&form.extra_sync_globs)?
     };
+    // Compile exactly like the read side does before persisting: an
+    // allowlist that only passes the syntax check used to save fine and
+    // then fail EffectiveExcludes::compile on every read, silently
+    // degrading to an empty allowlist that hid all allowlisted hidden
+    // files (ultrareview M-7). The runtime exclude save path already
+    // compile-validates; this is the missed twin.
+    crate::service::exclude::EffectiveExcludes::compile(&extra_sync_globs).map_err(|e| {
+        ApiError::bad_request("invalid_glob", format!("vault allowlist rejected: {}", e))
+    })?;
     crate::service::vault_settings::save(
         &state,
         &id,

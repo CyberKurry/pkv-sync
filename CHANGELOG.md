@@ -134,6 +134,19 @@ and this project adheres to semantic versioning starting at v1.0.0.
   single-encoded paths keep working and now roundtrip through reads
   byte-identically. Server-generated auto-merge conflict sidecars reuse
   the already-canonical stored path, so reads never re-decode them.
+- Admin `POST /admin/vaults/:id/settings` now runs the full
+  `EffectiveExcludes::compile` (the same limits every read enforces: 500
+  patterns, 1024 bytes per pattern, 64 KiB total) on the submitted
+  `extra_sync_globs` allowlist before saving, and rejects oversized
+  submissions with `400 invalid_glob` naming the violated limit.
+  Previously only glob syntax was validated, so an over-limit allowlist
+  saved successfully and then failed to compile on every sync read —
+  silently degrading to an empty allowlist that hid all previously
+  allowlisted hidden files and rejected their pushes with `path_excluded`
+  (ultrareview M-7). The read side now also fails closed: a stored glob
+  set that cannot compile (corrupt data or a pre-fix save) surfaces as
+  `500 server_excludes_invalid` / `500 vault_settings_invalid` with the
+  violated limit, instead of being silently replaced by an empty set.
 
 - Server: the MCP `search` and `link_graph` tools no longer materialize
   file contents beyond their byte budgets (H-3, ultrareview 2026-10-11

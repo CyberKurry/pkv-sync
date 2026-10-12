@@ -318,3 +318,94 @@ async fn post_vault_settings_rejects_invalid_glob_without_saving() {
         vault_settings::starter_extra_sync_globs()
     );
 }
+
+#[tokio::test]
+async fn post_vault_settings_rejects_allowlist_exceeding_pattern_count() {
+    // 600 patterns pass the syntax-only check but exceed the 500-pattern
+    // compile limit enforced on every read; saving them used to succeed
+    // silently and then break the vault's allowlist at read time
+    // (ultrareview M-7).
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin = state
+        .users
+        .find_by_username("admin")
+        .await
+        .unwrap()
+        .unwrap();
+    let vault = vault::create_vault(&state, &admin.id, "main")
+        .await
+        .unwrap();
+
+    let six_hundred = (0..600)
+        .map(|i| format!(".hidden{i}/**"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut req = with_session(
+        &session_cookie,
+        Method::POST,
+        &format!("/admin/vaults/{}/settings", vault.id),
+        Body::from(form_body(&six_hundred, false)),
+    );
+    req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    set_form_origin(&mut req);
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = read_body(resp).await;
+    assert!(
+        body.contains("500"),
+        "error should name the violated limit: {body}"
+    );
+    let settings = vault_settings::load(&state, &vault.id).await.unwrap();
+    assert_eq!(
+        settings.extra_sync_globs,
+        vault_settings::starter_extra_sync_globs(),
+        "oversized allowlist must not be saved"
+    );
+}
+
+#[tokio::test]
+async fn post_vault_settings_rejects_allowlist_with_overlong_line() {
+    let (app, state) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin = state
+        .users
+        .find_by_username("admin")
+        .await
+        .unwrap()
+        .unwrap();
+    let vault = vault::create_vault(&state, &admin.id, "main")
+        .await
+        .unwrap();
+
+    let overlong = format!(".hidden/{}.md", "a".repeat(1100));
+    let mut req = with_session(
+        &session_cookie,
+        Method::POST,
+        &format!("/admin/vaults/{}/settings", vault.id),
+        Body::from(form_body(&overlong, false)),
+    );
+    req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    set_form_origin(&mut req);
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = read_body(resp).await;
+    assert!(
+        body.contains("1024"),
+        "error should name the violated limit: {body}"
+    );
+    let settings = vault_settings::load(&state, &vault.id).await.unwrap();
+    assert_eq!(
+        settings.extra_sync_globs,
+        vault_settings::starter_extra_sync_globs(),
+        "oversized allowlist must not be saved"
+    );
+}
