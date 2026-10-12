@@ -64,6 +64,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
   stay covered by the behavioral suite — and replaced the stdio
   credential-error branch's `let _ = err` payload discard with a
   by-pattern drop. No runtime behavior change.
+- internal: the REST `AuthenticatedUser` extractor and the MCP transport now
+  share a single `Authorization: Bearer` parser (R-12), so the REST API
+  accepts any capitalization of the scheme exactly as `/mcp` already did
+  (RFC 9110 §11.1, L-1); the POST/SSE 401 block, the HTTP SSE token
+  rechecks and the stdio token recheck were collapsed into shared helpers
+  (R-1/R-3/R-4). No other behavior change.
 
 ### Security
 

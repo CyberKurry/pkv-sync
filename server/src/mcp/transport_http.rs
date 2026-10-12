@@ -1,3 +1,4 @@
+use crate::auth::bearer::bearer_token;
 use crate::auth::AuthenticatedUser;
 use crate::middleware::deployment_key;
 use crate::service::AppState;
@@ -120,27 +121,9 @@ async fn post_mcp(
     // answered invalid credentials with the parse error (and did all the
     // work first), so unauthenticated callers could make the server buffer
     // and parse arbitrarily large bodies.
-    let Some(raw) = bearer(&headers) else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(jsonrpc_error(Value::Null, ERR_AUTH, "missing bearer token")),
-        )
-            .into_response();
-    };
-    let user = match authenticate_token(&state, raw, &auth_limit_key.0).await {
-        Ok(user) => user,
-        Err(err) => {
-            let message = err.to_string();
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(jsonrpc_error(
-                    Value::Null,
-                    ERR_AUTH,
-                    mcp_auth_error_public_message(&message),
-                )),
-            )
-                .into_response();
-        }
+    let (user, raw) = match bearer_user(&state, &headers, &auth_limit_key.0).await {
+        Ok(authenticated) => authenticated,
+        Err(response) => return response,
     };
     let max_file_size = state.runtime_cfg.max_file_size().await;
     let body = match to_bytes(body, mcp_json_body_limit_bytes(max_file_size)).await {
@@ -296,27 +279,9 @@ async fn get_mcp_sse(
     if !accepts_sse {
         return (StatusCode::METHOD_NOT_ALLOWED, Body::empty()).into_response();
     }
-    let Some(raw) = bearer(&headers) else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(jsonrpc_error(Value::Null, ERR_AUTH, "missing bearer token")),
-        )
-            .into_response();
-    };
-    let user = match authenticate_token(&state, raw, &auth_limit_key.0).await {
-        Ok(user) => user,
-        Err(err) => {
-            let message = err.to_string();
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(jsonrpc_error(
-                    Value::Null,
-                    ERR_AUTH,
-                    mcp_auth_error_public_message(&message),
-                )),
-            )
-                .into_response();
-        }
+    let (user, raw) = match bearer_user(&state, &headers, &auth_limit_key.0).await {
+        Ok(authenticated) => authenticated,
+        Err(response) => return response,
     };
     let token_hash = crate::auth::token::hash(raw);
     let vaults =
@@ -454,6 +419,21 @@ struct McpSseState {
     _guard: crate::service::state::SseSubscriberGuard,
 }
 
+impl McpSseState {
+    /// Same recheck as the listen stream's `ListenState::token_still_valid`
+    /// (R-3): both SSE loops must drop the connection the moment the token
+    /// is revoked, expired or the account is disabled.
+    async fn token_still_valid(&mut self) -> bool {
+        mcp_token_still_valid(
+            &self.app,
+            &self.token_hash,
+            &self.user,
+            &mut self.validity_cache,
+        )
+        .await
+    }
+}
+
 /// One queued SSE frame: a replayed vault change, or a lag marker.
 ///
 /// `Lagged` carries the affected vault id when known: a live broadcast
@@ -512,14 +492,7 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
             break;
         }
         if let Some(item) = sse.replay_items.pop_front() {
-            if !mcp_token_still_valid(
-                &sse.app,
-                &sse.token_hash,
-                &sse.user,
-                &mut sse.validity_cache,
-            )
-            .await
-            {
+            if !sse.token_still_valid().await {
                 break;
             }
             if tx.send(Ok(item.into_event())).await.is_err() {
@@ -535,12 +508,7 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                 break;
             }
             _ = sse.auth_interval.tick() => {
-                if !mcp_token_still_valid(
-                    &sse.app,
-                    &sse.token_hash,
-                    &sse.user,
-                    &mut sse.validity_cache,
-                ).await {
+                if !sse.token_still_valid().await {
                     break;
                 }
             }
@@ -574,12 +542,7 @@ async fn run_mcp_sse_stream(mut sse: McpSseState, tx: mpsc::Sender<Result<Event,
                     }
                     None => break,
                 };
-                if !mcp_token_still_valid(
-                    &sse.app,
-                    &sse.token_hash,
-                    &sse.user,
-                    &mut sse.validity_cache,
-                ).await {
+                if !sse.token_still_valid().await {
                     break;
                 }
                 if tx
@@ -870,17 +833,38 @@ async fn mcp_replay_events_after(
     Ok((Some(events_all), unmatched_vaults))
 }
 
-/// Extract the bearer token from the Authorization header. RFC 9110 §11.1
-/// makes the auth-scheme case-insensitive, so `bearer`/`BEARER`/`BeArEr`
-/// all match; exactly one space separates scheme and token (JSON-RPC
-/// clients send the canonical form, and tolerating more whitespace would
-/// blur what the token bytes are).
-fn bearer(headers: &HeaderMap) -> Option<&str> {
-    let value = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())?;
-    let (scheme, rest) = value.split_once(' ')?;
-    scheme.eq_ignore_ascii_case("bearer").then_some(rest)
+/// Authenticate the request's `Authorization` header, mapping both failures
+/// (missing header, rejected token) onto the 401 envelope the POST and SSE
+/// entry points share (R-1). Returns the parsed credential alongside the
+/// user so callers that need the token hash (the listen path) do not parse
+/// the header twice.
+async fn bearer_user<'a>(
+    state: &AppState,
+    headers: &'a HeaderMap,
+    limit_key: &str,
+) -> Result<(AuthenticatedUser, &'a str), Response> {
+    let Some(raw) = bearer_token(headers) else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(jsonrpc_error(Value::Null, ERR_AUTH, "missing bearer token")),
+        )
+            .into_response());
+    };
+    match authenticate_token(state, raw, limit_key).await {
+        Ok(user) => Ok((user, raw)),
+        Err(err) => {
+            let message = err.to_string();
+            Err((
+                StatusCode::UNAUTHORIZED,
+                Json(jsonrpc_error(
+                    Value::Null,
+                    ERR_AUTH,
+                    mcp_auth_error_public_message(&message),
+                )),
+            )
+                .into_response())
+        }
+    }
 }
 
 #[cfg(test)]

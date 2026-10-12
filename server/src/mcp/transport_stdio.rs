@@ -86,20 +86,27 @@ impl StdioSession {
         })
     }
 
-    pub async fn handle_jsonrpc(&self, request: Value) -> Value {
-        let id = request.get("id").cloned().unwrap_or(Value::Null);
+    /// Recheck the session token (revocation / expiry / disabled account)
+    /// against the shared 5s validity cache (R-4). Called by every entry
+    /// point that does work on the session's behalf — request handling and
+    /// the listen drain — since a registered listen outlives its request
+    /// and would otherwise keep pushing to a revoked session until EOF.
+    async fn token_still_valid(&self) -> bool {
         let mut validity_cache = self.validity_cache.lock().await;
-        if !mcp_token_still_valid(
+        mcp_token_still_valid(
             &self.state,
             &self.token_hash,
             &self.user,
             &mut validity_cache,
         )
         .await
-        {
+    }
+
+    pub async fn handle_jsonrpc(&self, request: Value) -> Value {
+        let id = request.get("id").cloned().unwrap_or(Value::Null);
+        if !self.token_still_valid().await {
             return jsonrpc_error(id, -32000, "invalid or revoked token");
         }
-        drop(validity_cache);
         handle_jsonrpc(
             &self.state,
             &self.user,
@@ -169,18 +176,9 @@ impl StdioSession {
 
     async fn handle_modern(&self, msg: Value, tx: &mut mpsc::Sender<String>) -> Option<Value> {
         let id = msg.get("id").cloned().unwrap_or(Value::Null);
-        let mut validity_cache = self.validity_cache.lock().await;
-        if !mcp_token_still_valid(
-            &self.state,
-            &self.token_hash,
-            &self.user,
-            &mut validity_cache,
-        )
-        .await
-        {
+        if !self.token_still_valid().await {
             return Some(jsonrpc_error(id, -32000, "invalid or revoked token"));
         }
-        drop(validity_cache);
         if msg.get("method").and_then(Value::as_str) == Some("subscriptions/listen") {
             self.listen(id, msg, tx).await;
             return None;
@@ -227,20 +225,10 @@ impl StdioSession {
         // receiving pushes until EOF). One check per drain covers every
         // entry; the 5s validity cache keeps the cost negligible on the
         // 50ms tick.
-        let mut validity_cache = self.validity_cache.lock().await;
-        if !mcp_token_still_valid(
-            &self.state,
-            &self.token_hash,
-            &self.user,
-            &mut validity_cache,
-        )
-        .await
-        {
-            drop(validity_cache);
+        if !self.token_still_valid().await {
             self.listens.lock().await.clear();
             return;
         }
-        drop(validity_cache);
         let mut listens = self.listens.lock().await;
         let mut lines = Vec::new();
         let dead: Vec<String> = listens

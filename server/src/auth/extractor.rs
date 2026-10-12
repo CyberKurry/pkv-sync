@@ -58,11 +58,7 @@ async fn authenticate_from_parts(
     parts: &mut Parts,
     state: &AppState,
 ) -> Result<AuthenticatedUser, ApiError> {
-    let raw = parts
-        .headers
-        .get("authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "))
+    let raw = crate::auth::bearer::bearer_token(&parts.headers)
         .ok_or_else(|| ApiError::unauthorized("missing bearer token"))?;
     if !token::looks_valid(raw) {
         return Err(ApiError::unauthorized("invalid token format"));
