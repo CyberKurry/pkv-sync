@@ -43,9 +43,9 @@ trusted_proxies = ["127.0.0.1/32"]
 "@ | Set-Content -LiteralPath $cfg -Encoding ASCII
 
 & $bin -c $cfg migrate up | Out-Null
-"adminpass1234" | & $bin -c $cfg user add admin --admin | Out-Null
-"passw0rd!!" | & $bin -c $cfg user add bob | Out-Null
-"newpass1234" | & $bin -c $cfg user passwd bob | Out-Null
+"AdminPass1234" | & $bin -c $cfg user add admin --admin | Out-Null
+"Passw0rd!!23" | & $bin -c $cfg user add bob | Out-Null
+"NewPass1234!!" | & $bin -c $cfg user passwd bob | Out-Null
 
 $stdout = Join-Path $root "serve.out.log"
 $stderr = Join-Path $root "serve.err.log"
@@ -91,7 +91,7 @@ try {
     }
 
     $loginFile = Join-Path $root "login.json"
-    '{"username":"bob","password":"newpass1234","device_id":"dev_ci_smoke","device_name":"ci"}' |
+    '{"username":"bob","password":"NewPass1234!!","device_id":"dev_ci_smoke","device_name":"ci"}' |
         Set-Content -LiteralPath $loginFile -NoNewline -Encoding ASCII
 
     $code = & $curl `
