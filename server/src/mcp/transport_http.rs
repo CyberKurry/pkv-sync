@@ -247,8 +247,11 @@ async fn post_mcp(
     let status = match response["error"]["code"].as_i64() {
         // Legacy JSON-RPC clients expect 200-wrapped errors, so only
         // modern-era errors map to transport-level statuses; the -32601 →
-        // 404 arm below is era-gated the same way.
-        Some(-32020 | -32021 | -32022 | -32602) if is_modern => StatusCode::BAD_REQUEST,
+        // 404 arm below is era-gated the same way. (-32021
+        // MissingRequiredClientCapability is a defined spec code we never
+        // emit — no handler requires a client capability — so it has no
+        // mapping here.)
+        Some(-32020 | -32022 | -32602) if is_modern => StatusCode::BAD_REQUEST,
         Some(-32601) if is_modern => StatusCode::NOT_FOUND,
         _ => StatusCode::OK,
     };

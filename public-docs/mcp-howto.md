@@ -155,7 +155,9 @@ visible files makes the call fail with `too many files to search` rather than
 being partially scanned. It returns at most 500 matches (default 100), and
 aborts with an error once it has read more than 256 MiB of text in production.
 `link_graph` scans at most 5000 visible text files with the same production text
-budget, but reports `truncated: true` instead of failing. `changes_since`
+budget, but reports `truncated: true` instead of failing. Link extraction is
+also capped per file (10000 links) and in total for broken links (20000);
+hitting either cap sets `truncated: true`. `changes_since`
 returns at most 5000 visible change entries. `read_file` and
 `read_file_at_commit` resolve blob pointers before responding; binary content is
 returned base64-encoded with `encoding: "base64"`, and binary/blob responses

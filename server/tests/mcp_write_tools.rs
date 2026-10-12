@@ -1346,6 +1346,183 @@ async fn write_file_never_auto_merges_even_when_enabled() {
 }
 
 #[tokio::test]
+async fn write_files_oversized_file_reports_public_max_file_size_error() {
+    // M-5: write_files used to phrase the rejection "file '{path}' exceeds
+    // max_file_size of …", which does not start with the whitelisted
+    // "file exceeds max_file_size of " prefix — the boundary masked it as
+    // `internal server error`, hiding a client-correctable mistake.
+    let (state, _tmp) = test_state().await;
+    state
+        .runtime_cfg_repo
+        .set_max_file_size(1024, None)
+        .await
+        .unwrap();
+    state
+        .runtime_cfg
+        .replace(state.runtime_cfg_repo.load().await.unwrap())
+        .await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-files-oversize").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "seed.md", "seed").await;
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "writes": [
+                { "path": "small.md", "content": "ok" },
+                { "path": "large.md", "content": "x".repeat(2048) }
+            ]
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("max_file_size"),
+        "must be the public size error, got: {message}"
+    );
+    assert_ne!(message, "internal server error");
+    let git = Git2VaultStore::new(state.default_vault_root());
+    assert_eq!(
+        git.head(&vault.id).await.unwrap().as_deref(),
+        Some(head.as_str()),
+        "rejected batch must not commit"
+    );
+}
+
+#[tokio::test]
+async fn write_files_wrong_file_kind_reports_public_error() {
+    // M-5: push-side forwarded codes reachable through the MCP write tools
+    // must stay public. A binary extension sent as text content reaches
+    // push's `wrong_file_kind` rejection via api_error_to_anyhow's
+    // "{code}: {message}" forwarding.
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-files-kind").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "seed.md", "seed").await;
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "writes": [
+                { "path": "image.png", "content": "not really a png" }
+            ]
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("wrong_file_kind"),
+        "must surface the push-side wrong_file_kind code, got: {message}"
+    );
+    assert_ne!(message, "internal server error");
+}
+
+#[tokio::test]
+async fn read_file_on_directory_path_reports_public_not_found() {
+    // M-5: reading a directory path surfaces a raw git ODB type error,
+    // which the boundary masked as `internal server error`.
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-read-dir").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    git.commit_changes(
+        &vault.id,
+        None,
+        &[
+            FileChange::Upsert {
+                path: "notes/a.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"a".to_vec(),
+                },
+            },
+            FileChange::Upsert {
+                path: "top.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"t".to_vec(),
+                },
+            },
+        ],
+        "seed dir",
+    )
+    .await
+    .unwrap();
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "read_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "notes"
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("not_found"),
+        "a directory path must read as not_found, got: {message}"
+    );
+    assert_ne!(message, "internal server error");
+}
+
+#[tokio::test]
+async fn read_file_at_commit_with_bogus_commit_reports_public_invalid_commit() {
+    // M-5: an unparseable commit id surfaces a raw git OID parse error,
+    // which the boundary masked as `internal server error`.
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-read-bad-commit").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    git.commit_changes(
+        &vault.id,
+        None,
+        &[FileChange::Upsert {
+            path: "top.md".into(),
+            file: StoredFile::Text {
+                bytes: b"t".to_vec(),
+            },
+        }],
+        "seed",
+    )
+    .await
+    .unwrap();
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "read_file_at_commit",
+        json!({
+            "vault_id": vault.id,
+            "path": "top.md",
+            "commit": "not-a-commit-id"
+        }),
+    )
+    .await;
+
+    assert_eq!(body["error"]["code"], -32000);
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("invalid_commit"),
+        "a bogus commit must read as invalid_commit, got: {message}"
+    );
+    assert_ne!(message, "internal server error");
+}
+
+#[tokio::test]
 async fn write_files_never_auto_merges_even_when_enabled() {
     // Same guard for write_files batch.
     let (state, _tmp) = test_state().await;

@@ -91,6 +91,22 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- MCP tool errors that a client can correct no longer surface as
+  `-32000 internal server error`: `write_files` size failures use the
+  whitelisted wording, forwarded push codes (`wrong_file_kind`,
+  `path_conflict`, `file_too_large`) are public, and git read failures map
+  to `not_found:` / `invalid_commit:` (directory targets, unknown commits).
+- MCP `link_graph` caps link extraction at 10000 links per file and 20000
+  broken links in total, setting `truncated: true` instead of amplifying a
+  link-spam file into unbounded output; the base64 fallback for non-UTF-8
+  text now enforces the same response-size cap as blob reads.
+- MCP `path_prefix` filters match the exact path or a child of it, so
+  `notes` no longer matches `notes-old/`.
+- An MCP write whose git commit succeeded but whose activity-log write
+  failed now still reports success (the commit is durable; only the audit
+  row is lost, logged as an error) instead of returning an error the client
+  might "compensate" for.
+
 - MCP `GET /mcp` now honors an unusable `Last-Event-ID` instead of
   silently treating it as "no resume requested": a value that is empty,
   contains `:`, or is not a 40-hex OID makes the stream's first event a

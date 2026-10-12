@@ -79,7 +79,7 @@ MCP 사양의 `Origin` 헤더 DNS-rebinding 검사는 `/mcp`에서 의도적으�
 
 ## Read and search limits
 
-`search`는 최대 5000개 visible tree files를 스캔합니다. vault의 visible files가 5000개를 넘으면 일부만 스캔하는 대신 `too many files to search`로 실패합니다. 최대 500 matches(기본 100)를 반환하며, 프로덕션에서는 읽은 text가 256 MiB를 초과하면 오류로 중단합니다. `link_graph`는 최대 5000개 visible text files를 스캔하고 동일한 프로덕션 text budget을 사용하지만, 실패하지 않고 `truncated: true`를 반환합니다. `changes_since`는 최대 5000개 visible change entries를 반환합니다. `read_file`과 `read_file_at_commit`은 응답 전에 blob pointer를 해석합니다. binary 내용은 `encoding: "base64"`와 함께 base64로 반환되며, 64 MiB를 넘는 binary/blob response는 base64로 JSON에 확장되는 대신 거부됩니다.
+`search`는 최대 5000개 visible tree files를 스캔합니다. vault의 visible files가 5000개를 넘으면 일부만 스캔하는 대신 `too many files to search`로 실패합니다. 최대 500 matches(기본 100)를 반환하며, 프로덕션에서는 읽은 text가 256 MiB를 초과하면 오류로 중단합니다. `link_graph`는 최대 5000개 visible text files를 스캔하고 동일한 프로덕션 text budget을 사용하지만, 실패하지 않고 `truncated: true`를 반환합니다. link 추출은 파일당 10000개, broken link는 총 20000개로 제한되며, 어느 한도에 도달하면 `truncated: true`가 설정됩니다. `changes_since`는 최대 5000개 visible change entries를 반환합니다. `read_file`과 `read_file_at_commit`은 응답 전에 blob pointer를 해석합니다. binary 내용은 `encoding: "base64"`와 함께 base64로 반환되며, 64 MiB를 넘는 binary/blob response는 base64로 JSON에 확장되는 대신 거부됩니다.
 
 ## Write tools
 

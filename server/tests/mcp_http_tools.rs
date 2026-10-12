@@ -474,6 +474,120 @@ async fn http_mcp_write_file_reports_tool_error_above_max_file_size() {
 }
 
 #[tokio::test]
+async fn http_mcp_write_files_oversized_file_reports_public_max_file_size_error() {
+    // M-5 (HTTP surface): the batch write tool's size rejection must reach
+    // the client as the whitelisted max_file_size message, not the generic
+    // internal-error masking.
+    let (state, _tmp) = test_state().await;
+    state
+        .runtime_cfg_repo
+        .set_max_file_size(1024, None)
+        .await
+        .unwrap();
+    let cfg = state.runtime_cfg_repo.load().await.unwrap();
+    state.runtime_cfg.replace(cfg).await;
+    let (user_id, raw) = create_user_with_token(&state, "http-write-files-oversize").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let head = git
+        .commit_changes(
+            &vault.id,
+            None,
+            &[FileChange::Upsert {
+                path: "seed.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"seed".to_vec(),
+                },
+            }],
+            "seed",
+        )
+        .await
+        .unwrap();
+
+    let (status, _headers, body) = post_mcp(
+        state,
+        Some(&raw),
+        json!({
+            "jsonrpc": "2.0",
+            "id": "write-files-oversize",
+            "method": "tools/call",
+            "params": {
+                "name": "write_files",
+                "arguments": {
+                    "vault_id": vault.id,
+                    "parent_commit": head,
+                    "writes": [
+                        { "path": "small.md", "content": "ok" },
+                        { "path": "large.md", "content": "a".repeat(2048) }
+                    ]
+                }
+            }
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["error"]["code"], -32000);
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("max_file_size"),
+        "must be the public size error, got: {message}"
+    );
+    assert_ne!(message, "internal server error");
+}
+
+#[tokio::test]
+async fn http_mcp_read_file_at_commit_with_bogus_commit_reports_public_invalid_commit() {
+    // M-5 (HTTP surface): a bogus commit id must classify as
+    // invalid_commit, not internal server error.
+    let (state, _tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&state, "http-read-bad-commit").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    git.commit_changes(
+        &vault.id,
+        None,
+        &[FileChange::Upsert {
+            path: "top.md".into(),
+            file: StoredFile::Text {
+                bytes: b"t".to_vec(),
+            },
+        }],
+        "seed",
+    )
+    .await
+    .unwrap();
+
+    let (status, _headers, body) = post_mcp(
+        state,
+        Some(&raw),
+        json!({
+            "jsonrpc": "2.0",
+            "id": "bad-commit",
+            "method": "tools/call",
+            "params": {
+                "name": "read_file_at_commit",
+                "arguments": {
+                    "vault_id": vault.id,
+                    "path": "top.md",
+                    "commit": "not-a-commit-id"
+                }
+            }
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["error"]["code"], -32000);
+    let message = body["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("invalid_commit"),
+        "must be invalid_commit, got: {message}"
+    );
+    assert_ne!(message, "internal server error");
+}
+
+#[tokio::test]
 async fn http_mcp_tool_call_cannot_access_another_users_vault() {
     let (state, _tmp) = test_state().await;
     let (_alice_id, alice_raw) = create_user_with_token(&state, "http-alice").await;

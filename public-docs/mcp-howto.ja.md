@@ -79,7 +79,7 @@ MCP 仕様の `Origin` ヘッダーによる DNS-rebinding チェックは `/mcp
 
 ## Read and search limits
 
-`search` は最大 5000 個の visible tree files を走査します。vault の visible files が 5000 個を超える場合、一部だけを走査するのではなく `too many files to search` で失敗します。最大 500 matches（既定 100）を返し、production では読み取った text が 256 MiB を超えるとエラーで中止します。`link_graph` は最大 5000 個の visible text files を走査し、同じ production text budget を使用しますが、失敗せず `truncated: true` を返します。`changes_since` は最大 5000 個の visible change entries を返します。`read_file` と `read_file_at_commit` は応答前に blob pointer を解決します。binary 内容は `encoding: "base64"` を伴って base64 で返され、64 MiB を超える binary/blob response は base64 として JSON に展開される代わりに拒否されます。
+`search` は最大 5000 個の visible tree files を走査します。vault の visible files が 5000 個を超える場合、一部だけを走査するのではなく `too many files to search` で失敗します。最大 500 matches（既定 100）を返し、production では読み取った text が 256 MiB を超えるとエラーで中止します。`link_graph` は最大 5000 個の visible text files を走査し、同じ production text budget を使用しますが、失敗せず `truncated: true` を返します。link 抽出は 1 ファイルあたり 10000 件、broken link は合計 20000 件で上限となり、いずれかに達すると `truncated: true` になります。`changes_since` は最大 5000 個の visible change entries を返します。`read_file` と `read_file_at_commit` は応答前に blob pointer を解決します。binary 内容は `encoding: "base64"` を伴って base64 で返され、64 MiB を超える binary/blob response は base64 として JSON に展開される代わりに拒否されます。
 
 ## Write tools
 

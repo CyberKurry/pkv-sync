@@ -1774,8 +1774,9 @@ paths:
         MCP search caps each request to 5000 visible tree files, 500
         returned matches, and 256 MiB of searched text in production.
         `link_graph` scans at most 5000 visible text files with the same
-        production text budget, and `changes_since` returns at most 5000
-        visible change entries. Binary/blob read responses above 64 MiB are
+        production text budget and caps link extraction at 10000 per file and
+        20000 broken links in total (either cap sets `truncated: true`), and
+        `changes_since` returns at most 5000 visible change entries. Binary/blob read responses above 64 MiB are
         rejected instead of being base64-expanded into JSON.
       requestBody:
         required: true

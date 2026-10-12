@@ -30,6 +30,14 @@ const LINK_GRAPH_MAX_TOTAL_BYTES: usize = 64 * 1024;
 const LINK_GRAPH_MAX_TOTAL_BYTES: usize = 256 * 1024 * 1024;
 const CHANGES_SINCE_MAX_ENTRIES: usize = 5000;
 #[cfg(test)]
+const MAX_LINKS_PER_FILE: usize = 50;
+#[cfg(not(test))]
+const MAX_LINKS_PER_FILE: usize = 10_000;
+#[cfg(test)]
+const MAX_BROKEN_LINKS: usize = 60;
+#[cfg(not(test))]
+const MAX_BROKEN_LINKS: usize = 20_000;
+#[cfg(test)]
 const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64;
 #[cfg(not(test))]
 const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
@@ -288,7 +296,14 @@ pub async fn list_files(
     let git = state.git_store();
     let mut paths = git
         .list_tree(&input.vault_id, input.at.as_deref())
-        .await?
+        .await
+        .map_err(|err| {
+            public_git_read_error(
+                err,
+                input.at.as_deref().unwrap_or("vault head"),
+                input.at.is_some(),
+            )
+        })?
         .into_iter()
         .map(|entry| entry.path)
         .filter(|path| sync::path_visible_on_read(&filter, path))
@@ -333,7 +348,16 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     let filter = sync::vault_path_filter(state, &input.vault_id)
         .await
         .map_err(api_error_to_anyhow)?;
-    let tree = git.list_tree(&input.vault_id, input.at.as_deref()).await?;
+    let tree = git
+        .list_tree(&input.vault_id, input.at.as_deref())
+        .await
+        .map_err(|err| {
+            public_git_read_error(
+                err,
+                input.at.as_deref().unwrap_or("vault head"),
+                input.at.is_some(),
+            )
+        })?;
     let visible_count = tree
         .iter()
         .filter(|entry| sync::path_visible_on_read(&filter, &entry.path))
@@ -391,7 +415,14 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         let paths: Vec<&str> = chunk.iter().map(|(path, _)| path.as_str()).collect();
         let files = git
             .read_files(&input.vault_id, input.at.as_deref(), &paths)
-            .await?;
+            .await
+            .map_err(|err| {
+                public_git_read_error(
+                    err,
+                    input.at.as_deref().unwrap_or("vault head"),
+                    input.at.is_some(),
+                )
+            })?;
         for ((path, size), file) in chunk.into_iter().zip(files) {
             if matches.len() >= limit {
                 break;
@@ -459,7 +490,7 @@ pub async fn link_graph(
     let mut iter = tree.into_iter().filter(|entry| {
         !entry.is_blob_pointer
             && classifier.is_text_path(&entry.path)
-            && entry.path.starts_with(&prefix)
+            && path_under_prefix(&entry.path, &prefix)
             && !crate::service::exclude::is_hidden_path(&entry.path)
             && sync::path_visible_on_read(&filter, &entry.path)
     });
@@ -543,6 +574,18 @@ pub async fn link_graph(
     for (path, text) in graph_files {
         let mut outlinks = Vec::new();
         for link in extract_link_targets(&text) {
+            // L-6: per-file link extraction and global broken-link
+            // accumulation are capped; hitting either marks the graph
+            // truncated instead of amplifying a link-spam file into
+            // unbounded structures.
+            if outlinks.len() >= MAX_LINKS_PER_FILE {
+                truncated = true;
+                break;
+            }
+            if broken.len() >= MAX_BROKEN_LINKS {
+                truncated = true;
+                break;
+            }
             match resolve_target(
                 &link.raw_link,
                 link.kind,
@@ -566,6 +609,9 @@ pub async fn link_graph(
             outlinks,
             inlinks: 0,
         });
+        if truncated && broken.len() >= MAX_BROKEN_LINKS {
+            break;
+        }
     }
     for node in &mut nodes {
         node.inlinks = inlinks.get(&node.path).copied().unwrap_or(0);
@@ -621,7 +667,7 @@ pub async fn changes_since(
         .await?
         .into_iter()
         .filter(|change| {
-            change.path.starts_with(&prefix)
+            path_under_prefix(&change.path, &prefix)
                 && mcp_path_visible(&filter, &change.path)
                 && change
                     .old_path
@@ -923,7 +969,12 @@ pub async fn write_files(
         }
         let size = write.content.len();
         if size as u64 > max_file_size {
-            bail!("file '{path}' exceeds max_file_size of {max_file_size} bytes");
+            // Same whitelisted prefix as write_file's single-file rejection
+            // so the tools boundary can publish it: the path moves after the
+            // prefix instead of in front of it (M-5 — the old "file '{path}'
+            // exceeds …" phrasing started with the path and got masked as
+            // `internal server error`).
+            bail!("file exceeds max_file_size of {max_file_size} bytes: {path}");
         }
         total_bytes = total_bytes.saturating_add(size);
         changes.push(PushChange::Text {
@@ -1025,6 +1076,13 @@ pub async fn move_file(
 
 fn normalize_mcp_path(raw_path: String) -> Result<String> {
     path::normalize(&raw_path).map_err(|err| anyhow!("invalid_path: {err}"))
+}
+
+/// L-8: a `path_prefix` filter must match the exact path or a child of it —
+/// a bare `starts_with` also admitted sibling directories like `notes-old/`
+/// under the prefix `notes`.
+fn path_under_prefix(path: &str, prefix: &str) -> bool {
+    prefix.is_empty() || path == prefix || path.starts_with(&format!("{prefix}/"))
 }
 
 static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
@@ -1309,7 +1367,10 @@ async fn apply_preflighted_write_batch(
     .map_err(api_error_to_anyhow)?
     {
         Ok(resp) => {
-            record_mcp_write_activity(
+            // L-9: the commit has already landed — an audit-trail write
+            // failure must not turn a successful write into an error the
+            // client might "compensate" for with a delete or rewrite.
+            if let Err(err) = record_mcp_write_activity(
                 state,
                 user,
                 &input.vault_id,
@@ -1318,7 +1379,10 @@ async fn apply_preflighted_write_batch(
                 input.activity_size_bytes,
                 &resp.new_commit,
             )
-            .await?;
+            .await
+            {
+                tracing::error!(error = %err, "mcp write activity recording failed");
+            }
             Ok(WriteToolOutput::Success {
                 commit: resp.new_commit,
             })
@@ -1332,6 +1396,46 @@ async fn apply_preflighted_write_batch(
 
 fn git_error_to_anyhow(error: GitStoreError) -> anyhow::Error {
     anyhow!("git: {error}")
+}
+
+/// Classify git-store failures on MCP READ surfaces into the whitelisted
+/// public prefixes, so a client-correctable mistake (bad commit id, path
+/// that names a directory, empty vault) is not masked as
+/// `internal server error` (ultrareview M-5). Everything else keeps the
+/// internal `git: …` shape and stays masked.
+///
+/// `spec` is the caller-facing identifier the user got wrong — the commit
+/// for `at`/`commit` reads, or the path for head reads.
+fn public_git_read_error(error: GitStoreError, spec: &str, reading_commit: bool) -> anyhow::Error {
+    match &error {
+        GitStoreError::Git(git_err) => {
+            let message = git_err.message();
+            // A path that names a tree entry: git2 reports
+            // "the requested type does not match the type in the ODB"
+            // (class Invalid, code NotFound).
+            if message.contains("does not match the type") {
+                return anyhow!("not_found: {spec}");
+            }
+            // An explicit commit spec that cannot be resolved — unparseable
+            // or unknown — is a correctable client error. A missing file at a
+            // valid commit returns Ok(None) instead of reaching here.
+            if reading_commit
+                || message.contains("OID")
+                || git_err.code() == git2::ErrorCode::NotFound
+            {
+                return anyhow!("invalid_commit: {spec}");
+            }
+            anyhow!("git: {error}")
+        }
+        GitStoreError::NotFound => {
+            if reading_commit {
+                anyhow!("invalid_commit: {spec}")
+            } else {
+                anyhow!("not_found: {spec}")
+            }
+        }
+        other => anyhow!("git: {other}"),
+    }
 }
 
 async fn record_mcp_write_activity(
@@ -1381,8 +1485,13 @@ async fn read_file_inner(
     let git = state.git_store();
     let file = git
         .read_file(&vault_id, &path, at.as_deref())
-        .await?
-        .ok_or_else(|| anyhow!("file not found"))?;
+        .await
+        .map_err(|err| {
+            // M-5: a directory target or an unknown commit spec is a
+            // correctable client error, not an internal server error.
+            public_git_read_error(err, at.as_deref().unwrap_or(&path), at.is_some())
+        })?
+        .ok_or_else(|| anyhow!("not_found: {path}"))?;
     render_file(state, &vault_id, path, file).await
 }
 
@@ -1435,21 +1544,31 @@ fn render_bytes(path: String, bytes: Vec<u8>, mime: Option<String>) -> Result<Re
             }
             Err(err) => {
                 let bytes = err.into_bytes();
-                return Ok(binary_output(path, bytes, mime));
+                return binary_output(path, bytes, mime);
             }
         }
     }
-    Ok(binary_output(path, bytes, mime))
+    binary_output(path, bytes, mime)
 }
 
-fn binary_output(path: String, bytes: Vec<u8>, mime: Option<String>) -> ReadFileOutput {
-    ReadFileOutput {
+fn binary_output(path: String, bytes: Vec<u8>, mime: Option<String>) -> Result<ReadFileOutput> {
+    // L-7: every base64 path enforces the binary response cap — the
+    // non-UTF8-text fallback used to skip the size check the BlobPointer
+    // branch performed, letting a large binary-looking text file expand
+    // into an unbounded response.
+    let len = bytes.len() as u64;
+    if len > MCP_MAX_BINARY_RESPONSE_BYTES {
+        bail!(
+            "binary response of {len} bytes exceeds the {MCP_MAX_BINARY_RESPONSE_BYTES}-byte limit"
+        );
+    }
+    Ok(ReadFileOutput {
         path,
         is_binary: true,
         content: base64::engine::general_purpose::STANDARD.encode(bytes),
         mime,
         encoding: Some("base64".into()),
-    }
+    })
 }
 
 fn mime_is_text(mime: Option<&str>) -> bool {
@@ -2156,6 +2275,131 @@ mod tests {
                 && broken.raw_link == "../../../target.md"
                 && broken.reason == BrokenReason::Missing
         }));
+    }
+
+    #[tokio::test]
+    async fn link_graph_caps_outlinks_per_file_and_sets_truncated() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let spam = "[[target]]".repeat(MAX_LINKS_PER_FILE + 5);
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[("spam.md", &spam), ("target.md", "exists")],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let spam_node = out
+            .nodes
+            .iter()
+            .find(|node| node.path == "spam.md")
+            .unwrap();
+        assert_eq!(
+            spam_node.outlinks.len(),
+            MAX_LINKS_PER_FILE,
+            "outlinks must stop at the per-file cap"
+        );
+        assert!(out.truncated, "hitting the cap must set truncated");
+    }
+
+    #[tokio::test]
+    async fn link_graph_caps_broken_links_and_sets_truncated() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let spam = (0..MAX_BROKEN_LINKS + 5)
+            .map(|idx| format!("[[ghost{idx}]]"))
+            .collect::<String>();
+        seed_text_files(&state, &vault_id, &[("spam.md", &spam)]).await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            out.broken.len(),
+            MAX_BROKEN_LINKS,
+            "broken must stop at the cap"
+        );
+        assert!(out.truncated);
+    }
+
+    #[tokio::test]
+    async fn link_graph_under_caps_stays_untruncated() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let body = "[[target]]".repeat(MAX_LINKS_PER_FILE - 1);
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[("links.md", &body), ("target.md", "exists")],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!out.truncated);
+    }
+
+    #[test]
+    fn path_under_prefix_rejects_sibling_directories() {
+        assert!(path_under_prefix("notes", "notes"));
+        assert!(path_under_prefix("notes/a.md", "notes"));
+        assert!(!path_under_prefix("notes-old/a.md", "notes"));
+        assert!(!path_under_prefix("notes2/x.md", "notes"));
+        assert!(path_under_prefix("anything.md", ""));
+    }
+
+    #[tokio::test]
+    async fn read_file_non_utf8_text_caps_base64_response() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        // A .md file whose bytes are invalid UTF-8 takes the base64 fallback;
+        // past the (test) cap it must error instead of expanding.
+        let big: Vec<u8> = vec![0xFF; (MCP_MAX_BINARY_RESPONSE_BYTES + 1) as usize];
+        seed_raw_files(&state, &vault_id, &[("big.md", big)]).await;
+
+        let err = read_file(
+            &state,
+            &user_id,
+            ReadFileInput {
+                vault_id,
+                path: "big.md".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds"),
+            "expected size-limit error, got: {err}"
+        );
     }
 
     #[tokio::test]
