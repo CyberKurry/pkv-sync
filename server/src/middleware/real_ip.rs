@@ -32,21 +32,37 @@ pub async fn middleware(
     next: Next,
 ) -> Response {
     let socket_ip = socket_addr.ip();
-    let client_ip = if trusted.contains(socket_ip) {
-        req.headers()
-            .get("x-forwarded-for")
-            .and_then(|h| h.to_str().ok())
-            .and_then(|s| s.rsplit(',').next())
-            .map(str::trim)
-            .and_then(|s| s.parse::<IpAddr>().ok())
-            .unwrap_or(socket_ip)
+    let forwarded_from_trusted = trusted.contains(socket_ip);
+    let client_ip = if forwarded_from_trusted {
+        client_ip_from_xff(
+            req.headers()
+                .get("x-forwarded-for")
+                .and_then(|h| h.to_str().ok()),
+            socket_ip,
+            &trusted,
+        )
     } else {
         socket_ip
     };
     req.extensions_mut().insert(ClientIp(client_ip));
     req.extensions_mut()
-        .insert(ForwardedFromTrustedProxy(trusted.contains(socket_ip)));
+        .insert(ForwardedFromTrustedProxy(forwarded_from_trusted));
     next.run(req).await
+}
+
+/// Walk `X-Forwarded-For` right-to-left, skipping the addresses of trusted
+/// proxies, and return the first address that is not trusted — the client the
+/// chain of proxies was forwarding for. Entries that are not IP literals are
+/// ignored; when every entry is trusted (or none parses), the socket peer is
+/// the best remaining answer.
+fn client_ip_from_xff(xff: Option<&str>, socket_ip: IpAddr, trusted: &TrustedProxies) -> IpAddr {
+    xff.into_iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .rev()
+        .filter_map(|entry| entry.parse::<IpAddr>().ok())
+        .find(|ip| !trusted.contains(*ip))
+        .unwrap_or(socket_ip)
 }
 
 #[cfg(test)]
@@ -113,7 +129,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn picks_rightmost_xff_value_from_trusted_proxy() {
+    async fn picks_closest_untrusted_xff_value_from_trusted_proxy() {
         let app = app(vec!["127.0.0.1/32".parse().unwrap()]);
         let resp = app
             .oneshot(req_with("127.0.0.1", Some("1.2.3.4, 9.9.9.9")))
@@ -121,5 +137,33 @@ mod tests {
             .unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 100).await.unwrap();
         assert_eq!(&body[..], b"9.9.9.9");
+    }
+
+    #[tokio::test]
+    async fn skips_trusted_hops_and_returns_the_untrusted_client() {
+        let app = app(vec![
+            "10.0.0.0/8".parse().unwrap(),
+            "127.0.0.0/8".parse().unwrap(),
+        ]);
+        let resp = app
+            .oneshot(req_with("127.0.0.1", Some("203.0.113.9, 10.0.0.5")))
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 100).await.unwrap();
+        assert_eq!(&body[..], b"203.0.113.9");
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_socket_peer_when_the_client_is_itself_trusted() {
+        let app = app(vec![
+            "10.0.0.0/8".parse().unwrap(),
+            "127.0.0.0/8".parse().unwrap(),
+        ]);
+        let resp = app
+            .oneshot(req_with("127.0.0.1", Some("10.0.0.9, 10.0.0.5")))
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 100).await.unwrap();
+        assert_eq!(&body[..], b"127.0.0.1");
     }
 }

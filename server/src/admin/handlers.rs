@@ -597,7 +597,7 @@ async fn login_post(
                 t,
                 &cookies,
                 cookie_policy.secure,
-                "Invalid credentials",
+                t.invalid_credentials,
                 StatusCode::UNAUTHORIZED,
             ));
         }
@@ -612,7 +612,7 @@ async fn login_post(
             t,
             &cookies,
             cookie_policy.secure,
-            "Invalid credentials",
+            t.invalid_credentials,
             StatusCode::UNAUTHORIZED,
         ));
     }
@@ -724,7 +724,7 @@ async fn dashboard(
         vaults: dashboard_summary.vaults,
         cpu_percent: metrics.cpu_percent,
         cpu_display: format!("{:.0}", metrics.cpu_percent),
-        cpu_cores_display: crate::admin::system::format_cpu_cores(metrics.cpu_cores),
+        cpu_cores_display: crate::admin::system::format_cpu_cores(metrics.cpu_cores, &t),
         memory_display: crate::human::format_bytes(
             metrics.memory_used_mb.saturating_mul(1024 * 1024),
         ),
@@ -1028,11 +1028,12 @@ async fn create_token_form(
         .into_iter()
         .map(|token| token_view(token, &timezone))
         .collect();
+    let t = admin_text(&headers, &cookies);
     Ok(no_store(render_html(UserDetailTemplate {
-        t: admin_text(&headers, &cookies),
+        t,
         user: user_view(user, &timezone, stats),
         tokens,
-        message: Some("Device token created".into()),
+        message: Some(t.token_created.into()),
         error: None,
         created_token: Some(raw),
     })))
@@ -1378,6 +1379,7 @@ async fn vault_files_page(
 ) -> Result<Response, ApiError> {
     ensure_admin_history_enabled(&state).await?;
     let (_vault, vault_view) = admin_vault(&state, &id).await?;
+    let t = admin_text(&headers, &cookies);
     let store = state.git_store();
     let entries = store
         .list_tree(&id, None)
@@ -1385,10 +1387,10 @@ async fn vault_files_page(
         .map_err(|e| ApiError::internal(e.to_string()))?;
     let files = entries
         .into_iter()
-        .map(|entry| file_entry_view(&id, entry))
+        .map(|entry| file_entry_view(&id, entry, &t))
         .collect();
     Ok(render_html(VaultFilesTemplate {
-        t: admin_text(&headers, &cookies),
+        t,
         vault: vault_view,
         files,
     }))
@@ -1875,7 +1877,11 @@ async fn admin_vault(state: &AppState, id: &str) -> Result<(Vault, VaultBrowserV
     Ok((vault, view))
 }
 
-fn file_entry_view(vault_id: &str, entry: TreeEntry) -> VaultFileEntryView {
+fn file_entry_view(
+    vault_id: &str,
+    entry: TreeEntry,
+    t: &crate::admin::i18n::AdminText,
+) -> VaultFileEntryView {
     VaultFileEntryView {
         name: file_name(&entry.path).to_string(),
         view_url: format!(
@@ -1885,9 +1891,9 @@ fn file_entry_view(vault_id: &str, entry: TreeEntry) -> VaultFileEntryView {
         ),
         size_display: crate::human::format_bytes(entry.size),
         kind: if entry.is_blob_pointer {
-            "Binary".into()
+            t.kind_binary.into()
         } else {
-            "Text".into()
+            t.kind_text.into()
         },
         path: entry.path,
     }
@@ -2569,7 +2575,7 @@ mod tests {
         assert_eq!(resp.status(), axum::http::StatusCode::UNAUTHORIZED);
         let body =
             String::from_utf8(to_bytes(resp.into_body(), 16384).await.unwrap().to_vec()).unwrap();
-        assert!(body.contains("Invalid credentials"));
+        assert!(body.contains(crate::admin::i18n::AdminText::en().invalid_credentials));
         assert!(!body.contains("Account disabled"));
     }
 

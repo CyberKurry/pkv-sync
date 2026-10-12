@@ -95,17 +95,23 @@ fn effective_cpu_cores(logical_cores: usize, quota_cores: Option<f32>) -> f32 {
         .unwrap_or(logical)
 }
 
-pub(crate) fn format_cpu_cores(cores: f32) -> String {
+pub(crate) fn format_cpu_cores(cores: f32, t: &crate::admin::i18n::AdminText) -> String {
     let rounded = cores.round();
     if (cores - rounded).abs() < 0.05 {
         let cores = rounded.max(1.0) as u32;
-        if cores == 1 {
-            "1 core".to_string()
-        } else {
-            format!("{cores} cores")
-        }
+        format!("{cores} {}", cores_unit(t, cores == 1))
     } else {
-        format!("{cores:.1} cores")
+        format!("{cores:.1} {}", cores_unit(t, false))
+    }
+}
+
+/// `AdminText::cores` carries `singular|plural` for languages with plural
+/// agreement and a single form for languages without it.
+fn cores_unit(t: &crate::admin::i18n::AdminText, singular: bool) -> &'static str {
+    match t.cores.split_once('|') {
+        Some((one, _)) if singular => one,
+        Some((_, many)) => many,
+        None => t.cores,
     }
 }
 
@@ -191,13 +197,31 @@ mod tests {
     fn cgroup_v2_cpu_quota_limits_reported_cores() {
         let quota = parse_cgroup_v2_cpu_max("100000 100000\n");
         assert_eq!(effective_cpu_cores(4, quota), 1.0);
-        assert_eq!(format_cpu_cores(1.0), "1 core");
+        assert_eq!(
+            format_cpu_cores(1.0, &crate::admin::i18n::AdminText::en()),
+            "1 core"
+        );
     }
 
     #[test]
     fn cgroup_v1_cpu_quota_limits_reported_cores() {
         let quota = parse_cgroup_v1_cpu_quota("150000", "100000");
         assert_eq!(effective_cpu_cores(4, quota), 1.5);
-        assert_eq!(format_cpu_cores(1.5), "1.5 cores");
+        assert_eq!(
+            format_cpu_cores(1.5, &crate::admin::i18n::AdminText::en()),
+            "1.5 cores"
+        );
+    }
+
+    #[test]
+    fn cpu_cores_use_the_active_language_unit() {
+        assert_eq!(
+            format_cpu_cores(4.0, &crate::admin::i18n::AdminText::zh_cn()),
+            "4 核"
+        );
+        assert_eq!(
+            format_cpu_cores(2.0, &crate::admin::i18n::AdminText::ja()),
+            "2 コア"
+        );
     }
 }

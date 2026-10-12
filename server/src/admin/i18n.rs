@@ -35,6 +35,7 @@ pub struct AdminText {
     pub password_placeholder: &'static str,
     pub confirm_password_placeholder: &'static str,
     pub login: &'static str,
+    pub invalid_credentials: &'static str,
     pub logout: &'static str,
     pub dashboard: &'static str,
     pub signed_in_as: &'static str,
@@ -50,6 +51,9 @@ pub struct AdminText {
     pub settings: &'static str,
     pub activity: &'static str,
     pub cpu: &'static str,
+    /// CPU core unit; languages with plural agreement use `singular|plural`,
+    /// languages without it use a single form.
+    pub cores: &'static str,
     pub memory: &'static str,
     pub disk: &'static str,
     pub uptime: &'static str,
@@ -88,6 +92,7 @@ pub struct AdminText {
     pub new_device_token: &'static str,
     pub copy_token_now: &'static str,
     pub create_device_token: &'static str,
+    pub token_created: &'static str,
     pub device_name: &'static str,
     pub create_token: &'static str,
     pub token_fingerprint: &'static str,
@@ -104,6 +109,8 @@ pub struct AdminText {
     pub files: &'static str,
     pub path: &'static str,
     pub kind: &'static str,
+    pub kind_binary: &'static str,
+    pub kind_text: &'static str,
     pub view: &'static str,
     pub size: &'static str,
     pub last_sync: &'static str,
@@ -303,6 +310,7 @@ impl AdminText {
             password_placeholder: "Password",
             confirm_password_placeholder: "Confirm password",
             login: "Sign In",
+            invalid_credentials: "Invalid credentials",
             logout: "Logout",
             dashboard: "Dashboard",
             signed_in_as: "Signed in as",
@@ -318,6 +326,7 @@ impl AdminText {
             settings: "Settings",
             activity: "Activity",
             cpu: "CPU",
+            cores: "core|cores",
             memory: "Memory",
             disk: "Disk",
             uptime: "Uptime",
@@ -356,6 +365,7 @@ impl AdminText {
             new_device_token: "New device token",
             copy_token_now: "Copy this token now. It will not be shown again.",
             create_device_token: "Create device token",
+            token_created: "Device token created",
             device_name: "Device name",
             create_token: "Create token",
             token_fingerprint: "Token fingerprint",
@@ -372,6 +382,8 @@ impl AdminText {
             files: "Files",
             path: "Path",
             kind: "Kind",
+            kind_binary: "Binary",
+            kind_text: "Text",
             view: "View",
             size: "Size",
             last_sync: "Last sync",
@@ -533,6 +545,7 @@ impl AdminText {
             password_placeholder: "密码",
             confirm_password_placeholder: "确认密码",
             login: "登录",
+            invalid_credentials: "凭据无效",
             logout: "退出登录",
             dashboard: "仪表盘",
             signed_in_as: "当前登录",
@@ -548,6 +561,7 @@ impl AdminText {
             settings: "设置",
             activity: "活动",
             cpu: "CPU",
+            cores: "核",
             memory: "内存",
             disk: "磁盘",
             uptime: "运行时间",
@@ -586,6 +600,7 @@ impl AdminText {
             new_device_token: "新的设备 Token",
             copy_token_now: "请现在复制此 token。它不会再次显示。",
             create_device_token: "创建设备 Token",
+            token_created: "设备 Token 已创建",
             device_name: "设备名称",
             create_token: "创建 Token",
             token_fingerprint: "Token 指纹",
@@ -602,6 +617,8 @@ impl AdminText {
             files: "文件",
             path: "路径",
             kind: "类型",
+            kind_binary: "二进制",
+            kind_text: "文本",
             view: "查看",
             size: "大小",
             last_sync: "上次同步",
@@ -763,6 +780,7 @@ impl AdminText {
             password_placeholder: "密碼",
             confirm_password_placeholder: "確認密碼",
             login: "登入",
+            invalid_credentials: "憑證無效",
             logout: "登出",
             dashboard: "儀表板",
             signed_in_as: "目前登入",
@@ -778,6 +796,7 @@ impl AdminText {
             settings: "設定",
             activity: "活動",
             cpu: "CPU",
+            cores: "核心",
             memory: "記憶體",
             disk: "磁碟",
             uptime: "執行時間",
@@ -816,6 +835,7 @@ impl AdminText {
             new_device_token: "新的裝置 Token",
             copy_token_now: "請立即複製此 Token，之後將不會再次顯示。",
             create_device_token: "建立裝置 Token",
+            token_created: "裝置 Token 已建立",
             device_name: "裝置名稱",
             create_token: "建立 Token",
             token_fingerprint: "Token 指紋",
@@ -832,6 +852,8 @@ impl AdminText {
             files: "檔案",
             path: "路徑",
             kind: "類型",
+            kind_binary: "二進位",
+            kind_text: "文字",
             view: "查看",
             size: "大小",
             last_sync: "上次同步",
@@ -994,6 +1016,7 @@ impl AdminText {
             password_placeholder: "パスワード",
             confirm_password_placeholder: "パスワード確認",
             login: "ログイン",
+            invalid_credentials: "認証情報が無効です",
             logout: "ログアウト",
             dashboard: "ダッシュボード",
             signed_in_as: "ログイン中",
@@ -1009,6 +1032,7 @@ impl AdminText {
             settings: "設定",
             activity: "アクティビティ",
             cpu: "CPU",
+            cores: "コア",
             memory: "メモリ",
             disk: "ディスク",
             uptime: "稼働時間",
@@ -1047,6 +1071,7 @@ impl AdminText {
             new_device_token: "新しいデバイス Token",
             copy_token_now: "この Token を今すぐコピーしてください。再表示されません。",
             create_device_token: "デバイス Token を作成",
+            token_created: "デバイス Token を作成しました",
             device_name: "デバイス名",
             create_token: "Token を作成",
             token_fingerprint: "Token フィンガープリント",
@@ -1063,6 +1088,8 @@ impl AdminText {
             files: "ファイル",
             path: "パス",
             kind: "種類",
+            kind_binary: "バイナリ",
+            kind_text: "テキスト",
             view: "表示",
             size: "サイズ",
             last_sync: "最終同期",
@@ -1226,6 +1253,7 @@ impl AdminText {
             password_placeholder: "비밀번호",
             confirm_password_placeholder: "비밀번호 확인",
             login: "로그인",
+            invalid_credentials: "자격 증명이 올바르지 않습니다",
             logout: "로그아웃",
             dashboard: "대시보드",
             signed_in_as: "로그인 계정",
@@ -1241,6 +1269,7 @@ impl AdminText {
             settings: "설정",
             activity: "활동",
             cpu: "CPU",
+            cores: "코어",
             memory: "메모리",
             disk: "디스크",
             uptime: "가동 시간",
@@ -1279,6 +1308,7 @@ impl AdminText {
             new_device_token: "새 장치 Token",
             copy_token_now: "이 Token을 지금 복사하세요. 다시 표시되지 않습니다.",
             create_device_token: "장치 Token 만들기",
+            token_created: "장치 Token이 생성되었습니다",
             device_name: "장치 이름",
             create_token: "Token 만들기",
             token_fingerprint: "Token 지문",
@@ -1295,6 +1325,8 @@ impl AdminText {
             files: "파일",
             path: "경로",
             kind: "종류",
+            kind_binary: "바이너리",
+            kind_text: "텍스트",
             view: "보기",
             size: "크기",
             last_sync: "마지막 동기화",
@@ -1466,6 +1498,47 @@ pub fn language_cookie(lang: AdminLang, secure: bool) -> Cookie<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn five_language_builders_translate_every_admin_string() {
+        let builders = [
+            AdminText::en(),
+            AdminText::zh_cn(),
+            AdminText::zh_hant(),
+            AdminText::ja(),
+            AdminText::ko(),
+        ];
+        for t in builders {
+            for value in [
+                t.invalid_credentials,
+                t.token_created,
+                t.kind_binary,
+                t.kind_text,
+                t.cores,
+            ] {
+                assert!(
+                    !value.trim().is_empty(),
+                    "{} has an empty string",
+                    t.html_lang
+                );
+            }
+        }
+        let en = AdminText::en();
+        for t in builders.into_iter().filter(|t| t.html_lang != "en") {
+            for (lang, translated, english) in [
+                (t.html_lang, t.invalid_credentials, en.invalid_credentials),
+                (t.html_lang, t.token_created, en.token_created),
+                (t.html_lang, t.kind_binary, en.kind_binary),
+                (t.html_lang, t.kind_text, en.kind_text),
+                (t.html_lang, t.cores, en.cores),
+            ] {
+                assert_ne!(
+                    translated, english,
+                    "{lang} fell back to the English string"
+                );
+            }
+        }
+    }
 
     #[test]
     fn parses_supported_languages() {

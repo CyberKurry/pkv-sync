@@ -91,6 +91,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Client IP resolution now walks `X-Forwarded-For` right-to-left and skips
+  every address that falls inside `trusted_proxies` before taking the first
+  untrusted one. With two or more trusted hops the previous rightmost-entry
+  rule returned the last proxy's own address, so the login/auth-failure rate
+  limiters, `request_key`, and audit records all saw one shared bucket for
+  every client behind the chain (ultrareview M-13).
+- Admin WebUI strings that bypassed the five-language i18n builders —
+  `Invalid credentials`, `Device token created`, the `Binary`/`Text` file
+  kinds, and the `N cores` dashboard value — are now translated in
+  en/zh-CN/zh-Hant/ja/ko (ultrareview M-15).
 - MCP tool errors that a client can correct no longer surface as
   `-32000 internal server error`: `write_files` size failures use the
   whitelisted wording, forwarded push codes (`wrong_file_kind`,
