@@ -2,7 +2,7 @@
 
 English | [简体中文](./cli-reference.zh-CN.md) | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
-Document version: v1.5.1.
+Document version: v1.6.0.
 
 `pkvsyncd` is the PKV Sync server daemon binary. It hosts the HTTP/WebSocket
 sync API, the admin UI, the MCP server, and a small set of operational
@@ -358,5 +358,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # Download a specific release
-pkvsyncd upgrade --yes --version 1.5.1
+pkvsyncd upgrade --yes --version 1.6.0
 ```

@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-12
+
 ### Added
 
 - Server: `[admin].allow_insecure_admin` (default `false`) — an explicit

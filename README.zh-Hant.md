@@ -5,7 +5,7 @@
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文件版本：v1.5.1。
+文件版本：v1.6.0。
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | 繁體中文 | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
@@ -101,7 +101,7 @@ PKV Sync 1.0 **暫不**提供原生端到端加密——伺服器能讀到筆記
 
 ## 狀態
 
-PKV Sync 1.5.1 交付管理後台與 Obsidian 外掛的全量視覺美化：石板色與陶紅色的設計體系、玻璃擬態的管理導覽、現代卡片與資料表格、與 Obsidian 原生主題貼合的外掛外觀；同時完成一輪文件對齊，修復了 1.4.4 發版時損壞的多語言公開文件（編碼錯亂），並把文件裡記錄的每項設定、CLI 參數、MCP 工具與 OpenAPI 結構逐條校對到與代碼一致的實況。新的 CI 文件守衛會在文件編碼損壞、版本號漂移或連結斷裂時讓建置失敗，不再靜默流出。
+PKV Sync 1.6.0 讓 MCP 成為一等公民：伺服器在新的 2026-07-28 無狀態協定修訂之外同時相容舊用戶端（雙時代），新增 `subscriptions/listen` 推送，並預設把 MCP 內嵌進主伺服器（獨立的 `mcp --transport http` 部署已移除）。無法設定 `public_host` 的管理部署獲得 `allow_insecure_admin` 逃生通道，健康探針修復讓自升級真正可用而不是靜默回滾。同步正確性修復一併到位：auto-merge 不再跳過提交（本機頭不再越過從未拉取的合併基點），即時套用也不再靜默覆寫或復活本機檔案。
 
 PKV Sync 1.5.0 交付 2026-08-16 全倉庫複審的全部修復與一輪效能優化：blob 保留現在跟隨 git 物件存活性，回滾與依檔案歷史復原的附件不再遺失；Windows 不安全的路徑元件在進入 `materialize` 前即被拒絕；特權更新器拒絕降級，Docker 自升級覆蓋已加固；註冊與 blob 上傳路徑補齊了缺失的限流；常駐 SSE 連線不再阻塞優雅關機；外掛可同步 allowlist 內的 `.obsidian` 路徑，並以記憶體有界的批次串流完成首次同步（行動裝置）；批次 git 讀取與單次拷貝的索引更新加快了 MCP 搜尋與大型 vault 同步。
 
