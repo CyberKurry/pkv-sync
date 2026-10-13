@@ -1,4 +1,12 @@
-import { type App, Notice, Platform, PluginSettingTab, setIcon } from "obsidian";
+import {
+  type App,
+  Notice,
+  Platform,
+  PluginSettingTab,
+  setIcon,
+  type SettingDefinitionItem,
+  type SettingDefinitionRender
+} from "obsidian";
 import { ApiError } from "../api/client";
 import type {
   MeResponse,
@@ -48,16 +56,42 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
+  // Fallback for Obsidian < 1.13.0, which has no declarative settings API and
+  // therefore calls display() instead of rendering getSettingDefinitions().
   display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-    containerEl.addClass("pkv-sync-settings-host");
-    containerEl.toggleClass("is-mobile", this.isMobileLayout());
-    containerEl.toggleClass("is-phone", Platform.isPhone);
-    containerEl.toggleClass("is-light-override", this.plugin.settings.themeMode === "light");
-    containerEl.toggleClass("is-dark-override", this.plugin.settings.themeMode === "dark");
+    this.renderInto(this.containerEl);
+  }
 
-    const shell = containerEl.createDiv({ cls: "pkv-sync-app" });
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    const t = this.plugin.text();
+    const panel: SettingDefinitionRender = {
+      name: t.settingsTitle,
+      desc: t.selfHostedVaultSync,
+      aliases: this.settingsSearchAliases(),
+      render: (setting) => {
+        setting.settingEl.empty();
+        setting.settingEl.addClass("pkv-settings-declarative-host");
+        this.renderInto(setting.settingEl);
+      }
+    };
+    return [
+      {
+        type: "group",
+        heading: t.settingsTitle,
+        items: [panel]
+      }
+    ];
+  }
+
+  private renderInto(host: HTMLElement): void {
+    host.empty();
+    host.addClass("pkv-sync-settings-host");
+    host.toggleClass("is-mobile", this.isMobileLayout());
+    host.toggleClass("is-phone", Platform.isPhone);
+    host.toggleClass("is-light-override", this.plugin.settings.themeMode === "light");
+    host.toggleClass("is-dark-override", this.plugin.settings.themeMode === "dark");
+
+    const shell = host.createDiv({ cls: "pkv-sync-app" });
     const panel = shell.createDiv({ cls: "pkv-sync-panel" });
     const renderId = ++this.renderId;
 
@@ -70,6 +104,62 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       return;
     }
     this.renderConnection(panel);
+  }
+
+  private refresh(): void {
+    // >=1.13 re-renders from getSettingDefinitions(); older versions have no
+    // update(), so they keep the imperative path.
+    const modern = this as Partial<{ update(): void }>;
+    if (typeof modern.update === "function") modern.update();
+    else this.display();
+  }
+
+  // Search terms for the declarative settings API: the tab is one custom panel,
+  // so the individual sections are only discoverable through these aliases.
+  private settingsSearchAliases(): string[] {
+    const t = this.plugin.text();
+    const aliases = [
+      t.serverUrl,
+      t.deploymentKey,
+      t.deviceName,
+      t.timezone,
+      t.connection,
+      t.language,
+      t.autoLanguage,
+      t.englishLanguage,
+      t.zhCnLanguage,
+      t.zhHantLanguage,
+      t.japaneseLanguage,
+      t.koreanLanguage,
+      t.themeMode,
+      t.themeAuto,
+      t.themeLight,
+      t.themeDark,
+      t.account,
+      t.username,
+      t.password,
+      t.inviteCodeOptional,
+      t.login,
+      t.register,
+      t.logout,
+      t.changeServer,
+      t.tokens,
+      t.vaults,
+      t.createVault,
+      t.vaultSyncAllowlist,
+      t.enableHistoryUi,
+      t.syncNowButton,
+      t.conflictFiles,
+      t.deleteConflictsButton,
+      t.settingsUpdateSection,
+      t.checkForUpdates,
+      t.updateSource,
+      t.updateSourceServer,
+      t.updateSourceGitHub,
+      t.updateCheckNow,
+      t.updateNow
+    ];
+    return Array.from(new Set(aliases.filter((alias) => alias.trim().length > 0)));
   }
 
   private renderConnection(panel: HTMLElement): void {
@@ -131,7 +221,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         new Notice(
           format(t.connectedToServer, { serverName: this.serverHost() })
         );
-        this.display();
+        this.refresh();
       } catch (error) {
         if (error instanceof ApiError && error.code === "setup_required") {
           new Notice(t.setupRequiredNotice);
@@ -175,7 +265,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       if (languageInReview(nextLanguage)) {
         new Notice(t.translationNeedsReview);
       }
-      void this.plugin.saveSettings({ rebuild: false }).then(() => this.display());
+      void this.plugin.saveSettings({ rebuild: false }).then(() => this.refresh());
     });
     if (languageInReview(this.plugin.settings.language)) {
       const help = row.createEl("a", {
@@ -261,7 +351,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       this.plugin.settings.username = response.username;
       await this.plugin.saveSettings();
       new Notice(this.plugin.text().loggedIn);
-      this.display();
+      this.refresh();
     } catch (error) {
       new Notice(errorToMessage(error));
     }
@@ -287,7 +377,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       this.plugin.settings.username = response.username;
       await this.plugin.saveSettings();
       new Notice(this.plugin.text().registeredAndLoggedIn);
-      this.display();
+      this.refresh();
     } catch (error) {
       new Notice(errorToMessage(error));
     }
@@ -379,7 +469,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
           this.plugin.settings.selectedVaultName = vault.name;
           await this.plugin.saveSettings();
           new Notice(format(t.selectedVaultNotice, { name: vault.name }));
-          this.display();
+          this.refresh();
         }
       );
       button.disabled = selected;
@@ -500,7 +590,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         this.plugin.settings.updateSource = value as PluginUpdateSource;
         await this.plugin.saveSettings({ rebuild: false });
         await this.plugin.checkForPluginUpdates(true);
-        this.display();
+        this.refresh();
       }
     );
 
@@ -526,13 +616,13 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     const actions = card.createDiv({ cls: "pkv-sync-button-row" });
     this.renderButton(actions, t.updateCheckNow, "secondary", async () => {
       await this.plugin.checkForPluginUpdates(true);
-      this.display();
+      this.refresh();
     });
     const updateButton = this.renderButton(actions, t.updateNow, "primary", async () => {
       if (!this.plugin.availableUpdate) return;
       updateButton.disabled = true;
       await this.plugin.applyPluginUpdate(this.plugin.availableUpdate);
-      this.display();
+      this.refresh();
     });
     updateButton.disabled = !this.plugin.availableUpdate;
   }
@@ -548,7 +638,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     new Notice(
       format(this.plugin.text().deletedVaultNotice, { name: vault.name })
     );
-    this.display();
+    this.refresh();
   }
 
   private renderCreateVault(body: HTMLElement): void {
@@ -570,7 +660,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         this.plugin.settings.selectedVaultName = vault.name;
         await this.plugin.saveSettings();
         new Notice(format(t.createdVaultNotice, { name: vault.name }));
-        this.display();
+        this.refresh();
       } catch (error) {
         new Notice(`${t.createVaultFailed}: ${errorToMessage(error)}`);
       }
@@ -600,7 +690,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       async () => {
         await this.plugin.deleteConflictFiles();
         this.conflictCount = null;
-        this.display();
+        this.refresh();
       }
     );
     button.disabled = count === 0;
@@ -608,7 +698,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
 
   showConnectionSettings(): void {
     this.cfg = null;
-    this.display();
+    this.refresh();
   }
 
   private renderDevices(body: HTMLElement, tokens: TokenView[]): void {
@@ -675,7 +765,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     });
     toggle.addEventListener("click", () => {
       this.syncTimeExpanded = !this.syncTimeExpanded;
-      this.display();
+      this.refresh();
     });
 
     if (this.syncTimeExpanded) {
@@ -705,7 +795,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     button.createSpan({ cls: "pkv-sync-theme-label", text: label });
     button.addEventListener("click", () => {
       this.plugin.settings.themeMode = this.nextThemeMode(mode);
-      void this.plugin.saveSettings({ rebuild: false }).then(() => this.display());
+      void this.plugin.saveSettings({ rebuild: false }).then(() => this.refresh());
     });
   }
 
@@ -820,7 +910,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     this.plugin.settings.username = "";
     this.plugin.settings.userId = "";
     await this.plugin.saveSettings();
-    this.display();
+    this.refresh();
   }
 
   private serverHost(): string {

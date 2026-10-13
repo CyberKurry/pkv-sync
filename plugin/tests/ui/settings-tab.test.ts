@@ -1,5 +1,13 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Platform } from "obsidian";
+import type {
+  Setting,
+  SettingDefinitionGroup,
+  SettingDefinitionItem,
+  SettingDefinitionRender
+} from "obsidian";
 import { ApiError } from "../../src/api/client";
 import { PKVSyncSettingTab } from "../../src/ui/settings-tab";
 import { DeleteVaultModal } from "../../src/ui/delete-vault-modal";
@@ -640,6 +648,177 @@ describe("theme mode settings", () => {
   });
 });
 
+type SettingsDefinitionsTab = {
+  getSettingDefinitions: () => SettingDefinitionItem[];
+  refresh: () => void;
+  display: () => void;
+  update?: () => void;
+};
+
+function definitionsFor(tab: PKVSyncSettingTab): {
+  group: SettingDefinitionGroup;
+  item: SettingDefinitionRender;
+} {
+  const definitions = tab.getSettingDefinitions();
+  const group = definitions[0] as SettingDefinitionGroup;
+  return {
+    group,
+    item: (group.items ?? [])[0] as unknown as SettingDefinitionRender
+  };
+}
+
+function buildDeclarativeTab(bundle: typeof en = en) {
+  const plugin = {
+    manifest: { version: "1.6.0" },
+    settings: {
+      token: "",
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      deviceName: "Laptop",
+      timezone: "Asia/Shanghai",
+      language: "en",
+      themeMode: "auto",
+      checkForUpdates: true,
+      updateSource: "server",
+      lastUpdateCheckAt: null
+    },
+    availableUpdate: null,
+    text: () => bundle,
+    saveSettings: vi.fn().mockResolvedValue(undefined),
+    scheduleUpdateChecks: vi.fn(),
+    checkForPluginUpdates: vi.fn().mockResolvedValue(null),
+    applyPluginUpdate: vi.fn().mockResolvedValue(undefined),
+    api: () => ({ config: vi.fn(), me: vi.fn(), tokens: vi.fn() })
+  };
+  const app = { vault: { getFiles: () => [], configDir: ".obsidian" } };
+  return { tab: new PKVSyncSettingTab(app as never, plugin as never), plugin };
+}
+
+describe("declarative settings definitions", () => {
+  it("exposes one titled group with a searchable render item", () => {
+    const { tab } = buildDeclarativeTab();
+    const { group, item } = definitionsFor(tab);
+
+    expect(group.type).toBe("group");
+    expect(group.heading).toBe(en.settingsTitle);
+    expect(item.name).toBe(en.settingsTitle);
+    expect(typeof item.desc).toBe("string");
+    expect((item.desc as string).length).toBeGreaterThan(0);
+
+    const searchText = (item.aliases ?? []).join("\n").toLowerCase();
+    for (const term of [
+      "server url",
+      "language",
+      "theme",
+      "updates",
+      "devices",
+      "vaults",
+      "conflict",
+      "allowlist"
+    ]) {
+      expect(searchText).toContain(term);
+    }
+  });
+
+  it("indexes each language bundle's own section names", () => {
+    for (const bundle of [en, zh, zhHant, ja, ko]) {
+      const { item } = definitionsFor(buildDeclarativeTab(bundle).tab);
+      const aliases = item.aliases ?? [];
+
+      for (const name of [
+        bundle.serverUrl,
+        bundle.language,
+        bundle.themeMode,
+        bundle.settingsUpdateSection,
+        bundle.tokens,
+        bundle.vaults,
+        bundle.conflictFiles,
+        bundle.vaultSyncAllowlist
+      ]) {
+        expect(aliases).toContain(name);
+      }
+    }
+  });
+
+  it("renders the custom panel into a detached declarative host", () => {
+    const { tab } = buildDeclarativeTab();
+    const { item } = definitionsFor(tab);
+    const settingEl = new MockElement("div");
+
+    expect(() =>
+      item.render({ settingEl } as unknown as Setting, undefined as never)
+    ).not.toThrow();
+
+    expect(settingEl.findAllByClass("pkv-sync-panel")).toHaveLength(1);
+    expect(settingEl.findAllByClass("pkv-sync-app")).toHaveLength(1);
+    expect(settingEl.findByClass("pkv-settings-declarative-host")).toBeTruthy();
+    expect(settingEl.findByClass("pkv-sync-settings-host")).toBeTruthy();
+  });
+
+  it("styles the declarative host so the panel keeps the full row", () => {
+    const css = readFileSync(resolve(__dirname, "../../styles.css"), "utf8");
+
+    expect(css).toMatch(
+      /\.pkv-settings-declarative-host\.pkv-settings-declarative-host\s*\{[\s\S]+?display:\s*block/
+    );
+    expect(css).not.toContain("!important");
+    expect(css).not.toContain(":has(");
+  });
+
+  it("refresh() re-renders through update() when the runtime exposes it", () => {
+    const { tab } = buildDeclarativeTab();
+    const target = tab as unknown as SettingsDefinitionsTab;
+    const update = vi.fn();
+    const display = vi.fn();
+    target.update = update;
+    target.display = display;
+
+    target.refresh();
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(display).not.toHaveBeenCalled();
+  });
+
+  it("refresh() falls back to display() when update() is absent", () => {
+    const { tab } = buildDeclarativeTab();
+    const target = tab as unknown as SettingsDefinitionsTab;
+    const display = vi.fn();
+    target.display = display;
+    expect(target.update).toBeUndefined();
+
+    target.refresh();
+
+    expect(display).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes state changes through refresh() on both API generations", () => {
+    const modern = buildDeclarativeTab().tab as unknown as SettingsDefinitionsTab & {
+      cfg: unknown;
+      showConnectionSettings: () => void;
+    };
+    const legacy = buildDeclarativeTab().tab as unknown as SettingsDefinitionsTab & {
+      cfg: unknown;
+      showConnectionSettings: () => void;
+    };
+    const update = vi.fn();
+    const modernDisplay = vi.fn();
+    const legacyDisplay = vi.fn();
+    modern.cfg = { server_name: "Self-hosted" };
+    modern.update = update;
+    modern.display = modernDisplay;
+    legacy.cfg = { server_name: "Self-hosted" };
+    legacy.display = legacyDisplay;
+
+    modern.showConnectionSettings();
+    legacy.showConnectionSettings();
+
+    expect(modern.cfg).toBeNull();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(modernDisplay).not.toHaveBeenCalled();
+    expect(legacyDisplay).toHaveBeenCalledTimes(1);
+  });
+});
+
 function mockElement(): any {
   return {
     empty: vi.fn(),
@@ -671,7 +850,13 @@ class MockElement {
     this.text = "";
   }
 
-  addClass(): void {}
+  addClass(cls: string): void {
+    const classes = this.cls.split(/\s+/).filter(Boolean);
+    for (const name of cls.split(/\s+/).filter(Boolean)) {
+      if (!classes.includes(name)) classes.push(name);
+    }
+    this.cls = classes.join(" ");
+  }
 
   removeClass(): void {}
 

@@ -121,6 +121,17 @@
   min-height: 100%;
 }
 
+/* Declarative settings API (Obsidian 1.13+): the render row hosts the whole
+ * custom panel, so drop the default setting-item flex row around it.
+ * Doubled class raises specificity above .setting-item without overrides. */
+.pkv-settings-declarative-host.pkv-settings-declarative-host {
+  display: block;
+  align-items: stretch;
+  padding: 0;
+  border-top: none;
+  background: transparent;
+}
+
 .pkv-sync-panel {
   width: 100%;
   max-width: none;

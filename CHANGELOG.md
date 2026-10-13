@@ -7,6 +7,22 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- Plugin: the settings tab implements `getSettingDefinitions()`, Obsidian's
+  declarative settings API (1.13+), so it is indexed by settings search. One
+  titled group renders the existing custom panel, and its search aliases are
+  derived from the active language bundle to cover every section (server URL,
+  language, theme, devices, vaults, `.obsidian` allowlist, conflict cleanup,
+  updates, account). No user-facing strings change.
+
+### Changed
+
+- Plugin: settings re-renders after state changes go through
+  `SettingTab#update()` when the runtime provides it, with the imperative
+  `display()` path kept as the fallback for Obsidian < 1.13.0 — the rendered
+  panel itself is unchanged, and `minAppVersion` stays where it is.
+
 ### Fixed
 
 - Plugin: resolve the TypeScript strictness findings from the Obsidian plugin
