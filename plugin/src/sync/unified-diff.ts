@@ -155,7 +155,7 @@ export function lineDiffSideBySide(
   const n = b.length;
   const dp: number[][] = [];
   for (let i = 0; i <= m; i += 1) {
-    dp.push(new Array(n + 1).fill(0));
+    dp.push(new Array<number>(n + 1).fill(0));
   }
   for (let i = 1; i <= m; i += 1) {
     for (let j = 1; j <= n; j += 1) {
@@ -329,7 +329,7 @@ export function wordDiff(
   }
   const dp: number[][] = [];
   for (let i = 0; i <= m; i += 1) {
-    dp.push(new Array(n + 1).fill(0));
+    dp.push(new Array<number>(n + 1).fill(0));
   }
   for (let i = 1; i <= m; i += 1) {
     for (let j = 1; j <= n; j += 1) {

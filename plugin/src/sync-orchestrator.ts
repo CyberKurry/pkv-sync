@@ -121,7 +121,7 @@ export class SyncOrchestrator {
     const scheduleForFile = (file: unknown) => {
       const path =
         typeof file === "object" && file !== null && "path" in file
-          ? String((file as { path: unknown }).path)
+          ? String(file.path)
           : "";
       if (path && shouldSyncPath(path)) this.plugin.pushDebouncer?.trigger();
     };

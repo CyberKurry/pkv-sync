@@ -166,16 +166,27 @@ function clampDebounceMs(value: number): number {
 }
 
 export function normalizeTextExtensions(value: unknown): string[] {
-  if (!Array.isArray(value) || value.some((ext) => typeof ext !== "string")) {
+  const entries = asStringArray(value);
+  if (entries === null) {
     return [...DEFAULT_SETTINGS.textExtensions];
   }
-  const normalized = value
+  const normalized = entries
     .map((ext) => ext.trim().toLowerCase().replace(/^\./, ""))
     .filter(
-      (ext, index, entries) =>
-        isValidTextExtension(ext) && entries.indexOf(ext) === index
+      (ext, index, all) =>
+        isValidTextExtension(ext) && all.indexOf(ext) === index
     );
   return normalized.length > 0 ? normalized : [...DEFAULT_SETTINGS.textExtensions];
+}
+
+function asStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") return null;
+    out.push(item);
+  }
+  return out;
 }
 
 function isValidTextExtension(ext: string): boolean {

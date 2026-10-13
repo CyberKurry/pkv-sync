@@ -11,7 +11,8 @@ const SECURE_AUTH_KIND = "electron-safe-storage";
 const SECURE_AUTH_VERSION = 1;
 
 export type LocalStorageLoad = (key: string) => unknown;
-export type LocalStorageSave = (key: string, data: unknown | null) => void;
+/** `null` clears the stored value; any other value is persisted as-is. */
+export type LocalStorageSave = (key: string, data: unknown) => void;
 export type SafeStorageLike = {
   isEncryptionAvailable(): boolean;
   encryptString(plainText: string): string;

@@ -38,7 +38,7 @@ export function writePluginSettingsWithoutAuth(
   for (const k of AUTH_KEYS_FOR_WRITE) delete stripped[k];
   return {
     ...stripAuthFromPluginData(raw),
-    settings: stripped as Partial<PKVSyncSettings>
+    settings: stripped
   };
 }
 
@@ -76,12 +76,12 @@ function asPluginData(raw: unknown): PluginData | null {
 }
 
 function stripAuthFromPluginData(raw: unknown): PluginData {
-  const data = { ...(asPluginData(raw) ?? {}) } as PluginData;
+  const data = { ...(asPluginData(raw) ?? {}) };
   for (const k of AUTH_KEYS_FOR_WRITE) delete data[k];
   if (data.settings && typeof data.settings === "object") {
     const settings = { ...data.settings } as Record<string, unknown>;
     for (const k of AUTH_KEYS_FOR_WRITE) delete settings[k];
-    data.settings = settings as Partial<PKVSyncSettings>;
+    data.settings = settings;
   }
   if (data.syncIndexes) {
     data.syncIndexes = sanitizeSyncIndexes(data.syncIndexes);

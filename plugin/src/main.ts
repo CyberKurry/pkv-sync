@@ -116,7 +116,7 @@ export default class PKVSyncPlugin extends Plugin {
       pluginId: this.manifest.id || "pkv-sync",
       pluginDir: this.manifest.dir
     });
-    const rawData = await this.loadData();
+    const rawData: unknown = await this.loadData();
     const migration = migrateAuth(this.authStore, rawData);
     if (migration.strippedData !== null) {
       await this.saveData(migration.strippedData);

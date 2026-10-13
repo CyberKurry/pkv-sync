@@ -7,6 +7,18 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Plugin: resolve the TypeScript strictness findings from the Obsidian plugin
+  review. `normalizeTextExtensions` narrows `unknown` through a typed
+  `asStringArray` helper instead of the `any[]` that `Array.isArray` widens to
+  (no `no-unsafe-*` violations remain in `settings.ts`); `loadData()` is read
+  as `unknown`; the redundant assertions in `plugin-data.ts` and
+  `sync-orchestrator.ts` are gone; the LCS tables in the diff renderer are
+  typed `number[][]`; and `LocalStorageSave` takes `unknown` — with its
+  `null`-clears-the-value contract documented — instead of the collapsed
+  `unknown | null` union.
+
 ## [1.6.0] - 2026-10-12
 
 ### Added
