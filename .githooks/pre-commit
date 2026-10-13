@@ -1,0 +1,79 @@
+#!/bin/sh
+# PKV Sync pre-commit hook.
+#
+# Runs the same checks the CI "Plugin checks" job runs, but only when the staged
+# change actually touches something they cover. This exists so a `[skip ci]`
+# push (see the reminder at the end) cannot let a docs regression through the
+# way the 1.4.4 double-encoding did.
+#
+# Installed via `core.hooksPath=.githooks` (see CONTRIBUTING.md). POSIX sh so it
+# behaves the same under Git for Windows, which runs hooks through its own sh.
+set -e
+
+# --- what is staged? ---------------------------------------------------------
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -n "$staged" ] || exit 0
+
+# Paths each check covers. Keep in sync with .github/workflows/ci.yml.
+docs_paths=$(printf '%s\n' "$staged" | grep -E '^(README.*\.md|SECURITY.*\.md|CHANGELOG\.md|public-docs/)' || true)
+i18n_paths=$(printf '%s\n' "$staged" | grep -E '^plugin/src/i18n/' || true)
+
+[ -n "$docs_paths$i18n_paths" ] || exit 0
+
+python_bin=""
+for candidate in python3 python; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    python_bin=$candidate
+    break
+  fi
+done
+
+if [ -z "$python_bin" ]; then
+  echo "pre-commit: no python on PATH; skipping docs/i18n checks." >&2
+  echo "pre-commit: CI will still run them — do NOT use [skip ci] on this commit." >&2
+  exit 0
+fi
+
+failed=0
+
+if [ -n "$i18n_paths" ]; then
+  if ! "$python_bin" scripts/i18n_check.py; then
+    echo "pre-commit: plugin i18n coverage failed (see above)." >&2
+    failed=1
+  fi
+fi
+
+if [ -n "$docs_paths" ]; then
+  if ! "$python_bin" scripts/docs_check.py; then
+    echo "pre-commit: public docs check failed (see above)." >&2
+    failed=1
+  fi
+fi
+
+if [ "$failed" -ne 0 ]; then
+  echo "" >&2
+  echo "pre-commit: commit blocked. Fix the failure above, or bypass once with:" >&2
+  echo "  git commit --no-verify" >&2
+  exit 1
+fi
+
+# --- [skip ci] reminder ------------------------------------------------------
+# A docs-only change can skip CI, but the release doc-alignment commit must NOT:
+# it is the commit that gets tagged, and `[skip ci]` travels with the tagged
+# commit, so the Release workflow (binaries, plugin zip, Docker image) would be
+# skipped too. Warn loudly when that looks like what is staged.
+version_paths=$(printf '%s\n' "$staged" | grep -E '^(README.*\.md|public-docs/openapi\.yaml|Cargo\.toml)$' || true)
+
+docs_only=1
+printf '%s\n' "$staged" | grep -qvE '\.(md|ya?ml)$|^LICENSE$|^\.gitattributes$' && docs_only=0
+
+if [ "$docs_only" -eq 1 ] && [ -n "$version_paths" ]; then
+  echo ""
+  echo "NOTE: this looks like a release doc-alignment commit (version strings changed)."
+  echo "      Do NOT append [skip ci] — it would skip the Release workflow when you"
+  echo "      tag this commit."
+elif [ "$docs_only" -eq 1 ]; then
+  echo ""
+  echo "Tip: this is a docs-only commit, so CI can be skipped by putting [skip ci]"
+  echo "     in the commit subject, e.g.  git commit -m 'docs: ... [skip ci]'"
+fi

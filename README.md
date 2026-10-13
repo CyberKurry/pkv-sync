@@ -1,9 +1,6 @@
 # PKV Sync
 
-**Self-host your Obsidian vault.** PKV Sync runs on your own server and keeps
-your Obsidian vaults in sync across phone, tablet, and desktop. One binary,
-one SQLite database, one bare git repo per vault — no cluster, no S3, no
-managed cloud. You install it, point Obsidian at it, and your notes sync.
+PKV Sync is a self-hosted, Git-native sync server for Obsidian vaults.
 
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
@@ -14,6 +11,8 @@ English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.
 
 ## Features
 
+### Sync
+
 - **Multi-user, multi-vault** sync over authenticated devices, with
   per-vault push locks and idempotent retries.
 - **Real-time push.** Small edits land sub-second over Server-Sent
@@ -23,6 +22,9 @@ English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.
   the box — in the plugin and in the admin panel.
 - **Conflict-safe.** The plugin never silently overwrites local edits;
   conflicts surface as `.conflict-*` files with a one-click resolver.
+
+### Operate
+
 - **Admin panel** in five languages (English, 简中, 繁中, 日本語, 한국어)
   for users, device tokens, vaults, invites, activity, and blob GC, with
   confirmation dialogs for destructive vault and user actions.
@@ -31,7 +33,10 @@ English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.
 - **Bounded by default.** Admin-created passwords follow the setup-grade
   strong policy, token secrets are shown exactly once, uploads and MCP
   responses are size-capped, and live SSE streams revalidate revoked tokens.
-- **Boring on purpose.** Single binary, single SQLite metadata DB, one
+
+### Design
+
+- **Mature technology, on purpose.** Single binary, single SQLite metadata DB, one
   bare git repo per vault, one content-addressed blob per attachment.
 
 ## Quick start with Docker Compose
@@ -43,6 +48,8 @@ never sees plain HTTP from the public internet.
 You need a domain name (e.g. `sync.example.com`) with A/AAAA records
 pointing at the server, and ports `80` and `443` reachable from the
 internet (port 80 is needed for ACME HTTP-01 validation).
+
+### Set up the stack
 
 1. Generate a deployment key:
 
@@ -85,10 +92,17 @@ internet (port 80 is needed for ACME HTTP-01 validation).
    (`<vault>/.obsidian/plugins/pkv-sync/`), enable it, paste the share URL
    from the admin panel, then log in or register and pick a vault.
 
-To update, run `docker compose pull && docker compose up -d`. For native
-installs, reverse-proxy tuning (Caddy / Nginx / Traefik), `public_host`
-semantics, backup and restore, and disk encryption, see the
-[deployment hardening guide](./public-docs/deployment-hardening.md).
+### Update
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+### Where to go next
+
+Native installs, reverse-proxy tuning (Caddy / Nginx / Traefik),
+`public_host` semantics, backup and restore, and disk encryption are covered
+in the [deployment hardening guide](./public-docs/deployment-hardening.md).
 
 ## MCP deployment modes
 
@@ -136,7 +150,7 @@ For real deployments, also run behind HTTPS, restrict
 `trusted_proxies`, encrypt the data disk, and encrypt backups — see the
 [deployment hardening guide](./public-docs/deployment-hardening.md).
 
-## Looking for…
+## Documentation
 
 | Topic | Doc |
 | --- | --- |
@@ -151,31 +165,6 @@ For real deployments, also run behind HTTPS, restrict
 | Migrating from Obsidian Sync | [migration guide](./public-docs/migrate-from-obsidian-sync.md) |
 | Security disclosures | [SECURITY.md](./SECURITY.md) |
 | Release history | [CHANGELOG.md](./CHANGELOG.md) |
-
-## Status
-
-PKV Sync 1.6.0 makes MCP a first-class citizen: the server now speaks the new
-2026-07-28 stateless protocol revision alongside legacy clients (dual-era), adds
-`subscriptions/listen` push, and embeds MCP in the main server by default (the
-standalone `mcp --transport http` deployment is gone). Admin deployments that
-cannot set `public_host` gain the `allow_insecure_admin` escape hatch, and a
-health-probe fix means self-upgrade finally works instead of silently rolling
-back. Sync correctness repairs round it out: auto-merge no longer skips commits
-(the head no longer advances past a merge base it never pulled), and realtime
-applies no longer silently overwrite or resurrect local files.
-
-PKV Sync 1.5.0 ships the full 2026-08-16 repository audit remediation plus a performance pass: blob retention now follows git object liveness so rollback and per-file history restores keep their attachments, Windows-hostile path components are rejected before they reach `materialize`, privileged updaters refuse downgrades and the Docker self-upgrade overlay is hardened, registration and blob-upload paths gained the missing rate limits, long-lived SSE connections no longer block graceful shutdown, the plugin syncs allowlisted `.obsidian` paths and streams initial syncs in memory-bounded batches for mobile, and batched git reads with single-copy index updates speed up MCP search and large vaults.
-
-PKV Sync 1.0 is the first stable release. The public REST API, CLI surface,
-storage layout, plugin package, and Docker image are versioned together
-under semver: 1.X.Y stays backwards-compatible on the public surface, and
-the OpenAPI spec is the canonical compatibility contract. SQLite databases
-created by 0.x releases cannot be upgraded in place to 1.0.0 — follow the
-[1.0 upgrade notes](./public-docs/upgrade-notes-v1.0.md).
-
-Each GitHub release publishes Linux amd64/arm64 binaries, a Windows x64
-binary, a multi-arch GHCR Docker image, the Obsidian plugin zip, and
-`SHA256SUMS`.
 
 ## Development
 
@@ -193,6 +182,13 @@ npm run build
 CI runs the full Rust matrix on Linux and Windows, plus plugin
 tests/typecheck/build/package, a Docker build, and release-binary smoke
 tests.
+
+## Contributing
+
+Bug reports, feature requests, and pull requests are welcome. Open an issue
+first for anything larger than a bug fix. See [CONTRIBUTING.md](./CONTRIBUTING.md)
+for build and test commands, the commit and release flow, and the docs rules
+that CI enforces.
 
 ## License
 
