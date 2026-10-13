@@ -273,6 +273,13 @@ jobs:
       - build-windows
       - plugin
       - docker
+    # Job-level permissions replace the workflow-level ones, so `contents:
+    # write` has to be repeated here; the other two are what artifact
+    # attestations need (OIDC token + permission to persist the attestation).
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Download artifacts
@@ -288,6 +295,16 @@ jobs:
             | sort -z \
             | xargs -0 sha256sum \
             | sed -E 's#  \./(.*/)?#  #' > SHA256SUMS
+
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@v4
+        with:
+          # Files only: actions/download-artifact@v4 drops each artifact into
+          # its own directory under dist/, so the binaries are one level deep.
+          subject-path: |
+            dist/**/pkvsyncd-*
+            dist/**/pkv-sync-plugin.zip
+            dist/SHA256SUMS
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -333,6 +350,11 @@ jobs:
           cp -r plugin/src mirror-content/src
           cp -r plugin/tests mirror-content/tests
           cp plugin/esbuild.config.mjs plugin/package.json plugin/package-lock.json plugin/release.mjs plugin/tsconfig.json plugin/vitest.config.mts mirror-content/
+          # The mirror carries its own attestation workflow: attestations are
+          # published to the repository whose workflow creates them, and
+          # Obsidian verifies them against the mirror (not this repo).
+          mkdir -p mirror-content/.github/workflows
+          cp plugin/store/mirror-attest.yml mirror-content/.github/workflows/attest-release.yml
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Publish to mirror repository
@@ -355,6 +377,8 @@ jobs:
           git clone "https://x-access-token:${GH_TOKEN}@github.com/${MIRROR_REPO}.git" mirror-repo
           git -C mirror-repo rm -rq --ignore-unmatch -- .
           cp -r mirror-content/* mirror-repo/
+          # `*` skips dotfiles, so the generated workflow is copied explicitly.
+          cp -r mirror-content/.github mirror-repo/.github
           git -C mirror-repo config user.name "github-actions[bot]"
           git -C mirror-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C mirror-repo add -A

@@ -1,0 +1,67 @@
+# Source for the mirror repository's attestation workflow.
+#
+# The release workflow's `plugin-mirror` job copies this file into the mirror
+# repository as `.github/workflows/attest-release.yml`. It is generated there,
+# never hand-edited (see docs/AI-RULES.md).
+#
+# Why the attestation has to run *here* and not in the main repository:
+# `actions/attest-build-provenance` publishes the attestation to the repository
+# whose workflow created it, and Obsidian ingests releases from the mirror
+# (`cyberkurry/pkv-sync-plugin`), so `gh attestation verify main.js --repo
+# cyberkurry/pkv-sync-plugin` only succeeds if the attestation lives in the
+# mirror. That is the check behind the plugin review's "Missing GitHub artifact
+# attestations for release assets".
+name: Attest release assets
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to (re-)attest
+        required: true
+
+permissions:
+  contents: read
+  id-token: write # mints the OIDC token exchanged for a Sigstore certificate
+  attestations: write # persists the signed attestation on this repository
+
+jobs:
+  attest:
+    name: Attest main.js, manifest.json, styles.css
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the tag to attest
+        id: tag
+        shell: bash
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          tag="${DISPATCH_TAG:-$RELEASE_TAG}"
+          if [ -z "$tag" ]; then
+            echo "no release tag to attest" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download the release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
+            --pattern main.js --pattern manifest.json --pattern styles.css
+          ls -l release-assets
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            release-assets/main.js
+            release-assets/manifest.json
+            release-assets/styles.css

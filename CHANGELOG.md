@@ -9,6 +9,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Added
 
+- Release: GitHub artifact attestations for the release assets. The main
+  repository now attests the binaries, the plugin zip and `SHA256SUMS`; the
+  plugin store mirror carries a generated workflow that attests `main.js`,
+  `manifest.json` and `styles.css` on every published release, so
+  `gh attestation verify main.js --repo cyberkurry/pkv-sync-plugin` proves
+  the assets came from this repository's source (the check behind the plugin
+  review's Releases note).
+
 - Plugin: the settings tab implements `getSettingDefinitions()`, Obsidian's
   declarative settings API (1.13+), so it is indexed by settings search. One
   titled group renders the existing custom panel, and its search aliases are
