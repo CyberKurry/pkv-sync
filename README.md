@@ -10,7 +10,7 @@ managed cloud. You install it, point Obsidian at it, and your notes sync.
 
 Document version: v1.6.0.
 
-English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
+English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## Features
 
@@ -28,9 +28,9 @@ English | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md
   confirmation dialogs for destructive vault and user actions.
 - **AI-readable vaults.** MCP exposes read/write tools over stdio or the
   embedded `/mcp` route on `pkvsyncd serve` (default on).
-- **Bounded by default.** Admin-created passwords use the setup-grade strong
-  policy, token secrets are one-time only, uploads and MCP responses are size
-  capped, and live SSE streams revalidate revoked tokens.
+- **Bounded by default.** Admin-created passwords follow the setup-grade
+  strong policy, token secrets are shown exactly once, uploads and MCP
+  responses are size-capped, and live SSE streams revalidate revoked tokens.
 - **Boring on purpose.** Single binary, single SQLite metadata DB, one
   bare git repo per vault, one content-addressed blob per attachment.
 
@@ -78,16 +78,16 @@ internet (port 80 is needed for ACME HTTP-01 validation).
    docker compose up -d
    ```
 
-   Open `https://sync.example.com/setup` and create the first
-   administrator account in your browser.
+   Open `https://sync.example.com/setup` in your browser and create the
+   first administrator account.
 
 5. Install `pkv-sync-plugin.zip` in Obsidian
-   (`<vault>/.obsidian/plugins/pkv-sync/`), enable it, paste the share
-   URL from the admin panel, then log in or register and pick a vault.
+   (`<vault>/.obsidian/plugins/pkv-sync/`), enable it, paste the share URL
+   from the admin panel, then log in or register and pick a vault.
 
-Updating is `docker compose pull && docker compose up -d`. For native
+To update, run `docker compose pull && docker compose up -d`. For native
 installs, reverse-proxy tuning (Caddy / Nginx / Traefik), `public_host`
-semantics, backup / restore, and disk encryption, read the
+semantics, backup and restore, and disk encryption, see the
 [deployment hardening guide](./public-docs/deployment-hardening.md).
 
 ## MCP deployment modes
@@ -114,7 +114,7 @@ in again on the same device rotates the active token.
 
 Day-to-day features — command palette, file history, side-by-side diff,
 conflict resolution, selective `.obsidian` sync, device management, and
-self-update — are walked through in the
+self-update — are covered in the
 [user manual](./public-docs/user-manual.md).
 
 ## Encryption today
