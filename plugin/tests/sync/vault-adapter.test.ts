@@ -4,7 +4,8 @@ import { sha256Text } from "../../src/sync/hash";
 import {
   ObsidianVaultAdapter,
   shouldAcceptRemoteConflictPath,
-  shouldSyncPath
+  shouldSyncPath,
+  type VaultHost
 } from "../../src/sync/vault-adapter";
 
 function tfile(path: string, stat: Partial<TFile["stat"]> = {}): TFile {
@@ -36,6 +37,19 @@ function folderWithChildren(
   return folder;
 }
 
+class FakeFileManager {
+  trashed: string[] = [];
+
+  constructor(private vault: FakeVault) {}
+
+  async trashFile(file: TFile): Promise<void> {
+    this.trashed.push(file.path);
+    this.vault.files = this.vault.files.filter(
+      (candidate) => candidate.path !== file.path
+    );
+  }
+}
+
 class FakeVault {
   files = [
     tfile("note.md"),
@@ -45,7 +59,8 @@ class FakeVault {
   folders = new Map<string, TFolder>();
   createdFolders: string[] = [];
   createdFiles = new Map<string, string>();
-  trashed: Array<{ path: string; system: boolean }> = [];
+  configDir = ".obsidian";
+  readonly fileManager = new FakeFileManager(this);
 
   getFiles(): TFile[] {
     return this.files;
@@ -72,9 +87,9 @@ class FakeVault {
     }
   }
 
-  async trash(file: TFile, system: boolean): Promise<void> {
-    this.trashed.push({ path: file.path, system });
-    this.files = this.files.filter((candidate) => candidate.path !== file.path);
+  // Deprecated in Obsidian; the adapter must delete through FileManager.
+  trash(): never {
+    throw new Error("Vault#trash must not be called");
   }
 
   async createFolder(path: string): Promise<TFolder> {
@@ -104,9 +119,13 @@ class FakeVault {
   }
 }
 
+function vaultHost(vault: FakeVault): VaultHost {
+  return { vault, fileManager: vault.fileManager } as unknown as VaultHost;
+}
+
 describe("ObsidianVaultAdapter", () => {
   it("scans safe dot paths so sync policy can apply the allowlist", async () => {
-    const adapter = new ObsidianVaultAdapter(new FakeVault() as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(new FakeVault()));
 
     const snapshots = await adapter.scan(new Set(["md", "css"]));
 
@@ -129,13 +148,38 @@ describe("ObsidianVaultAdapter", () => {
       ])
     );
 
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
     const snapshots = await adapter.scan(new Set(["md", "json"]));
 
     const paths = snapshots.map((snapshot) => snapshot.path);
     expect(paths).toContain("note.md");
     expect(paths).toContain(".obsidian/plugins/pkv-sync/main.js");
     expect(paths).toContain(".obsidian/community-plugins.json");
+  });
+
+  it("walks the configured config folder instead of .obsidian", async () => {
+    const vault = new FakeVault();
+    vault.configDir = ".my-config";
+    vault.files = [tfile("note.md")];
+    vault.folders.set(
+      ".my-config",
+      folderWithChildren(".my-config", [
+        tfile(".my-config/themes/custom.css")
+      ])
+    );
+    vault.folders.set(
+      ".obsidian",
+      folderWithChildren(".obsidian", [tfile(".obsidian/themes/stale.css")])
+    );
+
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
+
+    expect(adapter.configDir).toBe(".my-config");
+    const paths = (await adapter.scan(new Set(["md", "css"]))).map(
+      (snapshot) => snapshot.path
+    );
+    expect(paths).toContain(".my-config/themes/custom.css");
+    expect(paths).not.toContain(".obsidian/themes/stale.css");
   });
 
   it("drops content for files whose hash matches the previous index to bound memory", async () => {
@@ -147,7 +191,7 @@ describe("ObsidianVaultAdapter", () => {
       file.path === "unchanged.md" ? "abc" : "changed!"
     );
     const unchangedHash = await sha256Text("abc");
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
 
     const snapshots = await adapter.scan(new Set(["md"]), {
       lastSyncedCommit: "commit-1",
@@ -178,7 +222,7 @@ describe("ObsidianVaultAdapter", () => {
     const vault = new FakeVault();
     vault.files = [file];
     vi.spyOn(vault, "read").mockResolvedValue("hello");
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
 
     const snapshots = await adapter.scan(new Set(["md"]), undefined, {
       retainPayload: false
@@ -196,7 +240,7 @@ describe("ObsidianVaultAdapter", () => {
 
   it("creates parent folders before writing a missing nested text file", async () => {
     const vault = new FakeVault();
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
 
     await adapter.writeText("folder/deeper/remote.md", "remote");
 
@@ -224,7 +268,7 @@ describe("ObsidianVaultAdapter", () => {
       return "changed.md contents";
     });
     const readBinary = vi.spyOn(vault, "readBinary");
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
 
     const snapshots = await adapter.scan(new Set(["md"]), {
       lastSyncedCommit: "commit-1",
@@ -293,7 +337,7 @@ describe("ObsidianVaultAdapter", () => {
     const vault = new FakeVault();
     vault.files = [file];
     const read = vi.spyOn(vault, "read").mockResolvedValue("HELLO");
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
 
     const snapshots = await adapter.scan(new Set(["md"]), {
       lastSyncedCommit: "commit-1",
@@ -359,7 +403,7 @@ describe("ObsidianVaultAdapter", () => {
       pendingReads.set(file.path, { resolve });
       return promise;
     });
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
 
     let scanSettled = false;
     const scanPromise = adapter
@@ -456,7 +500,7 @@ describe("ObsidianVaultAdapter", () => {
       pendingReads.set(file.path, { reject });
       return promise;
     });
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
     const scanError = adapter.scan(new Set(["md"])).then(
       () => new Error("scan unexpectedly resolved"),
       (error: Error) => error
@@ -476,7 +520,7 @@ describe("ObsidianVaultAdapter", () => {
 
   it("rejects unsafe remote write paths before touching the vault", async () => {
     const vault = new FakeVault();
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
 
     await expect(
       adapter.writeText("folder/../.obsidian/plugins/evil/main.js", "evil")
@@ -486,30 +530,30 @@ describe("ObsidianVaultAdapter", () => {
     expect(vault.createdFiles.size).toBe(0);
   });
 
-  it("trashes deletions with the system trash instead of deleting permanently", async () => {
+  it("trashes deletions through FileManager instead of deleting permanently", async () => {
     const vault = new FakeVault();
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
 
     await adapter.trash("note.md");
 
-    expect(vault.trashed).toEqual([{ path: "note.md", system: true }]);
+    expect(vault.fileManager.trashed).toEqual(["note.md"]);
     expect(vault.files.map((file) => file.path)).not.toContain("note.md");
   });
 
   it("rejects unsafe trash paths and ignores already-removed files", async () => {
     const vault = new FakeVault();
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
 
     await expect(adapter.trash("../outside.md")).rejects.toThrow(
       /Unsafe sync path/
     );
     await expect(adapter.trash("missing.md")).resolves.toBeUndefined();
-    expect(vault.trashed).toEqual([]);
+    expect(vault.fileManager.trashed).toEqual([]);
   });
 
   it("allows writing generated conflict files without making them syncable", async () => {
     const vault = new FakeVault();
-    const adapter = new ObsidianVaultAdapter(vault as any);
+    const adapter = new ObsidianVaultAdapter(vaultHost(vault));
     const conflict = "单片机/P155 T14.conflict-2026-05-12-204915-LJYsPredator.md";
 
     await adapter.writeText(conflict, "local version");

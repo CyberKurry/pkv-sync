@@ -339,12 +339,13 @@ export class SyncEngine {
     const userExcludes = this.opts.extraExcludeGlobs ?? [];
     const userAllowlist =
       this.vaultSettingsCache.get(this.opts.vaultId)?.extra_sync_globs ?? [];
+    const configDir = this.opts.vault.configDir;
     // Compile the glob matcher once per settings value (exact key, no TTL) so
     // the same exclude/allowlist sets are not recompiled on every sync pass.
-    const key = JSON.stringify([userExcludes, userAllowlist]);
+    const key = JSON.stringify([userExcludes, userAllowlist, configDir]);
     let matcher = this.matcherCache.get(key);
     if (!matcher) {
-      matcher = createPathMatcher({ userExcludes, userAllowlist });
+      matcher = createPathMatcher({ userExcludes, userAllowlist, configDir });
       this.matcherCache.set(key, matcher);
     }
     return matcher;

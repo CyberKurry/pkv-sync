@@ -28,10 +28,11 @@ import { errorToMessage } from "../util";
 
 type ButtonVariant = "primary" | "secondary" | "ghost";
 
-const RECOMMENDED_DOT_SYNC_GLOBS = [
-  ".obsidian/themes/**",
-  ".obsidian/snippets/**"
-];
+// The config folder can be renamed, so the starter list follows
+// Vault#configDir instead of assuming the default folder name.
+function recommendedDotSyncGlobs(configDir: string): string[] {
+  return [`${configDir}/themes/**`, `${configDir}/snippets/**`];
+}
 
 export class PKVSyncSettingTab extends PluginSettingTab {
   private cfg: ServerConfigResponse | null = null;
@@ -420,7 +421,9 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       t.vaultSyncAllowlistStarterButton,
       "secondary",
       () => {
-        textarea.value = RECOMMENDED_DOT_SYNC_GLOBS.join("\n");
+        textarea.value = recommendedDotSyncGlobs(
+          this.app.vault.configDir
+        ).join("\n");
       }
     );
     const saveButton = this.renderButton(

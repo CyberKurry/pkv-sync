@@ -1,4 +1,4 @@
-import { TFile, TFolder, type Vault } from "obsidian";
+import { TFile, TFolder, type App, type FileManager, type Vault } from "obsidian";
 import { isConflictPath } from "./conflict-files";
 import { sha256Bytes, sha256TextWithLength } from "./hash";
 import type { LocalFileSnapshot, LocalIndex } from "./types";
@@ -7,6 +7,8 @@ import { isTextPath } from "../util";
 const SCAN_SNAPSHOT_BATCH_SIZE = 8;
 
 export interface VaultAdapter {
+  /** The vault's config folder (`Vault#configDir`), for config-folder paths. */
+  readonly configDir: string;
   listFiles(): TFile[];
   readText(path: string): Promise<string>;
   readBinary(path: string): Promise<ArrayBuffer>;
@@ -22,24 +24,37 @@ export interface VaultAdapter {
   ): Promise<LocalFileSnapshot[]>;
 }
 
+/** The Obsidian app surface the adapter needs; accepts `App` itself. */
+export type VaultHost = Pick<App, "vault" | "fileManager">;
+
 export interface VaultScanOptions {
   retainPayload?: boolean;
 }
 
 export class ObsidianVaultAdapter implements VaultAdapter {
-  constructor(private vault: Vault) {}
+  private readonly vault: Vault;
+  private readonly fileManager: FileManager;
+
+  constructor(host: VaultHost) {
+    this.vault = host.vault;
+    this.fileManager = host.fileManager;
+  }
+
+  get configDir(): string {
+    return this.vault.configDir;
+  }
 
   listFiles(): TFile[] {
     const files = this.vault.getFiles();
     // Obsidian's vault.getFiles() reads the file cache, which does not index
-    // the .obsidian directory. Walk that folder subtree directly so allowlisted
-    // .obsidian paths (themes, snippets, plugin configs) are discoverable for
+    // the config folder. Walk that folder subtree directly so allowlisted
+    // config paths (themes, snippets, plugin configs) are discoverable for
     // sync. Paths already returned by getFiles() are deduplicated.
     const known = new Set(files.map((file) => file.path));
-    const obsidian = this.vault.getAbstractFileByPath(".obsidian");
+    const configFolder = this.vault.getAbstractFileByPath(this.vault.configDir);
     const extra: TFile[] = [];
-    if (obsidian instanceof TFolder) {
-      collectFilesRecursive(obsidian, known, extra);
+    if (configFolder instanceof TFolder) {
+      collectFilesRecursive(configFolder, known, extra);
     }
     return extra.length === 0 ? files : files.concat(extra);
   }
@@ -75,7 +90,9 @@ export class ObsidianVaultAdapter implements VaultAdapter {
   async trash(path: string): Promise<void> {
     const safePath = requireSafeVaultPath(path);
     const file = this.vault.getAbstractFileByPath(safePath);
-    if (file) await this.vault.trash(file, true);
+    // FileManager honours the user's "deleted files" preference (system or
+    // local trash); Vault#trash is deprecated in favour of it.
+    if (file) await this.fileManager.trashFile(file);
   }
 
   exists(path: string): boolean {

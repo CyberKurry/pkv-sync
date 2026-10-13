@@ -2,7 +2,12 @@ import type { TFile } from "obsidian";
 
 export interface ConflictFileVault {
   getFiles(): TFile[];
-  trash(file: TFile, system: boolean): Promise<void>;
+}
+
+/** The app surface these helpers need; accepts `App` itself. */
+export interface ConflictFileHost {
+  vault: ConflictFileVault;
+  fileManager: { trashFile(file: TFile): Promise<void> };
 }
 
 interface ConflictFileReader {
@@ -18,18 +23,16 @@ export function isConflictPath(path: string): boolean {
   );
 }
 
-export function listConflictFiles(
-  vault: Pick<ConflictFileVault, "getFiles">
-): TFile[] {
+export function listConflictFiles(vault: ConflictFileVault): TFile[] {
   return vault.getFiles().filter((file) => isConflictPath(file.path));
 }
 
 export async function deleteConflictFiles(
-  vault: ConflictFileVault
+  host: ConflictFileHost
 ): Promise<number> {
-  const files = listConflictFiles(vault);
+  const files = listConflictFiles(host.vault);
   for (const file of files) {
-    await vault.trash(file, true);
+    await host.fileManager.trashFile(file);
   }
   return files.length;
 }

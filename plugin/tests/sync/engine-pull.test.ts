@@ -16,6 +16,7 @@ vi.mock("../../src/api/events-client", () => ({
 }));
 
 class FakeVault {
+  configDir = ".obsidian";
   writes = new Map<string, string>();
   deletions: string[] = [];
 

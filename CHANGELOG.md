@@ -18,6 +18,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
   typed `number[][]`; and `LocalStorageSave` takes `unknown` — with its
   `null`-clears-the-value contract documented — instead of the collapsed
   `unknown | null` union.
+- Plugin: resolve the Obsidian API findings from the plugin review. Sync now
+  follows the vault's config folder (`Vault#configDir`, with `.obsidian` as the
+  default) instead of hardcoding it: the hard-exclude and migration glob
+  matchers, the adapter's config-folder walk, and the settings starter
+  allowlist all derive from the configured folder, so a renamed config folder
+  is excluded and allowlisted correctly. Deletions (sync trash, bulk conflict
+  deletion, and conflict resolution) use `FileManager#trashFile` instead of
+  the deprecated `Vault#trash`, so they respect the user's "deleted files"
+  preference; and the Electron `safeStorage` bridge reads `require`/`Buffer`
+  from `window` instead of `globalThis`.
 
 ## [1.6.0] - 2026-10-12
 

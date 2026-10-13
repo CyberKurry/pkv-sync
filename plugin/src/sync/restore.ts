@@ -1,11 +1,10 @@
-import type { Vault } from "obsidian";
 import type { HistoryApi } from "../api/history-client";
 import { errorToMessage } from "../util";
 import { textByteLength } from "./text-encoding";
-import { ObsidianVaultAdapter } from "./vault-adapter";
+import { ObsidianVaultAdapter, type VaultHost } from "./vault-adapter";
 
 interface RestoreContext {
-  vault: Vault;
+  app: VaultHost;
   api: HistoryApi;
   vaultId: string;
   path: string;
@@ -35,8 +34,8 @@ export async function restoreFileToCommit(
     };
   }
 
-  const existed = ctx.vault.getAbstractFileByPath(ctx.path) !== null;
-  const adapter = new ObsidianVaultAdapter(ctx.vault);
+  const existed = ctx.app.vault.getAbstractFileByPath(ctx.path) !== null;
+  const adapter = new ObsidianVaultAdapter(ctx.app);
   try {
     if (historical.kind === "text") {
       await adapter.writeText(ctx.path, historical.text);

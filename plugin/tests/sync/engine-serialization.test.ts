@@ -55,7 +55,7 @@ describe("SyncEngine serialization", () => {
       vaultId: "v",
       deviceName: "d",
       textExtensions: new Set(["md"]),
-      vault: { scan: vi.fn(async () => []) } as any,
+      vault: { configDir: ".obsidian", scan: vi.fn(async () => []) } as any,
       api: {
         state: vi.fn(async () => ({ current_head: null, changed_since: false })),
         pull: vi.fn().mockResolvedValue({
@@ -134,7 +134,7 @@ describe("SyncEngine serialization", () => {
     };
     const engine = new SyncEngine({
       ...baseEngineOptions(),
-      vault: { scan: vi.fn(async () => []) } as any,
+      vault: { configDir: ".obsidian", scan: vi.fn(async () => []) } as any,
       api: api as any
     });
 

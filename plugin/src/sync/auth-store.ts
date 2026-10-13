@@ -102,8 +102,10 @@ export class AuthStore {
 }
 
 export function createElectronSafeStorage(): SafeStorageLike | null {
-  const requireFn = (globalThis as { window?: { require?: (id: string) => unknown } }).window
-    ?.require;
+  // Desktop Obsidian exposes Electron's `require` on `window` (mobile has no
+  // `require`), and Electron's `safeStorage` is the only OS-keychain bridge.
+  const requireFn = (window as unknown as { require?: (id: string) => unknown })
+    .require;
   if (!requireFn) return null;
   try {
     const electron = requireFn("electron") as {
@@ -114,7 +116,7 @@ export function createElectronSafeStorage(): SafeStorageLike | null {
       };
     };
     const safeStorage = electron.safeStorage;
-    const bufferCtor = (globalThis as { Buffer?: typeof Buffer }).Buffer;
+    const bufferCtor = (window as unknown as { Buffer?: typeof Buffer }).Buffer;
     if (!safeStorage || !bufferCtor) return null;
     return {
       isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),

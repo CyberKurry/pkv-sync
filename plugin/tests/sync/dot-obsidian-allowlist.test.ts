@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { createPathMatcher, type PathAcceptsOptions } from "../../src/sync/exclude";
+import {
+  createPathMatcher,
+  DEFAULT_CONFIG_DIR,
+  type PathAcceptsOptions
+} from "../../src/sync/exclude";
 
-function pathAccepts(path: string, opts: PathAcceptsOptions): boolean {
-  return createPathMatcher(opts)(path);
+// The config folder is the vault's (default `.obsidian`); tests override it
+// per case through `configDir`.
+function pathAccepts(
+  path: string,
+  opts: Omit<PathAcceptsOptions, "configDir"> & { configDir?: string }
+): boolean {
+  return createPathMatcher({ configDir: DEFAULT_CONFIG_DIR, ...opts })(path);
 }
 
 describe("pathAccepts", () => {

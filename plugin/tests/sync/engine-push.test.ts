@@ -7,6 +7,7 @@ import type { SyncApi } from "../../src/api/sync-client";
 import type { VaultAdapter } from "../../src/sync/vault-adapter";
 
 class FakeVault {
+  configDir = ".obsidian";
   writes = new Map<string, string>();
   deletions: string[] = [];
 

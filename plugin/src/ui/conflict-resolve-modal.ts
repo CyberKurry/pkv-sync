@@ -347,7 +347,7 @@ export class ConflictResolveModal extends Modal {
 
   private async handleAcceptLocal(): Promise<void> {
     try {
-      await acceptLocal(this.app.vault, this.pair);
+      await acceptLocal(this.app, this.pair);
       new Notice(this.labels.conflictAcceptedLocalNotice);
       this.close();
       this.onResolved();
@@ -358,7 +358,7 @@ export class ConflictResolveModal extends Modal {
 
   private async handleAcceptRemote(): Promise<void> {
     try {
-      await acceptRemote(this.app.vault, this.pair);
+      await acceptRemote(this.app, this.pair);
       new Notice(this.labels.conflictAcceptedRemoteNotice);
       this.close();
       this.onResolved();
@@ -369,7 +369,7 @@ export class ConflictResolveModal extends Modal {
 
   private async handleMarkResolved(): Promise<void> {
     try {
-      const resolved = await markMergeMarkersResolved(this.app.vault, this.pair);
+      const resolved = await markMergeMarkersResolved(this.app, this.pair);
       if (!resolved) {
         new Notice(this.labels.markersStillPresent);
         return;

@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { createPathMatcher, type PathAcceptsOptions } from "../../src/sync/exclude";
+import {
+  createPathMatcher,
+  DEFAULT_CONFIG_DIR,
+  hardExcludeGlobs,
+  type PathAcceptsOptions
+} from "../../src/sync/exclude";
 
-function pathAccepts(path: string, opts: PathAcceptsOptions): boolean {
-  return createPathMatcher(opts)(path);
+// `configDir` defaults to Obsidian's config folder; tests override it to
+// prove a renamed config folder is followed.
+function pathAccepts(
+  path: string,
+  opts: Omit<PathAcceptsOptions, "configDir"> & { configDir?: string }
+): boolean {
+  return createPathMatcher({ configDir: DEFAULT_CONFIG_DIR, ...opts })(path);
 }
 
 function isExcluded(path: string, globs: string[]): boolean {
@@ -197,7 +207,7 @@ describe("createPathMatcher", () => {
       userExcludes: ["*.tmp", "private/**"],
       userAllowlist: [".obsidian/plugins/**"]
     };
-    const matcher = createPathMatcher(opts);
+    const matcher = createPathMatcher({ configDir: DEFAULT_CONFIG_DIR, ...opts });
     const paths = [
       "notes/today.md",
       "notes/draft.tmp",
@@ -210,5 +220,41 @@ describe("createPathMatcher", () => {
       expect(matcher(path)).toBe(pathAccepts(path, opts));
       expect(matcher(path)).toBe(pathAccepts(path, opts));
     }
+  });
+});
+
+describe("config folder", () => {
+  it("builds the hard exclude globs from the configured folder", () => {
+    expect(hardExcludeGlobs(".my-config")).toEqual([
+      ".my-config/workspace.json",
+      ".my-config/workspace-mobile.json",
+      ".my-config/workspaces.json",
+      ".my-config/cache/**",
+      ".git/**",
+      ".trash/**",
+      ".conflict-*",
+      "*.lock",
+      "*.tmp"
+    ]);
+  });
+
+  it("hard excludes the configured folder instead of .obsidian", () => {
+    expect(
+      pathAccepts(".my-config/workspace.json", {
+        userExcludes: [],
+        userAllowlist: ["**"],
+        configDir: ".my-config"
+      })
+    ).toBe(false);
+
+    // `.obsidian` is an ordinary (hidden) folder once the config folder is
+    // renamed, so the allowlist can sync it.
+    expect(
+      pathAccepts(".obsidian/workspace.json", {
+        userExcludes: [],
+        userAllowlist: ["**"],
+        configDir: ".my-config"
+      })
+    ).toBe(true);
   });
 });

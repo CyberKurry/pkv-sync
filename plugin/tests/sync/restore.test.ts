@@ -1,6 +1,7 @@
 import { TFile } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
 import { restoreFileToCommit } from "../../src/sync/restore";
+import type { VaultHost } from "../../src/sync/vault-adapter";
 import type { HistoryApi } from "../../src/api/history-client";
 
 function tfile(path: string): TFile {
@@ -52,6 +53,13 @@ class FakeVault {
   }
 }
 
+function host(vault: FakeVault): VaultHost {
+  return {
+    vault,
+    fileManager: { trashFile: async () => undefined }
+  } as unknown as VaultHost;
+}
+
 describe("restoreFileToCommit", () => {
   it("modifies existing text files with historical content", async () => {
     const vault = new FakeVault(["note.md"]);
@@ -61,7 +69,7 @@ describe("restoreFileToCommit", () => {
 
     await expect(
       restoreFileToCommit({
-        vault: vault as any,
+        app: host(vault),
         api,
         vaultId: "v1",
         path: "note.md",
@@ -79,7 +87,7 @@ describe("restoreFileToCommit", () => {
     } as unknown as HistoryApi;
 
     const result = await restoreFileToCommit({
-      vault: vault as any,
+      app: host(vault),
       api,
       vaultId: "v1",
       path: "folder/note.md",
@@ -100,7 +108,7 @@ describe("restoreFileToCommit", () => {
     } as unknown as HistoryApi;
 
     const result = await restoreFileToCommit({
-      vault: vault as any,
+      app: host(vault),
       api,
       vaultId: "v1",
       path: "image.png",
@@ -120,7 +128,7 @@ describe("restoreFileToCommit", () => {
 
     await expect(
       restoreFileToCommit({
-        vault: vault as any,
+        app: host(vault),
         api,
         vaultId: "v1",
         path: "note.md",

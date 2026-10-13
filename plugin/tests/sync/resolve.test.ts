@@ -14,10 +14,18 @@ function tfile(path: string): TFile {
   return file;
 }
 
+class FakeFileManager {
+  trashed: string[] = [];
+
+  async trashFile(file: TFile): Promise<void> {
+    this.trashed.push(file.path);
+  }
+}
+
 class FakeVault implements ConflictResolveVault {
-  trashed: Array<{ path: string; system: boolean }> = [];
   modified: Array<{ path: string; content: string }> = [];
   created: Array<{ path: string; content: string }> = [];
+  readonly fileManager = new FakeFileManager();
   conflictFile = tfile("note.md.conflict-2026-05-16-143000-abc.md");
   private originalFile = tfile("note.md");
 
@@ -30,10 +38,6 @@ class FakeVault implements ConflictResolveVault {
 
   async read(_file: TFile): Promise<string> {
     return this.options.conflictContent ?? "remote content";
-  }
-
-  async trash(file: TFile, system: boolean): Promise<void> {
-    this.trashed.push({ path: file.path, system });
   }
 
   async modify(file: TFile, content: string): Promise<void> {
@@ -50,6 +54,10 @@ class FakeVault implements ConflictResolveVault {
   }
 }
 
+function host(vault: FakeVault) {
+  return { vault, fileManager: vault.fileManager };
+}
+
 function conflictPair(kind: ConflictPair["kind"]): ConflictPair {
   const conflictPath = "note.md.conflict-2026-05-16-143000-abc.md";
   return {
@@ -64,11 +72,11 @@ describe("acceptLocal", () => {
   it("only deletes the conflict file, original stays", async () => {
     const pair = conflictPair("remote_copy");
     const vault = new FakeVault();
-    await acceptLocal(vault, pair);
-    expect(vault.trashed.map((t) => t.path)).toContain(
+    await acceptLocal(host(vault), pair);
+    expect(vault.fileManager.trashed).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
-    expect(vault.trashed.map((t) => t.path)).toHaveLength(1);
+    expect(vault.fileManager.trashed).toHaveLength(1);
   });
 });
 
@@ -79,9 +87,9 @@ describe("acceptRemote", () => {
       originalExists: true,
       conflictContent: "remote content"
     });
-    await acceptRemote(vault, pair);
+    await acceptRemote(host(vault), pair);
     expect(vault.modified).toHaveLength(1);
-    expect(vault.trashed.map((t) => t.path)).toContain(
+    expect(vault.fileManager.trashed).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
   });
@@ -92,10 +100,10 @@ describe("acceptRemote", () => {
       originalExists: false,
       conflictContent: "remote content"
     });
-    await acceptRemote(vault, pair);
+    await acceptRemote(host(vault), pair);
     expect(vault.created).toHaveLength(1);
     expect(vault.created[0].path).toBe("note.md");
-    expect(vault.trashed.map((t) => t.path)).toContain(
+    expect(vault.fileManager.trashed).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
   });
@@ -114,9 +122,9 @@ describe("markMergeMarkersResolved", () => {
       ].join("\n")
     });
 
-    await expect(markMergeMarkersResolved(vault, pair)).resolves.toBe(false);
+    await expect(markMergeMarkersResolved(host(vault), pair)).resolves.toBe(false);
     expect(vault.modified).toHaveLength(0);
-    expect(vault.trashed.map((t) => t.path)).toHaveLength(0);
+    expect(vault.fileManager.trashed).toHaveLength(0);
   });
 
   it("copies resolved conflict content to original and deletes conflict file", async () => {
@@ -126,11 +134,11 @@ describe("markMergeMarkersResolved", () => {
       conflictContent: "resolved content"
     });
 
-    await expect(markMergeMarkersResolved(vault, pair)).resolves.toBe(true);
+    await expect(markMergeMarkersResolved(host(vault), pair)).resolves.toBe(true);
     expect(vault.modified).toEqual([
       { path: "note.md", content: "resolved content" }
     ]);
-    expect(vault.trashed.map((t) => t.path)).toContain(
+    expect(vault.fileManager.trashed).toContain(
       "note.md.conflict-2026-05-16-143000-abc.md"
     );
   });

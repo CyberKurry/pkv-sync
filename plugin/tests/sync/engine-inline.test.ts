@@ -9,6 +9,7 @@ import type { LocalIndex } from "../../src/sync/types";
 import { shouldSyncPath } from "../../src/sync/vault-adapter";
 
 class FakeVault {
+  configDir = ".obsidian";
   writes = new Map<string, string>();
   deletions: string[] = [];
   store = new Map<string, string>();

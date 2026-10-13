@@ -1,26 +1,43 @@
-export const HARD_EXCLUDE_GLOBS = [
-  ".obsidian/workspace.json",
-  ".obsidian/workspace-mobile.json",
-  ".obsidian/workspaces.json",
-  ".obsidian/cache/**",
-  ".git/**",
-  ".trash/**",
-  ".conflict-*",
-  "*.lock",
-  "*.tmp"
-];
+/** Obsidian's default config folder; the vault may rename it (`Vault#configDir`). */
+export const DEFAULT_CONFIG_DIR = ".obsidian";
+
+export function hardExcludeGlobs(configDir: string): string[] {
+  return [
+    `${configDir}/workspace.json`,
+    `${configDir}/workspace-mobile.json`,
+    `${configDir}/workspaces.json`,
+    `${configDir}/cache/**`,
+    ".git/**",
+    ".trash/**",
+    ".conflict-*",
+    "*.lock",
+    "*.tmp"
+  ];
+}
 
 export interface PathAcceptsOptions {
   userExcludes: string[];
   userAllowlist: string[];
+  configDir: string;
 }
 
 type PathMatcher = (path: string) => boolean;
 
-const HARD_EXCLUDE_MATCHER = createExcludeMatcher(HARD_EXCLUDE_GLOBS);
+// Compiled per config folder so a custom config folder is honoured without
+// recompiling the hard-exclude globs on every sync pass.
+const HARD_EXCLUDE_MATCHERS = new Map<string, PathMatcher>();
+
+function hardExcludeMatcher(configDir: string): PathMatcher {
+  let matcher = HARD_EXCLUDE_MATCHERS.get(configDir);
+  if (!matcher) {
+    matcher = createExcludeMatcher(hardExcludeGlobs(configDir));
+    HARD_EXCLUDE_MATCHERS.set(configDir, matcher);
+  }
+  return matcher;
+}
 
 export function createPathMatcher(opts: PathAcceptsOptions): PathMatcher {
-  const hardExclude = HARD_EXCLUDE_MATCHER;
+  const hardExclude = hardExcludeMatcher(opts.configDir);
   const userExcludes = createExcludeMatcher(opts.userExcludes);
   const userAllowlist = createExcludeMatcher(opts.userAllowlist);
 

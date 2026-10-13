@@ -3,10 +3,15 @@ import { hasMergeMarkers, type ConflictPair } from "./conflict-files";
 
 export interface ConflictResolveVault {
   read(file: TFile): Promise<string>;
-  trash(file: TFile, system: boolean): Promise<void>;
   getAbstractFileByPath(path: string): unknown;
   modify(file: TFile, content: string): Promise<void>;
   create(path: string, content: string): Promise<TFile>;
+}
+
+/** The app surface these helpers need; accepts `App` itself. */
+export interface ConflictResolveHost {
+  vault: ConflictResolveVault;
+  fileManager: { trashFile(file: TFile): Promise<void> };
 }
 
 function isTFile(obj: unknown): obj is TFile {
@@ -27,28 +32,28 @@ async function writeOriginal(
 }
 
 export async function acceptLocal(
-  vault: Pick<ConflictResolveVault, "trash">,
+  host: Pick<ConflictResolveHost, "fileManager">,
   pair: ConflictPair
 ): Promise<void> {
-  await vault.trash(pair.conflictFile, true);
+  await host.fileManager.trashFile(pair.conflictFile);
 }
 
 export async function acceptRemote(
-  vault: ConflictResolveVault,
+  host: ConflictResolveHost,
   pair: ConflictPair
 ): Promise<void> {
-  const remoteContent = await vault.read(pair.conflictFile);
-  await writeOriginal(vault, pair, remoteContent);
-  await vault.trash(pair.conflictFile, true);
+  const remoteContent = await host.vault.read(pair.conflictFile);
+  await writeOriginal(host.vault, pair, remoteContent);
+  await host.fileManager.trashFile(pair.conflictFile);
 }
 
 export async function markMergeMarkersResolved(
-  vault: ConflictResolveVault,
+  host: ConflictResolveHost,
   pair: ConflictPair
 ): Promise<boolean> {
-  const resolvedContent = await vault.read(pair.conflictFile);
+  const resolvedContent = await host.vault.read(pair.conflictFile);
   if (hasMergeMarkers(resolvedContent)) return false;
-  await writeOriginal(vault, pair, resolvedContent);
-  await vault.trash(pair.conflictFile, true);
+  await writeOriginal(host.vault, pair, resolvedContent);
+  await host.fileManager.trashFile(pair.conflictFile);
   return true;
 }

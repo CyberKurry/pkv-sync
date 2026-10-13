@@ -272,7 +272,7 @@ describe("delete vault", () => {
 });
 
 describe("vault sync allowlist settings", () => {
-  function buildAllowlistTab() {
+  function buildAllowlistTab(configDir = ".obsidian") {
     const getVaultSettings = vi.fn().mockResolvedValue({
       extra_sync_globs: [".obsidian/themes/**"]
     });
@@ -295,9 +295,11 @@ describe("vault sync allowlist settings", () => {
       })
     };
     const tab = Object.create(PKVSyncSettingTab.prototype) as {
+      app: { vault: { configDir: string } };
       plugin: typeof plugin;
       renderVaultSyncAllowlist: (body: MockElement) => Promise<void>;
     };
+    tab.app = { vault: { configDir } };
     tab.plugin = plugin;
     return { tab, getVaultSettings, putVaultSettings };
   }
@@ -327,6 +329,19 @@ describe("vault sync allowlist settings", () => {
       extra_sync_globs: [".obsidian/themes/**", ".obsidian/snippets/**"]
     });
     expect(notices.at(-1)).toBe("Saved dotfile sync allowlist");
+  });
+
+  it("derives the starter list from the vault config folder", async () => {
+    const { tab } = buildAllowlistTab(".my-config");
+    const body = new MockElement("div");
+
+    await tab.renderVaultSyncAllowlist(body);
+
+    const textarea = body.find("textarea");
+    body.clickButton("Apply recommended starter list");
+    expect(textarea?.value).toBe(
+      [".my-config/themes/**", ".my-config/snippets/**"].join("\n")
+    );
   });
 
   it("has localized strings for the allowlist editor", () => {

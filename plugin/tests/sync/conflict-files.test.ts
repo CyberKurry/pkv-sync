@@ -16,9 +16,19 @@ function tfile(path: string): TFile {
   return file;
 }
 
+class FakeFileManager {
+  trashed: string[] = [];
+
+  constructor(private vault: FakeVault) {}
+
+  async trashFile(file: TFile): Promise<void> {
+    this.trashed.push(file.path);
+    this.vault.remove(file.path);
+  }
+}
+
 class FakeVault {
-  deleted: string[] = [];
-  trashed: Array<{ path: string; system: boolean }> = [];
+  readonly fileManager = new FakeFileManager(this);
 
   constructor(
     private files: TFile[],
@@ -29,11 +39,8 @@ class FakeVault {
     return this.files;
   }
 
-  async trash(file: TFile, system: boolean): Promise<void> {
-    this.trashed.push({ path: file.path, system });
-    this.files = this.files.filter(
-      (candidate) => candidate.path !== file.path
-    );
+  remove(path: string): void {
+    this.files = this.files.filter((candidate) => candidate.path !== path);
   }
 
   async read(file: TFile): Promise<string> {
@@ -66,10 +73,12 @@ describe("conflict file helpers", () => {
       "folder/image.conflict-2026-04-29-120000-phone.png"
     ]);
 
-    await expect(deleteConflictFiles(vault)).resolves.toBe(2);
-    expect(vault.trashed).toEqual([
-      { path: "note.conflict-2026-04-29-143022-laptop.md", system: true },
-      { path: "folder/image.conflict-2026-04-29-120000-phone.png", system: true }
+    await expect(
+      deleteConflictFiles({ vault, fileManager: vault.fileManager })
+    ).resolves.toBe(2);
+    expect(vault.fileManager.trashed).toEqual([
+      "note.conflict-2026-04-29-143022-laptop.md",
+      "folder/image.conflict-2026-04-29-120000-phone.png"
     ]);
     expect(listConflictFiles(vault)).toHaveLength(0);
   });

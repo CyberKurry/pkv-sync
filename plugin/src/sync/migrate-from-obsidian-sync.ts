@@ -4,11 +4,17 @@ import { sha256Bytes, sha256TextWithLength } from "./hash";
 import { guessMime } from "./mime";
 import type { LocalFileSnapshot, LocalIndex, PushChange, PushResponse, StateResponse } from "./types";
 import { errorToMessage, isTextPath } from "../util";
-import { HARD_EXCLUDE_GLOBS, createExcludeMatcher, isHiddenPath } from "./exclude";
+import { createExcludeMatcher, hardExcludeGlobs, isHiddenPath } from "./exclude";
 
-const COMMUNITY_PLUGINS_PATH = ".obsidian/community-plugins.json";
-const SYNC_DIR_PATH = ".obsidian/sync";
 const DEFAULT_BATCH_SIZE = 50;
+
+function communityPluginsPath(configDir: string): string {
+  return `${configDir}/community-plugins.json`;
+}
+
+function syncDirPath(configDir: string): string {
+  return `${configDir}/sync`;
+}
 
 export interface ObsidianSyncDetection {
   syncDirExists: boolean;
@@ -28,6 +34,8 @@ export interface MigrationScan {
 }
 
 interface MigrationVault {
+  /** The vault's config folder (`Vault#configDir`). */
+  configDir: string;
   getFiles(): TFile[];
   getAbstractFileByPath(path: string): unknown;
   read(file: TFile): Promise<string>;
@@ -105,7 +113,7 @@ export async function detectObsidianSync(
   vault: MigrationVault
 ): Promise<ObsidianSyncDetection> {
   const syncDirExists =
-    vault.getAbstractFileByPath(SYNC_DIR_PATH) instanceof TFolder;
+    vault.getAbstractFileByPath(syncDirPath(vault.configDir)) instanceof TFolder;
   const syncPluginEnabled = await hasObsidianSyncCommunityPlugin(vault);
 
   return {
@@ -115,13 +123,16 @@ export async function detectObsidianSync(
   };
 }
 
-export function scanVaultForMigration(vault: Pick<MigrationVault, "getFiles">): MigrationScan {
+export function scanVaultForMigration(
+  vault: Pick<MigrationVault, "getFiles" | "configDir">
+): MigrationScan {
+  const isExcluded = migrationExclusion(vault.configDir);
   const files: MigrationFile[] = [];
   let skippedCount = 0;
   let totalBytes = 0;
 
   for (const file of vault.getFiles()) {
-    if (isMigrationExcluded(file.path)) {
+    if (isExcluded(file.path)) {
       skippedCount++;
       continue;
     }
@@ -265,7 +276,7 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
 }
 
 async function hasObsidianSyncCommunityPlugin(vault: MigrationVault): Promise<boolean> {
-  const file = vault.getAbstractFileByPath(COMMUNITY_PLUGINS_PATH);
+  const file = vault.getAbstractFileByPath(communityPluginsPath(vault.configDir));
   if (!(file instanceof TFile)) return false;
 
   try {
@@ -276,41 +287,46 @@ async function hasObsidianSyncCommunityPlugin(vault: MigrationVault): Promise<bo
   }
 }
 
-const MIGRATION_EXTRA_GLOBS = [
-  ".obsidian/cache",
-  ".obsidian/sync/**",
-  ".obsidian/plugins/pkv-sync/**",
-  ".obsidian/plugins/**",
-  "**/.env*",
-  "**/.DS_Store",
-  "**/Thumbs.db"
-];
+function migrationExtraGlobs(configDir: string): string[] {
+  return [
+    `${configDir}/cache`,
+    `${configDir}/sync/**`,
+    `${configDir}/plugins/pkv-sync/**`,
+    `${configDir}/plugins/**`,
+    "**/.env*",
+    "**/.DS_Store",
+    "**/Thumbs.db"
+  ];
+}
 
-const MIGRATION_OBSIDIAN_CORE_GLOBS = [
-  ".obsidian/app.json",
-  ".obsidian/appearance.json",
-  ".obsidian/core-plugins.json",
-  ".obsidian/core-plugins-migration.json",
-  ".obsidian/hotkeys.json",
-  ".obsidian/graph.json",
-  ".obsidian/bookmarks.json",
-  ".obsidian/community-plugins.json"
-];
+function migrationObsidianCoreGlobs(configDir: string): string[] {
+  return [
+    `${configDir}/app.json`,
+    `${configDir}/appearance.json`,
+    `${configDir}/core-plugins.json`,
+    `${configDir}/core-plugins-migration.json`,
+    `${configDir}/hotkeys.json`,
+    `${configDir}/graph.json`,
+    `${configDir}/bookmarks.json`,
+    `${configDir}/community-plugins.json`
+  ];
+}
 
-const migrationExcludeMatcher = createExcludeMatcher([
-  ...HARD_EXCLUDE_GLOBS,
-  ...MIGRATION_EXTRA_GLOBS
-]);
+function migrationExclusion(configDir: string): (path: string) => boolean {
+  const excludeMatcher = createExcludeMatcher([
+    ...hardExcludeGlobs(configDir),
+    ...migrationExtraGlobs(configDir)
+  ]);
+  const obsidianCoreMatcher = createExcludeMatcher(
+    migrationObsidianCoreGlobs(configDir)
+  );
 
-const migrationObsidianCoreMatcher = createExcludeMatcher(
-  MIGRATION_OBSIDIAN_CORE_GLOBS
-);
-
-function isMigrationExcluded(path: string): boolean {
-  const normalized = path.replace(/\\/g, "/");
-  if (migrationExcludeMatcher(normalized)) return true;
-  if (migrationObsidianCoreMatcher(normalized)) return false;
-  return isHiddenPath(normalized);
+  return (path: string) => {
+    const normalized = path.replace(/\\/g, "/");
+    if (excludeMatcher(normalized)) return true;
+    if (obsidianCoreMatcher(normalized)) return false;
+    return isHiddenPath(normalized);
+  };
 }
 
 function fileSize(file: TFile): number {

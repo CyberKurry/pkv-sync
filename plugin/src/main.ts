@@ -698,7 +698,7 @@ export default class PKVSyncPlugin extends Plugin {
       },
       onConfirm: async () => {
         const result = await restoreFileToCommit({
-          vault: this.app.vault,
+          app: this.app,
           api: this.historyApi(),
           vaultId: this.settings.selectedVaultId,
           path,
@@ -742,7 +742,7 @@ export default class PKVSyncPlugin extends Plugin {
   private async hasUnsyncedLocalChanges(path: string): Promise<boolean> {
     try {
       const index = await this.loadSyncIndex();
-      const adapter = new ObsidianVaultAdapter(this.app.vault);
+      const adapter = new ObsidianVaultAdapter(this.app);
       const lastSyncedHash = index.files[path]?.lastSyncedHash;
       let snapshot;
       try {
@@ -861,7 +861,7 @@ export default class PKVSyncPlugin extends Plugin {
   private async trashConflictFiles(): Promise<number> {
     const t = this.text();
     try {
-      const count = await deleteConflictFiles(this.app.vault);
+      const count = await deleteConflictFiles(this.app);
       new Notice(
         count ? format(t.deletedConflictFiles, { count }) : t.noConflictFiles
       );
