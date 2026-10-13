@@ -302,6 +302,8 @@ scrape clients には `X-PKVSync-Deployment-Key`、許可された PKV Sync User
 
 データベースをコピーする場合は SQLite online backup を使うか、サービスを停止してください。可能な限り、database、Git vault repositories、blobs を同じ時点から取得します。
 
+**`data_dir` ごとに `pkvsyncd` プロセスは最大 1 つ**にしてください。Vault の push 調整と blob GC はプロセス内ロックに依存しているため、2 つのサーバープロセスが同じ `data_dir` を共有すると競合します（並行する push が兄弟プロセスのコミットを上書きしたり、`git gc` が別のプロセスがちょうど参照したオブジェクトを削除したりします）。データディレクトリごとにインスタンスを 1 つだけ実行し、単一プロセスでスケールしてください — ここでの SQLite と git はマルチライターではありません。
+
 組み込みの backup/restore helpers は symlink をたどりません。`vaults/` または `blobs/` 配下の symlink entries は backup 時に skip され、restore cleanup 時には link 自体だけを削除し、target には触れません。
 
 restic の例:
@@ -351,6 +353,8 @@ PKV Sync は同期、vault ライフサイクル、読み取り専用閲覧ア�
 4. GHCR image が tag と `latest` に存在することを確認します。
 5. 現在の data をバックアップします。
 6. 現在のデプロイメントが 0.x の場合、1.0 binary または image を起動する前に [`upgrade-notes-v1.0.ja.md`](./upgrade-notes-v1.0.ja.md) を読んでください。1.0 を既存の 0.x `metadata.db` に向けないでください。
-7. 新しい binary で migrations を実行します。
+7. バイナリインストールでは、`pkvsyncd upgrade --dry-run` で release アセットを確認し、続けて `pkvsyncd upgrade --yes` で現在のバイナリの隣に `pkvsyncd.new` をダウンロードして検証します。チェックサム検証が通ってから、サービスの停止とバイナリの差し替えを行ってください。
+8. Docker または Kubernetes では、コンテナ内のバイナリを置き換えるのではなく、image tag を pull または変更してサービスまたは rollout を再起動してください。
+9. 新しい binary または image で migrations を実行します。
 
 PKV Sync 1.0 は単一の v1 SQLite baseline を使用します。この baseline 以後、公開済みの 1.x migrations は既存の 1.x デプロイメントに対して append-only です。

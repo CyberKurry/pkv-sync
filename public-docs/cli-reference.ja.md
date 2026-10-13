@@ -74,7 +74,7 @@ pkvsyncd genkey
 
 ### 説明
 
-暗号学的にランダムな `k_*` トークンを標準出力に表示します。値を `config.toml` に貼り付け、独自の安全な経路でプラグイン/管理クライアントに共有してください。
+暗号学的にランダムな `k_*` Token を標準出力に表示します。値を `config.toml` に貼り付け、独自の安全な経路でプラグイン/管理クライアントに共有してください。
 
 ### 例
 
@@ -101,7 +101,7 @@ pkvsyncd user set-active <USERNAME> --active <true|false>
 - `add <USERNAME> [--admin]`: ユーザーを作成し、パスワードを対話的に入力します。パスワードは 12 文字以上で、大文字、小文字、数字を含める必要があります。
 - `passwd <USERNAME>`: ユーザーのパスワードをリセットし、新しい値を対話的に入力します。同じポリシーが適用され、そのユーザーの既存の device token はすべて失効するため、盗まれた token がリセット後も有効なまま残ることはありません。
 - `list`: すべてのユーザーを管理者/有効状態および作成時刻とともに一覧表示します。
-- `set-active <USERNAME> --active <true|false>`: ユーザーを無効化または再有効化します。無効化されたユーザーはトークンを保持しますが、ログインや同期はできません。
+- `set-active <USERNAME> --active <true|false>`: ユーザーを無効化または再有効化します。無効化されたユーザーは Token を保持しますが、ログインや同期はできません。
 
 ### 例
 
@@ -118,7 +118,7 @@ pkvsyncd user set-active alice --active false
 
 ## pkvsyncd materialize
 
-PKV Sync ボールトの bare Git リポジトリを、ディスク上の通常のファイルツリーに展開します。
+PKV Sync Vaultの bare Git リポジトリを、ディスク上の通常のファイルツリーに展開します。
 
 ### 形式
 
@@ -133,7 +133,7 @@ pkvsyncd materialize <VAULT-ID> -o <OUTPUT-DIR> [--at <COMMIT-SHA>]
 
 ### 説明
 
-`data_dir/vaults/<vault-id>` 配下にあるボールトの bare Git リポジトリを読み取り、各ファイルを出力ディレクトリに書き込みます。
+`data_dir/vaults/<vault-id>` 配下にあるVaultの bare Git リポジトリを読み取り、各ファイルを出力ディレクトリに書き込みます。
 
 - テキストファイルはそのまま書き込まれます。
 - `pkvsync_pointer` JSON として保存されているバイナリファイルは、サーバーの blob ストレージ(`data_dir/blobs/`)から実際の blob をコピーして解決します。
@@ -153,9 +153,9 @@ pkvsyncd materialize 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c -o ./my-vault-old --at abc
 ### 終了コード
 
 - `0`: 成功。
-- `1`: 出力ディレクトリが空でない、ボールトが見つからない、blob が欠落している、コミット SHA が無効、などのエラー。
+- `1`: 出力ディレクトリが空でない、Vaultが見つからない、blob が欠落している、コミット SHA が無効、などのエラー。
 
-> ボールト ID は 32 文字の小文字 16 進数(ハイフンなし)です。上記の例は実際の形式の ID を使用しており、管理 UI と `pkvsyncd user list` で有効な ID を確認できます。
+> Vault ID は 32 文字の小文字 16 進数(ハイフンなし)です。上記の例は実際の形式の ID を使用しており、管理 UI と `pkvsyncd user list` で有効な ID を確認できます。
 
 ## pkvsyncd backup
 
@@ -176,7 +176,7 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 
 ### 説明
 
-SQLite データベース(VACUUM INTO 経由)、各ボールトの bare Git リポジトリ、および blob ストアを、`MANIFEST.json` を含む自己完結型のディレクトリにスナップショットします。バックアップ中も HTTP サーバーは稼働を続けられますが、push、blob アップロード、rollback、vault 削除、GC などのストレージ書き込みは data-dir スナップショットロックの後ろで待機し、バックアップ完了後に進みます。
+SQLite データベース(VACUUM INTO 経由)、各Vaultの bare Git リポジトリ、および blob ストアを、`MANIFEST.json` を含む自己完結型のディレクトリにスナップショットします。バックアップ中も HTTP サーバーは稼働を続けられますが、push、blob アップロード、rollback、vault 削除、GC などのストレージ書き込みは data-dir スナップショットロックの後ろで待機し、バックアップ完了後に進みます。
 
 デフォルトでは、バックアップは `config.toml` を省略します。設定を保存し、その秘密情報を保護するつもりがある場合だけ `--include-config` を追加してください。
 
@@ -204,7 +204,7 @@ pkvsyncd restore -i <BACKUP-DIR> [--data-dir <DIR>] [--force]
 
 ### 説明
 
-バックアップの `MANIFEST.json` を検証し、SQLite DB、ボールトリポジトリ、blob ストアを対象データディレクトリへコピーします。リストア前に HTTP サーバーを停止してください。古いサーバーバージョンで取得したバックアップをリストアする場合は、リストア後に `pkvsyncd migrate up` を実行してください。
+バックアップの `MANIFEST.json` を検証し、SQLite DB、Vaultリポジトリ、blob ストアを対象データディレクトリへコピーします。リストア前に HTTP サーバーを停止してください。古いサーバーバージョンで取得したバックアップをリストアする場合は、リストア後に `pkvsyncd migrate up` を実行してください。
 
 ### 例
 
@@ -214,7 +214,7 @@ pkvsyncd restore -i /var/backups/pkv-2026-05-25 --data-dir /var/lib/pkv-sync --f
 
 ## pkvsyncd verify
 
-ボールトの Git リポジトリと内容アドレス指定された blob を検証します。
+Vaultの Git リポジトリと内容アドレス指定された blob を検証します。
 
 ### 形式
 
@@ -229,12 +229,12 @@ pkvsyncd verify [--data-dir <DIR>] [--no-fail]
 
 ### 説明
 
-`data_dir/vaults/` 配下の各ボールトに対して次を実行します。
+`data_dir/vaults/` 配下の各Vaultに対して次を実行します。
 
 - `git2` で bare リポジトリを開いて走査し、リポジトリおよびオブジェクト単位の読み取りエラーを報告します。
 - HEAD ツリーをたどり、すべての `pkvsync_pointer` が、ディスク上の SHA-256 がファイル名と一致する blob に解決されることを検証します。
 
-ボールトごとのエラー件数を報告します。いずれかのボールトにエラーがある場合は非ゼロで終了します。ただし `--no-fail` が設定されている場合を除きます。
+Vaultごとのエラー件数を報告します。いずれかのVaultにエラーがある場合は非ゼロで終了します。ただし `--no-fail` が設定されている場合を除きます。
 
 ### 例
 
@@ -254,8 +254,8 @@ pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 
 ### オプション
 
-- `--vault <VAULT-ID>`: 必須。クライアントに公開する単一のボールトです。
-- `--token <PKS-TOKEN>`: ベアラーデバイストークン。省略した場合は環境変数 `PKV_TOKEN` が使われます（推奨。トークンがシェル履歴に残りません）。
+- `--vault <VAULT-ID>`: 必須。クライアントに公開する単一のVaultです。
+- `--token <PKS-TOKEN>`: ベアラー デバイス Token。省略した場合は環境変数 `PKV_TOKEN` が使われます（推奨。Token がシェル履歴に残りません）。
 
 ### 説明
 
@@ -266,7 +266,7 @@ pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 ### 例
 
 ```bash
-# 環境変数のトークンを使った stdio
+# 環境変数の Token を使った stdio
 PKV_TOKEN=pks_xxx pkvsyncd mcp --vault 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 
 # 埋め込み MCP HTTP エンドポイント（デフォルトで有効。pkvsyncd serve が提供）

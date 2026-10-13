@@ -10,7 +10,7 @@ PKV Sync 可以将每个仓库（vault）通过 HTTPS 以只读 Git 仓库的形
 
 - 服务器管理员已在“同步与存储”设置中启用“Git smart HTTP”。
 - 服务器上有可用的 `git` 二进制文件。
-- 你拥有有效的设备令牌（device token）。
+- 你拥有有效的设备 Token（device token）。
 
 ## 克隆
 
@@ -18,11 +18,11 @@ PKV Sync 可以将每个仓库（vault）通过 HTTPS 以只读 Git 仓库的形
 git clone https://_:<token>@your-server/git/<vault-id>
 ```
 
-冒号前的下划线是用户名。可以填写任意值；只有密码部分的令牌有效。
+冒号前的下划线是用户名。可以填写任意值；只有密码部分的 Token 有效。
 
 ### 示例
 
-如果你的服务器地址为 `sync.example.com`，仓库 ID 为 `6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`，设备令牌为 `pks_0f1e2d3c4b5a6978...`，运行：
+如果你的服务器地址为 `sync.example.com`，仓库 ID 为 `6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c`，设备 Token 为 `pks_0f1e2d3c4b5a6978...`，运行：
 
 ```bash
 git clone https://_:pks_0f1e2d3c4b5a6978@sync.example.com/git/6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c

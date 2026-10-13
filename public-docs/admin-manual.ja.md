@@ -173,7 +173,7 @@ Settings ページは SQLite に保存された値を編集します。変更は
 
 **Network and update checks** — `public_host`、bind address、trusted proxies、`[update_check].repo` は起動時に `config.toml` から読み込まれます。更新確認の有効化と間隔は SQLite に保存されるランタイム設定です。許可範囲は 60 秒から 30 日です。
 
-`public_host` は「オプション」以上に重要です。CSRF 保護された admin POST（ユーザー・招待・トークンの作成、設定変更、アップグレード要求）はリクエストの `Origin` とこの値を照合するため、**未設定だとすべての admin フォーム送信が `403 csrf validation failed` で失敗します**。ログインはできても何も変更できません。TLS で運用するすべてのデプロイで設定してください。admin セッション cookie の `Secure` フラグと共有 URL の生成にも使われます。
+`public_host` は「オプション」以上に重要です。CSRF 保護された admin POST（ユーザー・招待・Token の作成、設定変更、アップグレード要求）はリクエストの `Origin` とこの値を照合するため、**未設定だとすべての admin フォーム送信が `403 csrf validation failed` で失敗します**。ログインはできても何も変更できません。TLS で運用するすべてのデプロイで設定してください。admin セッション cookie の `Secure` フラグと共有 URL の生成にも使われます。
 
 `public_host` を設定できない平文 HTTP の管理画面（ローカル開発や SSH トンネル経由の admin）向けには、`[admin].allow_insecure_admin = true` が明示的な例外設定です。admin のオリジン（CSRF）検証が**無効化**され、どのオリジンからでも `/admin/*` に POST でき、セッション cookie は `Secure` フラグなしで発行されます。この設定を非ループバックのバインドかつ `public_host` なしで組み合わせるとサーバーは起動を拒否し、有効期間中は起動時のログに警告が出ます。ループバックか完全に信頼できるネットワークでのみ使用してください。ログインとセットアップの double-submit-cookie CSRF 検証はいずれの場合も有効のままです。
 
@@ -205,6 +205,71 @@ https://sync.example.com/k_xxx/
 ```
 
 これは機密情報として扱ってください。ユーザーパスワードではありませんが、デプロイメントキーを含み、プラグイン API トラフィックの最初の事前認証ゲートになります。
+
+## PKV Sync のアップグレード
+
+バイナリインストールでは、`pkvsyncd upgrade --dry-run` で最新リリース、対象
+アセット、並置パスを確認できます。`pkvsyncd upgrade --yes` を使うと、検証済みの
+リリースバイナリを現在の実行ファイルの隣に `pkvsyncd.new`（Windows では
+`pkvsyncd.new.exe`）としてダウンロードします。このコマンドは `SHA256SUMS` から
+SHA-256 を検証し、systemd／手動での差し替え手順を表示します。実行中のプロセスを
+ホット置換することはありません。
+
+`pkvsyncd upgrade --version 1.6.0` で特定のリリースを指定できます。一致する
+アセットやチェックサムが見つからない場合は、GitHub のリリースを手動でダウンロード
+する手順に従い、`SHA256SUMS` をご自身で検証してください。
+
+0.x のデプロイでは、1.0 のバイナリやイメージを既存の `metadata.db` に向けないで
+ください。バックアップし、Vault の内容を materialize またはエクスポートし、新しい
+1.0 のデータディレクトリを作成してから、Vault の内容を新しいサーバーに
+インポートまたはプッシュしてください。[`upgrade-notes-v1.0.md`](./upgrade-notes-v1.0.ja.md)
+を参照してください。
+
+Docker と Kubernetes のデプロイは、コンテナイメージのタグを pull または変更して
+から、サービスまたは rollout を再起動してアップグレードします。アップグレード
+CLI はコンテナ環境を検出すると、並置バイナリを書き込む代わりにイメージベースの
+手順を表示します。
+
+### 自動アップグレード（オプトイン）
+
+上記の 2 つの経路はいずれも手動です。管理パネルで通知を受け取り、ワンクリックで
+適用する——そうした手放しのアップグレードにするには、**オプトインの更新ツール**を
+有効にします。サーバー自体は非特権のままです。「今すぐアップグレード」を押すと
+データディレクトリに `upgrade-request.json` マーカーが書き込まれるだけで、別の
+特権更新ツールがそれを適用し、サービスを再起動し、新しいバージョンがヘルスチェック
+に失敗した場合は自動的にロールバックします。いずれかを有効にするまで、新規
+インストールのアップグレードは上記とまったく同じです。
+
+**systemd:** `deploy/updater/` から更新スクリプトと unit をインストールします:
+
+```sh
+sudo install -m 0755 deploy/updater/pkv-sync-update.sh /usr/local/bin/
+sudo cp deploy/updater/pkv-sync-updater.service deploy/updater/pkv-sync-updater.path /etc/systemd/system/
+sudo systemctl enable --now pkv-sync-updater.path
+```
+
+root の `pkv-sync-updater.path` unit がマーカーを監視し、oneshot の
+`pkv-sync-updater.service` を実行します。これはリリースバイナリをステージングして
+SHA-256 で検証し、差し替えて `pkv-sync` を再起動し、ヘルスチェックに失敗した場合は
+以前のバイナリにロールバックします。無効化は
+`sudo systemctl disable --now pkv-sync-updater.path` です。
+
+**Docker:** 同梱の updater プロファイルを有効にします。Docker へはスコープを絞った
+`docker-socket-proxy` 経由でのみ到達し、`pkv-sync` コンテナ自体が socket を
+受け取ることはありません:
+
+```sh
+docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+```
+
+更新ツールは指定された `X.Y.Z` イメージを pull し、`pkv-sync` を再作成して
+ヘルスチェックし、失敗した場合は以前のタグに再ピンします。別案として
+[Watchtower](https://containrrr.dev/watchtower/) や compose-updater などの
+サードパーティ製ツールを `pkv-sync` コンテナに向ける方法もありますが、これらは
+ワンクリックで指定した固定バージョンに従うのではなく、スケジュールで `:latest` を
+ポーリングする点に注意してください。
+
+アップグレード中は短い再起動の中断が想定されます。クライアントは自動的に再接続します。
 
 ## メンテナンスチェックリスト
 

@@ -74,7 +74,7 @@ pkvsyncd genkey
 
 ### 설명
 
-암호학적으로 무작위인 `k_*` 토큰을 stdout으로 출력합니다. 그 값을 `config.toml`에 붙여넣고 자체적인 안전한 채널을 통해 플러그인/관리자 클라이언트에 공유하십시오.
+암호학적으로 무작위인 `k_*` Token을 stdout으로 출력합니다. 그 값을 `config.toml`에 붙여넣고 자체적인 안전한 채널을 통해 플러그인/관리자 클라이언트에 공유하십시오.
 
 ### 예시
 
@@ -101,7 +101,7 @@ pkvsyncd user set-active <USERNAME> --active <true|false>
 - `add <USERNAME> [--admin]`: 사용자를 생성하며, 비밀번호를 대화형으로 입력받습니다. 비밀번호는 12자 이상이어야 하며 대문자, 소문자, 숫자를 포함해야 합니다.
 - `passwd <USERNAME>`: 사용자의 비밀번호를 재설정하며, 새 값을 대화형으로 입력받습니다. 동일한 정책이 적용되며, 해당 사용자의 기존 device token은 모두 폐기되므로 도난당한 token이 재설정 후에도 살아남지 못합니다.
 - `list`: 모든 사용자를 관리자/활성 상태 및 생성 시각과 함께 나열합니다.
-- `set-active <USERNAME> --active <true|false>`: 사용자를 비활성화하거나 다시 활성화합니다. 비활성화된 사용자는 토큰은 유지되지만 로그인이나 동기화는 불가능합니다.
+- `set-active <USERNAME> --active <true|false>`: 사용자를 비활성화하거나 다시 활성화합니다. 비활성화된 사용자는 Token은 유지되지만 로그인이나 동기화는 불가능합니다.
 
 ### 예시
 
@@ -118,7 +118,7 @@ pkvsyncd user set-active alice --active false
 
 ## pkvsyncd materialize
 
-PKV Sync 볼트의 bare git 저장소를 디스크의 일반 파일 트리로 펼쳐냅니다.
+PKV Sync Vault의 bare git 저장소를 디스크의 일반 파일 트리로 펼쳐냅니다.
 
 ### 개요
 
@@ -133,7 +133,7 @@ pkvsyncd materialize <VAULT-ID> -o <OUTPUT-DIR> [--at <COMMIT-SHA>]
 
 ### 설명
 
-`data_dir/vaults/<vault-id>` 아래의 볼트 bare git 저장소를 읽어 각 파일을 출력 디렉터리에 기록합니다.
+`data_dir/vaults/<vault-id>` 아래의 Vault bare git 저장소를 읽어 각 파일을 출력 디렉터리에 기록합니다.
 
 - 텍스트 파일은 그대로 기록됩니다.
 - `pkvsync_pointer` JSON으로 저장된 바이너리 파일은 서버의 blob 저장소(`data_dir/blobs/`)에서 실제 blob을 복사하여 해석됩니다.
@@ -153,9 +153,9 @@ pkvsyncd materialize 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c -o ./my-vault-old --at abc
 ### 종료 코드
 
 - `0`: 성공.
-- `1`: 출력 디렉터리가 비어 있지 않음, 볼트를 찾을 수 없음, blob 누락, 잘못된 commit SHA 등의 오류.
+- `1`: 출력 디렉터리가 비어 있지 않음, Vault를 찾을 수 없음, blob 누락, 잘못된 commit SHA 등의 오류.
 
-> 볼트 ID는 32자리 소문자 16진수입니다(대시 없음). 위 예시는 실제 형식의 ID를 사용합니다. 관리자 UI와 `pkvsyncd user list`에 유효한 ID가 표시됩니다.
+> Vault ID는 32자리 소문자 16진수입니다(대시 없음). 위 예시는 실제 형식의 ID를 사용합니다. 관리자 UI와 `pkvsyncd user list`에 유효한 ID가 표시됩니다.
 
 ## pkvsyncd backup
 
@@ -176,7 +176,7 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 
 ### 설명
 
-SQLite 데이터베이스(VACUUM INTO 사용), 모든 볼트의 bare git 저장소, 그리고 blob 저장소를 `MANIFEST.json`이 포함된 자체 완결형 디렉터리로 스냅숏합니다. 백업 중에도 HTTP 서버는 계속 실행될 수 있지만, push, blob upload, rollback, vault deletion, GC 같은 storage write는 data-dir snapshot lock 뒤에서 대기하고 백업이 끝난 뒤 진행됩니다.
+SQLite 데이터베이스(VACUUM INTO 사용), 모든 Vault의 bare git 저장소, 그리고 blob 저장소를 `MANIFEST.json`이 포함된 자체 완결형 디렉터리로 스냅숏합니다. 백업 중에도 HTTP 서버는 계속 실행될 수 있지만, push, blob upload, rollback, vault deletion, GC 같은 storage write는 data-dir snapshot lock 뒤에서 대기하고 백업이 끝난 뒤 진행됩니다.
 
 기본적으로 백업은 `config.toml`을 생략합니다. 설정을 저장하고 그 안의 비밀을 보호하려는 경우에만 `--include-config`를 추가하세요.
 
@@ -204,7 +204,7 @@ pkvsyncd restore -i <BACKUP-DIR> [--data-dir <DIR>] [--force]
 
 ### 설명
 
-백업의 `MANIFEST.json`을 검증한 뒤 SQLite DB, 볼트 저장소, blob 저장소를 대상 데이터 디렉터리로 복사합니다. 복원 전에 HTTP 서버를 중지하십시오. 더 오래된 서버 버전에서 만들어진 백업을 복원하는 경우, 복원 후 `pkvsyncd migrate up`을 실행하십시오.
+백업의 `MANIFEST.json`을 검증한 뒤 SQLite DB, Vault 저장소, blob 저장소를 대상 데이터 디렉터리로 복사합니다. 복원 전에 HTTP 서버를 중지하십시오. 더 오래된 서버 버전에서 만들어진 백업을 복원하는 경우, 복원 후 `pkvsyncd migrate up`을 실행하십시오.
 
 ### 예시
 
@@ -214,7 +214,7 @@ pkvsyncd restore -i /var/backups/pkv-2026-05-25 --data-dir /var/lib/pkv-sync --f
 
 ## pkvsyncd verify
 
-볼트 git 저장소와 콘텐츠 주소 지정 blob을 검증합니다.
+Vault git 저장소와 콘텐츠 주소 지정 blob을 검증합니다.
 
 ### 개요
 
@@ -229,12 +229,12 @@ pkvsyncd verify [--data-dir <DIR>] [--no-fail]
 
 ### 설명
 
-`data_dir/vaults/` 아래의 각 볼트에 대해 다음을 수행합니다.
+`data_dir/vaults/` 아래의 각 Vault에 대해 다음을 수행합니다.
 
 - `git2`로 bare 저장소를 열어 순회하며 저장소 및 객체 수준 읽기 오류를 보고합니다.
 - HEAD 트리를 순회하며 모든 `pkvsync_pointer`가 그 파일명과 일치하는 온디스크 SHA-256을 가진 blob으로 해석되는지 검증합니다.
 
-볼트별 오류 개수를 보고합니다. 어떤 볼트라도 오류가 있으면 0이 아닌 코드로 종료하며, `--no-fail`이 설정된 경우에는 그렇지 않습니다.
+Vault별 오류 개수를 보고합니다. 어떤 Vault라도 오류가 있으면 0이 아닌 코드로 종료하며, `--no-fail`이 설정된 경우에는 그렇지 않습니다.
 
 ### 예시
 
@@ -254,8 +254,8 @@ pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 
 ### 옵션
 
-- `--vault <VAULT-ID>`: 필수이며, 클라이언트에 노출되는 단일 볼트입니다.
-- `--token <PKS-TOKEN>`: bearer 디바이스 토큰입니다. 생략하면 `PKV_TOKEN` 환경 변수가 사용됩니다(권장. 토큰이 셸 히스토리에 남지 않습니다).
+- `--vault <VAULT-ID>`: 필수이며, 클라이언트에 노출되는 단일 Vault입니다.
+- `--token <PKS-TOKEN>`: bearer 기기 Token입니다. 생략하면 `PKV_TOKEN` 환경 변수가 사용됩니다(권장. Token이 셸 히스토리에 남지 않습니다).
 
 ### 설명
 
@@ -266,7 +266,7 @@ pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 ### 예시
 
 ```bash
-# 환경에서 가져온 토큰으로 stdio 실행
+# 환경 변수에서 가져온 Token으로 stdio 실행
 PKV_TOKEN=pks_xxx pkvsyncd mcp --vault 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c
 
 # 내장 MCP HTTP 엔드포인트(기본 켜짐. pkvsyncd serve가 제공)

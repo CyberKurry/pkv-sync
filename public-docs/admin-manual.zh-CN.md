@@ -171,7 +171,7 @@ Blob 文件是内容寻址的，可能会保留到垃圾回收确认其超过宽
 
 **网络与更新检查** — `public_host`、监听地址、可信代理以及 `[update_check].repo` 在启动时从 `config.toml` 读取。更新检查的启用状态和间隔是保存在 SQLite 中的运行时设置；允许范围为 60 秒到 30 天。
 
-`public_host` 的作用远不止「可选」：受 CSRF 保护的 admin POST（创建用户、邀请、令牌，修改设置，请求升级）都会把请求的 `Origin` 与它比对，因此**未配置时所有 admin 表单提交都会以 `403 csrf validation failed` 失败**——能登录，但什么都改不了。每个 TLS 部署都应设置它；它同时决定 admin 会话 cookie 是否带 `Secure` 标记，并用于构造分享 URL。
+`public_host` 的作用远不止「可选」：受 CSRF 保护的 admin POST（创建用户、邀请、Token，修改设置，请求升级）都会把请求的 `Origin` 与它比对，因此**未配置时所有 admin 表单提交都会以 `403 csrf validation failed` 失败**——能登录，但什么都改不了。每个 TLS 部署都应设置它；它同时决定 admin 会话 cookie 是否带 `Secure` 标记，并用于构造分享 URL。
 
 对于确实无法设置 `public_host` 的明文 HTTP 管理界面（本地开发，或经 SSH 隧道访问的 admin），`[admin].allow_insecure_admin = true` 是显式的逃生开关：admin 的来源（CSRF）校验**被关闭**——任何来源都可以向 `/admin/*` 发起 POST——并且会话 cookie 不带 `Secure` 标记。该开关与非回环绑定且无 `public_host` 组合时服务器会拒绝启动；开关生效期间启动日志会给出警告。仅应在回环地址或完全可信的网络中使用；登录与初始设置的 double-submit-cookie CSRF 校验在任何情况下都保持启用。
 

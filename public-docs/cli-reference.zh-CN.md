@@ -74,7 +74,7 @@ pkvsyncd genkey
 
 ### 说明
 
-向 stdout 打印一个加密学随机的 `k_*` 令牌。将该值粘贴到 `config.toml` 中，并通过你自己的安全渠道分发给 plugin/admin 客户端。
+向 stdout 打印一个加密学随机的 `k_*` Token。将该值粘贴到 `config.toml` 中，并通过你自己的安全渠道分发给 plugin/admin 客户端。
 
 ### 示例
 
@@ -101,7 +101,7 @@ pkvsyncd user set-active <USERNAME> --active <true|false>
 - `add <USERNAME> [--admin]`：创建一个用户，并以交互方式提示输入密码。密码必须至少 12 个字符，并包含大写字母、小写字母和数字。
 - `passwd <USERNAME>`：重置某用户的密码，交互式提示输入新密码。新密码同样必须满足上述策略，且该用户的所有现有设备 token 都会被吊销，被盗 token 无法在这次重置后继续使用。
 - `list`：列出所有用户，包括其管理员/启用状态以及创建时间。
-- `set-active <USERNAME> --active <true|false>`：禁用或重新启用某个用户。被禁用的用户保留其令牌，但无法登录或同步。
+- `set-active <USERNAME> --active <true|false>`：禁用或重新启用某个用户。被禁用的用户保留其 Token，但无法登录或同步。
 
 ### 示例
 
@@ -118,7 +118,7 @@ pkvsyncd user set-active alice --active false
 
 ## pkvsyncd materialize
 
-将 PKV Sync 保险库的裸 git 仓库展开为磁盘上的普通文件树。
+将 PKV Sync 笔记库的裸 git 仓库展开为磁盘上的普通文件树。
 
 ### 概述
 
@@ -133,7 +133,7 @@ pkvsyncd materialize <VAULT-ID> -o <OUTPUT-DIR> [--at <COMMIT-SHA>]
 
 ### 说明
 
-读取 `data_dir/vaults/<vault-id>` 下保险库的裸 git 仓库，并将每个文件写入输出目录：
+读取 `data_dir/vaults/<vault-id>` 下笔记库的裸 git 仓库，并将每个文件写入输出目录：
 
 - 文本文件按原样写入。
 - 以 `pkvsync_pointer` JSON 形式存储的二进制文件，通过从服务器的 blob 存储（`data_dir/blobs/`）复制实际的 blob 来解析。
@@ -153,9 +153,9 @@ pkvsyncd materialize 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c -o ./my-vault-old --at abc
 ### 退出码
 
 - `0`：成功。
-- `1`：错误，例如输出目录非空、保险库不存在、blob 缺失或 commit SHA 无效。
+- `1`：错误，例如输出目录非空、笔记库不存在、blob 缺失或 commit SHA 无效。
 
-> 保险库 ID 是 32 位的小写十六进制（不含短横线）。上面的示例使用真实形态的 ID；管理界面与 `pkvsyncd user list` 会显示有效的 ID。
+> 笔记库 ID 是 32 位的小写十六进制（不含短横线）。上面的示例使用真实形态的 ID；管理界面与 `pkvsyncd user list` 会显示有效的 ID。
 
 ## pkvsyncd backup
 
@@ -176,7 +176,7 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 
 ### 说明
 
-将 SQLite 数据库（通过 VACUUM INTO）、每个保险库的裸 git 仓库以及 blob 存储，快照到一个带有 `MANIFEST.json` 的自包含目录中。备份期间 HTTP 服务器可以继续运行；push、blob 上传、回滚、保险库删除和 GC 等存储写入会在 data-dir 快照锁之后排队，直到备份完成。
+将 SQLite 数据库（通过 VACUUM INTO）、每个笔记库的裸 git 仓库以及 blob 存储，快照到一个带有 `MANIFEST.json` 的自包含目录中。备份期间 HTTP 服务器可以继续运行；push、blob 上传、回滚、笔记库删除和 GC 等存储写入会在 data-dir 快照锁之后排队，直到备份完成。
 
 默认情况下，备份会省略 `config.toml`；只有在你明确要保存配置并保护其中秘密时，才添加 `--include-config`。
 
@@ -204,7 +204,7 @@ pkvsyncd restore -i <BACKUP-DIR> [--data-dir <DIR>] [--force]
 
 ### 说明
 
-校验备份的 `MANIFEST.json`，并将 SQLite 数据库、保险库仓库与 blob 存储复制到目标 data 目录。在恢复之前请先停止 HTTP 服务器。恢复完成后，如果你恢复的是更老服务器版本生成的备份，请运行 `pkvsyncd migrate up`。
+校验备份的 `MANIFEST.json`，并将 SQLite 数据库、笔记库仓库与 blob 存储复制到目标 data 目录。在恢复之前请先停止 HTTP 服务器。恢复完成后，如果你恢复的是更老服务器版本生成的备份，请运行 `pkvsyncd migrate up`。
 
 ### 示例
 
@@ -214,7 +214,7 @@ pkvsyncd restore -i /var/backups/pkv-2026-05-25 --data-dir /var/lib/pkv-sync --f
 
 ## pkvsyncd verify
 
-校验保险库的 git 仓库和内容寻址的 blob。
+校验笔记库的 git 仓库和内容寻址的 blob。
 
 ### 概述
 
@@ -229,12 +229,12 @@ pkvsyncd verify [--data-dir <DIR>] [--no-fail]
 
 ### 说明
 
-对 `data_dir/vaults/` 下的每个保险库：
+对 `data_dir/vaults/` 下的每个笔记库：
 
 - 用 `git2` 打开裸仓库并遍历，报告仓库与对象级别的读取错误。
 - 遍历 HEAD 树，并验证每个 `pkvsync_pointer` 都能解析到一个 blob，且其在磁盘上的 SHA-256 与文件名匹配。
 
-按保险库报告错误计数。当任何保险库存在错误时以非零退出码退出，除非设置了 `--no-fail`。
+按笔记库报告错误计数。当任何笔记库存在错误时以非零退出码退出，除非设置了 `--no-fail`。
 
 ### 示例
 
@@ -254,8 +254,8 @@ pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 
 ### 选项
 
-- `--vault <VAULT-ID>`：必填；要向客户端暴露的单一保险库。
-- `--token <PKS-TOKEN>`：bearer 设备令牌。若省略，则使用 `PKV_TOKEN` 环境变量（推荐，可避免令牌进入 shell 历史）。
+- `--vault <VAULT-ID>`：必填；要向客户端暴露的单一笔记库。
+- `--token <PKS-TOKEN>`：bearer 设备 Token。若省略，则使用 `PKV_TOKEN` 环境变量（推荐，可避免 Token 进入 shell 历史）。
 
 ### 说明
 

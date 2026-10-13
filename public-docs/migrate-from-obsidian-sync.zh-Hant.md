@@ -32,7 +32,7 @@ PKV Sync 會建立一個新筆記庫，並把目前匯入內容作為第一條 P
 - `.obsidian/workspace-mobile.json`
 - `.obsidian/workspaces.json`
 - `.obsidian/cache/**`
-- `.obsidian/plugins/pkv-sync/`（外掛自身的設定與 token store 僅保留在本機）
+- `.obsidian/plugins/**`（所有外掛，包含其 `data.json` 檔案——裡面可能存有明文 API token；PKV Sync 自身的狀態只保留在本機）
 - `.trash/**`
 - `.git/**`
 - `.DS_Store`（macOS）

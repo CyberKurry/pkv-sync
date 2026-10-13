@@ -298,6 +298,8 @@ Pull/tree 遍历和 rollback 可达性检查都有边界；被当前同步过滤
 
 复制数据库时使用 SQLite 在线备份，或先停止服务。尽量让数据库、Git 笔记库和 blobs 来自同一时间点。
 
+**每个 `data_dir` 最多只能运行一个 `pkvsyncd` 进程。** 笔记库的 push 协调和 blob GC 都依赖进程内锁；两个服务进程共用同一个 `data_dir` 会互相竞争（并发的 push 可能覆盖掉另一个进程的提交，`git gc` 也可能清理掉另一个进程刚刚引用的对象）。每个数据目录只跑一个实例，靠单进程来扩展——这里的 SQLite 和 git 都不是多写入端设计。
+
 内置 backup/restore helper 不会跟随 symlink。`vaults/` 或 `blobs/` 下的 symlink 条目会在备份时跳过，在恢复清理时只移除链接本身，不会触碰链接目标。
 
 restic 示例：

@@ -300,6 +300,8 @@ Pull/tree 遍歷和 rollback 可達性檢查都有邊界；被目前同步過濾
 
 複製資料庫時使用 SQLite 線上備份，或先停止服務。盡量讓資料庫、Git 筆記庫和 blobs 來自同一時間點。
 
+**每個 `data_dir` 最多只能執行一個 `pkvsyncd` 行程。** 筆記庫的 push 協調和 blob GC 都依賴行程內鎖；兩個服務行程共用同一個 `data_dir` 會互相競爭（並發的 push 可能覆寫掉另一個行程的提交，`git gc` 也可能清理掉另一個行程剛剛引用的物件）。每個資料目錄只跑一個實例，靠單一行程來擴展——這裡的 SQLite 和 git 都不是多寫入端設計。
+
 內建 backup/restore helper 不會跟隨 symlink。`vaults/` 或 `blobs/` 下的 symlink 條目會在備份時跳過，在恢復清理時只移除連結本身，不會觸碰連結目標。
 
 restic 範例：
@@ -349,6 +351,8 @@ PKV Sync 會記錄同步、筆記庫生命週期和唯讀瀏覽活動，包括�
 4. 確認 GHCR 映像存在對應 tag 和 `latest`。
 5. 備份目前資料。
 6. 如果目前部署是 0.x，啟動 1.0 二進位或映像前先閱讀 [`upgrade-notes-v1.0.zh-Hant.md`](./upgrade-notes-v1.0.zh-Hant.md)。不要把 1.0 直接指向既有的 0.x `metadata.db`。
-7. 用新二進位執行 migrations。
+7. 二進位部署先執行 `pkvsyncd upgrade --dry-run` 預覽 release 資產，再執行 `pkvsyncd upgrade --yes` 下載並校驗目前二進位旁邊的 `pkvsyncd.new`。只有校驗通過後，才停止服務並替換二進位。
+8. Docker 或 Kubernetes 部署應拉取或修改映像 tag 並重啟服務或 rollout，不要在容器內替換二進位。
+9. 用新二進位或新映像執行 migrations。
 
 PKV Sync 1.0 使用單一 v1 SQLite 基線。在這次基線之後，已發布的 1.x migration 對既有 1.x 部署保持追加式。

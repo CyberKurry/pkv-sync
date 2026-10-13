@@ -118,7 +118,7 @@ pkvsyncd user set-active alice --active false
 
 ## pkvsyncd materialize
 
-將 PKV Sync vault 的 bare git repository 展開為磁碟上的普通檔案樹。
+將 PKV Sync 筆記庫 的 bare git 儲存庫 展開為磁碟上的普通檔案樹。
 
 ### 用法
 
@@ -133,12 +133,12 @@ pkvsyncd materialize <VAULT-ID> -o <OUTPUT-DIR> [--at <COMMIT-SHA>]
 
 ### 說明
 
-讀取 vault 在 `data_dir/vaults/<vault-id>` 下的 bare git repository，並將每個檔案寫入輸出目錄：
+讀取 筆記庫 在 `data_dir/vaults/<vault-id>` 下的 bare git 儲存庫，並將每個檔案寫入輸出目錄：
 
 - 文字檔會原樣寫入。
 - 以 `pkvsync_pointer` JSON 儲存的二進位檔，會從伺服器的 blob 儲存區（`data_dir/blobs/`）複製實際的 blob。
 
-此命令同步執行，不需要伺服器正在運行。它直接從設定的 `data_dir` 下的磁碟 git repository 與 blob 儲存區讀取資料。
+此命令同步執行，不需要伺服器正在運行。它直接從設定的 `data_dir` 下的磁碟 git 儲存庫 與 blob 儲存區讀取資料。
 
 ### 範例
 
@@ -153,9 +153,9 @@ pkvsyncd materialize 6c0a2b8f4d3e419a8c5b7f1d2e3a4b5c -o ./my-vault-old --at abc
 ### 結束碼
 
 - `0`：成功。
-- `1`：錯誤，例如輸出目錄非空、找不到 vault、blob 缺失或 commit SHA 無效。
+- `1`：錯誤，例如輸出目錄非空、找不到 筆記庫、blob 缺失或 commit SHA 無效。
 
-> Vault ID 為 32 個字元的小寫十六進位字串（不含破折號）。上述範例皆採用真實格式的 ID；管理介面與 `pkvsyncd user list` 也會顯示有效的 ID。
+> 筆記庫 ID 為 32 個字元的小寫十六進位字串（不含破折號）。上述範例皆採用真實格式的 ID；管理介面與 `pkvsyncd user list` 也會顯示有效的 ID。
 
 ## pkvsyncd backup
 
@@ -176,7 +176,7 @@ pkvsyncd backup -o <OUTPUT-DIR> [--data-dir <DIR>] [--gzip] [--include-config]
 
 ### 說明
 
-將 SQLite 資料庫（透過 VACUUM INTO 進行）、每個 vault 的 bare git repository，以及 blob 儲存區，快照到一個獨立目錄，並寫入 `MANIFEST.json`。備份期間 HTTP 伺服器可繼續運行；push、blob 上傳、回滾、vault 刪除和 GC 等儲存寫入會在 data-dir 快照鎖之後排隊，直到備份完成。
+將 SQLite 資料庫（透過 VACUUM INTO 進行）、每個 筆記庫 的 bare git 儲存庫，以及 blob 儲存區，快照到一個獨立目錄，並寫入 `MANIFEST.json`。備份期間 HTTP 伺服器可繼續運行；push、blob 上傳、回滾、筆記庫 刪除和 GC 等儲存寫入會在 data-dir 快照鎖之後排隊，直到備份完成。
 
 預設情況下，備份會省略 `config.toml`；只有在你明確要保存設定並保護其中秘密時，才加入 `--include-config`。
 
@@ -204,7 +204,7 @@ pkvsyncd restore -i <BACKUP-DIR> [--data-dir <DIR>] [--force]
 
 ### 說明
 
-驗證備份的 `MANIFEST.json`，將 SQLite 資料庫、各 vault repository 與 blob 儲存區複製到目標資料目錄。還原前請先停止 HTTP 伺服器。若還原的備份是由較舊版本的伺服器所產生，還原完成後請再執行一次 `pkvsyncd migrate up`。
+驗證備份的 `MANIFEST.json`，將 SQLite 資料庫、各 筆記庫 儲存庫 與 blob 儲存區複製到目標資料目錄。還原前請先停止 HTTP 伺服器。若還原的備份是由較舊版本的伺服器所產生，還原完成後請再執行一次 `pkvsyncd migrate up`。
 
 ### 範例
 
@@ -214,7 +214,7 @@ pkvsyncd restore -i /var/backups/pkv-2026-05-25 --data-dir /var/lib/pkv-sync --f
 
 ## pkvsyncd verify
 
-驗證各 vault 的 git repository 與內容定址的 blob。
+驗證各 筆記庫 的 git 儲存庫 與內容定址的 blob。
 
 ### 用法
 
@@ -229,12 +229,12 @@ pkvsyncd verify [--data-dir <DIR>] [--no-fail]
 
 ### 說明
 
-對 `data_dir/vaults/` 之下的每個 vault：
+對 `data_dir/vaults/` 之下的每個 筆記庫：
 
-- 以 `git2` 開啟 bare repository 並遍歷，回報儲存庫與物件層級的讀取錯誤。
+- 以 `git2` 開啟 bare 儲存庫 並遍歷，回報儲存庫與物件層級的讀取錯誤。
 - 走訪 HEAD 樹，並驗證每個 `pkvsync_pointer` 都可解析到對應 blob，且該 blob 在磁碟上的 SHA-256 與其檔名一致。
 
-按 vault 逐一回報錯誤數量。只要任一 vault 有錯誤，便以非零結束碼結束；除非加上 `--no-fail`。
+按 筆記庫 逐一回報錯誤數量。只要任一 筆記庫 有錯誤，便以非零結束碼結束；除非加上 `--no-fail`。
 
 ### 範例
 
@@ -254,7 +254,7 @@ pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 
 ### 選項
 
-- `--vault <VAULT-ID>`：必填，指定要向客戶端暴露的單一 vault。
+- `--vault <VAULT-ID>`：必填，指定要向客戶端暴露的單一 筆記庫。
 - `--token <PKS-TOKEN>`：bearer 裝置 token。省略時會改用 `PKV_TOKEN` 環境變數（建議，可避免 token 進入 shell 歷史）。
 
 ### 說明

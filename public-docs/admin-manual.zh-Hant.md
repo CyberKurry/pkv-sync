@@ -171,7 +171,7 @@ Blob 檔案是內容定址的，可能會保留到垃圾回收確認其超過寬
 
 **網路與更新檢查** — `public_host`、監聽位址、可信代理以及 `[update_check].repo` 在啟動時從 `config.toml` 讀取。更新檢查的啟用狀態和間隔是保存在 SQLite 中的執行階段設定；允許範圍為 60 秒到 30 天。
 
-`public_host` 的作用遠不止「可選」：受 CSRF 保護的 admin POST（建立使用者、邀請、權杖，修改設定，請求升級）都會把請求的 `Origin` 與它比對，因此**未設定時所有 admin 表單提交都會以 `403 csrf validation failed` 失敗**——能登入，但什麼都改不了。每個 TLS 部署都應設定它；它同時決定 admin 工作階段 cookie 是否帶 `Secure` 標記，並用於建構分享 URL。
+`public_host` 的作用遠不止「可選」：受 CSRF 保護的 admin POST（建立使用者、邀請、Token，修改設定，請求升級）都會把請求的 `Origin` 與它比對，因此**未設定時所有 admin 表單提交都會以 `403 csrf validation failed` 失敗**——能登入，但什麼都改不了。每個 TLS 部署都應設定它；它同時決定 admin 工作階段 cookie 是否帶 `Secure` 標記，並用於建構分享 URL。
 
 對於確實無法設定 `public_host` 的明文 HTTP 管理介面（本機開發，或經 SSH 通道存取的 admin），`[admin].allow_insecure_admin = true` 是明確的逃生開關：admin 的來源（CSRF）檢查**被關閉**——任何來源都可以向 `/admin/*` 發起 POST——並且工作階段 cookie 不帶 `Secure` 標記。該開關與非回環綁定且無 `public_host` 組合時伺服器會拒絕啟動；開關生效期間啟動日誌會給出警告。僅應在回環位址或完全可信的網路中使用；登入與初始設定的 double-submit-cookie CSRF 檢查在任何情況下都保持啟用。
 
@@ -203,6 +203,60 @@ https://sync.example.com/k_xxx/
 ```
 
 請把它視為敏感資訊。它不是使用者密碼，但包含部署金鑰，是外掛 API 流量的第一道預認證入口。
+
+## 升級 PKV Sync
+
+二進位安裝請用 `pkvsyncd upgrade --dry-run` 預覽最新發行版、目標資產與並存的
+路徑。用 `pkvsyncd upgrade --yes` 會把通過驗證的發行版二進位下載到目前執行檔
+旁邊，命名為 `pkvsyncd.new`（Windows 上是 `pkvsyncd.new.exe`）。這個命令會依
+`SHA256SUMS` 驗證 SHA-256，並印出 systemd／手動替換的步驟。它不會熱替換正在
+執行的行程。
+
+用 `pkvsyncd upgrade --version 1.6.0` 指定特定發行版。如果命令找不到相符的資產
+或校驗和，請改走手動下載 GitHub 發行版的路徑，並自行驗證 `SHA256SUMS`。
+
+0.x 的部署請不要把 1.0 的二進位或映像檔指向既有的 `metadata.db`。先備份、
+materialize 或匯出筆記庫內容，開一個全新的 1.0 資料目錄，再把筆記庫內容匯入或
+推送到新伺服器。見 [`upgrade-notes-v1.0.md`](./upgrade-notes-v1.0.zh-Hant.md)。
+
+Docker 與 Kubernetes 部署請以拉取或更換容器映像標籤、然後重啟服務或 rollout 的
+方式升級。升級 CLI 會偵測容器環境，改印出以映像為基礎的指引，而不會寫入並存的
+二進位。
+
+### 自動升級（選用）
+
+上面兩條路徑都是手動的。想讓升級變成免動手——在管理後台收到通知、按一下就
+套用——請啟用**選用的更新器**。伺服器本身維持無特權：點「立即升級」只會把一個
+`upgrade-request.json` 標記寫進資料目錄；另有一個獨立的特權更新器負責套用、
+重啟服務，並在新版本健康檢查失敗時自動回滾。在你啟用其中一種之前，全新安裝的
+升級方式完全同上。
+
+**systemd：** 從 `deploy/updater/` 安裝更新腳本與 unit：
+
+```sh
+sudo install -m 0755 deploy/updater/pkv-sync-update.sh /usr/local/bin/
+sudo cp deploy/updater/pkv-sync-updater.service deploy/updater/pkv-sync-updater.path /etc/systemd/system/
+sudo systemctl enable --now pkv-sync-updater.path
+```
+
+根層的 `pkv-sync-updater.path` unit 會監看該標記，並執行 oneshot 的
+`pkv-sync-updater.service`——它會暫存並以 SHA-256 驗證發行版二進位、替換、
+重啟 `pkv-sync`，並在健康檢查失敗時回滾到先前的二進位。用
+`sudo systemctl disable --now pkv-sync-updater.path` 停用。
+
+**Docker：** 啟用隨附的 updater profile。它只透過限定範圍的
+`docker-socket-proxy` 存取 Docker，`pkv-sync` 容器本身永遠拿不到 socket：
+
+```sh
+docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+```
+
+更新器會拉取指定的 `X.Y.Z` 映像、重建 `pkv-sync`、對它做健康檢查，並在失敗時
+把標籤重新釘回先前版本。另一個做法是把 [Watchtower](https://containrrr.dev/watchtower/)
+或 compose-updater 這類第三方工具指向 `pkv-sync` 容器——但請注意它們是照排程
+輪詢 `:latest`，不會遵循一鍵指定的釘選版本。
+
+任何升級過程都會有短暫的重新啟動中斷，這是預期行為；用戶端會自動重連。
 
 ## 維護清單
 

@@ -34,7 +34,7 @@ PKV Sync는 새 vault를 만들고 현재 가져오기 내용을 첫 PKV 기록 
 - `.obsidian/workspace-mobile.json`
 - `.obsidian/workspaces.json`
 - `.obsidian/cache/**`
-- `.obsidian/plugins/pkv-sync/` (plugin 자체 설정과 token 저장소는 로컬에만 보관)
+- `.obsidian/plugins/**` (모든 플러그인. `data.json`에 평문 API token이 들어 있을 수 있습니다. PKV Sync 자체 상태는 로컬에만 보관)
 - `.trash/**`
 - `.git/**`
 - `.DS_Store` (macOS)

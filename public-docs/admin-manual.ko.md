@@ -173,7 +173,7 @@ Settings 페이지는 SQLite에 저장된 값을 편집합니다. 변경 사항�
 
 **Network and update checks** — `public_host`, bind address, trusted proxies, `[update_check].repo`는 시작 시 `config.toml`에서 읽습니다. 업데이트 확인 활성 상태와 간격은 SQLite에 저장되는 런타임 설정입니다. 허용 범위는 60초부터 30일까지입니다.
 
-`public_host`는 "선택 사항"이라는 인상보다 훨씬 중요합니다. CSRF 보호 대상인 admin POST(사용자·초대·토큰 생성, 설정 변경, 업그레이드 요청)는 요청의 `Origin`을 이 값과 비교하므로, **설정하지 않으면 모든 admin 폼 제출이 `403 csrf validation failed`로 실패합니다**. 로그인은 되지만 아무것도 변경할 수 없습니다. TLS로 운영하는 모든 배포에서 설정하세요. admin 세션 쿠키의 `Secure` 플래그와 공유 URL 생성에도 사용됩니다.
+`public_host`는 "선택 사항"이라는 인상보다 훨씬 중요합니다. CSRF 보호 대상인 admin POST(사용자·초대·Token 생성, 설정 변경, 업그레이드 요청)는 요청의 `Origin`을 이 값과 비교하므로, **설정하지 않으면 모든 admin 폼 제출이 `403 csrf validation failed`로 실패합니다**. 로그인은 되지만 아무것도 변경할 수 없습니다. TLS로 운영하는 모든 배포에서 설정하세요. admin 세션 쿠키의 `Secure` 플래그와 공유 URL 생성에도 사용됩니다.
 
 `public_host`를 설정할 수 없는 평문 HTTP 관리 화면(로컬 개발, SSH 터널을 통한 admin)에는 `[admin].allow_insecure_admin = true`가 명시적인 예외 설정입니다. admin의 오리진(CSRF) 검증이 **비활성화**되어 어느 오리진에서든 `/admin/*`로 POST할 수 있고, 세션 쿠키는 `Secure` 플래그 없이 발급됩니다. 이 설정을 루프백이 아닌 바인드이면서 `public_host` 없이 조합하면 서버는 시작을 거부하고, 활성 상태 동안 시작 로그에 경고를 남깁니다. 루프백 또는 완전히 신뢰하는 네트워크에서만 사용하세요. 로그인과 초기 설정의 double-submit-cookie CSRF 검증은 어느 경우에도 활성 상태로 유지됩니다.
 
@@ -205,6 +205,67 @@ https://sync.example.com/k_xxx/
 ```
 
 민감한 정보로 다루세요. 사용자 비밀번호는 아니지만 배포 키를 포함하며 플러그인 API 트래픽의 첫 번째 사전 인증 관문입니다.
+
+## PKV Sync 업그레이드
+
+바이너리 설치에서는 `pkvsyncd upgrade --dry-run`으로 최신 릴리스, 대상 에셋,
+나란히 배치될 경로를 미리 확인할 수 있습니다. `pkvsyncd upgrade --yes`를 쓰면 검증된
+릴리스 바이너리를 현재 실행 파일 옆에 `pkvsyncd.new`(Windows에서는
+`pkvsyncd.new.exe`)로 내려받습니다. 이 명령은 `SHA256SUMS`에서 SHA-256을 검증하고
+systemd／수동 교체 단계를 출력합니다. 실행 중인 프로세스를 핫 교체하지는 않습니다.
+
+`pkvsyncd upgrade --version 1.6.0`으로 특정 릴리스를 지정할 수 있습니다. 일치하는
+에셋이나 체크섬을 찾지 못하면 GitHub 릴리스를 직접 내려받는 경로를 따라가고
+`SHA256SUMS`를 직접 검증하세요.
+
+0.x 배포에서는 1.0 바이너리나 이미지를 기존 `metadata.db`로 향하게 하지 마세요.
+백업하고, Vault 내용을 materialize 또는 내보낸 뒤, 새 1.0 데이터 디렉터리를 만들고
+Vault 내용을 새 서버로 가져오거나 푸시하세요.
+[`upgrade-notes-v1.0.md`](./upgrade-notes-v1.0.ko.md)를 참고하세요.
+
+Docker와 Kubernetes 배포는 컨테이너 이미지 태그를 풀하거나 바꾼 뒤 서비스나
+rollout을 재시작해 업그레이드하세요. 업그레이드 CLI는 컨테이너 환경을 감지하면
+나란히 배치되는 바이너리를 쓰는 대신 이미지 기반 안내를 출력합니다.
+
+### 자동 업그레이드(옵트인)
+
+위 두 경로는 모두 수동입니다. 관리자 패널에서 알림을 받고 클릭 한 번으로
+적용하는 — 손 대지 않는 업그레이드를 원한다면 **옵트인 업데이터**를 활성화하세요.
+서버 자체는 비특권 상태로 남습니다. "지금 업그레이드"를 누르면 데이터 디렉터리에
+`upgrade-request.json` 마커가 기록될 뿐이고, 별도의 특권 업데이터가 이를 적용하고
+서비스를 재시작하며, 새 버전이 헬스 체크에 실패하면 자동으로 롤백합니다. 둘 중
+하나를 활성화하기 전까지 새로 설치한 경우의 업그레이드는 위와 완전히 동일합니다.
+
+**systemd:** `deploy/updater/`에서 업데이트 스크립트와 unit을 설치합니다:
+
+```sh
+sudo install -m 0755 deploy/updater/pkv-sync-update.sh /usr/local/bin/
+sudo cp deploy/updater/pkv-sync-updater.service deploy/updater/pkv-sync-updater.path /etc/systemd/system/
+sudo systemctl enable --now pkv-sync-updater.path
+```
+
+root의 `pkv-sync-updater.path` unit이 마커를 감시하고 oneshot
+`pkv-sync-updater.service`를 실행합니다. 이 서비스는 릴리스 바이너리를 스테이징하고
+SHA-256으로 검증한 뒤 교체하고 `pkv-sync`를 재시작하며, 헬스 체크가 실패하면 이전
+바이너리로 롤백합니다. 비활성화는
+`sudo systemctl disable --now pkv-sync-updater.path`입니다.
+
+**Docker:** 함께 제공되는 updater 프로파일을 활성화합니다. Docker에는 범위가
+제한된 `docker-socket-proxy`를 통해서만 접근하며, `pkv-sync` 컨테이너 자체는 socket을
+받지 않습니다:
+
+```sh
+docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+```
+
+업데이터는 지정된 `X.Y.Z` 이미지를 풀하고 `pkv-sync`를 다시 만들고 헬스 체크하며,
+실패하면 이전 태그로 다시 고정합니다. 대안으로 [Watchtower](https://containrrr.dev/watchtower/)
+나 compose-updater 같은 서드파티 도구를 `pkv-sync` 컨테이너로 향하게 할 수도
+있지만, 이들은 클릭 한 번으로 지정한 고정 버전을 따르지 않고 일정에 따라
+`:latest`를 폴링한다는 점에 유의하세요.
+
+업그레이드 중에는 짧은 재시작 중단이 예상됩니다. 클라이언트는 자동으로 다시
+연결됩니다.
 
 ## 유지보수 체크리스트
 
