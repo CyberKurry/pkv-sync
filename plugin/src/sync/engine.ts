@@ -498,7 +498,12 @@ export class SyncEngine {
     // means the head must stay at the old base and the pull in ③ must cover
     // the merge range (audit H-1: advancing on all-clean left remote changes
     // permanently missed, since pull(since=new_commit) returns empty).
-      const merged = response.merge_outcomes !== undefined;
+    // Array.isArray rather than a !== undefined check (R2-9): this
+    // repository's server guarantees "absent or array" via
+    // skip_serializing_if, but a third-party implementation sending
+    // `"merge_outcomes": null` would otherwise be treated as auto-merged —
+    // holding the head back and forcing an extra pull round for nothing.
+      const merged = Array.isArray(response.merge_outcomes);
 
       if (!merged) {
       // Fast path (no auto-merge) — advance head immediately

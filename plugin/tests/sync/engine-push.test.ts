@@ -1120,6 +1120,73 @@ describe("SyncEngine push", () => {
     expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe("new");
   });
 
+  it("treats a null merge_outcomes field as no auto-merge (R2-9)", async () => {
+    // This repository's server guarantees "absent or array" via
+    // skip_serializing_if, but a third-party implementation sending
+    // `"merge_outcomes": null` must not be treated as auto-merged: the old
+    // `!== undefined` discriminator held the head at the old base and made
+    // the push path wait for a pull that had nothing to fetch — one wasted
+    // round and a delayed head advance per push.
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: "old",
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 3
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "a.md",
+        hash: "new",
+        size: 3,
+        kind: "text",
+        content: "new"
+      }
+    ]);
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockImplementation((_vaultId: string, since: string | null) => {
+        return Promise.resolve({
+          from: since,
+          to: since,
+          added: [],
+          modified: [],
+          deleted: []
+        });
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({
+        new_commit: "c1",
+        files_changed: 1,
+        // A third-party server serializes the field explicitly as null.
+        merge_outcomes: null
+      }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await engine.syncNow();
+
+    // Null is not an auto-merge: the fast path applies — head advances on
+    // the push itself and the pushed hash is recorded immediately.
+    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+    expect(idx.saved?.files["a.md"]?.lastSyncedHash).toBe("new");
+  });
+
   it("keeps the index entry for a delete the server rejected, so pull writes a conflict copy instead of resurrecting (M-11)", async () => {
     // Audit M-11: the local file x.md was deleted; the push carried the
     // delete, but the server rejected it (outcome "conflict" — remote had

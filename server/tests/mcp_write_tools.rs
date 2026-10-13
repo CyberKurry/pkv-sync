@@ -177,6 +177,62 @@ async fn write_file_succeeds_when_parent_matches_head() {
     );
 }
 
+/// L-9: a successful MCP write whose commit has landed must NOT be turned
+/// into an error by a later audit-trail failure — the commit is durable,
+/// and an error would invite the client to "compensate" with a delete or
+/// rewrite. The activity table is renamed for the duration so the audit
+/// INSERT fails deterministically while everything else works.
+#[tokio::test]
+async fn write_succeeds_even_when_activity_recording_fails() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-audit-fail").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "note.md", "old").await;
+
+    sqlx::query("ALTER TABLE sync_activity RENAME TO sync_activity_outage")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "note.md",
+            "content": "new",
+            "parent_commit": head
+        }),
+    )
+    .await;
+
+    sqlx::query("ALTER TABLE sync_activity_outage RENAME TO sync_activity")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    // The tool must report success: the commit is durable in git.
+    let structured = structured(&body);
+    assert!(
+        structured["commit"].is_string(),
+        "a landed commit must not be reported as failed, got: {body}"
+    );
+    let commit = structured["commit"].as_str().unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let file = git
+        .read_file(&vault.id, "note.md", Some(commit))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        file,
+        StoredFile::Text {
+            bytes: b"new".to_vec()
+        }
+    );
+}
+
 #[tokio::test]
 async fn write_file_returns_conflict_when_parent_stale() {
     let (state, _tmp) = test_state().await;

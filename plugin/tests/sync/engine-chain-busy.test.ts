@@ -183,8 +183,13 @@ describe("SyncEngine external syncNow vs in-flight event handler (M-12 follow-up
     // External syncNow (poll timer / rebuild kick) while the event task
     // holds the chain and activeSync === null.
     const external = engine.syncNow();
-    // Give the (buggy) inline path every chance to reach its pull.
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    // Deterministic window (T-5, replacing a wall-clock sleep): queueing
+    // the pass onto the chain is pure microtask work — a fixed number of
+    // microtask turns lets the (buggy) inline path run arbitrarily far
+    // (all the way to its first await) while the event write stays parked.
+    for (let i = 0; i < 10; i += 1) {
+      await Promise.resolve();
+    }
 
     // While the event is still parked, the external pass must NOT have
     // started applying anything: no pull call, no second vault op.
@@ -205,7 +210,10 @@ describe("SyncEngine external syncNow vs in-flight event handler (M-12 follow-up
     expect(eventParked).toBe(true);
   });
 
-  it("does not deadlock when an SSE fallback pass starts while an external pass is queued (M-12)", async () => {
+  it(
+    "does not deadlock when an SSE fallback pass starts while an external pass is queued (M-12)",
+    { timeout: 10_000 },
+    async () => {
     vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
     // The inverse interleave of the test above: an event handler runs a
     // fallback syncNow (nested, inline) AFTER an external syncNow has
@@ -306,13 +314,15 @@ describe("SyncEngine external syncNow vs in-flight event handler (M-12 follow-up
     writeGate.resolve();
 
     // Both must settle — the nested fallback may not await the queued
-    // external pass (that would never start under it).
-    await Promise.race([
+    // external pass (that would never start under it). The explicit test
+    // timeout (T-7) keeps the race decisive: under vitest's default 5s a
+    // real deadlock would surface as a bare timeout instead of this
+    // assertion's message.
+    const outcome = await Promise.race([
       Promise.all([external]).then(() => "settled"),
       new Promise((resolve) => setTimeout(() => resolve("deadlock"), 3_000))
-    ]).then((outcome) => {
-      expect(outcome).toBe("settled");
-    });
+    ]);
+    expect(outcome).toBe("settled");
     await vi.waitFor(() => {
       expect(vault.writes.get("x.md")).toBe(eventContent);
       expect(idx.idx.lastSyncedCommit).toBe("c1");

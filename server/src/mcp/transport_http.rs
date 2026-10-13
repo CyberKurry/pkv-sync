@@ -340,7 +340,7 @@ async fn get_mcp_sse(
         // from a position the server cannot interpret, so the first event
         // is the documented lagged signal (full resync) — never a plain
         // live stream that leaves the client believing it is caught up.
-        LastEventId::Invalid(_) => VecDeque::from([McpSseItem::Lagged { vault_id: None }]),
+        LastEventId::Invalid => VecDeque::from([McpSseItem::Lagged { vault_id: None }]),
         LastEventId::Commit(commit) => {
             match mcp_replay_events_after(&state, &vaults, &commit).await {
                 Ok((Some(events), unmatched_vaults)) => {
@@ -788,11 +788,10 @@ async fn run_listen_stream(mut listen: ListenState, tx: mpsc::Sender<Result<Even
 /// syntactically valid OID that replay will try to locate.
 enum LastEventId {
     Absent,
-    /// The offending value is carried for debuggability (matching the
-    /// audit's enum shape) but deliberately never echoed into any
-    /// response: the lagged contract carries no payload.
-    #[allow(dead_code)]
-    Invalid(String),
+    /// Carries no payload (R2-9): the offending value is deliberately
+    /// never echoed into any response — the lagged contract carries no
+    /// data — so a unit variant is all the arm needs.
+    Invalid,
     Commit(String),
 }
 
@@ -806,7 +805,7 @@ fn mcp_last_event_id(headers: &HeaderMap) -> LastEventId {
     if raw.len() == 40 && !raw.contains(':') && raw.bytes().all(|b| b.is_ascii_hexdigit()) {
         LastEventId::Commit(raw.to_string())
     } else {
-        LastEventId::Invalid(raw.to_string())
+        LastEventId::Invalid
     }
 }
 

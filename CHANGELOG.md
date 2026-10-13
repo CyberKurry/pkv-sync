@@ -38,6 +38,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Changed
 
+- Internal: the MCP auth-error and last-event-id enums dropped their
+  never-read payloads (two `#[allow(dead_code)]` removed); aborted plugin
+  sync passes no longer surface a false "sync failed" notice.
+
 - `GET /mcp` lag events now carry the affected vault id in the event data
   (still named `lagged`; previously empty): a live broadcast overflow names
   the vault that fell behind so multi-vault clients can resync just that
@@ -122,6 +126,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
     `npm audit --audit-level=moderate` reports 0 vulnerabilities.
 
 ### Fixed
+
+- A third-party server sending `"merge_outcomes": null` no longer makes the
+  plugin treat a push as auto-merged (the check now requires an array),
+  avoiding a needless extra pull round.
 
 - MCP token revalidation now distinguishes a transient database error from
   a revocation (R2-3): a failed lookup is no longer cached as "revoked"

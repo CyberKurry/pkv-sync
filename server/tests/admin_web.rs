@@ -18,8 +18,21 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use tower::ServiceExt;
 
+/// Tests reach the router through many one-shot helpers; holding each
+/// `TempDir` in the returned tuple would mean touching every call site, so
+/// they are parked here instead and cleaned up when the process exits
+/// (T-6: `.keep()` leaked one data directory per test forever).
+static TEMP_DIR_PARK: std::sync::Mutex<Vec<tempfile::TempDir>> = std::sync::Mutex::new(Vec::new());
+
+fn parked_tempdir() -> std::path::PathBuf {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_path_buf();
+    TEMP_DIR_PARK.lock().unwrap().push(dir);
+    path
+}
+
 async fn app_with_state() -> (Router, AppState) {
-    let data_dir = tempfile::tempdir().unwrap().keep();
+    let data_dir = parked_tempdir();
     let db_path = data_dir.join("metadata.db");
     let pool = pool::connect(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
@@ -88,7 +101,7 @@ async fn read_body(resp: Response<Body>) -> String {
 /// Same as `app_with_state` but with `public_host` unset — the H-5 default
 /// deployment where CSRF fails closed for admin POSTs.
 async fn app_with_state_no_public_host() -> (Router, AppState) {
-    let data_dir = tempfile::tempdir().unwrap().keep();
+    let data_dir = parked_tempdir();
     let db_path = data_dir.join("metadata.db");
     let pool = pool::connect(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
@@ -1649,7 +1662,7 @@ async fn self_disable_returns_admin_html_error() {
 /// refuses to start for non-loopback binds in that state, so the router
 /// test pins the loopback case, which is the supported deployment.
 async fn hatch_app() -> (Router, AppState) {
-    let data_dir = tempfile::tempdir().unwrap().keep();
+    let data_dir = parked_tempdir();
     let db_path = data_dir.join("metadata.db");
     let pool = pool::connect(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();

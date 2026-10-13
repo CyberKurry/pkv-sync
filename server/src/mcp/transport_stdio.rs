@@ -477,10 +477,11 @@ pub(crate) async fn authenticate_token(
             reservation.success();
             Ok(user)
         }
-        // The credential-error payload is deliberately dropped: its wording
-        // distinguishes "invalid format" from "revoked", and none of it may
-        // reach the caller — only GENERIC_MCP_AUTH_ERROR is returned.
-        Err(AuthErr::Credential(_)) => {
+        // The credential rejection path deliberately carries no payload:
+        // its wording would distinguish "invalid format" from "revoked",
+        // and none of it may reach the caller — only
+        // GENERIC_MCP_AUTH_ERROR is returned.
+        Err(AuthErr::Credential) => {
             reservation.failure();
             Err(anyhow!(GENERIC_MCP_AUTH_ERROR))
         }
@@ -494,11 +495,12 @@ pub(crate) async fn authenticate_token(
 
 enum AuthErr {
     /// The internal rejection reason (bad format, revoked, disabled, user
-    /// gone) is recorded at construction but deliberately never read: the
-    /// caller only ever surfaces `GENERIC_MCP_AUTH_ERROR`, and logging it
-    /// would put caller-controlled noise in the log. Dropped by pattern in
-    /// `authenticate_token`, so no `let _ = err;` statement is needed.
-    Credential(#[allow(dead_code)] anyhow::Error),
+    /// gone) is deliberately never surfaced: the caller only ever returns
+    /// `GENERIC_MCP_AUTH_ERROR`, and logging the reason would put
+    /// caller-controlled noise in the log. A unit variant — nothing is
+    /// carried, so nothing can leak — matching `BasicAuthErr::Credential`
+    /// in the git-http transport (R2-9).
+    Credential,
     Internal(anyhow::Error),
 }
 
@@ -507,7 +509,7 @@ async fn authenticate_token_inner(
     token_raw: &str,
 ) -> std::result::Result<AuthenticatedUser, AuthErr> {
     if !token::looks_valid(token_raw) {
-        return Err(AuthErr::Credential(anyhow!("invalid token format")));
+        return Err(AuthErr::Credential);
     }
     let token_hash = token::hash(token_raw);
     let (row, user_id) = state
@@ -515,15 +517,15 @@ async fn authenticate_token_inner(
         .find_by_hash(&token_hash)
         .await
         .map_err(|err| AuthErr::Internal(anyhow!(err)))?
-        .ok_or_else(|| AuthErr::Credential(anyhow!("invalid or revoked token")))?;
+        .ok_or(AuthErr::Credential)?;
     let user = state
         .users
         .find_by_id(&user_id)
         .await
         .map_err(|err| AuthErr::Internal(anyhow!(err)))?
-        .ok_or_else(|| AuthErr::Credential(anyhow!("user no longer exists")))?;
+        .ok_or(AuthErr::Credential)?;
     if !user.is_active {
-        return Err(AuthErr::Credential(anyhow!("account disabled")));
+        return Err(AuthErr::Credential);
     }
     let _ = state
         .tokens

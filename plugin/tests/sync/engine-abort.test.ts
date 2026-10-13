@@ -415,8 +415,14 @@ describe("SyncEngine abort (M-10)", () => {
       generationAtCapture = plugin.syncGeneration - 1;
       orchestrator.rebuild();
       gate.resolve();
-      // Let both in-flight passes settle.
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Deterministic settle (T-5, replacing a wall-clock sleep): the
+      // replacement generation kicks its own syncNow in rebuild(), and that
+      // pass queues on the new engine's chain BEHIND nothing — so once a
+      // SECOND pull call is observed, the old generation's aborted pass has
+      // fully unwound (its gate was resolved before this wait started, and
+      // its chain task rejected and settled within the same microtask
+      // queue the waitFor drains).
+      await vi.waitFor(() => expect(pullCalls).toBeGreaterThanOrEqual(2));
 
       // The aborted OLD generation (gen1) performed NO mutating vault
       // operation on the pulled content (scans are read-only) — only the
@@ -744,7 +750,12 @@ describe("SyncEngine abort (M-10)", () => {
 
     engine.abort();
     gate.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    // Deterministic settle (T-5, replacing a wall-clock sleep): a syncNow
+    // queues BEHIND the aborted event task on the same serialised chain,
+    // and an aborted engine's syncInner returns before its first
+    // setStatus/pull — so when this resolves, the event task (including
+    // its catch path) has fully settled.
+    await engine.syncNow();
 
     expect(vault.writes.size).toBe(0);
     expect(idx.idx.files["x.md"]?.lastSyncedHash).toBe(
@@ -828,7 +839,9 @@ describe("SyncEngine abort (M-10)", () => {
 
     engine.abort();
     gate.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    // Deterministic settle (T-5, replacing a wall-clock sleep): the queued
+    // syncNow runs only after the aborted event task has left the chain.
+    await engine.syncNow();
 
     expect(vault.deletions).toEqual([]);
     expect(vault.exists("doomed.md")).toBe(true);
