@@ -176,9 +176,20 @@ describe("SyncEngine SSE/syncNow interleave (M-12)", () => {
       at: 1_700_000_001,
       changes: [{ kind: "text_inline", path: "x.md", content: contentC5 }]
     });
-    // Let the event chain settle while the pass is still parked. Pre-fix,
-    // both events fully land here (vault at C5, head at c5).
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    // Give the queued event work every chance to run while the pass is
+    // parked, without leaning on a wall clock (R3-11): macrotask turns flush
+    // the chain and any async work it awaits, so a loaded runner cannot make
+    // the assertion below go green merely by not having scheduled the events
+    // yet. The intermediate state is asserted on purpose — it is the state
+    // the whole scenario depends on, and it was previously left implicit.
+    for (let turn = 0; turn < 50; turn++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    // Pre-fix the mutex did not exist, so both events fully landed here
+    // (vault at C5, head at c5). With the shared mutex the queued events are
+    // still blocked behind the parked pass and nothing has landed.
+    expect(vault.writes.get("x.md")).toBeUndefined();
+    expect(idx.idx.lastSyncedCommit).toBe("c3");
     // Release the parked pull. Pre-fix it then overwrote C5 with the stale
     // C4 diff; with the shared mutex the queued events only run AFTER the
     // pass completes (C4 first, then C5 re-applied on top).
