@@ -68,6 +68,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
   without a word — the invisible divergence the `lagged` contract exists to
   prevent. The `Missing`/`Unknown` split is kept for logging (the latter now
   warns), but both take the resync direction.
+- Server (MCP): a stdio session can no longer keep its listen subscriptions
+  alive indefinitely while the token store is unreachable. The transient
+  tolerance that used to be unlimited is now capped at 600 drain ticks
+  (~30s): past it the session is treated as no longer valid, so an actually
+  revoked session stops receiving pushes instead of riding out the outage.
 
 ## [1.6.0] - 2026-10-12
 

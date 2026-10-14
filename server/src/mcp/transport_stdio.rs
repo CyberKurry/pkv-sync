@@ -22,6 +22,20 @@ const INVALID_TOOL_ARGUMENTS: &str = "invalid params: arguments must be an objec
 
 const LISTEN_DRAIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 
+/// How long a stdio session may keep its listen subscriptions while the token
+/// check cannot reach the database (R3-8), expressed in drain ticks: the run
+/// loop drives `drain_listens` once per `LISTEN_DRAIN_INTERVAL`, so 600 ticks
+/// is about 30 seconds.
+///
+/// R2-3 stopped one database hiccup from permanently silencing a *valid*
+/// session by keeping the subscriptions and retrying. Kept unbounded, that
+/// same tolerance became an open-ended fail-open: any `sqlx::Error` — down to
+/// a self-healing `database is locked` — let a session that is in fact
+/// revoked keep every subscription alive for as long as the error lasted.
+/// Counting ticks rather than reading a clock keeps the bound exact under
+/// scheduling delays and directly testable.
+const TRANSIENT_TOKEN_MAX_TICKS: u32 = 600;
+
 pub struct StdioSession {
     state: AppState,
     user: AuthenticatedUser,
@@ -34,6 +48,11 @@ pub struct StdioSession {
     /// tick. Set on the transition into a transient streak, cleared the next
     /// time the token check answers.
     transient_token_check_reported: std::sync::atomic::AtomicBool,
+    /// `Transient` answers seen back to back since the last real answer
+    /// (R3-8), bounded by `transient_token_max_ticks`.
+    transient_token_ticks: std::sync::atomic::AtomicU32,
+    /// Tolerance for `transient_token_ticks`; overridable in tests.
+    transient_token_max_ticks: std::sync::atomic::AtomicU32,
 }
 
 struct ListenEntry {
@@ -89,7 +108,16 @@ impl StdioSession {
             validity_cache: Mutex::new(TokenValidityCache::default()),
             listens: Mutex::new(HashMap::new()),
             transient_token_check_reported: std::sync::atomic::AtomicBool::new(false),
+            transient_token_ticks: std::sync::atomic::AtomicU32::new(0),
+            transient_token_max_ticks: std::sync::atomic::AtomicU32::new(TRANSIENT_TOKEN_MAX_TICKS),
         })
+    }
+
+    /// Test seam (R3-8): shrink the transient tolerance so a test can reach
+    /// the terminal transition without draining six hundred times.
+    pub fn set_transient_token_max_ticks_for_tests(&self, ticks: u32) {
+        self.transient_token_max_ticks
+            .store(ticks, std::sync::atomic::Ordering::Release);
     }
 
     /// Recheck the session token (revocation / expiry / disabled account)
@@ -99,6 +127,15 @@ impl StdioSession {
     /// and would otherwise keep pushing to a revoked session until EOF.
     async fn token_still_valid(&self) -> bool {
         matches!(self.token_validity().await, TokenValidity::Valid)
+    }
+
+    /// Forgets the current transient streak: the token check produced an
+    /// answer, so the next outage opens its own tolerance window (R3-8).
+    fn clear_transient_token_streak(&self) {
+        self.transient_token_ticks
+            .store(0, std::sync::atomic::Ordering::Release);
+        self.transient_token_check_reported
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Same recheck, but with the transient/terminal distinction the drain
@@ -237,61 +274,85 @@ impl StdioSession {
         // receiving pushes until EOF). One check per drain covers every
         // entry; the 5s validity cache keeps the cost negligible on the
         // 50ms tick.
-        match self.token_validity().await {
+        let terminal = match self.token_validity().await {
             TokenValidity::Valid => {
-                self.transient_token_check_reported
-                    .store(false, std::sync::atomic::Ordering::Relaxed);
+                self.clear_transient_token_streak();
+                false
             }
-            TokenValidity::Revoked => {
-                // Terminal. The subscription cannot be served any more, and
-                // silence would leave the client believing it is still
-                // subscribed (stdio has no channel close to lean on), so the
-                // client gets one `notifications/resources/dropped` per
-                // active listen — the same "you missed events, re-read the
-                // resource" vocabulary the lagged path already uses — before
-                // the registry is cleared.
-                let mut listens = self.listens.lock().await;
-                let lines: Vec<String> = listens
-                    .values()
-                    .map(|entry| {
-                        serde_json::to_string(&crate::mcp::notifications::resources_dropped(
-                            &entry.vault_id,
-                            &entry.id,
-                        ))
-                        .unwrap_or_default()
-                    })
-                    .collect();
-                let dropped = listens.len();
-                listens.clear();
-                drop(listens);
-                for line in lines {
-                    let _ = tx.send(line).await;
-                }
-                if dropped > 0 {
-                    tracing::warn!(
-                        vault_id = %self.vault_id,
-                        subscriptions = dropped,
-                        "stdio session token is no longer valid; dropped its listen subscriptions"
-                    );
-                }
-                return;
-            }
+            TokenValidity::Revoked => true,
             TokenValidity::Transient => {
                 // The database did not answer, so nothing is known about the
                 // token: keep every listen and retry on the next tick.
                 // Clearing here (pre-R2-3) turned one database hiccup into a
                 // permanently silent session.
-                if !self
-                    .transient_token_check_reported
-                    .swap(true, std::sync::atomic::Ordering::Relaxed)
+                let ticks = self
+                    .transient_token_ticks
+                    .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+                    + 1;
+                if ticks
+                    <= self
+                        .transient_token_max_ticks
+                        .load(std::sync::atomic::Ordering::Acquire)
                 {
-                    tracing::warn!(
-                        vault_id = %self.vault_id,
-                        "token revalidation hit a transient database error; keeping listen subscriptions and retrying"
-                    );
+                    if !self
+                        .transient_token_check_reported
+                        .swap(true, std::sync::atomic::Ordering::Relaxed)
+                    {
+                        tracing::warn!(
+                            vault_id = %self.vault_id,
+                            "token revalidation hit a transient database error; keeping listen subscriptions and retrying"
+                        );
+                    }
+                    return;
                 }
-                return;
+                // The tolerance is bounded (R3-8): an outage that outlasts it
+                // is indistinguishable from a revocation as far as this
+                // session is concerned, and keeping the subscriptions alive
+                // indefinitely would let a session that is in fact revoked go
+                // on receiving pushes for as long as the error lasts.
+                tracing::warn!(
+                    vault_id = %self.vault_id,
+                    ticks,
+                    "token revalidation failed for the whole tolerance window; treating the session as no longer valid"
+                );
+                true
             }
+        };
+        if terminal {
+            // Terminal. The subscription cannot be served any more, and
+            // silence would leave the client believing it is still
+            // subscribed (stdio has no channel close to lean on), so the
+            // client gets one `notifications/resources/dropped` per
+            // active listen — the same "you missed events, re-read the
+            // resource" vocabulary the lagged path already uses — before
+            // the registry is cleared. The re-read is expected to fail with
+            // a 401 rather than return data, which is exactly the truth the
+            // client needs; the alternative (silence) would hide it.
+            let mut listens = self.listens.lock().await;
+            let lines: Vec<String> = listens
+                .values()
+                .map(|entry| {
+                    serde_json::to_string(&crate::mcp::notifications::resources_dropped(
+                        &entry.vault_id,
+                        &entry.id,
+                    ))
+                    .unwrap_or_default()
+                })
+                .collect();
+            let dropped = listens.len();
+            listens.clear();
+            drop(listens);
+            for line in lines {
+                let _ = tx.send(line).await;
+            }
+            if dropped > 0 {
+                tracing::warn!(
+                    vault_id = %self.vault_id,
+                    subscriptions = dropped,
+                    "stdio session token is no longer valid; dropped its listen subscriptions"
+                );
+            }
+            return;
         }
         let mut listens = self.listens.lock().await;
         let mut lines = Vec::new();

@@ -878,6 +878,84 @@ async fn stdio_drain_listens_survives_transient_token_lookup_errors() {
 }
 
 #[tokio::test]
+async fn stdio_drain_listens_bounds_a_transient_token_outage() {
+    // R3-8: the R2-3 tolerance is bounded. While the database is unreachable
+    // a revoked session is indistinguishable from a valid one, so an
+    // uncapped retry loop kept every subscription alive for as long as the
+    // error lasted — an open-ended fail-open for exactly the session that
+    // should have been cut off. The two ticks below prove R2-3's guarantee
+    // survives (nothing is dropped inside the tolerance); the third proves
+    // the cap closes it.
+    let (state, _tmp) = test_state().await;
+    let (user_id, raw) = create_user_with_token(&state, "stdio-drain-outage-cap").await;
+    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+    let vault_id = vault.id.clone();
+    let session = StdioSession::authenticate(state.clone(), vault.id, raw.clone())
+        .await
+        .unwrap();
+    session.set_transient_token_max_ticks_for_tests(2);
+    let scoped = format!("pkv://vault/{vault_id}");
+
+    let (tx, mut rx) = mpsc::channel::<String>(16);
+    let mut tx = tx;
+    session
+        .pump(
+            &listen_request(json!(31), vec![scoped.as_str()]).to_string(),
+            &mut tx,
+        )
+        .await;
+    let _ack: Value = serde_json::from_str(&rx.recv().await.unwrap()).unwrap();
+
+    // The session really is revoked...
+    let (token_row, _) = state
+        .tokens
+        .find_by_hash(&token::hash(&raw))
+        .await
+        .unwrap()
+        .unwrap();
+    state
+        .tokens
+        .revoke(&token_row.id, chrono::Utc::now().timestamp())
+        .await
+        .unwrap();
+    // ...but the drain cannot see it: the lookup table is gone. Revoking
+    // another user's token bumps the global token epoch, so the 5s validity
+    // cache cannot answer from its stale `Valid` entry.
+    let (other_id, _other_raw) = create_user_with_token(&state, "stdio-drain-cap-other").await;
+    state
+        .tokens
+        .revoke_all_for_user(&other_id, chrono::Utc::now().timestamp(), None)
+        .await
+        .unwrap();
+    sqlx::query("ALTER TABLE tokens RENAME TO tokens_outage_cap")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    // Inside the tolerance nothing is dropped and no listen is cleared.
+    session.drain_listens(&mut tx).await;
+    session.drain_listens(&mut tx).await;
+    assert_no_line(&mut rx, 200).await;
+
+    // The next tick exceeds it: the session is treated as no longer valid,
+    // so the active listen gets its dropped marker and the registry clears
+    // instead of holding the subscription open for the whole outage.
+    session.drain_listens(&mut tx).await;
+    let dropped = expect_line(&mut rx, "terminal notice once the tolerance is exceeded").await;
+    assert_eq!(dropped["method"], "notifications/resources/dropped");
+    assert_eq!(dropped["params"]["uri"], scoped);
+    assert_eq!(
+        dropped["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"],
+        31
+    );
+
+    // And it stays cleared: a commit after the cap reaches no listener.
+    commit_and_broadcast(&state, &user_id, &vault_id, "after-cap").await;
+    session.drain_listens(&mut tx).await;
+    assert_no_line(&mut rx, 150).await;
+}
+
+#[tokio::test]
 async fn stdio_listen_lagged_broadcast_emits_resources_dropped() {
     let (session, state, _user_id, vault_id, _tmp) = session_with_vault("stdio-listen-lag").await;
     let scoped = format!("pkv://vault/{vault_id}");
