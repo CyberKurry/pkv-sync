@@ -18,21 +18,16 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use tower::ServiceExt;
 
-/// Tests reach the router through many one-shot helpers; holding each
-/// `TempDir` in the returned tuple would mean touching every call site, so
-/// they are parked here instead and cleaned up when the process exits
-/// (T-6: `.keep()` leaked one data directory per test forever).
-static TEMP_DIR_PARK: std::sync::Mutex<Vec<tempfile::TempDir>> = std::sync::Mutex::new(Vec::new());
+// Tests reach the router through a few one-shot helpers. Each helper hands
+// its `TempDir` back to the caller instead of parking it in a `static`
+// (R3-4): Rust never runs destructors for statics, so a parked `TempDir` is
+// never deleted — the same disk leak as the `.keep()` it replaced (T-6),
+// just hidden one level down. Bound at the call site, it is dropped (and the
+// data directory removed) when the test ends.
 
-fn parked_tempdir() -> std::path::PathBuf {
+async fn app_with_state() -> (Router, AppState, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().to_path_buf();
-    TEMP_DIR_PARK.lock().unwrap().push(dir);
-    path
-}
-
-async fn app_with_state() -> (Router, AppState) {
-    let data_dir = parked_tempdir();
+    let data_dir = dir.path().to_path_buf();
     let db_path = data_dir.join("metadata.db");
     let pool = pool::connect(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
@@ -71,11 +66,12 @@ async fn app_with_state() -> (Router, AppState) {
         admin: Default::default(),
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
-    (server::build_app(state.clone(), &cfg, limiter), state)
+    (server::build_app(state.clone(), &cfg, limiter), state, dir)
 }
 
-async fn app() -> Router {
-    app_with_state().await.0
+async fn app() -> (Router, tempfile::TempDir) {
+    let (router, _state, dir) = app_with_state().await;
+    (router, dir)
 }
 
 fn request(method: Method, uri: &str, body: Body) -> Request<Body> {
@@ -100,8 +96,9 @@ async fn read_body(resp: Response<Body>) -> String {
 
 /// Same as `app_with_state` but with `public_host` unset — the H-5 default
 /// deployment where CSRF fails closed for admin POSTs.
-async fn app_with_state_no_public_host() -> (Router, AppState) {
-    let data_dir = parked_tempdir();
+async fn app_with_state_no_public_host() -> (Router, AppState, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().to_path_buf();
     let db_path = data_dir.join("metadata.db");
     let pool = pool::connect(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
@@ -136,7 +133,7 @@ async fn app_with_state_no_public_host() -> (Router, AppState) {
         admin: Default::default(),
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
-    (server::build_app(state.clone(), &cfg, limiter), state)
+    (server::build_app(state.clone(), &cfg, limiter), state, dir)
 }
 
 fn set_form_origin(req: &mut Request<Body>) {
@@ -240,8 +237,8 @@ fn token_fingerprint(id: &str) -> String {
 
 #[tokio::test]
 async fn login_page_renders_without_api_headers() {
-    let resp = app()
-        .await
+    let (app, _dir) = app().await;
+    let resp = app
         .oneshot(request(Method::GET, "/admin/login", Body::empty()))
         .await
         .unwrap();
@@ -252,8 +249,8 @@ async fn login_page_renders_without_api_headers() {
 
 #[tokio::test]
 async fn lucide_icon_sprite_is_served_without_session() {
-    let resp = app()
-        .await
+    let (app, _dir) = app().await;
+    let resp = app
         .oneshot(request(
             Method::GET,
             "/admin/static/lucide-icons.svg",
@@ -276,7 +273,8 @@ async fn login_page_follows_accept_language() {
     let mut req = request(Method::GET, "/admin/login", Body::empty());
     req.headers_mut()
         .insert(header::ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9".parse().unwrap());
-    let resp = app().await.oneshot(req).await.unwrap();
+    let (app, _dir) = app().await;
+    let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let body = read_body(resp).await;
     assert!(body.contains("登录"));
@@ -285,7 +283,7 @@ async fn login_page_follows_accept_language() {
 
 #[tokio::test]
 async fn language_switch_sets_cookie() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
     let mut req = request(
         Method::GET,
@@ -311,7 +309,7 @@ async fn language_switch_sets_cookie() {
 
 #[tokio::test]
 async fn language_switch_rejects_dot_segment_next() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
     let mut req = request(
         Method::GET,
@@ -327,7 +325,7 @@ async fn language_switch_rejects_dot_segment_next() {
 
 #[tokio::test]
 async fn language_switch_requires_admin_session() {
-    let app = app().await;
+    let (app, _dir) = app().await;
 
     for uri in [
         "/admin/language/zh-CN?next=/admin/login",
@@ -352,7 +350,7 @@ async fn language_switch_requires_admin_session() {
 
 #[tokio::test]
 async fn admin_can_create_device_token_and_plaintext_is_one_time() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
     let user_id = first_admin_user_id(&app, &session_cookie).await;
 
@@ -396,7 +394,7 @@ async fn admin_can_create_device_token_and_plaintext_is_one_time() {
 
 #[tokio::test]
 async fn user_detail_shows_real_vault_count_and_last_sync() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let user_id = first_admin_user_id(&app, &session_cookie).await;
     let vault = state.vaults.create(&user_id, "notes").await.unwrap();
@@ -424,7 +422,7 @@ async fn user_detail_shows_real_vault_count_and_last_sync() {
 
 #[tokio::test]
 async fn admin_create_device_token_rejects_control_characters() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
     let user_id = first_admin_user_id(&app, &session_cookie).await;
 
@@ -450,7 +448,7 @@ async fn admin_create_device_token_rejects_control_characters() {
 
 #[tokio::test]
 async fn admin_can_manage_device_tokens_from_devices_page() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
     let user_id = first_admin_user_id(&app, &session_cookie).await;
 
@@ -500,7 +498,7 @@ async fn admin_can_manage_device_tokens_from_devices_page() {
 
 #[tokio::test]
 async fn devices_page_limits_display_without_limiting_revoke_lookup() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let user_id = first_admin_user_id(&app, &session_cookie).await;
     let oldest_id = "oldestAA000000000000000000000001";
@@ -568,7 +566,7 @@ async fn devices_page_limits_display_without_limiting_revoke_lookup() {
 
 #[tokio::test]
 async fn admin_can_manage_vaults() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
     let user_id = first_admin_user_id(&app, &session_cookie).await;
 
@@ -652,7 +650,7 @@ async fn admin_can_manage_vaults() {
 
 #[tokio::test]
 async fn admin_can_browse_vault_files_history_and_diff_read_only() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let admin_id = first_admin_user_id(&app, &session_cookie).await;
     let vault = pkv_sync_server::service::vault::create_vault(&state, &admin_id, "main")
@@ -805,7 +803,7 @@ async fn admin_can_browse_vault_files_history_and_diff_read_only() {
 
 #[tokio::test]
 async fn admin_vault_file_bad_commit_hides_git_error() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let admin_id = first_admin_user_id(&app, &session_cookie).await;
     let vault = pkv_sync_server::service::vault::create_vault(&state, &admin_id, "main")
@@ -851,7 +849,7 @@ async fn admin_vault_file_bad_commit_hides_git_error() {
 
 #[tokio::test]
 async fn admin_history_and_diff_routes_follow_runtime_flags() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let admin_id = first_admin_user_id(&app, &session_cookie).await;
     let vault = pkv_sync_server::service::vault::create_vault(&state, &admin_id, "main")
@@ -991,8 +989,8 @@ async fn admin_history_and_diff_routes_follow_runtime_flags() {
 
 #[tokio::test]
 async fn api_routes_still_require_plugin_headers() {
-    let resp = app()
-        .await
+    let (app, _dir) = app().await;
+    let resp = app
         .oneshot(request(Method::GET, "/api/config", Body::empty()))
         .await
         .unwrap();
@@ -1001,8 +999,8 @@ async fn api_routes_still_require_plugin_headers() {
 
 #[tokio::test]
 async fn dashboard_requires_session() {
-    let resp = app()
-        .await
+    let (app, _dir) = app().await;
+    let resp = app
         .oneshot(request(Method::GET, "/admin", Body::empty()))
         .await
         .unwrap();
@@ -1011,8 +1009,8 @@ async fn dashboard_requires_session() {
 
 #[tokio::test]
 async fn login_page_does_not_prefill_username_from_query() {
-    let resp = app()
-        .await
+    let (app, _dir) = app().await;
+    let resp = app
         .oneshot(request(
             Method::GET,
             "/admin/login?u=leaked-admin",
@@ -1027,7 +1025,7 @@ async fn login_page_does_not_prefill_username_from_query() {
 
 #[tokio::test]
 async fn dashboard_rejects_disabled_admin_session_like_missing_session() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let admin = state
         .users
         .list()
@@ -1053,7 +1051,7 @@ async fn dashboard_rejects_disabled_admin_session_like_missing_session() {
 
 #[tokio::test]
 async fn dashboard_rejects_non_admin_session_like_missing_session() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let user = state
         .users
         .create(NewUser {
@@ -1079,7 +1077,7 @@ async fn dashboard_rejects_non_admin_session_like_missing_session() {
 
 #[tokio::test]
 async fn self_demote_deletes_current_admin_sessions() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let first_admin_id = first_admin_user_id(&app, &session_cookie).await;
     state
@@ -1119,7 +1117,7 @@ async fn self_demote_deletes_current_admin_sessions() {
 
 #[tokio::test]
 async fn password_reset_deletes_target_admin_sessions() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let target = state
         .users
@@ -1161,7 +1159,7 @@ async fn password_reset_deletes_target_admin_sessions() {
 
 #[tokio::test]
 async fn login_success_sets_cookie_and_allows_dashboard() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
 
     let mut dashboard_req = request(Method::GET, "/admin", Body::empty());
@@ -1178,7 +1176,7 @@ async fn login_success_sets_cookie_and_allows_dashboard() {
 
 #[tokio::test]
 async fn dashboard_header_does_not_render_inert_search() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
 
     let mut dashboard_req = request(Method::GET, "/admin", Body::empty());
@@ -1195,7 +1193,7 @@ async fn dashboard_header_does_not_render_inert_search() {
 
 #[tokio::test]
 async fn invites_page_accepts_human_expiry_and_shows_created_invite() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
     let expires = (chrono::Utc::now() + chrono::Duration::days(3))
         .format("%Y-%m-%dT%H:%M")
@@ -1232,7 +1230,7 @@ async fn invites_page_accepts_human_expiry_and_shows_created_invite() {
 
 #[tokio::test]
 async fn users_page_search_and_status_filter_are_applied() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let bob = state
         .users
@@ -1274,7 +1272,7 @@ async fn users_page_search_and_status_filter_are_applied() {
 
 #[tokio::test]
 async fn settings_update_applies_live_login_limiter() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
 
     let mut settings_req = request(
@@ -1306,7 +1304,7 @@ async fn settings_update_applies_live_login_limiter() {
 
 #[tokio::test]
 async fn settings_page_and_post_manage_update_check_runtime_config() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
 
     let mut page_req = request(Method::GET, "/admin/settings", Body::empty());
@@ -1348,7 +1346,7 @@ async fn settings_page_and_post_manage_update_check_runtime_config() {
 
 #[tokio::test]
 async fn settings_page_uses_standard_panel_headers_for_sections() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
 
     let mut page_req = request(Method::GET, "/admin/settings", Body::empty());
@@ -1379,7 +1377,7 @@ async fn settings_page_uses_standard_panel_headers_for_sections() {
 
 #[tokio::test]
 async fn settings_post_rejects_update_check_interval_below_one_minute() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
 
     let mut settings_req = request(
@@ -1411,7 +1409,7 @@ async fn settings_post_rejects_update_check_interval_below_one_minute() {
 
 #[tokio::test]
 async fn protected_admin_post_requires_same_origin() {
-    let app = app().await;
+    let (app, _dir) = app().await;
     let session_cookie = login_cookie(&app).await;
 
     let mut missing_origin = request(Method::POST, "/admin/gc", Body::empty());
@@ -1432,7 +1430,7 @@ async fn protected_admin_post_requires_same_origin() {
 
 #[tokio::test]
 async fn activity_page_filters_by_user_and_action() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let admin_id = first_admin_user_id(&app, &session_cookie).await;
     let bob = state
@@ -1496,7 +1494,7 @@ async fn activity_page_filters_by_user_and_action() {
 
 #[tokio::test]
 async fn activity_page_masks_client_ips_and_limits_recent_rows() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let admin_id = first_admin_user_id(&app, &session_cookie).await;
 
@@ -1541,7 +1539,7 @@ async fn activity_page_masks_client_ips_and_limits_recent_rows() {
 
 #[tokio::test]
 async fn user_detail_token_revoke_requires_token_to_belong_to_path_user() {
-    let (app, state) = app_with_state().await;
+    let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let admin_id = first_admin_user_id(&app, &session_cookie).await;
     let bob = state
@@ -1583,7 +1581,7 @@ async fn user_detail_token_revoke_requires_token_to_belong_to_path_user() {
 
 #[tokio::test]
 async fn last_admin_demote_returns_admin_html_error() {
-    let (app, _state) = app_with_state().await;
+    let (app, _state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let admin_id = first_admin_user_id(&app, &session_cookie).await;
 
@@ -1619,7 +1617,7 @@ async fn last_admin_demote_returns_admin_html_error() {
 
 #[tokio::test]
 async fn self_disable_returns_admin_html_error() {
-    let (app, _state) = app_with_state().await;
+    let (app, _state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;
     let admin_id = first_admin_user_id(&app, &session_cookie).await;
 
@@ -1661,8 +1659,9 @@ async fn self_disable_returns_admin_html_error() {
 /// allow_insecure_admin` semantics: no public_host + hatch on. The server
 /// refuses to start for non-loopback binds in that state, so the router
 /// test pins the loopback case, which is the supported deployment.
-async fn hatch_app() -> (Router, AppState) {
-    let data_dir = parked_tempdir();
+async fn hatch_app() -> (Router, AppState, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().to_path_buf();
     let db_path = data_dir.join("metadata.db");
     let pool = pool::connect(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
@@ -1699,7 +1698,7 @@ async fn hatch_app() -> (Router, AppState) {
         },
     };
     let limiter = LoginRateLimiter::new(10, Duration::from_secs(900), Duration::from_secs(900));
-    (server::build_app(state.clone(), &cfg, limiter), state)
+    (server::build_app(state.clone(), &cfg, limiter), state, dir)
 }
 
 async fn login_cookie_without_origin(app: &Router) -> String {
@@ -1739,7 +1738,7 @@ async fn login_cookie_without_origin(app: &Router) -> String {
 /// "csrf validation failed" out of the box, making the admin UI unusable).
 #[tokio::test]
 async fn hatch_allows_admin_post_without_origin_when_public_host_unset() {
-    let (app, state) = hatch_app().await;
+    let (app, state, _dir) = hatch_app().await;
     let session_cookie = login_cookie_without_origin(&app).await;
 
     let mut req = request(
@@ -1773,7 +1772,7 @@ async fn hatch_allows_admin_post_without_origin_when_public_host_unset() {
 /// the current behavior and must not regress.
 #[tokio::test]
 async fn no_hatch_admin_post_without_origin_still_403() {
-    let (app, _state) = app_with_state_no_public_host().await;
+    let (app, _state, _dir) = app_with_state_no_public_host().await;
     let session_cookie = login_cookie_without_origin(&app).await;
 
     let mut req = request(
@@ -1799,7 +1798,7 @@ async fn no_hatch_admin_post_without_origin_still_403() {
 /// `secure` on.
 #[tokio::test]
 async fn hatch_keeps_session_cookie_without_secure_flag() {
-    let (app, _state) = hatch_app().await;
+    let (app, _state, _dir) = hatch_app().await;
     let (csrf, csrf_cookie) = login_csrf(&app).await;
     let mut login_req = request(
         Method::POST,
