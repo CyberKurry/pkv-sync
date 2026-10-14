@@ -24,9 +24,11 @@ import * as ts from "typescript";
  *      classes (this is how the engine method slipped through: a class
  *      METHOD, invisible to any top-level scan).
  *   2. For each name, look for a non-definition occurrence:
- *        a. in the DECLARING file with the declaration's own statement
- *           blanked out (an internal consumer — types used by other
- *           exported signatures, constants used by other functions), or
+ *        a. in the DECLARING file with EVERY declaration of that name blanked
+ *           out (an internal consumer — types used by other exported
+ *           signatures, constants used by other functions). Masking all
+ *           same-named declarations, not just one, is what keeps a twin from
+ *           vouching for a dead member (R3-9), or
  *        b. in any OTHER file under `src/` or `tests/`.
  *      Comments are stripped before matching, so a name mentioned only in
  *      prose does not count as usage (this file is excluded from its own
@@ -100,6 +102,20 @@ function collectExports(): CollectedExport[] {
   for (const file of walk(srcRoot)) {
     const text = readFileSync(file, "utf8");
     const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.ES2020, true);
+    // Every declaration in this file that introduces `name`, so masking
+    // blanks all of them at once (R3-9). Blanking only the entry under test
+    // left a same-named twin behind for the `\bname\b` probe to match: two
+    // classes in one file may each declare `render`, and a method may have
+    // overload signatures, so a genuinely dead member looked used because its
+    // twin satisfied the regex. Masking the whole name is the correct
+    // semantics — overload signatures and a dead/used pair both mean "is this
+    // NAME reached from anywhere else", not "is this statement".
+    const rangesByName = new Map<string, Array<{ start: number; end: number }>>();
+    const addDeclaration = (name: string, node: ts.Node) => {
+      const ranges = rangesByName.get(name) ?? [];
+      ranges.push({ start: node.getStart(sourceFile), end: node.end });
+      rangesByName.set(name, ranges);
+    };
     for (const stmt of sourceFile.statements) {
       if (!isExported(stmt)) continue;
       const names: string[] = [];
@@ -111,36 +127,36 @@ function collectExports(): CollectedExport[] {
         }
       }
       for (const name of names) {
-        const start = stmt.getStart(sourceFile);
-        collected.push({
-          name,
-          file: relative(srcRoot, file),
-          declaringFileMasked:
-            text.slice(0, start) + " ".repeat(stmt.end - start) + text.slice(stmt.end)
-        });
+        addDeclaration(name, stmt);
       }
       // Public members of exported classes: a class METHOD is invisible to
       // any top-level scan, which is how the zero-call-site engine method
-      // slipped through. For each member, the file is masked with THIS
-      // member's own declaration blanked out, so a member reached from
-      // elsewhere in its class still counts as used.
+      // slipped through.
       if (ts.isClassDeclaration(stmt)) {
         for (const member of stmt.members) {
           if (!member.name || !ts.isIdentifier(member.name)) continue;
           if (member.kind === ts.SyntaxKind.Constructor) continue;
           if (hasNonPublicModifier(member)) continue;
-          const memberStart = member.getStart(sourceFile);
-          const maskedMember =
-            text.slice(0, memberStart) +
-            " ".repeat(member.end - memberStart) +
-            text.slice(member.end);
-          collected.push({
-            name: member.name.text,
-            file: relative(srcRoot, file),
-            declaringFileMasked: maskedMember
-          });
+          addDeclaration(member.name.text, member);
         }
       }
+    }
+    // Blank every range for a name, longest-start-first so the indices of the
+    // remaining ranges stay valid (a class range can enclose a member range
+    // when the member shares the class's name).
+    for (const [name, ranges] of rangesByName) {
+      let masked = text;
+      for (const range of [...ranges].sort((a, b) => b.start - a.start)) {
+        masked =
+          masked.slice(0, range.start) +
+          " ".repeat(range.end - range.start) +
+          masked.slice(range.end);
+      }
+      collected.push({
+        name,
+        file: relative(srcRoot, file),
+        declaringFileMasked: masked
+      });
     }
   }
   return collected;
