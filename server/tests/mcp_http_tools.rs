@@ -1052,12 +1052,16 @@ async fn http_mcp_sse_zero_vault_reconnect_does_not_emit_lagged() {
     );
 }
 
-/// R2-6: a storage hiccup during the existence probe must not be answered
-/// as "commit does not exist" — that forced a healthy, caught-up client
-/// into a full resync. A vault whose storage directory is unreadable makes
-/// `open_bare` fail, which used to count as Missing.
+/// R3-2: an undecidable probe must NOT be answered with a plain live stream.
+/// `replay_events_after` came back empty, so if the resume position cannot be
+/// verified locally the client would silently lose every event between that
+/// position and now — the invisible divergence M-3 removed. R2-6 introduced
+/// the `Missing`/`Unknown` split (which is kept, for logging) but pointed
+/// `Unknown` at silence; the loud direction is the correct one, and the
+/// zero-vault case R2-6 was really about is covered by
+/// `http_mcp_sse_zero_vault_reconnect_does_not_emit_lagged` above.
 #[tokio::test]
-async fn http_mcp_sse_probe_failure_does_not_emit_lagged() {
+async fn http_mcp_sse_probe_failure_emits_lagged() {
     let (state, tmp) = test_state().await;
     let (user_id, raw) = create_user_with_token(&state, "http-sse-probe-err").await;
     let vault = vault::create_vault(&state, &user_id, "main").await.unwrap();
@@ -1124,8 +1128,9 @@ async fn http_mcp_sse_probe_failure_does_not_emit_lagged() {
     drop(tmp);
 
     assert!(
-        !saw_lagged,
-        "an unreadable repository must not force a full resync"
+        saw_lagged,
+        "an unverifiable resume position must ask for a resync instead of \
+         silently streaming live (M-3/R3-2)"
     );
 }
 

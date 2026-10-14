@@ -789,18 +789,14 @@ fn mcp_last_event_id(headers: &HeaderMap) -> LastEventId {
     }
 }
 
-/// Whether `commit` exists in the vault's object database (M-3). An empty
-/// replay batch is ambiguous — "nothing was missed" and "cannot locate the
-/// commit" (GC'd history, rollback, state imported from another server)
-/// both come back as `Events(vec![])` — so this distinguishes them and lets
-/// an unlocatable resume position surface `lagged` instead of a silent
-/// plain live stream. Any failure counts as absent: the honest direction
-/// for a repo we cannot inspect is a resync, never silence.
-/// Outcome of the object-database probe (R2-6): `Unknown` is a storage
-/// hiccup (bad vault path, unreadable repository, panicked blocking task),
-/// which must not be answered as "the commit does not exist" — forcing a
-/// full resync on a healthy client because the disk blinked is the wrong
-/// direction.
+/// Outcome of the object-database probe (M-3/R2-6/R3-2) for a resume
+/// position. `Missing` and `Unknown` lead to the same answer — `lagged` —
+/// because they both mean "this resume position cannot be honoured here":
+/// the honest direction for a position we cannot locate, or cannot even
+/// look up, is a resync, never a silently-advanced live stream. They are
+/// distinguished only by how loudly the probe reports the failure, so a
+/// storage hiccup is visible in the logs instead of looking like a GC'd
+/// commit.
 enum CommitProbe {
     Found,
     Missing,
@@ -828,7 +824,7 @@ async fn commit_exists_in_vault(state: &AppState, vault_id: &str, commit: &str) 
             tracing::warn!(
                 vault_id = %vault_id,
                 error = %message,
-                "could not probe whether the resume commit exists; not forcing a resync"
+                "could not probe whether the resume commit exists; the client is told to resync"
             );
             CommitProbe::Unknown
         }
@@ -836,7 +832,7 @@ async fn commit_exists_in_vault(state: &AppState, vault_id: &str, commit: &str) 
             tracing::warn!(
                 vault_id = %vault_id,
                 error = %join_err,
-                "commit-existence probe task failed; not forcing a resync"
+                "commit-existence probe task failed; the client is told to resync"
             );
             CommitProbe::Unknown
         }
@@ -868,35 +864,33 @@ async fn mcp_replay_events_after(
     // A non-empty batch proves some vault located the commit, so the
     // existence check only runs in the empty case (the common caught-up
     // reconnect): one git oid-exists lookup per vault until one claims it.
-    // If no vault the token can see contains it, the resume position is
-    // unlocatable — report it like a replay lag rather than silence (M-3).
+    // An empty batch is ambiguous — "nothing was missed" and "cannot locate
+    // the commit" (GC'd history, rollback, state imported from another
+    // server) both come back as `Events(vec![])` — so an unlocatable resume
+    // position is reported like a replay lag rather than a silent plain live
+    // stream: an empty replay plus the live stream would drop every event
+    // between the client's position and now without a word (M-3).
     // R2-6: a token that can see no vaults has nothing to be "behind" on —
     // probing (and then reporting lagged on every reconnect, making
     // full-resync clients spin) was pure downside.
+    //
+    // R3-2: `Unknown` takes the same exit as `Missing`. Falling through to a
+    // live stream there was a direction reversal — it answered "cannot
+    // verify" with silence, which is the invisible divergence M-3 removed,
+    // and it did so in the one case where the client's position is least
+    // trustworthy. The cost of the loud direction is a spurious full resync
+    // during a storage hiccup; the cost of the quiet one is a vault that
+    // silently stops converging.
     if events_all.is_empty() && !vaults.is_empty() {
         let mut known_to_any_vault = false;
-        let mut probe_was_unknown = false;
         for vault in vaults {
-            match commit_exists_in_vault(state, &vault.id, commit).await {
-                CommitProbe::Found => {
-                    known_to_any_vault = true;
-                    break;
-                }
-                CommitProbe::Missing => {}
-                CommitProbe::Unknown => probe_was_unknown = true,
+            if let CommitProbe::Found = commit_exists_in_vault(state, &vault.id, commit).await {
+                known_to_any_vault = true;
+                break;
             }
         }
-        if !known_to_any_vault && !probe_was_unknown {
-            // Definitely absent from every vault the token can see.
-            return Ok((None, false));
-        }
         if !known_to_any_vault {
-            // Could not tell: fall through to a plain live stream rather
-            // than forcing a full resync on a possibly-healthy client.
-            tracing::debug!(
-                commit = %commit,
-                "resume-commit existence could not be determined; serving a live stream"
-            );
+            return Ok((None, false));
         }
     }
     // Only the vault whose history contains `commit` yields events; with more

@@ -60,6 +60,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
   forever and `with_graceful_shutdown` blocked until `TimeoutStopSec`/SIGKILL.
   Both transports now use one shared `shutdown_requested` helper that checks
   the current value before waiting.
+- Server (MCP): an unverifiable `Last-Event-ID` resume position asks the client
+  to resync instead of silently serving a live stream. Only the case where the
+  commit is provably absent already did; a storage error (unreadable
+  repository, bad vault path, panicked probe task) fell through to a plain live
+  stream, which would drop every event between the client's position and now
+  without a word — the invisible divergence the `lagged` contract exists to
+  prevent. The `Missing`/`Unknown` split is kept for logging (the latter now
+  warns), but both take the resync direction.
 
 ## [1.6.0] - 2026-10-12
 
