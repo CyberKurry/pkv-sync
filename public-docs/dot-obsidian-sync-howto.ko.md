@@ -2,7 +2,7 @@
 
 [English](./dot-obsidian-sync-howto.md) | [简体中文](./dot-obsidian-sync-howto.zh-CN.md) | [繁體中文](./dot-obsidian-sync-howto.zh-Hant.md) | [日本語](./dot-obsidian-sync-howto.ja.md) | 한국어
 
-문서 버전: v1.6.0.
+문서 버전: v1.6.1.
 
 PKV Sync는 기본적으로 hidden path를 피합니다. vault별 allowlist를 제공하므로 전체 Obsidian 내부 디렉터리가 아니라 선택한 `.obsidian` 설정 파일만 opt in할 수 있습니다.
 
@@ -29,7 +29,7 @@ PKV Sync는 기본적으로 hidden path를 피합니다. vault별 allowlist를 �
 
 ## 절대 동기화하지 않는 항목
 
-다음 hard exclusions는 allowlist에 추가해도 항상 우선합니다.
+다음 hard exclusions는 allowlist에 추가해도 항상 우선합니다. `.obsidian/...` 네 항목은 Vault의 설정 폴더를 따르며(이름을 바꾸면 새 이름을 따릅니다), 이름을 바꾼 뒤 남은 `.obsidian`에도 계속 적용됩니다.
 
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`

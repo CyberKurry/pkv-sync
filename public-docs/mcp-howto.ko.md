@@ -2,7 +2,7 @@
 
 [English](./mcp-howto.md) | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | 한국어
 
-문서 버전: v1.6.0.
+문서 버전: v1.6.1.
 
 이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
 
@@ -38,7 +38,7 @@ token을 직접 전달할 수도 있습니다.
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
-stdio는 두 프로토콜 시대를 모두 지원합니다. 모던 2026-07-28 클라이언트는 요청마다 `_meta` 프로토콜 필드를 보내고 모던 결과 봉투를 받습니다. 레거시 클라이언트는 `initialize`로 협상하며, 서버는 알고 있는 요청 버전(`2026-07-28` 포함)을 그대로 되돌려주고, 알 수 없는 버전이면 최신 레거시 버전(`2025-11-25`)으로 응답합니다. 모던 stdio 클라이언트는 스코프된 vault에 대해 `subscriptions/listen`을 호출할 수도 있습니다. 세션은 클라이언트가 해당 listen의 요청 id를 담은 `notifications/cancelled` 알림을 보내거나(또는 종료할 때까지) `notifications/resources/updated` 줄을 계속 출력합니다.
+stdio는 두 프로토콜 시대를 모두 지원합니다. 모던 2026-07-28 클라이언트는 요청마다 `_meta` 프로토콜 필드를 보내고 모던 결과 봉투를 받습니다. 레거시 클라이언트는 `initialize`로 협상하며, 서버는 알고 있는 요청 버전(`2026-07-28` 포함)을 그대로 되돌려주고, 알 수 없는 버전이면 최신 레거시 버전(`2025-11-25`)으로 응답합니다. 모던 stdio 클라이언트는 스코프된 vault에 대해 `subscriptions/listen`을 호출할 수도 있습니다. 세션은 클라이언트가 해당 listen의 요청 id를 담은 `notifications/cancelled` 알림을 보내거나(또는 종료할 때까지) `notifications/resources/updated` 줄을 계속 출력합니다. 세션의 Token을 약 30초 동안 재검증할 수 없으면(예: 서버 데이터베이스에 연결할 수 없는 경우) 세션은 이를 폐기로 간주하여 활성 listen마다 `notifications/resources/dropped`를 한 줄 출력한 뒤 push를 중단합니다.
 
 ## Streamable HTTP transport
 
@@ -72,7 +72,7 @@ MCP 사양의 `Origin` 헤더 DNS-rebinding 검사는 `/mcp`에서 의도적으�
 
 ## 변경 알림
 
-- **레거시 클라이언트**: `Accept: text/event-stream`을 가진 GET `/mcp`는 `vault_changed` notifications를 구독합니다. 각 event의 id는 commit SHA 자체이며, 재연결 시 `Last-Event-ID`로 되돌려 보내 해당 vault의 missed commits를 replay할 수 있습니다. Replay에는 상한이 있습니다. 서버가 missed history를 커버할 수 없으면 `lagged`를 내보내며, 클라이언트는 sync API에서 새로 고쳐야 합니다. `:`를 포함한 값은 재개 위치로 허용되지 않습니다. Token이 여러 vault를 볼 수 있으면 재개하는 vault의 위치만 알 수 있으므로, 나머지 vault에 대해서도 `lagged`를 내보냅니다. 라이브 브로드캐스트로 인한 `lagged` 이벤트는 이벤트 data에 해당 vault id를 담고 있으며, 리플레이 수준의 `lagged` 이벤트 data는 비어 있습니다.
+- **레거시 클라이언트**: `Accept: text/event-stream`을 가진 GET `/mcp`는 `vault_changed` notifications를 구독합니다. 각 event의 id는 commit SHA 자체이며, 재연결 시 `Last-Event-ID`로 되돌려 보내 해당 vault의 missed commits를 replay할 수 있습니다. Replay에는 상한이 있습니다. 서버가 missed history를 커버할 수 없으면 `lagged`를 내보내며, 클라이언트는 sync API에서 새로 고쳐야 합니다. 서버가 확인할 수 없는 재개 위치(기록을 읽을 수 없거나 복구할 수 없는 경우)도 같은 방식으로 처리하며, 조용히 라이브 스트림으로 전환하지 않습니다. `:`를 포함한 값은 재개 위치로 허용되지 않습니다. Token이 여러 vault를 볼 수 있으면 재개하는 vault의 위치만 알 수 있으므로, 나머지 vault에 대해서도 `lagged`를 내보냅니다. 라이브 브로드캐스트로 인한 `lagged` 이벤트는 이벤트 data에 해당 vault id를 담고 있으며, 리플레이 수준의 `lagged` 이벤트 data는 비어 있습니다.
 - **모던 클라이언트**: `subscriptions/listen` 요청을 POST하고 `params.notifications.resourceSubscriptions`를 `["pkv://vault/<id>"]` URI로 설정합니다(Token이 볼 수 있는 vault만 수락됩니다). `resourceSubscriptions`에서 중복된 URI는 acknowledgment에서(첫 번째 등장이 우선하여) 중복 제거됩니다. 응답은 SSE 스트림으로, 먼저 수락된 구독을 되돌려주는 `notifications/subscriptions/acknowledged` event를 보내고, 이어서 params에 `uri`, `commit`, `event`, `_meta.subscriptionId`를 담은 `notifications/resources/updated` event를 보냅니다. 서버의 이벤트 버퍼가 넘치면(스트림 소비가 느린 동안 64 commit을 초과하는 버스트가 도착하면) listen 스트림은 영향을 받은 `uri`와 동일한 `_meta` 구독 id를 담은 `notifications/resources/dropped` 알림을 보냅니다. 클라이언트는 해당 vault의 상태를 다시 읽어야 합니다. 스트림을 닫으면 구독이 취소됩니다. 모던 스트림은 재개할 수 없습니다. `Last-Event-ID` replay가 없으므로 재연결 후에는 다시 listen하고 읽은 내용을 비교해야 합니다.
 
 신뢰할 수 있는 네트워크 제어 뒤에 두지 않는 한 HTTP를 loopback에 bind하세요. bearer token은 해당 사용자가 소유한 모든 vault에 대한 읽기 및 쓰기 접근 권한을 부여합니다.

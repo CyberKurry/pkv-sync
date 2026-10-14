@@ -669,7 +669,7 @@ function definitionsFor(tab: PKVSyncSettingTab): {
 
 function buildDeclarativeTab(bundle: typeof en = en) {
   const plugin = {
-    manifest: { version: "1.6.0" },
+    manifest: { version: "1.6.1" },
     settings: {
       token: "",
       serverUrl: "https://sync.example.com",

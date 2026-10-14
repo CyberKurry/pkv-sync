@@ -5,7 +5,7 @@ PKV Sync 是一套自架、Git 原生的 Obsidian 筆記庫同步伺服器。
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文件版本：v1.6.0。
+文件版本：v1.6.1。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · 繁體中文 · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 

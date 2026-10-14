@@ -2,7 +2,7 @@
 
 [English](./mcp-howto.md) | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | 日本語 | [한국어](./mcp-howto.ko.md)
 
-ドキュメントバージョン: v1.6.0。
+ドキュメントバージョン: v1.6.1。
 
 この文書は機械翻訳による初版です。公開前にネイティブ話者によるレビューを推奨します。
 
@@ -38,7 +38,7 @@ token を直接渡すこともできます。
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
-stdio は両方のプロトコル時代に対応します。モダンな 2026-07-28 クライアントはリクエストごとに `_meta` プロトコルフィールドを送信し、モダンな結果エンベロープを受け取ります。レガシークライアントは `initialize` でネゴシエートし、サーバーは既知の要求バージョン（`2026-07-28` を含む）をエコーし、未知のバージョンには最新のレガシーバージョン（`2025-11-25`）を返します。モダンな stdio クライアントはスコープされた vault に対して `subscriptions/listen` を呼び出すこともできます。セッションはクライアントがその listen のリクエスト id を持つ `notifications/cancelled` 通知を送る（または終了する）まで、`notifications/resources/updated` 行を出力し続けます。JSON-RPC batch はどちらの transport でもサポートされません。batch 行（JSON 配列）には、沈黙ではなく `-32600 "batch requests are not supported"` のエラー行を 1 行返します。
+stdio は両方のプロトコル時代に対応します。モダンな 2026-07-28 クライアントはリクエストごとに `_meta` プロトコルフィールドを送信し、モダンな結果エンベロープを受け取ります。レガシークライアントは `initialize` でネゴシエートし、サーバーは既知の要求バージョン（`2026-07-28` を含む）をエコーし、未知のバージョンには最新のレガシーバージョン（`2025-11-25`）を返します。モダンな stdio クライアントはスコープされた vault に対して `subscriptions/listen` を呼び出すこともできます。セッションはクライアントがその listen のリクエスト id を持つ `notifications/cancelled` 通知を送る（または終了する）まで、`notifications/resources/updated` 行を出力し続けます。セッションの Token を約 30 秒間再検証できない場合（例: サーバーのデータベースに到達できない場合）、セッションはそれを失効とみなし、アクティブな listen ごとに `notifications/resources/dropped` を 1 行出力してから push を停止します。JSON-RPC batch はどちらの transport でもサポートされません。batch 行（JSON 配列）には、沈黙ではなく `-32600 "batch requests are not supported"` のエラー行を 1 行返します。
 
 ## Streamable HTTP transport
 
@@ -72,7 +72,7 @@ MCP 仕様の `Origin` ヘッダーによる DNS-rebinding チェックは `/mcp
 
 ## 変更通知
 
-- **レガシークライアント**: `Accept: text/event-stream` を持つ GET `/mcp` は `vault_changed` notifications を購読します。各 event の id は commit SHA そのもので、再接続時に `Last-Event-ID` として送り返すことで、その vault の missed commits を replay できます。Replay には上限があります。サーバーが missed history をカバーできない場合は `lagged` を送信し、クライアントは sync API から更新する必要があります。`:` を含む値は再開位置として受け付けられません。Token から複数の vault が見える場合、再開する vault の位置しか分からないため、他の vault に対しても `lagged` を送信します。ライブ配信による `lagged` イベントはイベント data に該当する vault id を格納します。リプレイレベルの `lagged` イベントの data は空です。
+- **レガシークライアント**: `Accept: text/event-stream` を持つ GET `/mcp` は `vault_changed` notifications を購読します。各 event の id は commit SHA そのもので、再接続時に `Last-Event-ID` として送り返すことで、その vault の missed commits を replay できます。Replay には上限があります。サーバーが missed history をカバーできない場合は `lagged` を送信し、クライアントは sync API から更新する必要があります。サーバーが検証できない再開位置（履歴が読めない、または復元できない場合）も同じ扱いで、黙ってライブストリームに切り替わることはありません。`:` を含む値は再開位置として受け付けられません。Token から複数の vault が見える場合、再開する vault の位置しか分からないため、他の vault に対しても `lagged` を送信します。ライブ配信による `lagged` イベントはイベント data に該当する vault id を格納します。リプレイレベルの `lagged` イベントの data は空です。
 - **モダンクライアント**: `subscriptions/listen` リクエストを POST し、`params.notifications.resourceSubscriptions` に `["pkv://vault/<id>"]` URI を設定します（Token が見える vault のみ受け付けられます）。`resourceSubscriptions` 内の重複した URI は、acknowledgment で（最初の出現を優先して）重複排除されます。応答は SSE ストリームで、まず受け入れられた購読をエコーする `notifications/subscriptions/acknowledged` event を送り、その後 params に `uri`、`commit`、`event`、`_meta.subscriptionId` を持つ `notifications/resources/updated` event を送信します。サーバーのイベントバッファが溢れた場合（ストリームの消費が遅い間に 64 commit を超えるバーストが発生した場合）、listen ストリームは影響を受ける `uri` と同じ `_meta` の subscription id を持つ `notifications/resources/dropped` 通知を送ります。クライアントはその vault の状態を読み直すべきです。ストリームを閉じると購読はキャンセルされます。モダンなストリームは再開できません。`Last-Event-ID` replay はないため、再接続後は再度 listen して読み取った内容を比較します。
 
 信頼できるネットワーク制御の背後に置かない限り、HTTP は loopback に bind してください。bearer token は、そのユーザーが所有するすべての vault への読み書きアクセスを与えます。

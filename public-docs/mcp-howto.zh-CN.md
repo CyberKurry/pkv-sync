@@ -2,7 +2,7 @@
 
 [English](./mcp-howto.md) | 简体中文 | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
-文档版本：v1.6.0。
+文档版本：v1.6.1。
 
 PKV Sync 可以通过 MCP server 暴露笔记库内容。服务端在返回文件内容前会解析 blob pointer，可以通过显式读写工具写入文件，并且要求使用普通的 PKV Sync bearer 设备 token。
 
@@ -36,7 +36,7 @@ PKV_TOKEN=pks_xxx pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id>
 pkvsyncd -c /etc/pkv-sync/config.toml mcp --vault <vault-id> --token pks_xxx
 ```
 
-stdio 同时支持两个协议时代。现代 2026-07-28 客户端在请求中发送 `_meta` 协议字段，并收到现代结果封装；旧版客户端通过 `initialize` 协商，服务端会回显所请求的、它已知的版本（包括 `2026-07-28`），未知版本则回退到最新的旧版本（`2025-11-25`）。现代 stdio 客户端还可以对限定的笔记库调用 `subscriptions/listen`；会话随后会持续输出 `notifications/resources/updated` 行，直到客户端发送携带该 listen 请求 id 的 `notifications/cancelled` 通知（或退出）。两种 transport 都不支持 JSON-RPC batch：batch 行（JSON 数组）会以单条 `-32600 "batch requests are not supported"` 错误行应答，而不是静默。
+stdio 同时支持两个协议时代。现代 2026-07-28 客户端在请求中发送 `_meta` 协议字段，并收到现代结果封装；旧版客户端通过 `initialize` 协商，服务端会回显所请求的、它已知的版本（包括 `2026-07-28`），未知版本则回退到最新的旧版本（`2025-11-25`）。现代 stdio 客户端还可以对限定的笔记库调用 `subscriptions/listen`；会话随后会持续输出 `notifications/resources/updated` 行，直到客户端发送携带该 listen 请求 id 的 `notifications/cancelled` 通知（或退出）。如果会话的 Token 在大约 30 秒内始终无法重新校验（例如服务端数据库不可达），会话会将其视为已吊销：为每个活动 listen 输出一条 `notifications/resources/dropped`，随后停止推送。两种 transport 都不支持 JSON-RPC batch：batch 行（JSON 数组）会以单条 `-32600 "batch requests are not supported"` 错误行应答，而不是静默。
 
 ## Streamable HTTP transport
 
@@ -70,7 +70,7 @@ MCP 规范中的 `Origin` 请求头 DNS-rebinding 检查未在 `/mcp` 上实现�
 
 ## 变更通知
 
-- **旧版客户端**：携带 `Accept: text/event-stream` 的 GET `/mcp` 订阅 `vault_changed` 通知。每个事件的 id 就是 commit SHA 本身，客户端重连时可作为 `Last-Event-ID` 传回，以 replay 该 vault 错过的 commit。Replay 有上限；如果服务端无法覆盖错过的历史，会发送 `lagged`，客户端应通过同步 API 刷新。包含 `:` 的值不会被当作续传位置；当 Token 可见多个 vault 时，只有正在续传的那个 vault 位置已知，因此服务端也会为其他 vault 发送 `lagged`。直播产生的 `lagged` 事件在事件 data 中携带受影响的 vault id；回放级别的 `lagged` 事件 data 为空。
+- **旧版客户端**：携带 `Accept: text/event-stream` 的 GET `/mcp` 订阅 `vault_changed` 通知。每个事件的 id 就是 commit SHA 本身，客户端重连时可作为 `Last-Event-ID` 传回，以 replay 该 vault 错过的 commit。Replay 有上限；如果服务端无法覆盖错过的历史，会发送 `lagged`，客户端应通过同步 API 刷新。服务端无法核实（历史不可读或不可恢复）的续传位置也按同样方式处理，绝不会静默转入直播流。包含 `:` 的值不会被当作续传位置；当 Token 可见多个 vault 时，只有正在续传的那个 vault 位置已知，因此服务端也会为其他 vault 发送 `lagged`。直播产生的 `lagged` 事件在事件 data 中携带受影响的 vault id；回放级别的 `lagged` 事件 data 为空。
 - **现代客户端**：POST 一个 `subscriptions/listen` 请求，将 `params.notifications.resourceSubscriptions` 设为 `["pkv://vault/<id>"]` URI（只有 Token 可见的 vault 会被接受）。`resourceSubscriptions` 中重复的 URI 会在确认（acknowledgment）中去重（以首次出现的为准）。响应是一条 SSE 流：先发送回显已接受订阅的 `notifications/subscriptions/acknowledged` 事件，随后发送 `notifications/resources/updated` 事件，其 params 携带 `uri`、`commit`、`event` 和 `_meta.subscriptionId`。如果服务端的事件缓冲区溢出（流消费较慢时一次涌入超过 64 个 commit），listen 流会发送 `notifications/resources/dropped` 通知，携带受影响的 `uri` 和同一个 `_meta` 订阅 id；客户端应当重新读取该 vault 的状态。关闭流即取消订阅。现代流不可续传：没有 `Last-Event-ID` replay，重连后客户端需要重新 listen 并对比读取结果。
 
 除非放在可信网络控制之后，否则请将 HTTP 绑定到 loopback。bearer token 会授予该用户所有笔记库的读写访问权限。

@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-10-14
+
 ### Added
 
 - Release: GitHub artifact attestations for the release assets. The main

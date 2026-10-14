@@ -2,7 +2,7 @@
 
 [English](./admin-manual.md) | [简体中文](./admin-manual.zh-CN.md) | [繁體中文](./admin-manual.zh-Hant.md) | 日本語 | [한국어](./admin-manual.ko.md)
 
-ドキュメントバージョン: v1.6.0。
+ドキュメントバージョン: v1.6.1。
 
 この文書は機械翻訳による初版です。公開前にネイティブ話者によるレビューを推奨します。
 
@@ -215,9 +215,9 @@ https://sync.example.com/k_xxx/
 SHA-256 を検証し、systemd／手動での差し替え手順を表示します。実行中のプロセスを
 ホット置換することはありません。
 
-`pkvsyncd upgrade --version 1.6.0` で特定のリリースを指定できます。一致する
+`pkvsyncd upgrade --version 1.6.1` で特定のリリースを指定できます。一致する
 アセットやチェックサムが見つからない場合は、GitHub のリリースを手動でダウンロード
-する手順に従い、`SHA256SUMS` をご自身で検証してください。
+する手順に従い、`SHA256SUMS` をご自身で検証してください。リリースアセットには GitHub artifact attestation も付きます。`gh attestation verify <file> --repo cyberkurry/pkv-sync` で、バイナリ、プラグイン zip、`SHA256SUMS` がこのリポジトリのリリースワークフローでビルドされたことを検証できます。
 
 0.x のデプロイでは、1.0 のバイナリやイメージを既存の `metadata.db` に向けないで
 ください。バックアップし、Vault の内容を materialize またはエクスポートし、新しい

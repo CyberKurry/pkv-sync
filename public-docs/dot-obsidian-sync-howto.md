@@ -2,7 +2,7 @@
 
 English | [简体中文](./dot-obsidian-sync-howto.zh-CN.md) | [繁體中文](./dot-obsidian-sync-howto.zh-Hant.md) | [日本語](./dot-obsidian-sync-howto.ja.md) | [한국어](./dot-obsidian-sync-howto.ko.md)
 
-Document version: v1.6.0.
+Document version: v1.6.1.
 
 PKV Sync normally avoids hidden paths. It adds a per-vault allowlist so you
 can opt in to selected `.obsidian` configuration files without syncing the
@@ -36,7 +36,10 @@ into the plugin's allowlist editor manually.
 
 ## Never synced
 
-These hard exclusions win even if you add them to the allowlist:
+These hard exclusions win even if you add them to the allowlist. The four
+`.obsidian/...` entries follow your vault's config folder — rename it and they
+follow the new name — and they keep applying to a `.obsidian` folder left
+behind by a rename:
 
 - `.obsidian/workspace.json`
 - `.obsidian/workspace-mobile.json`

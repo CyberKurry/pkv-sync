@@ -341,7 +341,7 @@ describe("SyncEngine abort (M-10)", () => {
         pollIntervalSeconds: 30,
         deviceId: "dev"
       },
-      manifest: { version: "1.6.0" },
+      manifest: { version: "1.6.1" },
       app: { vault: {} }
     };
     let generationAtCapture = 0;

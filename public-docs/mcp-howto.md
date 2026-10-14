@@ -2,7 +2,7 @@
 
 English | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
-Document version: v1.6.0.
+Document version: v1.6.1.
 
 PKV Sync can expose vault contents through an MCP server. The server resolves
 blob pointers before returning file content, can write through explicit
@@ -54,7 +54,10 @@ newest legacy version (`2025-11-25`). Modern stdio clients can also call
 `notifications/cancelled` notification carrying the listen's request id (or
 exits). JSON-RPC batches are not supported on either transport: a batch line
 (a JSON array) is answered with a single `-32600 "batch requests are not
-supported"` error line instead of silence.
+supported"` error line instead of silence. If the session's Token cannot be
+revalidated for about 30 seconds — for example while the server's database is
+unreachable — the session treats it as revoked and prints one
+`notifications/resources/dropped` per active listen, then stops pushing.
 
 ## Streamable HTTP transport
 
@@ -138,6 +141,8 @@ unknown one; answers use legacy envelopes.
   and it can be sent back as `Last-Event-ID` to replay missed commits for
   that vault. Replay is capped; if the server cannot cover the missed
   history, it emits `lagged` and the client should refresh from the sync API.
+  A resume position the server cannot verify — unreadable or unrecoverable
+  history — is answered the same way, never with a silent live stream.
   A value containing `:` is not accepted as a resume position, and when the
   token can see more than one vault only the resuming vault's position is
   known, so the stream also emits `lagged` for the others. Live-broadcast
