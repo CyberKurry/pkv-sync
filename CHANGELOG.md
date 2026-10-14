@@ -73,6 +73,7 @@ and this project adheres to semantic versioning starting at v1.0.0.
   tolerance that used to be unlimited is now capped at 600 drain ticks
   (~30s): past it the session is treated as no longer valid, so an actually
   revoked session stops receiving pushes instead of riding out the outage.
+  The transition is logged once, not on every 50ms drain tick.
 - Server (MCP): a JSON-RPC batch `POST /mcp` is answered with the `-32600`
   error inside a `200` JSON-RPC envelope rather than HTTP `400`. An array can
   never carry `params._meta`, so a batch always classifies as a legacy request

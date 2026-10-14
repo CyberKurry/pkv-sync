@@ -32,8 +32,10 @@ const LISTEN_DRAIN_INTERVAL: std::time::Duration = std::time::Duration::from_mil
 /// same tolerance became an open-ended fail-open: any `sqlx::Error` — down to
 /// a self-healing `database is locked` — let a session that is in fact
 /// revoked keep every subscription alive for as long as the error lasted.
-/// Counting ticks rather than reading a clock keeps the bound exact under
-/// scheduling delays and directly testable.
+/// Counting ticks rather than reading a clock makes the bound independent of
+/// machine speed and directly testable; a stalled run loop stretches the
+/// wall-clock equivalent, which is harmless because nothing is being served
+/// while it is stalled.
 const TRANSIENT_TOKEN_MAX_TICKS: u32 = 600;
 
 pub struct StdioSession {
@@ -51,6 +53,11 @@ pub struct StdioSession {
     /// `Transient` answers seen back to back since the last real answer
     /// (R3-8), bounded by `transient_token_max_ticks`.
     transient_token_ticks: std::sync::atomic::AtomicU32,
+    /// One-shot latch for the "tolerance exceeded" report. The terminal path
+    /// stays reachable on every later tick while the store is still
+    /// unreachable, and `transient_token_check_reported` is already spent by
+    /// then, so without this the warning would repeat every 50ms.
+    transient_token_tolerance_reported: std::sync::atomic::AtomicBool,
     /// Tolerance for `transient_token_ticks`; overridable in tests.
     transient_token_max_ticks: std::sync::atomic::AtomicU32,
 }
@@ -109,6 +116,7 @@ impl StdioSession {
             listens: Mutex::new(HashMap::new()),
             transient_token_check_reported: std::sync::atomic::AtomicBool::new(false),
             transient_token_ticks: std::sync::atomic::AtomicU32::new(0),
+            transient_token_tolerance_reported: std::sync::atomic::AtomicBool::new(false),
             transient_token_max_ticks: std::sync::atomic::AtomicU32::new(TRANSIENT_TOKEN_MAX_TICKS),
         })
     }
@@ -135,6 +143,8 @@ impl StdioSession {
         self.transient_token_ticks
             .store(0, std::sync::atomic::Ordering::Release);
         self.transient_token_check_reported
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.transient_token_tolerance_reported
             .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
@@ -312,11 +322,16 @@ impl StdioSession {
                 // session is concerned, and keeping the subscriptions alive
                 // indefinitely would let a session that is in fact revoked go
                 // on receiving pushes for as long as the error lasts.
-                tracing::warn!(
-                    vault_id = %self.vault_id,
-                    ticks,
-                    "token revalidation failed for the whole tolerance window; treating the session as no longer valid"
-                );
+                if !self
+                    .transient_token_tolerance_reported
+                    .swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    tracing::warn!(
+                        vault_id = %self.vault_id,
+                        ticks,
+                        "token revalidation failed for the whole tolerance window; treating the session as no longer valid"
+                    );
+                }
                 true
             }
         };
