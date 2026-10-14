@@ -375,16 +375,34 @@ jobs:
             gh release delete "$VERSION" --repo "$MIRROR_REPO" --yes
           fi
           git clone "https://x-access-token:${GH_TOKEN}@github.com/${MIRROR_REPO}.git" mirror-repo
-          git -C mirror-repo rm -rq --ignore-unmatch -- .
-          cp -r mirror-content/* mirror-repo/
-          # `*` skips dotfiles, so the generated workflow is copied explicitly.
-          cp -r mirror-content/.github mirror-repo/.github
           git -C mirror-repo config user.name "github-actions[bot]"
           git -C mirror-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The content commit never touches .github: pushing a file under
+          # .github/workflows/ requires the token's Workflows permission, and
+          # the mirror's existing attestation workflow must survive a release
+          # even when that permission is missing (see the workflow step below).
+          git -C mirror-repo rm -rq --ignore-unmatch -- . ':(exclude).github'
+          cp -r mirror-content/* mirror-repo/
           git -C mirror-repo add -A
           if ! git -C mirror-repo diff --cached --quiet; then
             git -C mirror-repo commit -m "chore(release): ${VERSION}"
             git -C mirror-repo push origin HEAD:main
+          fi
+          # The generated attestation workflow goes in its own commit, and a
+          # rejected push there must not sink the release: without this, a
+          # token that carries Contents but not Workflows (which is what the
+          # mirror PAT had until 1.6.1) failed the whole job and left the
+          # plugin store on the previous version with no release at all.
+          # Attestations are optional enrichment; the store release is not.
+          mkdir -p mirror-repo/.github/workflows
+          cp mirror-content/.github/workflows/attest-release.yml mirror-repo/.github/workflows/
+          git -C mirror-repo add -A
+          if ! git -C mirror-repo diff --cached --quiet; then
+            git -C mirror-repo commit -m "chore(release): refresh the attestation workflow"
+            if ! git -C mirror-repo push origin HEAD:main; then
+              echo "::warning::could not push .github/workflows/attest-release.yml: the PLUGIN_MIRROR_TOKEN needs the Workflows permission (fine-grained) or the workflow scope (classic). The mirror release continues without attestations."
+              git -C mirror-repo reset --hard HEAD~1
+            fi
           fi
           if ! git -C mirror-repo rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
             git -C mirror-repo tag "${VERSION}"

@@ -7,6 +7,18 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Release: the plugin store mirror can no longer be sunk by the attestation
+  workflow it generates. Pushing a file under `.github/workflows/` needs the
+  mirror token's Workflows permission, and the 1.6.1 run showed what happens
+  without it: the whole tree push was rejected, so the mirror tag and release
+  were never created and the plugin store silently stayed on 1.6.0. The
+  content commit now leaves `.github` alone, the generated workflow is
+  refreshed in its own commit, and a rejected push there downgrades to a
+  `::warning::` plus a local reset instead of failing the job — attestations
+  are optional enrichment, the store release is not.
+
 ## [1.6.1] - 2026-10-14
 
 ### Added
