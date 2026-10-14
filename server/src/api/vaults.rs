@@ -657,7 +657,11 @@ async fn run_vault_sse_stream<S>(
             _ = tx.closed() => {
                 break;
             }
-            _ = shutdown.changed() => {
+            // `changed()` would miss a shutdown that already latched before
+            // this task subscribed (the handler authenticates, replays and
+            // claims its SSE slot first) and the body would never end
+            // (R3-1); the shared helper checks the current value first.
+            _ = crate::service::state::shutdown_requested(&mut shutdown) => {
                 // Graceful shutdown: close the stream so the server can exit.
                 break;
             }

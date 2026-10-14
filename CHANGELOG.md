@@ -52,6 +52,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
   the deprecated `Vault#trash`, so they respect the user's "deleted files"
   preference; and the Electron `safeStorage` bridge reads `require`/`Buffer`
   from `window` instead of `globalThis`.
+- Server: the vault events stream (`/api/vaults/{id}/events`, the stream the
+  Obsidian plugin subscribes to) now ends when the shutdown signal had already
+  been triggered before it subscribed. It shared the `/mcp` streams' race —
+  authentication, replay and the SSE-slot claim all happen before the
+  subscription, so a shutdown landing in that window left `changed()` waiting
+  forever and `with_graceful_shutdown` blocked until `TimeoutStopSec`/SIGKILL.
+  Both transports now use one shared `shutdown_requested` helper that checks
+  the current value before waiting.
 
 ## [1.6.0] - 2026-10-12
 

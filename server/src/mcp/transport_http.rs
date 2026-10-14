@@ -1,6 +1,7 @@
 use crate::auth::bearer::bearer_token;
 use crate::auth::AuthenticatedUser;
 use crate::middleware::deployment_key;
+use crate::service::state::shutdown_requested;
 use crate::service::AppState;
 use axum::body::{to_bytes, Body};
 use axum::extract::{Request, State};
@@ -15,7 +16,6 @@ use std::collections::{HashSet, VecDeque};
 use std::convert::Infallible;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio::sync::watch;
 use tokio::time::{Interval, MissedTickBehavior};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
@@ -423,26 +423,6 @@ fn sse_response(rx: mpsc::Receiver<Result<Event, Infallible>>) -> Response {
         header::HeaderValue::from_static("no"),
     );
     response
-}
-
-/// Resolves once the shutdown watch reports `true`, **immediately** when the
-/// current value is already `true`.
-///
-/// `Receiver::changed()` alone is not enough (R2-2): both SSE handlers
-/// authenticate, list vaults and claim an SSE slot *before* they subscribe,
-/// so a shutdown that lands in that window leaves the new receiver with
-/// `true` already marked as seen — `changed()` would then wait forever, the
-/// SSE body would never end, and `with_graceful_shutdown` would still block
-/// until TimeoutStopSec/SIGKILL, which is exactly the symptom H-2 removed.
-/// `wait_for` checks the current value first, so a pre-triggered signal ends
-/// the stream on the first poll.
-///
-/// The `wait_for` guard is deliberately dropped inside this helper: carrying
-/// the `Ref` out as the arm's output would keep a mutable borrow of the
-/// receiver alive across the `select!` arm body and conflict with the
-/// per-frame state borrows there.
-async fn shutdown_requested(rx: &mut watch::Receiver<bool>) {
-    let _ = rx.wait_for(|requested| *requested).await;
 }
 
 struct McpSseState {

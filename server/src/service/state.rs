@@ -63,6 +63,26 @@ impl Default for ShutdownSignal {
     }
 }
 
+/// Resolves once the shutdown watch reports `true`, **immediately** when the
+/// current value is already `true`.
+///
+/// `Receiver::changed()` alone is not enough (R2-2, R3-1): every SSE handler
+/// authenticates, lists vaults and claims an SSE slot *before* it subscribes,
+/// so a shutdown that lands in that window leaves the new receiver with
+/// `true` already marked as seen — `changed()` would then wait forever, the
+/// SSE body would never end, and `with_graceful_shutdown` would still block
+/// until TimeoutStopSec/SIGKILL, which is exactly the symptom BUG-R3-11
+/// removed. `wait_for` checks the current value before it waits, so a
+/// pre-triggered signal ends the stream on the first poll.
+///
+/// The `wait_for` guard is deliberately dropped inside this helper: carrying
+/// the `Ref` out as the arm's output would keep a mutable borrow of the
+/// receiver alive across the caller's `select!` arm body and conflict with
+/// the per-frame state borrows there.
+pub async fn shutdown_requested(rx: &mut watch::Receiver<bool>) {
+    let _ = rx.wait_for(|requested| *requested).await;
+}
+
 #[derive(Clone)]
 pub(crate) struct CachedVaultPathFilter {
     pub runtime_exclude_globs: Vec<String>,

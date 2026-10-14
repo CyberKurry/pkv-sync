@@ -29,8 +29,24 @@ async fn start_test_server() -> (TestServer, AppState, String, String) {
     start_test_server_with_sse_limit(None).await
 }
 
+/// Same app and state, but served WITHOUT `with_graceful_shutdown`. A test
+/// that pre-triggers the shutdown signal (R3-1) needs the listener to stay
+/// up: wiring `with_graceful_shutdown` to an already-triggered watch makes
+/// `axum::serve` stop accepting connections immediately, so the request
+/// under test could not be delivered at all.
+async fn start_test_server_without_graceful_shutdown() -> (TestServer, AppState, String, String) {
+    start_test_server_impl(None, false).await
+}
+
 async fn start_test_server_with_sse_limit(
     sse_limit: Option<usize>,
+) -> (TestServer, AppState, String, String) {
+    start_test_server_impl(sse_limit, true).await
+}
+
+async fn start_test_server_impl(
+    sse_limit: Option<usize>,
+    graceful: bool,
 ) -> (TestServer, AppState, String, String) {
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");
@@ -110,7 +126,16 @@ async fn start_test_server_with_sse_limit(
     );
     let cfg2 = cfg.clone();
     let handle = tokio::spawn(async move {
-        let _ = server::run_with_listener_and_state(cfg2, listener, state_clone, limiter).await;
+        if graceful {
+            let _ = server::run_with_listener_and_state(cfg2, listener, state_clone, limiter).await;
+        } else {
+            let app = server::build_app(state_clone, &cfg2, limiter);
+            let _ = axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await;
+        }
     });
 
     let ts = TestServer {
@@ -506,4 +531,66 @@ async fn graceful_shutdown_closes_open_sse_connections() {
         .expect("server task must exit within the timeout despite open SSE connections")
         .unwrap();
     let _ = sse_resp;
+}
+
+#[tokio::test]
+async fn vault_events_stream_ends_when_shutdown_precedes_request() {
+    // R3-1: this is the plugin's primary event stream, and it subscribed to
+    // the shutdown watch from inside the spawned stream task — after auth,
+    // replay and the SSE-slot claim. A shutdown landing in that window
+    // leaves the new receiver with `true` already marked as seen, so
+    // `changed()` never fires: the SSE body never ends and
+    // `with_graceful_shutdown` blocks until TimeoutStopSec/SIGKILL.
+    // `graceful_shutdown_closes_open_sse_connections` above only covers
+    // signal-after-subscribe, which `changed()` handles fine.
+    let (ts, state, raw, vid) = start_test_server_without_graceful_shutdown().await;
+
+    // The real server holds a receiver for its whole lifetime
+    // (`shutdown_signal` subscribes before awaiting), so the trigger below
+    // takes the same path it does in production.
+    let _server_receiver = state.shutdown.subscribe();
+    state.shutdown.trigger();
+    assert!(
+        *_server_receiver.borrow(),
+        "precondition: the shutdown signal must latch while a receiver is live"
+    );
+
+    let sse_resp = auth_headers(
+        // No client-level timeout: the deadline below must be the only way
+        // this stream can end, otherwise a client timeout would masquerade as
+        // the clean body end the assertion is looking for.
+        reqwest::Client::new()
+            .get(format!("http://{}/api/vaults/{}/events", ts.addr, vid))
+            .bearer_auth(&raw),
+        &ts.key,
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(sse_resp.status(), reqwest::StatusCode::OK);
+
+    use futures_util::StreamExt;
+    let mut stream = sse_resp.bytes_stream();
+    let mut closed = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let chunk = tokio::select! {
+            chunk = stream.next() => chunk,
+            _ = tokio::time::sleep_until(deadline) => break,
+        };
+        match chunk {
+            Some(Ok(_)) => {}
+            Some(Err(err)) => panic!("unexpected SSE stream error: {err}"),
+            None => {
+                closed = true;
+                break;
+            }
+        }
+    }
+
+    assert!(
+        closed,
+        "the vault events stream must END when shutdown was already triggered \
+         before the request; it stayed open past the deadline"
+    );
 }
