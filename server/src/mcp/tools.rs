@@ -2984,6 +2984,99 @@ mod tests {
         );
     }
 
+    /// R3-5: `link_graph` shares H-3's guard with `search`, and T-2 only
+    /// pinned the `search` call site — reverting `link_graph`'s call to
+    /// "hand the candidate list to `read_files` first" left every test green,
+    /// because `link_graph`'s end state is `truncated = true` rather than an
+    /// error. Same probe, same positive control, second call site.
+    #[tokio::test]
+    async fn link_graph_oversized_entry_never_reaches_a_read_batch() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        git.commit_changes(
+            &vault_id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "index.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"[[a]]".to_vec(),
+                    },
+                },
+                FileChange::Upsert {
+                    path: "zz-oversized.md".into(),
+                    file: StoredFile::Text {
+                        bytes: vec![b'x'; LINK_GRAPH_MAX_TOTAL_BYTES + 1],
+                    },
+                },
+            ],
+            "seed",
+        )
+        .await
+        .unwrap();
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id: vault_id.clone(),
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            out.truncated,
+            "an entry larger than the whole budget must stop the scan"
+        );
+
+        let oversized_batches = read_probe::batches_containing("zz-oversized.md");
+        assert!(
+            oversized_batches.is_empty(),
+            "an entry larger than the whole budget must never enter a read batch (H-3); \
+             observed read_files batches containing it: {oversized_batches:?}"
+        );
+
+        // Positive control: the probe must actually observe this call site's
+        // read batches, otherwise the assertion above would also hold if
+        // nothing were recorded at all.
+        let control_vault = vault::create_vault(&state, &user_id, "control")
+            .await
+            .unwrap();
+        git.commit_changes(
+            &control_vault.id,
+            None,
+            &[FileChange::Upsert {
+                path: "control.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"[[control]]".to_vec(),
+                },
+            }],
+            "seed",
+        )
+        .await
+        .unwrap();
+        let control = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id: control_vault.id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(control.nodes.len(), 1);
+        assert!(
+            !read_probe::batches_containing("control.md").is_empty(),
+            "control: the read probe must record link_graph's read_files batches"
+        );
+    }
+
     #[test]
     fn collect_budgeted_chunk_rejects_entry_larger_than_whole_budget() {
         let mut iter = vec![("a.md".to_string(), (64 * 1024 + 1) as u64)].into_iter();
