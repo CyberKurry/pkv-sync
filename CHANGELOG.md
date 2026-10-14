@@ -52,35 +52,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
   the deprecated `Vault#trash`, so they respect the user's "deleted files"
   preference; and the Electron `safeStorage` bridge reads `require`/`Buffer`
   from `window` instead of `globalThis`.
-- Server: the vault events stream (`/api/vaults/{id}/events`, the stream the
-  Obsidian plugin subscribes to) now ends when the shutdown signal had already
-  been triggered before it subscribed. It shared the `/mcp` streams' race —
-  authentication, replay and the SSE-slot claim all happen before the
-  subscription, so a shutdown landing in that window left `changed()` waiting
-  forever and `with_graceful_shutdown` blocked until `TimeoutStopSec`/SIGKILL.
-  Both transports now use one shared `shutdown_requested` helper that checks
-  the current value before waiting.
-- Server (MCP): an unverifiable `Last-Event-ID` resume position asks the client
-  to resync instead of silently serving a live stream. Only the case where the
-  commit is provably absent already did; a storage error (unreadable
-  repository, bad vault path, panicked probe task) fell through to a plain live
-  stream, which would drop every event between the client's position and now
-  without a word — the invisible divergence the `lagged` contract exists to
-  prevent. The `Missing`/`Unknown` split is kept for logging (the latter now
-  warns), but both take the resync direction.
-- Server (MCP): a stdio session can no longer keep its listen subscriptions
-  alive indefinitely while the token store is unreachable. The transient
-  tolerance that used to be unlimited is now capped at 600 drain ticks
-  (~30s): past it the session is treated as no longer valid, so an actually
-  revoked session stops receiving pushes instead of riding out the outage.
-- Server (MCP): a JSON-RPC batch `POST /mcp` is answered with the `-32600`
-  error inside a `200` JSON-RPC envelope rather than HTTP `400`. An array can
-  never carry `params._meta`, so a batch always classifies as a legacy request
-  and the documented era rule — legacy errors always come back wrapped in a
-  `200` envelope — now holds without exceptions; it is also what the transport
-  spec asks for (a body batching requests is answered with a JSON object), and
-  it matches stdio's byte-identical `-32600` line. `public-docs/mcp-howto.*`
-  and the stdio transport comment are updated to match.
+- Plugin: the Electron `safeStorage` bridge again degrades to localStorage when
+  there is no `window` at all. It now probes with `typeof window` and reads
+  `window.require`/`window.Buffer` from it, so Electron's main process, a
+  worker, or any Node-side tool that imports the bundle returns `null` instead
+  of throwing a `ReferenceError` while the plugin is still being constructed.
 
 ## [1.6.0] - 2026-10-12
 

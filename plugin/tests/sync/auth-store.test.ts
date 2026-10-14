@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AuthStore,
   authFromSettings,
+  createElectronSafeStorage,
   migrateAuth,
   type AuthData,
   type SafeStorageLike
@@ -48,6 +49,45 @@ function makeSafeStorage(): SafeStorageLike & {
   };
   return safe;
 }
+
+describe("createElectronSafeStorage", () => {
+  // R3-3: this suite runs in vitest's `node` environment, so `window` is
+  // genuinely undeclared here — the missing-window guard is exercised for
+  // real rather than simulated. The bare `window` identifier this replaced
+  // threw `ReferenceError` from the plugin constructor before the
+  // `requireFn` guard could degrade to localStorage.
+  it("degrades to null when no window exists", () => {
+    expect(typeof window).toBe("undefined");
+    expect(createElectronSafeStorage()).toBeNull();
+  });
+
+  // Positive control: without it the assertion above would also pass if the
+  // function returned null unconditionally.
+  it("uses the Electron bridge when window exposes require", () => {
+    const ciphertext = new Uint8Array([1, 2, 3]);
+    const requireFn = vi.fn(() => ({
+      safeStorage: {
+        isEncryptionAvailable: () => true,
+        encryptString: () => ciphertext,
+        decryptString: () => "plain"
+      }
+    }));
+    const host: { window?: unknown } = globalThis;
+    host.window = { require: requireFn, Buffer };
+    try {
+      const store = createElectronSafeStorage();
+      expect(store).not.toBeNull();
+      expect(store?.isEncryptionAvailable()).toBe(true);
+      expect(store?.encryptString("hi")).toBe(
+        Buffer.from(ciphertext).toString("base64")
+      );
+      expect(store?.decryptString("cGxhaW4=")).toBe("plain");
+      expect(requireFn).toHaveBeenCalledWith("electron");
+    } finally {
+      delete host.window;
+    }
+  });
+});
 
 describe("AuthStore", () => {
   it("returns null when nothing stored", () => {

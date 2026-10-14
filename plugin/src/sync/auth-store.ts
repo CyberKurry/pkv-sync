@@ -101,11 +101,28 @@ export class AuthStore {
   }
 }
 
+/** The Electron bridge `window` carries in the desktop renderer. */
+type ElectronHost = {
+  require?: (id: string) => unknown;
+  Buffer?: typeof Buffer;
+};
+
+/**
+ * Returns the Electron bridge, or `undefined` when there is no `window` at
+ * all. `typeof` is the only safe probe here (R3-3): desktop Obsidian exposes
+ * Electron's `require` on `window`, but Electron's main process, a worker, or
+ * any Node-side tool that imports this bundle has no `window` — a bare
+ * `window` identifier throws `ReferenceError` there, before the `requireFn`
+ * guard below could degrade to localStorage.
+ */
+function electronHost(): ElectronHost | undefined {
+  if (typeof window === "undefined") return undefined;
+  return window as unknown as ElectronHost;
+}
+
 export function createElectronSafeStorage(): SafeStorageLike | null {
-  // Desktop Obsidian exposes Electron's `require` on `window` (mobile has no
-  // `require`), and Electron's `safeStorage` is the only OS-keychain bridge.
-  const requireFn = (window as unknown as { require?: (id: string) => unknown })
-    .require;
+  const host = electronHost();
+  const requireFn = host?.require;
   if (!requireFn) return null;
   try {
     const electron = requireFn("electron") as {
@@ -116,7 +133,7 @@ export function createElectronSafeStorage(): SafeStorageLike | null {
       };
     };
     const safeStorage = electron.safeStorage;
-    const bufferCtor = (window as unknown as { Buffer?: typeof Buffer }).Buffer;
+    const bufferCtor = host?.Buffer;
     if (!safeStorage || !bufferCtor) return null;
     return {
       isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
