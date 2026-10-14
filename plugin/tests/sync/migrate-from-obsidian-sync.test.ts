@@ -268,8 +268,9 @@ describe("scanVaultForMigration", () => {
       ".my-config/community-plugins.json",
       "notes/keep.md"
     ]);
-    // `.obsidian/workspace.json` is now an ordinary hidden path: default-denied
-    // by the hidden-path rule, not by the hard excludes.
+    // `.obsidian/workspace.json` is still skipped, now by the hard excludes
+    // rather than by the hidden-path rule (R3-10 keeps the default config
+    // folder's device state excluded after a rename).
     expect(result.skippedCount).toBe(5);
   });
 

@@ -2,11 +2,23 @@
 export const DEFAULT_CONFIG_DIR = ".obsidian";
 
 export function hardExcludeGlobs(configDir: string): string[] {
+  // The active config folder plus Obsidian's default one (R3-10): renaming
+  // the folder leaves a stale `.obsidian` behind, and the server keeps
+  // hard-excluding `.obsidian/workspace.json` and `.obsidian/cache/**`
+  // literally. Allowing them here would only turn into `path_excluded`
+  // failures — or, for the cache, sync per-device UI state that must never
+  // travel. Only the device-state paths are excluded, not the whole folder:
+  // themes and snippets under a stale `.obsidian` remain ordinary hidden
+  // paths a user allowlist can still pick up.
+  const configDirs =
+    configDir === DEFAULT_CONFIG_DIR ? [configDir] : [configDir, DEFAULT_CONFIG_DIR];
   return [
-    `${configDir}/workspace.json`,
-    `${configDir}/workspace-mobile.json`,
-    `${configDir}/workspaces.json`,
-    `${configDir}/cache/**`,
+    ...configDirs.flatMap((dir) => [
+      `${dir}/workspace.json`,
+      `${dir}/workspace-mobile.json`,
+      `${dir}/workspaces.json`,
+      `${dir}/cache/**`
+    ]),
     ".git/**",
     ".trash/**",
     ".conflict-*",

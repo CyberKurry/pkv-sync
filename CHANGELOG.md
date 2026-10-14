@@ -57,6 +57,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
   `window.require`/`window.Buffer` from it, so Electron's main process, a
   worker, or any Node-side tool that imports the bundle returns `null` instead
   of throwing a `ReferenceError` while the plugin is still being constructed.
+- Plugin: renaming the vault's config folder no longer drops the default
+  folder's device-state excludes. `workspace.json`, `workspace-mobile.json`,
+  `workspaces.json` and `cache/**` stay hard-excluded under both the active
+  config folder and `.obsidian`, matching the server's literal hard excludes —
+  previously those paths could be allowed through and then fail as
+  `path_excluded`, or sync per-device UI state. Themes and snippets under a
+  stale `.obsidian` remain ordinary paths a user allowlist can pick up.
 
 ## [1.6.0] - 2026-10-12
 

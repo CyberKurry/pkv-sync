@@ -224,12 +224,16 @@ describe("createPathMatcher", () => {
 });
 
 describe("config folder", () => {
-  it("builds the hard exclude globs from the configured folder", () => {
+  it("builds the hard exclude globs from the configured folder and the default", () => {
     expect(hardExcludeGlobs(".my-config")).toEqual([
       ".my-config/workspace.json",
       ".my-config/workspace-mobile.json",
       ".my-config/workspaces.json",
       ".my-config/cache/**",
+      ".obsidian/workspace.json",
+      ".obsidian/workspace-mobile.json",
+      ".obsidian/workspaces.json",
+      ".obsidian/cache/**",
       ".git/**",
       ".trash/**",
       ".conflict-*",
@@ -238,7 +242,21 @@ describe("config folder", () => {
     ]);
   });
 
-  it("hard excludes the configured folder instead of .obsidian", () => {
+  it("does not duplicate the default folder when it is the configured one", () => {
+    expect(hardExcludeGlobs(DEFAULT_CONFIG_DIR)).toEqual([
+      ".obsidian/workspace.json",
+      ".obsidian/workspace-mobile.json",
+      ".obsidian/workspaces.json",
+      ".obsidian/cache/**",
+      ".git/**",
+      ".trash/**",
+      ".conflict-*",
+      "*.lock",
+      "*.tmp"
+    ]);
+  });
+
+  it("hard excludes the configured folder's device state instead of .obsidian's", () => {
     expect(
       pathAccepts(".my-config/workspace.json", {
         userExcludes: [],
@@ -247,10 +265,29 @@ describe("config folder", () => {
       })
     ).toBe(false);
 
-    // `.obsidian` is an ordinary (hidden) folder once the config folder is
-    // renamed, so the allowlist can sync it.
+    // The stale `.obsidian` keeps its device-state excludes (R3-10): the
+    // server hard-excludes these paths literally, so letting them through
+    // would only fail as `path_excluded` on push.
     expect(
       pathAccepts(".obsidian/workspace.json", {
+        userExcludes: [],
+        userAllowlist: ["**"],
+        configDir: ".my-config"
+      })
+    ).toBe(false);
+
+    expect(
+      pathAccepts(".obsidian/cache/db.json", {
+        userExcludes: [],
+        userAllowlist: ["**"],
+        configDir: ".my-config"
+      })
+    ).toBe(false);
+
+    // The fix stays narrow: the rest of a stale `.obsidian` is an ordinary
+    // hidden folder that a user allowlist can still sync.
+    expect(
+      pathAccepts(".obsidian/themes/theme.css", {
         userExcludes: [],
         userAllowlist: ["**"],
         configDir: ".my-config"
