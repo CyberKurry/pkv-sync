@@ -252,8 +252,15 @@ async fn http_mcp_batch_array_is_rejected_not_accepted() {
     // no top-level `id` and used to fall into the notification branch: `202
     // Accepted`, no body, nothing executed. 202 is not an error a client would
     // retry or report, so a batching client waited forever. stdio already
-    // answers `-32600 "batch requests are not supported"`; HTTP must reject
-    // the shape with the same code instead of pretending to accept it.
+    // answers `-32600 "batch requests are not supported"`; HTTP answers the
+    // same JSON-RPC line.
+    //
+    // R3-6: the status is 200, not 400. An array cannot carry `params._meta`,
+    // so it always classifies as legacy, and the legacy contract is "every
+    // error comes back in a 200 JSON-RPC envelope". The transport spec agrees:
+    // a POST body batching *requests* is answered with a JSON object, and only
+    // input consisting solely of responses/notifications is rejected with an
+    // HTTP error status.
     let (state, _tmp) = test_state().await;
     let (_user_id, raw) = create_user_with_token(&state, "http-batch").await;
 
@@ -269,8 +276,8 @@ async fn http_mcp_batch_array_is_rejected_not_accepted() {
         let (status, _headers, body) = post_mcp(state.clone(), Some(&raw), batch.clone()).await;
         assert_eq!(
             status,
-            StatusCode::BAD_REQUEST,
-            "batch {batch} must be rejected, got body: {body}"
+            StatusCode::OK,
+            "batch {batch} must be rejected with a JSON-RPC error, got body: {body}"
         );
         assert_eq!(body["error"]["code"], -32600, "batch {batch}: {body}");
         assert!(

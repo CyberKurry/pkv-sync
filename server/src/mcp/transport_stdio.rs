@@ -186,10 +186,12 @@ impl StdioSession {
             // JSON-RPC batch (an array of requests). Batches are not
             // supported, and silence here would leave a client waiting
             // forever for responses that never come (L-4) — answer the
-            // line with a single invalid-request error instead. HTTP
-            // answers the same shape with 202 (the 2026-07-28 spec leaves
-            // batches undefined), but stdio has no status code to lean on,
-            // so an explicit error is the only honest answer.
+            // line with a single invalid-request error instead. HTTP answers
+            // the same shape with the byte-identical `-32600` line (R3-7),
+            // wrapped in the legacy 200 envelope because an array can never
+            // carry `params._meta` (R3-6); the two transports agree on the
+            // protocol-level answer even though stdio has no status code to
+            // lean on.
             let _ = tx
                 .send(
                     jsonrpc_error(

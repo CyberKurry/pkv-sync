@@ -73,6 +73,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
   tolerance that used to be unlimited is now capped at 600 drain ticks
   (~30s): past it the session is treated as no longer valid, so an actually
   revoked session stops receiving pushes instead of riding out the outage.
+- Server (MCP): a JSON-RPC batch `POST /mcp` is answered with the `-32600`
+  error inside a `200` JSON-RPC envelope rather than HTTP `400`. An array can
+  never carry `params._meta`, so a batch always classifies as a legacy request
+  and the documented era rule — legacy errors always come back wrapped in a
+  `200` envelope — now holds without exceptions; it is also what the transport
+  spec asks for (a body batching requests is answered with a JSON object), and
+  it matches stdio's byte-identical `-32600` line. `public-docs/mcp-howto.*`
+  and the stdio transport comment are updated to match.
 
 ## [1.6.0] - 2026-10-12
 

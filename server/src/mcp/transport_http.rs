@@ -145,12 +145,26 @@ async fn post_mcp(
     // transport. An array has no top-level `id`, so before R2-4 it fell into
     // the notification branch below and was answered with a bare `202` — no
     // action taken, no body, and no status a client would treat as failure,
-    // so a batching client waited forever. stdio already answers the same
-    // shape with the same `-32600`; rejecting here keeps the two transports
-    // honest about the same limit (L-4/R2-4).
+    // so a batching client waited forever.
+    //
+    // The answer is the same `-32600` line stdio returns for the same shape,
+    // inside the 200 envelope (R3-6): an array cannot carry `params._meta`,
+    // so `classify_request` can only ever report Legacy for it, and the era
+    // rule below — every legacy error wrapped in a 200 JSON-RPC envelope —
+    // stays exception-free. That is also what the transport spec asks for:
+    // a POST body batching requests is answered with a JSON object, and only
+    // input consisting solely of responses/notifications gets an HTTP error
+    // status (2025-03-26, "Sending Messages to the Server").
     if request.is_array() {
+        debug_assert!(
+            matches!(
+                super::protocol::classify_request(&request),
+                Ok(super::protocol::Era::Legacy)
+            ),
+            "an array cannot carry params._meta, so it must classify as legacy"
+        );
         return (
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Json(jsonrpc_error(
                 Value::Null,
                 -32600,

@@ -116,9 +116,12 @@ example a malformed `_meta` or non-object tool `arguments` — return HTTP
 with HTTP `202` and no body, except `notifications/cancelled`, which returns
 `405`: cancellation over Streamable HTTP is done by closing the SSE
 response stream. JSON-RPC batches are not supported on either transport:
-an array body on `POST /mcp` returns HTTP `400` with code `-32600`
-(`batch requests are not supported`) — the same error stdio answers a batch
-line with — rather than a `202` that pretends to have accepted it.
+an array body on `POST /mcp` is answered with code `-32600`
+(`batch requests are not supported`) inside a `200` JSON-RPC envelope — the
+same error stdio answers a batch line with — rather than a `202` that
+pretends to have accepted it. The envelope is always the legacy one, because
+an array cannot carry `params._meta` and therefore never classifies as a
+modern request.
 
 Modern results carry `resultType`, and `tools/list` and `server/discover`
 additionally carry `ttlMs`/`cacheScope` cache hints. `server/discover`
