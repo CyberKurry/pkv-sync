@@ -9,6 +9,23 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Added
 
+- MCP `stale_pages`: the mechanical half of wiki lint. Each wiki page
+  declares `sources:` and the `source_commit` it was last reconciled
+  against (see the LLM-wiki howto); the tool diffs that anchor against the
+  vault head and reports changed, removed and renamed sources per page, so
+  an agent can rewrite the pages whose evidence moved instead of guessing
+  which ones went stale. Design notes: it reports git tree facts and never
+  judges whether a claim is wrong; a source the server cannot check
+  (excluded, hidden, or nonexistent) comes back as `unresolved_sources`
+  rather than being dropped; a page with no anchor is listed under
+  `missing_source_commit` instead of being measured against a guess; and a
+  page whose listing was clipped at the diff entry cap is reported with
+  `verified: false` even when nothing is listed, so an incomplete scan
+  cannot read as clean. Anchors are resolved once per distinct commit, which
+  keeps a 1000-commit / 200-page vault at ~100ms.
+
+### Added
+
 - MCP `search` gains structured filters for LLM-maintained wiki vaults: a
   `frontmatter` filter (top-level scalars match as trimmed whole strings;
   `true` requires the key to exist, and the howto's indented `sources:` block

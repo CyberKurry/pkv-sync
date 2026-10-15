@@ -789,6 +789,9 @@ async fn call_tool(
         "link_graph" => serde_json::to_value(
             tools::link_graph(state, &user.user_id, serde_json::from_value(arguments)?).await?,
         )?,
+        "stale_pages" => serde_json::to_value(
+            tools::stale_pages(state, &user.user_id, serde_json::from_value(arguments)?).await?,
+        )?,
         "changes_since" => serde_json::to_value(
             tools::changes_since(state, &user.user_id, serde_json::from_value(arguments)?).await?,
         )?,

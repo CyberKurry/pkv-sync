@@ -348,6 +348,51 @@ async fn stdio_modern_tools_list_has_result_type_and_ttl() {
     );
 }
 
+/// The new page-lint tool must work through the modern dispatcher with a
+/// legal envelope, not just through its unit tests (review E-1: the envelope
+/// is applied per result, so a new output shape needs one end-to-end call).
+#[tokio::test]
+async fn stdio_modern_stale_pages_call_carries_result_type() {
+    let (session, _state, _user_id, vault_id, _tmp) =
+        session_with_vault("stdio-modern-stale").await;
+
+    let lines = send(
+        &session,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "tools/call",
+            "params": {
+                "name": "stale_pages",
+                "arguments": { "vault_id": vault_id },
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(lines.len(), 1);
+    let resp = &lines[0];
+    assert_eq!(resp["id"], 11);
+    assert_eq!(resp["result"]["resultType"], "complete");
+    // An empty vault has no commits and therefore nothing to report.
+    assert_eq!(
+        resp["result"]["structuredContent"]["stale"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert!(
+        resp["result"]["structuredContent"]["missing_source_commit"]
+            .as_array()
+            .is_some(),
+        "the anchored-page list must be part of the payload: {resp}"
+    );
+}
+
 #[tokio::test]
 async fn stdio_modern_discover_lists_modern_version_only() {
     let (session, _state, _user_id, _vault_id, _tmp) =

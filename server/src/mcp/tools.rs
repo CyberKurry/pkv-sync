@@ -30,6 +30,11 @@ const LINK_GRAPH_MAX_TOTAL_BYTES: usize = 64 * 1024;
 #[cfg(not(test))]
 const LINK_GRAPH_MAX_TOTAL_BYTES: usize = 256 * 1024 * 1024;
 const CHANGES_SINCE_MAX_ENTRIES: usize = 5000;
+const STALE_PAGES_MAX: usize = 500;
+#[cfg(test)]
+const STALE_PAGES_MAX_TOTAL_BYTES: usize = 64 * 1024;
+#[cfg(not(test))]
+const STALE_PAGES_MAX_TOTAL_BYTES: usize = 256 * 1024 * 1024;
 #[cfg(test)]
 const MAX_LINKS_PER_FILE: usize = 50;
 #[cfg(not(test))]
@@ -155,6 +160,65 @@ pub struct SearchMatch {
     pub path: String,
     pub line: String,
     pub line_number: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StalePagesInput {
+    pub vault_id: String,
+    #[serde(default)]
+    pub path_prefix: Option<String>,
+    #[serde(default)]
+    pub at: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+/// One wiki page whose declared sources changed after the commit the page
+/// was last reconciled against. This is the mechanical half of lint: it
+/// reports "a source moved under this page", never "this claim is wrong" —
+/// judging the claim stays the agent's job.
+#[derive(Debug, Serialize)]
+pub struct StalePage {
+    pub page: String,
+    /// Sources whose content changed since `last_reconciled`.
+    pub changed_sources: Vec<String>,
+    /// Sources deleted since `last_reconciled`.
+    pub removed_sources: Vec<String>,
+    /// Sources moved since `last_reconciled` (the page still cites the old
+    /// path, so it needs rewriting even though the content survived).
+    pub renamed: Vec<RenamedSource>,
+    /// Declared sources this server cannot check: excluded/hidden paths, or
+    /// paths that never existed at `at`. Reported rather than dropped so a
+    /// typo in `sources:` cannot hide behind a clean-looking result.
+    pub unresolved_sources: Vec<String>,
+    /// The `source_commit` the page declared, i.e. what the staleness was
+    /// measured against.
+    pub last_reconciled: Option<String>,
+    /// False when the underlying git listing was clipped at its entry cap, so
+    /// the change lists above may be incomplete. Such a page is always
+    /// reported (even with nothing listed): a page that cannot be verified
+    /// must not look clean.
+    pub verified: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RenamedSource {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StalePagesOutput {
+    pub stale: Vec<StalePage>,
+    /// Pages that declare `sources:` but no `source_commit`. They need one
+    /// reconciliation pass to anchor them; guessing an anchor from the page's
+    /// own mtime would report a number the server cannot stand behind.
+    pub missing_source_commit: Vec<String>,
+    /// Pages whose declared `source_commit` is not an ancestor of `at`
+    /// (later commit, rollback, or garbage collected): nothing can be
+    /// measured, so they are counted rather than guessed at.
+    pub skipped: usize,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -588,6 +652,259 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         next_after: (!exhausted)
             .then(|| last_consumed_path.map(|(path, line)| SearchCursor { path, line }.encode()))
             .flatten(),
+    })
+}
+
+/// Report which wiki pages have sources that changed after the page's
+/// declared `source_commit`.
+///
+/// Semantics are deliberately narrow (see the LLM-wiki design spec): the
+/// comparison is a git *tree diff* between the page's anchor and `at`, not
+/// history reasoning about what "should" have happened, and the output is
+/// facts for the agent to act on — contradictions and wrong claims are not
+/// this tool's business. Visibility uses the stricter graph/history policy
+/// (`mcp_path_visible`), so allowlisted hidden paths stay non-addressable
+/// here just as they are for `link_graph` and `changes_since`.
+pub async fn stale_pages(
+    state: &AppState,
+    user_id: &str,
+    input: StalePagesInput,
+) -> Result<StalePagesOutput> {
+    ensure_owned_vault(state, user_id, &input.vault_id).await?;
+    let filter = sync::vault_path_filter(state, &input.vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    let git = state.git_store();
+    let classifier = TextClassifier::default();
+    let prefix = match input.path_prefix.as_deref() {
+        Some("") => String::new(),
+        Some(prefix) => normalize_mcp_path(prefix.to_string())?,
+        None => String::new(),
+    };
+
+    let at = match input.at.clone() {
+        Some(at) => Some(at),
+        None => git
+            .head(&input.vault_id)
+            .await
+            .map_err(git_error_to_anyhow)?,
+    };
+    let Some(at) = at else {
+        // A vault with no commits has nothing that can be stale.
+        return Ok(StalePagesOutput {
+            stale: Vec::new(),
+            missing_source_commit: Vec::new(),
+            skipped: 0,
+            truncated: false,
+        });
+    };
+
+    let mut tree = git.list_tree(&input.vault_id, Some(&at)).await?;
+    tree.sort_by(|left, right| left.path.cmp(&right.path));
+    // Every visible path at `at` answers "does this source still exist?",
+    // independently of the text/prefix filters that select *pages*.
+    let present: std::collections::HashSet<String> = tree
+        .iter()
+        .filter(|entry| mcp_path_visible(&filter, &entry.path))
+        .map(|entry| entry.path.clone())
+        .collect();
+
+    let limit = input.limit.unwrap_or(STALE_PAGES_MAX).min(STALE_PAGES_MAX);
+    let mut truncated = false;
+    let mut scanned_bytes = 0usize;
+    let mut pages: Vec<(String, super::frontmatter::Frontmatter, Vec<String>)> = Vec::new();
+    let mut iter = tree.into_iter().filter(|entry| {
+        !entry.is_blob_pointer
+            && classifier.is_text_path(&entry.path)
+            && path_under_prefix(&entry.path, &prefix)
+            && mcp_path_visible(&filter, &entry.path)
+    });
+    loop {
+        let mut candidates: Vec<(String, u64)> = Vec::new();
+        for entry in iter.by_ref() {
+            candidates.push((
+                entry.path,
+                usize::try_from(entry.size).unwrap_or(usize::MAX) as u64,
+            ));
+            if candidates.len() >= MCP_READ_BATCH_SIZE {
+                break;
+            }
+        }
+        let (chunk, budget_exhausted) = collect_budgeted_chunk(
+            &mut candidates.into_iter(),
+            MCP_READ_BATCH_SIZE,
+            (STALE_PAGES_MAX_TOTAL_BYTES.saturating_sub(scanned_bytes)) as u64,
+        );
+        if budget_exhausted {
+            // Reading budget: report what was collected as truncated rather
+            // than failing the whole call (link_graph's contract, not
+            // search's error).
+            truncated = true;
+            break;
+        }
+        if chunk.is_empty() {
+            break;
+        }
+        let paths: Vec<&str> = chunk.iter().map(|(path, _)| path.as_str()).collect();
+        let files = git
+            .read_files(&input.vault_id, Some(&at), &paths)
+            .await
+            .map_err(|err| public_git_read_error(err, &at, true))?;
+        for ((path, size), file) in chunk.into_iter().zip(files) {
+            scanned_bytes = scanned_bytes.saturating_add(size as usize);
+            if scanned_bytes > STALE_PAGES_MAX_TOTAL_BYTES {
+                truncated = true;
+                break;
+            }
+            let Some(StoredFile::Text { bytes }) = file else {
+                continue;
+            };
+            let Ok(text) = String::from_utf8(bytes) else {
+                continue;
+            };
+            // Only pages that declare a scalar list of in-vault sources
+            // participate; anything the mini-reader cannot parse simply has
+            // no declared sources (never an error).
+            let Some(frontmatter) = super::frontmatter::Frontmatter::parse(&text) else {
+                continue;
+            };
+            let sources = match frontmatter.list("sources") {
+                Some(sources) if !sources.is_empty() => sources.to_vec(),
+                _ => continue,
+            };
+            // The cap is enforced on *pages*, not on files read: only a page
+            // that this call actually drops counts as truncation.
+            if pages.len() >= limit {
+                truncated = true;
+                break;
+            }
+            pages.push((path, frontmatter, sources));
+        }
+        if truncated {
+            break;
+        }
+    }
+
+    let mut stale = Vec::new();
+    let mut missing_source_commit = Vec::new();
+    let mut skipped = 0usize;
+    // Pages usually share an anchor (one ingest run reconciles a batch), and
+    // both git reads below depend only on the anchor. Caching them per anchor
+    // turns N pages into one walk + one tree diff; measured on the 1000-commit
+    // / 200-page gate this is the difference between 3.6s and well under 1s.
+    // Bounded so a vault with one anchor per page cannot grow this without
+    // limit (the cap is far above the distinct-anchor count real vaults show,
+    // and beyond it the work is simply redone, not skipped).
+    const ANCHOR_CACHE_MAX: usize = 16;
+    let mut anchor_cache: std::collections::HashMap<
+        String,
+        Option<(Vec<crate::storage::git::ChangedEntry>, bool)>,
+    > = std::collections::HashMap::new();
+    for (page, frontmatter, sources) in pages {
+        let Some(source_commit) = frontmatter.scalar("source_commit").map(str::to_string) else {
+            missing_source_commit.push(page);
+            continue;
+        };
+        let cached = anchor_cache.get(&source_commit).cloned();
+        let resolved = match cached {
+            Some(resolved) => resolved,
+            None => {
+                // `is_ancestor` is already at-relative: it answers "is this
+                // commit an ancestor of the commit we are measuring at",
+                // which is exactly the question. An unknown, later,
+                // rolled-back or collected anchor has no answer, so the page
+                // is counted rather than guessed at.
+                let reachable = matches!(
+                    git.is_ancestor(&input.vault_id, &source_commit, &at).await,
+                    Ok(true)
+                );
+                let resolved = if reachable {
+                    let (entries, delta_truncated) = git
+                        .list_changes_between(&input.vault_id, &source_commit, &at)
+                        .await?;
+                    Some((entries, delta_truncated))
+                } else {
+                    None
+                };
+                if anchor_cache.len() < ANCHOR_CACHE_MAX {
+                    anchor_cache.insert(source_commit.clone(), resolved.clone());
+                }
+                resolved
+            }
+        };
+        let Some((entries, delta_truncated)) = resolved else {
+            skipped += 1;
+            continue;
+        };
+        truncated |= delta_truncated;
+
+        let mut changed_sources = Vec::new();
+        let mut removed_sources = Vec::new();
+        let mut renamed = Vec::new();
+        let mut unresolved_sources = Vec::new();
+        for source in &sources {
+            if !mcp_path_visible(&filter, source) {
+                unresolved_sources.push(source.clone());
+                continue;
+            }
+            let mut touched = false;
+            for entry in &entries {
+                if entry.path == *source {
+                    match entry.status {
+                        crate::storage::git::ChangeStatus::Deleted => {
+                            removed_sources.push(source.clone());
+                        }
+                        _ => changed_sources.push(source.clone()),
+                    }
+                    touched = true;
+                    break;
+                }
+                if entry.old_path.as_deref() == Some(source.as_str()) {
+                    // The page still cites the old path: that is a rewrite
+                    // even though the content survived the move.
+                    removed_sources.push(source.clone());
+                    renamed.push(RenamedSource {
+                        from: source.clone(),
+                        to: entry.path.clone(),
+                    });
+                    touched = true;
+                    break;
+                }
+            }
+            if !touched && !present.contains(source.as_str()) {
+                unresolved_sources.push(source.clone());
+            }
+        }
+
+        // A page is reported when it needs attention (a changed, removed,
+        // renamed or unresolvable source) *or* when its listing was clipped
+        // and we therefore cannot call it clean. The second half matters:
+        // with a clipped diff, a page whose source changed outside the clip
+        // would otherwise be indistinguishable from a fresh one (M-3).
+        let verified = !delta_truncated;
+        if verified
+            && changed_sources.is_empty()
+            && removed_sources.is_empty()
+            && unresolved_sources.is_empty()
+        {
+            continue;
+        }
+        stale.push(StalePage {
+            page,
+            changed_sources,
+            removed_sources,
+            renamed,
+            unresolved_sources,
+            last_reconciled: Some(source_commit),
+            verified,
+        });
+    }
+
+    Ok(StalePagesOutput {
+        stale,
+        missing_source_commit,
+        skipped,
+        truncated,
     })
 }
 
@@ -1327,6 +1644,21 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
                     "path_prefix": { "type": ["string", "null"] },
                     "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": LINK_GRAPH_MAX_NODES },
                     "kind": { "type": ["string", "null"], "description": "Only files whose top-level frontmatter `kind:` equals this value become nodes. Link targets still resolve against every visible text file, so links leaving the selected layer are not reported as broken unless the target is truly absent." }
+                },
+                "additionalProperties": false
+            })),
+        ),
+        tool(
+            "stale_pages",
+            "List wiki pages whose declared `sources:` changed after the page's own `source_commit`. Reports changed/removed/renamed sources as git tree facts for the agent to reconcile; it does not judge whether a claim is wrong. Pages declaring sources without a source_commit come back in missing_source_commit so the first reconciliation pass can anchor them. A page whose listing was clipped is reported with verified=false even when nothing is listed, so an incomplete scan cannot read as clean. Hidden and excluded paths are never addressed.",
+            object(serde_json::json!({
+                "type": "object",
+                "required": ["vault_id"],
+                "properties": {
+                    "vault_id": { "type": "string" },
+                    "path_prefix": { "type": ["string", "null"], "description": "Restrict the page scan to one subtree." },
+                    "at": { "type": ["string", "null"], "description": "Commit to measure staleness at; defaults to the vault head." },
+                    "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": STALE_PAGES_MAX }
                 },
                 "additionalProperties": false
             })),
@@ -2379,6 +2711,631 @@ mod tests {
                 "sub/p.md".to_string(),
             ]
         );
+    }
+
+    /// Build a page that declares `sources`/`source_commit` in the howto's
+    /// indented shape.
+    fn wiki_page(sources: &[&str], source_commit: &str) -> String {
+        let mut page = String::from("---\nkind: wiki\nsources:\n");
+        for source in sources {
+            page.push_str(&format!("  - {source}\n"));
+        }
+        page.push_str(&format!("source_commit: {source_commit}\n---\n\n# Page\n"));
+        page
+    }
+
+    #[tokio::test]
+    async fn stale_pages_reports_a_source_changed_after_the_anchor() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let base = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "sources/s1.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"first".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "wiki/a.md".into(),
+                        file: StoredFile::Text {
+                            bytes: wiki_page(&["sources/s1.md"], "PLACEHOLDER").into_bytes(),
+                        },
+                    },
+                ],
+                "base",
+            )
+            .await
+            .unwrap();
+        // Rewrite the page with the real anchor, then touch the source.
+        git.commit_changes(
+            &vault_id,
+            Some(&base),
+            &[FileChange::Upsert {
+                path: "wiki/a.md".into(),
+                file: StoredFile::Text {
+                    bytes: wiki_page(&["sources/s1.md"], &base).into_bytes(),
+                },
+            }],
+            "anchor the page",
+        )
+        .await
+        .unwrap();
+        git.commit_changes(
+            &vault_id,
+            None,
+            &[FileChange::Upsert {
+                path: "sources/s1.md".into(),
+                file: StoredFile::Text {
+                    bytes: b"second".to_vec(),
+                },
+            }],
+            "source moved on",
+        )
+        .await
+        .unwrap();
+
+        let out = stale_pages(
+            &state,
+            &user_id,
+            StalePagesInput {
+                vault_id: vault_id.clone(),
+                path_prefix: None,
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(out.stale.len(), 1, "stale: {:?}", out.stale);
+        assert_eq!(out.stale[0].page, "wiki/a.md");
+        assert_eq!(out.stale[0].changed_sources, vec!["sources/s1.md"]);
+        assert_eq!(out.stale[0].last_reconciled.as_deref(), Some(base.as_str()));
+        assert!(out.stale[0].verified, "a small diff must be fully verified");
+        assert!(out.missing_source_commit.is_empty());
+        assert!(!out.truncated);
+    }
+
+    #[tokio::test]
+    async fn stale_pages_reports_removed_and_renamed_sources() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let sources_commit = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "sources/gone.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"gone".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "sources/moved.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"moved".to_vec(),
+                        },
+                    },
+                ],
+                "sources",
+            )
+            .await
+            .unwrap();
+        let base = git
+            .commit_changes(
+                &vault_id,
+                Some(&sources_commit),
+                &[FileChange::Upsert {
+                    path: "wiki/a.md".into(),
+                    file: StoredFile::Text {
+                        bytes: wiki_page(&["sources/gone.md", "sources/moved.md"], &sources_commit)
+                            .into_bytes(),
+                    },
+                }],
+                "page anchored at the sources",
+            )
+            .await
+            .unwrap();
+        git.commit_changes(
+            &vault_id,
+            Some(&base),
+            &[
+                FileChange::Delete {
+                    path: "sources/gone.md".into(),
+                },
+                // A move in git terms: the old path disappears and the same
+                // content appears elsewhere, which rename detection pairs up.
+                FileChange::Delete {
+                    path: "sources/moved.md".into(),
+                },
+                FileChange::Upsert {
+                    path: "sources/renamed.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"moved".to_vec(),
+                    },
+                },
+            ],
+            "delete one, move another",
+        )
+        .await
+        .unwrap();
+
+        let out = stale_pages(
+            &state,
+            &user_id,
+            StalePagesInput {
+                vault_id,
+                path_prefix: None,
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(out.stale.len(), 1, "stale: {:?}", out.stale);
+        let page = &out.stale[0];
+        // The deletion and the move are both "this citation is dead": the
+        // page still points at the old paths either way.
+        assert_eq!(
+            page.removed_sources,
+            vec!["sources/gone.md", "sources/moved.md"]
+        );
+        assert_eq!(page.renamed.len(), 1, "page: {page:?}");
+        assert_eq!(page.renamed[0].from, "sources/moved.md");
+        assert_eq!(page.renamed[0].to, "sources/renamed.md");
+    }
+
+    #[tokio::test]
+    async fn stale_pages_requires_an_anchor_and_skips_unusable_ones() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let base = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "sources/s1.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"one".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "wiki/unanchored.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"---\nkind: wiki\nsources:\n  - sources/s1.md\n---\nbody"
+                                .to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "wiki/bogus.md".into(),
+                        file: StoredFile::Text {
+                            bytes: wiki_page(&["sources/s1.md"], &"0".repeat(40)).into_bytes(),
+                        },
+                    },
+                ],
+                "base",
+            )
+            .await
+            .unwrap();
+        git.commit_changes(
+            &vault_id,
+            Some(&base),
+            &[
+                // Anchored at a commit that is *later* than the `at` we will
+                // ask about, i.e. not an ancestor of it.
+                FileChange::Upsert {
+                    path: "wiki/late.md".into(),
+                    file: StoredFile::Text {
+                        bytes: wiki_page(&["sources/s1.md"], &base).into_bytes(),
+                    },
+                },
+            ],
+            "later",
+        )
+        .await
+        .unwrap();
+
+        let out = stale_pages(
+            &state,
+            &user_id,
+            StalePagesInput {
+                vault_id: vault_id.clone(),
+                path_prefix: None,
+                at: Some(base.clone()),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        // Unanchored pages are reported, not guessed at.
+        assert_eq!(out.missing_source_commit, vec!["wiki/unanchored.md"]);
+        // The bogus anchor (unknown commit) and the not-yet-ancestor anchor
+        // are counted, never silently treated as fresh.
+        assert_eq!(out.skipped, 1, "bogus anchor must be skipped: {out:?}");
+    }
+
+    #[tokio::test]
+    async fn stale_pages_reports_unresolvable_sources_instead_of_staying_quiet() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let sources_commit = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[FileChange::Upsert {
+                    path: "sources/s1.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"one".to_vec(),
+                    },
+                }],
+                "sources",
+            )
+            .await
+            .unwrap();
+        let base = git
+            .commit_changes(
+                &vault_id,
+                Some(&sources_commit),
+                &[FileChange::Upsert {
+                    path: "wiki/a.md".into(),
+                    file: StoredFile::Text {
+                        // The second source never existed: a typo must
+                        // surface, not hide behind a clean result.
+                        bytes: wiki_page(&["sources/s1.md", "sources/typo.md"], &sources_commit)
+                            .into_bytes(),
+                    },
+                }],
+                "page anchored at the sources",
+            )
+            .await
+            .unwrap();
+        set_user_excludes(&state, vec!["sources/secret.md".into()]).await;
+
+        let out = stale_pages(
+            &state,
+            &user_id,
+            StalePagesInput {
+                vault_id,
+                path_prefix: None,
+                at: Some(base),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.stale.len(), 1, "stale: {:?}", out.stale);
+        assert_eq!(
+            out.stale[0].unresolved_sources,
+            vec!["sources/typo.md"],
+            "a nonexistent source must be reported"
+        );
+        assert!(out.stale[0].changed_sources.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stale_pages_truncates_at_the_page_limit() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let sources_commit = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[FileChange::Upsert {
+                    path: "sources/s1.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"one".to_vec(),
+                    },
+                }],
+                "sources",
+            )
+            .await
+            .unwrap();
+        let mut changes = Vec::new();
+        for idx in 0..2 {
+            changes.push(FileChange::Upsert {
+                path: format!("wiki/p{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: wiki_page(&["sources/s1.md"], &sources_commit).into_bytes(),
+                },
+            });
+        }
+        git.commit_changes(&vault_id, Some(&sources_commit), &changes, "pages")
+            .await
+            .unwrap();
+
+        let out = stale_pages(
+            &state,
+            &user_id,
+            StalePagesInput {
+                vault_id,
+                path_prefix: None,
+                at: None,
+                limit: Some(1),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(out.truncated, "a page-limit cut must be reported: {out:?}");
+    }
+
+    /// Performance gate for the spec's residual risk #2: 1000 commits with
+    /// 200 anchored pages must stay well inside a tool-call budget. Ignored
+    /// by default because it builds a thousand commits; run explicitly with
+    /// `cargo test -p pkv-sync-server --lib -- --ignored stale_pages_perf`.
+    ///
+    /// Note: under `cfg(test)` the diff cap (LIST_CHANGES_MAX = 8) clips each
+    /// page's listing early, so this is a *lower bound* for production, where
+    /// a listing can carry up to 10k entries.
+    #[tokio::test]
+    #[ignore]
+    async fn stale_pages_perf_1000_commits_200_pages() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+
+        let mut seed = Vec::new();
+        for idx in 0..200 {
+            seed.push(FileChange::Upsert {
+                path: format!("sources/s{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: format!("source {idx}").into_bytes(),
+                },
+            });
+        }
+        let sources_commit = git
+            .commit_changes(&vault_id, None, &seed, "sources")
+            .await
+            .unwrap();
+        let mut pages = Vec::new();
+        for idx in 0..200 {
+            pages.push(FileChange::Upsert {
+                path: format!("wiki/p{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: wiki_page(&[&format!("sources/s{idx}.md")], &sources_commit)
+                        .into_bytes(),
+                },
+            });
+        }
+        let mut head = git
+            .commit_changes(&vault_id, Some(&sources_commit), &pages, "pages")
+            .await
+            .unwrap();
+        // 800 more commits, each touching one source.
+        for idx in 0..800 {
+            let source = idx % 200;
+            head = git
+                .commit_changes(
+                    &vault_id,
+                    Some(&head),
+                    &[FileChange::Upsert {
+                        path: format!("sources/s{source}.md"),
+                        file: StoredFile::Text {
+                            bytes: format!("source {source} rev {idx}").into_bytes(),
+                        },
+                    }],
+                    "touch",
+                )
+                .await
+                .unwrap();
+        }
+
+        let started = std::time::Instant::now();
+        let out = stale_pages(
+            &state,
+            &user_id,
+            StalePagesInput {
+                vault_id,
+                path_prefix: None,
+                at: None,
+                limit: Some(STALE_PAGES_MAX),
+            },
+        )
+        .await
+        .unwrap();
+        let elapsed = started.elapsed();
+        println!(
+            "stale_pages: {} pages, {} stale, truncated={}, elapsed={:?}",
+            out.stale.len() + out.missing_source_commit.len(),
+            out.stale.len(),
+            out.truncated,
+            elapsed
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "stale_pages took {elapsed:?} for 1000 commits / 200 pages"
+        );
+    }
+
+    /// A clipped listing must not make a page look fresh. Under `cfg(test)`
+    /// LIST_CHANGES_MAX is 8, so one commit touching ten sources clips the
+    /// listing; the pages whose source fell outside the clip have nothing to
+    /// show, and must still come back marked unverified.
+    #[tokio::test]
+    async fn stale_pages_never_reports_a_clipped_page_as_clean() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let mut seed = Vec::new();
+        for idx in 0..10 {
+            seed.push(FileChange::Upsert {
+                path: format!("sources/s{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: format!("source {idx}").into_bytes(),
+                },
+            });
+        }
+        let sources_commit = git
+            .commit_changes(&vault_id, None, &seed, "sources")
+            .await
+            .unwrap();
+        let mut pages = Vec::new();
+        for idx in 0..10 {
+            pages.push(FileChange::Upsert {
+                path: format!("wiki/p{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: wiki_page(&[&format!("sources/s{idx}.md")], &sources_commit)
+                        .into_bytes(),
+                },
+            });
+        }
+        git.commit_changes(&vault_id, Some(&sources_commit), &pages, "pages")
+            .await
+            .unwrap();
+        // One commit touching every source: the resulting listing is clipped.
+        let mut touch = Vec::new();
+        for idx in 0..10 {
+            touch.push(FileChange::Upsert {
+                path: format!("sources/s{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: format!("source {idx} rewritten").into_bytes(),
+                },
+            });
+        }
+        git.commit_changes(&vault_id, None, &touch, "touch everything")
+            .await
+            .unwrap();
+
+        let out = stale_pages(
+            &state,
+            &user_id,
+            StalePagesInput {
+                vault_id,
+                path_prefix: None,
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(out.truncated, "the listing was clipped: {out:?}");
+        assert_eq!(
+            out.stale.len(),
+            10,
+            "every page must be accounted for, including the ones the clip hid: {out:?}"
+        );
+        assert!(
+            out.stale.iter().all(|page| !page.verified),
+            "pages measured against a clipped listing are not verified"
+        );
+        assert!(
+            out.stale.iter().any(|page| page.changed_sources.is_empty()),
+            "at least one page was reported purely because it could not be verified"
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_pages_ignores_pages_without_the_convention() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let base = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "plain.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"no frontmatter".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "nested.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"---\nkind: wiki\nmeta:\n  sources:\n    - x.md\n---\nbody"
+                                .to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "empty.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"---\nkind: wiki\nsources:\n---\nbody".to_vec(),
+                        },
+                    },
+                ],
+                "base",
+            )
+            .await
+            .unwrap();
+        let out = stale_pages(
+            &state,
+            &user_id,
+            StalePagesInput {
+                vault_id,
+                path_prefix: None,
+                at: Some(base),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(out.stale.is_empty(), "stale: {:?}", out.stale);
+        assert!(out.missing_source_commit.is_empty());
+        assert_eq!(out.skipped, 0);
+    }
+
+    #[tokio::test]
+    async fn stale_pages_is_not_stale_when_the_source_did_not_move() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let base = git
+            .commit_changes(
+                &vault_id,
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "sources/s1.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"stable".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "wiki/a.md".into(),
+                        file: StoredFile::Text {
+                            bytes: wiki_page(&["sources/s1.md"], "SELF").into_bytes(),
+                        },
+                    },
+                ],
+                "base",
+            )
+            .await
+            .unwrap();
+        let head = git
+            .commit_changes(
+                &vault_id,
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "wiki/a.md".into(),
+                    file: StoredFile::Text {
+                        bytes: wiki_page(&["sources/s1.md"], &base).into_bytes(),
+                    },
+                }],
+                "anchor",
+            )
+            .await
+            .unwrap();
+        let _ = head;
+
+        let out = stale_pages(
+            &state,
+            &user_id,
+            StalePagesInput {
+                vault_id,
+                path_prefix: None,
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(out.stale.is_empty(), "stale: {:?}", out.stale);
+        assert!(out.missing_source_commit.is_empty());
     }
 
     #[tokio::test]
