@@ -31,7 +31,7 @@ async fn start_server(mode: Option<RegistrationMode>) -> TestServer {
     let db_path = data_dir.join("metadata.db");
 
     {
-        let pool = pool::connect(&db_path).await.unwrap();
+        let pool = pool::connect_for_tests(&db_path).await.unwrap();
         pool::migrate_up(&pool).await.unwrap();
         SqliteUserRepo::new(pool.clone())
             .create(NewUser {

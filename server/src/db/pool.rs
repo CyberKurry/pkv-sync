@@ -38,6 +38,33 @@ pub async fn connect(db_path: &Path) -> Result<SqlitePool> {
     Ok(pool)
 }
 
+/// `connect` with a short bounded retry, for tests only.
+///
+/// Windows CI runners intermittently fail the first connect with
+/// `Db(PoolTimedOut)` before any test logic runs — a workspace test run
+/// starts dozens of processes that each create a SQLite file and a git
+/// repository, and the 5s acquire timeout is not generous under that I/O
+/// load plus on-access virus scanning. The retry lives here, in a helper
+/// only tests call, instead of in `connect` itself: production connection
+/// behaviour, timeouts and failure timing stay exactly as they are, and a
+/// genuinely broken path still fails the test after the retries.
+pub async fn connect_for_tests(db_path: &Path) -> Result<SqlitePool> {
+    const ATTEMPTS: u32 = 3;
+    let mut last_error = None;
+    for attempt in 0..ATTEMPTS {
+        match connect(db_path).await {
+            Ok(pool) => return Ok(pool),
+            Err(error) => {
+                last_error = Some(error);
+                if attempt + 1 < ATTEMPTS {
+                    tokio::time::sleep(Duration::from_millis(250 * u64::from(attempt + 1))).await;
+                }
+            }
+        }
+    }
+    Err(last_error.expect("at least one attempt ran"))
+}
+
 #[cfg(any(unix, test))]
 fn sqlite_permission_targets(db_path: &Path) -> Vec<PathBuf> {
     [None, Some("-wal"), Some("-shm")]

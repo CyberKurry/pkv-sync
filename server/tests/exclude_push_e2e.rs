@@ -53,7 +53,7 @@ async fn start_server_with_excludes(globs: Vec<String>) -> TestServer {
         admin: Default::default(),
     });
 
-    let db = pool::connect(&cfg.storage.db_path).await.unwrap();
+    let db = pool::connect_for_tests(&cfg.storage.db_path).await.unwrap();
     sqlx::migrate!("./migrations").run(&db).await.unwrap();
     let state = AppState::new(db, data_dir, "test".into(), false)
         .await

@@ -308,7 +308,9 @@ fn user_passwd_revokes_existing_tokens() {
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     let issued_token_hash = rt.block_on(async {
-        let pool = pool::connect(std::path::Path::new(&db_path)).await.unwrap();
+        let pool = pool::connect_for_tests(std::path::Path::new(&db_path))
+            .await
+            .unwrap();
         let users = SqliteUserRepo::new(pool.clone());
         let tokens = SqliteTokenRepo::new(pool);
         let user = users.find_by_username("bob").await.unwrap().unwrap();
@@ -332,7 +334,9 @@ fn user_passwd_revokes_existing_tokens() {
     ));
 
     rt.block_on(async {
-        let pool = pool::connect(std::path::Path::new(&db_path)).await.unwrap();
+        let pool = pool::connect_for_tests(std::path::Path::new(&db_path))
+            .await
+            .unwrap();
         let tokens = SqliteTokenRepo::new(pool);
         assert!(
             tokens

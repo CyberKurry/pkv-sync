@@ -12,7 +12,9 @@ use pkv_sync_server::service::AppState;
 /// in-process database across every test in the binary).
 pub async fn test_state() -> (AppState, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
-    let p = pool::connect(&tmp.path().join("test.db")).await.unwrap();
+    let p = pool::connect_for_tests(&tmp.path().join("test.db"))
+        .await
+        .unwrap();
     sqlx::migrate!("./migrations").run(&p).await.unwrap();
     let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
         .await

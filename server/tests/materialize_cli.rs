@@ -23,7 +23,7 @@ async fn setup_state() -> (AppState, tempfile::TempDir) {
     std::fs::create_dir_all(&data_dir).unwrap();
 
     let db_path = data_dir.join("metadata.db");
-    let db = pool::connect(&db_path).await.unwrap();
+    let db = pool::connect_for_tests(&db_path).await.unwrap();
     sqlx::migrate!("./migrations").run(&db).await.unwrap();
 
     let state = AppState::new(db, data_dir, "test".into(), true)

@@ -20,7 +20,7 @@ const VALID_DEPLOYMENT_KEY: &str = "k_0123456789abcdef0123456789abcdef";
 async fn app(embed_in_serve: Option<bool>) -> (axum::Router, AppState, String) {
     let data_dir = tempfile::tempdir().unwrap().keep();
     let db_path = data_dir.join("metadata.db");
-    let pool = pool::connect(&db_path).await.unwrap();
+    let pool = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
     let state = AppState::new(pool, data_dir.clone(), "test".into(), true)
         .await

@@ -5,7 +5,7 @@ use pkv_sync_server::service::AppState;
 
 async fn test_state() -> (AppState, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
-    let pool = pool::connect(&tmp.path().join("metadata.db"))
+    let pool = pool::connect_for_tests(&tmp.path().join("metadata.db"))
         .await
         .unwrap();
     sqlx::migrate!("./migrations").run(&pool).await.unwrap();

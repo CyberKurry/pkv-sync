@@ -5,7 +5,7 @@ use sqlx::Row;
 async fn migrate_up_creates_all_tables() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("t.db");
-    let p = pool::connect(&db_path).await.unwrap();
+    let p = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
 
     let rows: Vec<String> =
@@ -39,7 +39,7 @@ async fn migrate_up_creates_all_tables() {
 async fn migrate_up_is_idempotent() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("t.db");
-    let p = pool::connect(&db_path).await.unwrap();
+    let p = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
 }
@@ -48,7 +48,7 @@ async fn migrate_up_is_idempotent() {
 async fn v1_uses_single_baseline_migration() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("t.db");
-    let p = pool::connect(&db_path).await.unwrap();
+    let p = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
 
     let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM _sqlx_migrations")
@@ -63,7 +63,7 @@ async fn v1_uses_single_baseline_migration() {
 async fn runtime_update_check_migration_seeds_defaults() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("t.db");
-    let p = pool::connect(&db_path).await.unwrap();
+    let p = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
 
     let enabled: String =
@@ -86,7 +86,7 @@ async fn runtime_update_check_migration_seeds_defaults() {
 async fn sync_activity_token_fk_sets_null_on_token_delete() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("t.db");
-    let p = pool::connect(&db_path).await.unwrap();
+    let p = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
 
     let rows = sqlx::query("PRAGMA foreign_key_list(sync_activity)")
@@ -105,7 +105,7 @@ async fn sync_activity_token_fk_sets_null_on_token_delete() {
 async fn idempotency_cache_primary_key_includes_vault_and_route() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("t.db");
-    let p = pool::connect(&db_path).await.unwrap();
+    let p = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
 
     let rows = sqlx::query("PRAGMA table_info(idempotency_cache)")
@@ -125,7 +125,7 @@ async fn idempotency_cache_primary_key_includes_vault_and_route() {
 async fn baseline_includes_hot_path_indexes() {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("t.db");
-    let p = pool::connect(&db_path).await.unwrap();
+    let p = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
 
     for required in [

@@ -1176,7 +1176,7 @@ async fn stdio_run_returns_ok_after_stdin_eof_with_active_listen() {
     use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt};
 
     let tmp = tempfile::tempdir().unwrap();
-    let p = pkv_sync_server::db::pool::connect(&tmp.path().join("run.db"))
+    let p = pkv_sync_server::db::pool::connect_for_tests(&tmp.path().join("run.db"))
         .await
         .unwrap();
     sqlx::migrate!("./migrations").run(&p).await.unwrap();
@@ -1257,7 +1257,7 @@ async fn stdio_eof_drains_pending_response_before_exit() {
     use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt};
 
     let tmp = tempfile::tempdir().unwrap();
-    let p = pkv_sync_server::db::pool::connect(&tmp.path().join("run.db"))
+    let p = pkv_sync_server::db::pool::connect_for_tests(&tmp.path().join("run.db"))
         .await
         .unwrap();
     sqlx::migrate!("./migrations").run(&p).await.unwrap();
@@ -1369,7 +1369,7 @@ async fn stdio_run_on_propagates_writer_errors() {
     use tokio::io::AsyncWriteExt;
 
     let tmp = tempfile::tempdir().unwrap();
-    let p = pkv_sync_server::db::pool::connect(&tmp.path().join("run.db"))
+    let p = pkv_sync_server::db::pool::connect_for_tests(&tmp.path().join("run.db"))
         .await
         .unwrap();
     sqlx::migrate!("./migrations").run(&p).await.unwrap();

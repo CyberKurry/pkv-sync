@@ -29,7 +29,7 @@ async fn app_with_state() -> (Router, AppState, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let data_dir = dir.path().to_path_buf();
     let db_path = data_dir.join("metadata.db");
-    let pool = pool::connect(&db_path).await.unwrap();
+    let pool = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
     let state = AppState::new(pool, data_dir.clone(), "test".into(), false)
         .await
@@ -100,7 +100,7 @@ async fn app_with_state_no_public_host() -> (Router, AppState, tempfile::TempDir
     let dir = tempfile::tempdir().unwrap();
     let data_dir = dir.path().to_path_buf();
     let db_path = data_dir.join("metadata.db");
-    let pool = pool::connect(&db_path).await.unwrap();
+    let pool = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
     let state = AppState::new(pool, data_dir.clone(), "test".into(), false)
         .await
@@ -1784,7 +1784,7 @@ async fn hatch_app() -> (Router, AppState, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let data_dir = dir.path().to_path_buf();
     let db_path = data_dir.join("metadata.db");
-    let pool = pool::connect(&db_path).await.unwrap();
+    let pool = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
     let state = AppState::new(pool, data_dir.clone(), "test".into(), false)
         .await

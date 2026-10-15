@@ -6,7 +6,7 @@ use pkv_sync_server::storage::git::{Git2VaultStore, GitVaultStore, StoredFile};
 
 async fn setup() -> (AppState, AuthenticatedUser, String, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
-    let db = pool::connect(&tmp.path().join("metadata.db"))
+    let db = pool::connect_for_tests(&tmp.path().join("metadata.db"))
         .await
         .unwrap();
     sqlx::migrate!("./migrations").run(&db).await.unwrap();

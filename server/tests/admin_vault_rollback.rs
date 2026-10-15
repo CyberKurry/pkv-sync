@@ -18,7 +18,7 @@ use tower::ServiceExt;
 async fn app_with_state() -> (Router, AppState) {
     let data_dir = tempfile::tempdir().unwrap().keep();
     let db_path = data_dir.join("metadata.db");
-    let pool = pool::connect(&db_path).await.unwrap();
+    let pool = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
     let state = AppState::new(pool, data_dir.clone(), "test".into(), false)
         .await

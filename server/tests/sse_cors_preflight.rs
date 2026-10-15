@@ -24,7 +24,7 @@ async fn app() -> (axum::Router, tempfile::TempDir) {
     let data_dir = tmp.path().join("d");
     std::fs::create_dir_all(&data_dir).unwrap();
     let db_path = data_dir.join("metadata.db");
-    let pool = pool::connect(&db_path).await.unwrap();
+    let pool = pool::connect_for_tests(&db_path).await.unwrap();
     sqlx::migrate!("./migrations").run(&pool).await.unwrap();
     let state = AppState::new(pool, data_dir.clone(), "test".into(), false)
         .await

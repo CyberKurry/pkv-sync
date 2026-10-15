@@ -25,7 +25,7 @@ fn expected_starter_extra_sync_globs() -> Vec<String> {
 async fn state_and_user() -> (AppState, String, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("metadata.db");
-    let p = pool::connect(&db_path).await.unwrap();
+    let p = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
     let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
         .await
@@ -69,7 +69,7 @@ async fn create_user_with_token(state: &AppState, username: &str) -> (String, St
 async fn app_and_users() -> (Router, AppState, String, String, String, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("metadata.db");
-    let p = pool::connect(&db_path).await.unwrap();
+    let p = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&p).await.unwrap();
     let state = AppState::new(p, tmp.path().to_path_buf(), "test".into(), true)
         .await

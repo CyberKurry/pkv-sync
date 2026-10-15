@@ -18,7 +18,7 @@ const STRONG_PASSWORD: &str = "ThisIsAReallyGoodPassw0rd";
 async fn fresh_state() -> (AppState, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("metadata.db");
-    let pool = pool::connect(&db_path).await.unwrap();
+    let pool = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
     let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), false)
         .await

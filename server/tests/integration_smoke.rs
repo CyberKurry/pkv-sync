@@ -52,7 +52,7 @@ async fn start_test_server() -> TestServer {
         mcp: Default::default(),
         admin: Default::default(),
     });
-    let pool = pool::connect(&db_path).await.unwrap();
+    let pool = pool::connect_for_tests(&db_path).await.unwrap();
     pool::migrate_up(&pool).await.unwrap();
     SqliteUserRepo::new(pool)
         .create(NewUser {
