@@ -119,7 +119,7 @@ AI-driven writes は vault git history の commits になります。通常の g
 
 ## Registry
 
-サーバーは公式 MCP Registry に `io.github.cyberkurry/pkv-sync`（このリポジトリの `mcp/server.json`）として掲載されています。これは公開済みのコンテナイメージを指し、`PKV_TOKEN` と `PKV_VAULT_ID` でセッションを構成します。セルフホストのサーバーは、上記のコマンドを使って手作業で接続することもできます。
+このリポジトリは、そのまま公開できる [MCP Registry](https://registry.modelcontextprotocol.io) メタデータ（`mcp/server.json`）を `io.github.cyberkurry/pkv-sync` として同梱しています。これは公開済みのコンテナイメージを指し、`PKV_TOKEN` と `PKV_VAULT_ID` でセッションを構成します。セルフホストのサーバーは、上記のコマンドを使って手作業で接続することもできます。
 
 ## Client notes
 

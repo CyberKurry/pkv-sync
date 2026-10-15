@@ -117,7 +117,7 @@ AI 驱动的写入会成为笔记库 git 历史中的 commit。你可以通过�
 
 ## Registry
 
-服务端已收录于官方 MCP Registry，名为 `io.github.cyberkurry/pkv-sync`（本仓库内的 `mcp/server.json`），它指向已发布的容器镜像，并用 `PKV_TOKEN` 和 `PKV_VAULT_ID` 配置会话。自托管的服务端也可以按上文命令手工接入。
+本仓库随版本提供该服务端的 [MCP Registry](https://registry.modelcontextprotocol.io) 元数据（`mcp/server.json`），名为 `io.github.cyberkurry/pkv-sync`：它指向已发布的容器镜像，并用 `PKV_TOKEN` 和 `PKV_VAULT_ID` 配置会话。自托管的服务端也可以按上文命令手工接入。
 
 ## 客户端提示
 

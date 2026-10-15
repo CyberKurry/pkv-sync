@@ -21,7 +21,7 @@ PKV Sync は、Obsidian の Vault をセルフホストで同期する Git ネ�
 ### 運用
 
 - **管理パネル**は 5 言語（English、简中、繁中、日本語、한국어）に対応し、ユーザー、デバイス Token、Vault、招待コード、アクティビティ、blob GC を扱います。破壊的な Vault 操作とユーザー操作には確認ダイアログが表示されます。
-- **AI から読める Vault。** MCP が stdio または `pkvsyncd serve` 内蔵の `/mcp` ルート（既定で有効）を通じて読み書きツールを公開し、サーバーは公式 [MCP Registry](https://registry.modelcontextprotocol.io) に `io.github.cyberkurry/pkv-sync` として掲載されています。
+- **AI から読める Vault。** MCP が stdio または `pkvsyncd serve` 内蔵の `/mcp` ルート（既定で有効）を通じて読み書きツールを公開し、リリースごとに、そのまま使える [MCP Registry エントリ](./mcp/server.json)（`io.github.cyberkurry/pkv-sync`）が同梱されます。
 - **LLM が保守する wiki 向け。** 読み書きに加えて、frontmatter による検索、正確なページング、層ごとのリンク lint、根拠が古くなったページの検出、そして dry run と内容ハッシュのガードを経てからの書き込みができます。[LLM Wiki ワークフロー](./public-docs/llm-wiki-howto.ja.md) を参照してください。
 - **既定で境界を設ける。** 管理者が作成するパスワードには setup と同等の強度ポリシーを適用し、Token のシークレットは一度だけ表示し、アップロードと MCP レスポンスにはサイズ上限を設け、常時接続の SSE ストリームは失効した Token を再検証します。
 
