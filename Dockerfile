@@ -19,6 +19,11 @@ COPY --from=plugin-builder /app/plugin/styles.css ./plugin/styles.css
 RUN CARGO_NET_RETRY=10 CARGO_HTTP_MULTIPLEXING=false cargo build --release -p pkv-sync-server
 
 FROM debian:bookworm-slim
+# MCP Registry ownership proof: the registry matches this annotation against
+# the `name` in mcp/server.json before it will accept the OCI package
+# (docs/reference/.../package-types). Keep the two in step — docs_check
+# asserts they agree.
+LABEL io.modelcontextprotocol.server.name="io.github.cyberkurry/pkv-sync"
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*

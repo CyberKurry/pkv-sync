@@ -175,6 +175,22 @@ def check_server_json(failures: list[str], version: str) -> None:
         failures.append(
             f"mcp/server.json: name {name!r} is not in the publisher's namespace"
         )
+    # The registry rejects a longer one, so catch it here instead of at publish
+    # time (when a bad version would already be spent).
+    description = str(data.get("description", ""))
+    if len(description) > 100:
+        failures.append(
+            f"mcp/server.json: description is {len(description)} chars, registry limit is 100"
+        )
+    # OCI ownership proof: the registry matches this image annotation against
+    # `name` before accepting the package, so the two must agree.
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    expected_label = f'io.modelcontextprotocol.server.name="{name}"'
+    if expected_label not in dockerfile:
+        failures.append(
+            "Dockerfile: missing the MCP Registry ownership label "
+            f"{expected_label!r} for the OCI package"
+        )
     packages = data.get("packages")
     if not isinstance(packages, list) or not packages:
         failures.append("mcp/server.json: no packages declared")

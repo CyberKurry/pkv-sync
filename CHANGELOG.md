@@ -7,6 +7,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+- The container image carries the MCP Registry ownership annotation
+  (`io.modelcontextprotocol.server.name`), without which the registry refuses
+  the OCI package. `docs_check` now holds the image annotation, the
+  `server.json` name, its 100-character description limit and the image tag
+  in agreement, so a publish cannot fail on metadata that drifted.
+
 - `mcp/server.json` describes the server for the MCP Registry (OCI package on
   `ghcr.io`, stdio transport, `PKV_TOKEN`/`PKV_VAULT_ID` configuration). The
   public-doc check now fails when its version, image tag or namespace drifts
