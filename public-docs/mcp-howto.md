@@ -12,10 +12,11 @@ read-write tools, and requires a normal PKV Sync bearer device token.
 
 - `list_vaults`: list vaults available to the authenticated user.
 - `list_files {vault_id, at?}`: list paths at HEAD or, when `at` is set, at that commit SHA.
-- `read_file {vault_id, path}`: read a file at HEAD.
-- `read_file_at_commit {vault_id, path, commit}`: read a file at a specific commit.
-- `search {vault_id, query, at?, limit?}`: case-insensitive substring search over text files. `at` scopes to a historical commit; `limit` caps the number of returned matches.
-- `link_graph {vault_id, at?, path_prefix?, limit?}`: return the vault's wikilink and Markdown link graph. The response includes per-file nodes with `outlinks` and computed `inlinks`, orphaned pages, broken links with `missing` or `ambiguous` reasons, and a `truncated` flag.
+- `read_file {vault_id, path}`: read a file at HEAD. The response carries `sha256`, the hash the write guards expect.
+- `read_file_at_commit {vault_id, path, commit}`: read a file at a specific commit (also with `sha256`).
+- `search {vault_id, query, at?, limit?, path_prefix?, frontmatter?, after?}`: case-insensitive substring search over text files. `at` scopes to a historical commit; `limit` caps the returned matches (a hard cap — a page never overshoots it); `path_prefix` restricts the scan to one subtree before any file is read; `frontmatter` filters on top-level frontmatter (`{"kind":"wiki"}` matches a trimmed whole scalar, `{"sources":true}` requires the key to exist, and files the filter drops still count against the content budget); `after` is an opaque cursor — pass the previous response's `next_after` back verbatim and the pages tile the result exactly, with nothing skipped or repeated. A cursor this server did not issue is rejected as `invalid_cursor`.
+- `link_graph {vault_id, at?, path_prefix?, limit?, kind?}`: return the vault's wikilink and Markdown link graph. The response includes per-file nodes with `outlinks` and computed `inlinks`, orphaned pages, broken links with `missing` or `ambiguous` reasons, and a `truncated` flag. `kind` keeps only files whose top-level frontmatter `kind:` matches, while link targets still resolve against every visible text file — so a wiki page citing a source page is not reported as broken, and orphans are computed inside the selected layer.
+- `stale_pages {vault_id, path_prefix?, at?, limit?}`: report which wiki pages have sources that changed after the page's own `source_commit` anchor. Each entry lists `changed_sources`, `removed_sources`, `renamed` (`from`/`to`), `unresolved_sources` and `last_reconciled`. The comparison is a git tree diff, so it answers "the evidence moved" — never "this claim is wrong", which stays the agent's judgement. Three honesty rules: a source the server cannot check (hidden, excluded, or nonexistent) is reported in `unresolved_sources` rather than dropped; a page that declares `sources:` without a `source_commit` is listed in `missing_source_commit` instead of being measured against a guess; and a page whose diff was clipped at the listing cap comes back with `verified: false` even when nothing is listed, so an incomplete scan cannot read as clean. Requires the `sources:`/`source_commit:` frontmatter convention documented in the LLM Wiki workflow guide.
 - `changes_since {vault_id, since_commit, path_prefix?, limit?}`: list files added, modified, deleted, or renamed since `since_commit`. The response includes `from_commit`, current `to_commit`, `changes`, and `truncated`; if `since_commit` is not an ancestor of HEAD, the tool returns `unrelated_commit` so the client can re-read the vault.
 - `write_file {vault_id, path, content, parent_commit}`: create or update a text file with optimistic concurrency on `parent_commit`.
 - `delete_file {vault_id, path, parent_commit}`: delete a file with optimistic concurrency on `parent_commit`.
@@ -188,10 +189,29 @@ above 64 MiB are rejected instead of being base64-expanded into JSON.
 
 PKV Sync exposes four MCP write tools alongside the read tools:
 
-- `write_file(vault_id, path, content, parent_commit)`: create or update a text file.
-- `delete_file(vault_id, path, parent_commit)`: delete a file.
-- `write_files(vault_id, parent_commit, writes[], deletes[])`: create, update, and delete multiple text files atomically in one commit. If any path is invalid, a file exceeds `max_file_size`, the batch is empty (`empty_batch`), or the batch exceeds 100 changes (`batch_too_large`), nothing is committed. A stale `parent_commit` returns the normal `Conflict` response.
-- `move_file(vault_id, parent_commit, from, to)`: move or rename one text file in a single commit. It refuses existing targets (`target_exists`), binary/blob-pointer sources (`unsupported_binary_move`), and missing or hidden sources (`not_found`).
+- `write_file(vault_id, path, content, parent_commit, dry_run?, expected_hashes?)`: create or update a text file.
+- `delete_file(vault_id, path, parent_commit, dry_run?, expected_hashes?)`: delete a file.
+- `write_files(vault_id, parent_commit, writes[], deletes[], dry_run?, expected_hashes?)`: create, update, and delete multiple text files atomically in one commit. If any path is invalid, a file exceeds `max_file_size`, the batch is empty (`empty_batch`), or the batch exceeds 100 changes (`batch_too_large`), nothing is committed. A stale `parent_commit` returns the normal `Conflict` response.
+- `move_file(vault_id, parent_commit, from, to, dry_run?, expected_hashes?)`: move or rename one text file in a single commit. It refuses existing targets (`target_exists`), binary/blob-pointer sources (`unsupported_binary_move`), and missing or hidden sources (`not_found`).
+
+### Dry runs and content guards
+
+Two optional arguments make an agent's write reviewable before it happens and
+safe against concurrent human edits.
+
+`dry_run: true` validates everything the real call would (parent currency, path
+visibility, size and batch caps, the guards below) and answers
+`{"dry_run": true, "would_write": [{"path", "change", "old_path?", "size_bytes"}], "parent_commit"}` without committing, recording activity, or spending write quota. A move is reported as one `rename` entry. It is not a promise: checks that live below the commit path (file-kind and exclude-glob enforcement) do not run, so a dry run can pass where the real write is refused.
+
+`expected_hashes: {"<path>": "<sha256>"}` guards individual files — the hash
+`read_file` returned when the agent read them. If any guarded path no longer
+matches, the whole call is refused with
+`content_diverged: path=<p> expected=<sha> actual=<sha|"null">` (a binary
+target is refused outright, since the caller cannot have hashed bytes it never
+received) and nothing is committed. The map is additive, so the `deletes[]`
+shape is unchanged for existing clients. `expected_hashes` is checked after
+`parent_commit`: an out-of-date parent still answers `Conflict`, because the
+client has to re-read anyway.
 
 ### Optimistic concurrency control
 
@@ -216,15 +236,26 @@ JSON bodies are capped at 100 MiB.
 ### Audit trail
 
 Every successful write, batch write, move, or delete is recorded in the
-activity log as `mcp_write` or `mcp_delete`, with a path summary, commit, and
-size in the details. Admins can review AI-driven changes from the activity
-page.
+activity log as `mcp_write` or `mcp_delete`, with the tool that made the
+change, a path summary, the commit, and the size in the details. The admin
+activity page shows the tool next to the device (agent) name and can filter by
+`?agent=<device name>` and `?tool=<tool name>`, so "which agent deleted this"
+and "what has this agent been doing" are both answerable. A dry run records
+nothing, because nothing happened.
 
 ### Caveat: writes enter git history
 
 AI-driven writes are commits in the vault git history. You can roll back with
 normal git operations, but there is no way to make a committed change "never
 have happened"; that audit trail is intentional.
+
+## Registry
+
+The server is listed in the official MCP Registry as
+`io.github.cyberkurry/pkv-sync` (`mcp/server.json` in this repository), which
+points at the published container image and configures the session with
+`PKV_TOKEN` and `PKV_VAULT_ID`. Self-hosted servers can also be wired up by
+hand with the commands above.
 
 ## Client notes
 

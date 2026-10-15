@@ -74,11 +74,14 @@ kind: wiki
 sources:
   - sources/meeting-2026-06-08.md
   - sources/spec-phase-1.md
+source_commit: 6f1c2ab0d4e5f6789012345678901234567890ab
 updated: 2026-06-08
 ---
 
 # Project Alpha
 ```
+
+`source_commit`은 페이지를 마지막으로 조정(reconcile)한 기준 commit입니다. 페이지 조정을 마칠 때마다 기록해 두면 vault가 해당 페이지의 근거가 움직였을 때 알려줄 수 있습니다(아래 [Staleness](#staleness) 참조). `sources:`는 선언했지만 이 값이 없는 페이지는 추측으로 측정되지 않고 "앵커 없음(unanchored)"으로 보고됩니다.
 
 Source pages는 raw 상태로 둘 수 있지만, 정보의 출처를 명시해야 합니다.
 
@@ -94,18 +97,34 @@ captured: 2026-06-08
 
 1. Ingest: `sources/` 아래 source material을 추가하거나 업데이트하되, 가능하면 원문 표현을 보존합니다. 하나의 source가 10-25개의 source 및 wiki pages로 확장될 때는 `write_files`를 사용해 전체 ingest가 하나의 atomic commit으로 저장되게 합니다.
 2. Query: agent에게 관련 source 및 wiki pages를 읽게 한 다음 `wiki/` 아래 updates를 제안하게 합니다.
-3. Write: agent가 current `parent_commit`을 확보한 뒤에만 `write_file`, `write_files`, `move_file`, 또는 `delete_file`을 사용하게 합니다. page merge, split, archival move에는 `move_file`을 사용해 git이 history를 잃지 않고 rename으로 보고할 수 있게 합니다.
-4. Lint: `link_graph`를 실행해 orphaned, missing, ambiguous links를 찾고, 마지막 reviewed commit부터 `changes_since`를 실행해 변경 사항을 summarize합니다.
+3. Write: agent가 current `parent_commit`을 확보한 뒤에만 `write_file`, `write_files`, `move_file`, 또는 `delete_file`을 사용하게 합니다. page merge, split, archival move에는 `move_file`을 사용해 git이 history를 잃지 않고 rename으로 보고할 수 있게 합니다. 큰 재작성 전에는 `dry_run: true`로 `would_write` 계획을 먼저 확인하고, agent가 읽을 때 받은 `sha256` 값을 `expected_hashes`로 넘겨 그 사이 사람이 편집한 페이지가 덮어써지지 않고 `content_diverged`로 거부되게 하세요.
+4. Lint: `stale_pages`를 실행해 근거가 움직인 페이지를 얻고(아래 참조), `link_graph`로 orphaned, missing, ambiguous links를 찾고, 마지막 reviewed commit부터 `changes_since`로 변경 사항을 summarize합니다.
 5. Review: proposed commits를 inspect하고 conflicts를 resolve하며, 불확실한 claims는 사람이 wiki pages로 promote할 때까지 sources에 남겨 둡니다.
 
 v1.2.1에서는 이 루프가 더 큰 wiki vault에 맞게 조정되었습니다. 일괄 ingest는 `write_files`로 원자적으로 유지되고, 구조적인 페이지 이동은 `move_file`로 기록을 보존하며, link/change tools는 상한을 유지하면서 필터링된 paths를 숨기고, 반복 sync cycles는 가능한 경우 cached filters, token checks, scans를 재사용합니다.
+
+## Staleness
+
+이 workflow가 빠지기 쉬운 실패 모드는 보이지 않는 부패입니다. source가 바뀌어도 그 위에 세운 페이지는 vault 어디에서도 그 사실을 알리지 않은 채 낡은 주장을 계속 내세웁니다. 추가만 하는 습관은 상황을 더 나쁘게 만듭니다. 오직 커지기만 하는 knowledge base는 낡은 주장을 조용히 쌓아 갑니다.
+
+`stale_pages`는 그 질문의 기계적인 절반에 답합니다. vault id를 넘기면 모든 페이지의 `sources:`/`source_commit:`을 읽고, 그 앵커를 현재 head와 diff하여 근거가 움직인 페이지를 반환합니다.
+
+- `changed_sources`: source의 내용이 변경되었습니다.
+- `removed_sources`: source가 사라졌습니다(이동한 파일을 인용하는 페이지도 여기에 해당합니다).
+- `renamed`: 이동한 source의 `{from, to}`입니다. 페이지가 아직 옛 path를 인용하고 있기 때문입니다.
+- `unresolved_sources`: 서버가 확인할 수 없는 인용 source입니다(hidden, excluded 또는 존재한 적 없음). `sources:`의 오타는 깨끗한 결과 뒤에 숨지 않고 여기에 나타납니다.
+- `missing_source_commit`: sources를 선언했지만 아직 앵커가 없는 페이지입니다.
+- `verified: false`: diff가 목록 상한에 도달했으므로 페이지에 표시된 것보다 더 많은 변경이 있을 수 있습니다. 검증되지 않은 페이지는 깨끗한 것이 아니라 확인이 필요하다고 다루세요.
+
+추가가 아니라 조정(reconcile)하세요. 현재 최선의 답을 독자가 가장 먼저 읽게 되도록 페이지를 다시 쓰고, 새 source가 옛 주장을 대체하면 명시적으로 밝히세요(옛 주장을 조용히 지우지 말고, 무엇이 대체했는지를 가리키는 포인터와 함께 남깁니다). 그런 다음 해당 페이지의 `source_commit`을 조정한 head로 갱신하고, 이번 pass를 `log.md`에 기록하세요.
 
 ## Lint 루틴
 
 각 maintenance pass 이후 agent에게 다음을 요청하세요.
 
-- vault id와 함께 `link_graph`를 호출하고 broken links, ambiguous basename links, new orphaned pages를 보고합니다.
-- 마지막 human-reviewed commit과 함께 `changes_since`를 호출하고 added, modified, deleted, renamed pages를 summarize합니다.
+- vault id와 함께 `stale_pages`를 호출해 보고된 각 페이지를 조정하고(`unresolved_sources`의 오타와 최초 앵커가 필요한 `missing_source_commit` 페이지 포함), 끝난 페이지마다 `source_commit`을 되씁니다.
+- vault id와 함께 `link_graph`를 호출하고 broken links, ambiguous basename links, new orphaned pages를 보고합니다. `kind: "wiki"`를 주면 wiki 층만 lint할 수 있습니다.
+- 마지막 human-reviewed commit과 함께 `changes_since`를 호출하고 added, modified, deleted, renamed pages를 summarize합니다. `truncated: true`는 목록이 잘렸다는 표시이므로, "다른 변경은 없다"고 결론내기 전에 더 좁은 범위로 다시 실행하세요.
 - durable wiki pages가 추가되었으면 `index.md`를 업데이트합니다.
 - source material, 변경된 wiki pages, unresolved questions를 설명하는 짧은 entry를 `log.md`에 추가합니다.
 

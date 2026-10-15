@@ -21,7 +21,8 @@ PKV Sync 是一个自托管的、Git 原生的 Obsidian 笔记库同步服务端
 ### 运维
 
 - **管理后台**支持五种语言（English、简中、繁中、日本語、한국어），覆盖用户、设备 Token、笔记库、邀请码、活动日志和 blob 垃圾回收，对破坏性的笔记库操作与用户操作都会弹出确认对话框。
-- **笔记库可被 AI 读取。** MCP 通过 stdio 或 `pkvsyncd serve` 内嵌的 `/mcp` 路由（默认开启）对外提供读写工具。
+- **笔记库可被 AI 读取。** MCP 通过 stdio 或 `pkvsyncd serve` 内嵌的 `/mcp` 路由（默认开启）对外提供读写工具，并且服务端已收录于 [MCP Registry](https://registry.modelcontextprotocol.io)，名为 `io.github.cyberkurry/pkv-sync`。
+- **为 LLM 维护的 wiki 而生。** 除了读写，agent 还能按 frontmatter 检索、精确分页、按层 lint 链接、找出“来源已过期”的页面，并在“dry run + 内容哈希守卫”之后才写入——参见 [LLM Wiki 操作指南](./public-docs/llm-wiki-howto.zh-CN.md)。
 - **默认就有边界约束。** 管理员创建的密码走 setup 级强密码策略，Token 密文只展示一次，上传和 MCP 响应都有大小上限，常驻的 SSE 流会重新校验已撤销的 Token。
 
 ### 设计

@@ -29,7 +29,14 @@ English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.
   for users, device tokens, vaults, invites, activity, and blob GC, with
   confirmation dialogs for destructive vault and user actions.
 - **AI-readable vaults.** MCP exposes read/write tools over stdio or the
-  embedded `/mcp` route on `pkvsyncd serve` (default on).
+  embedded `/mcp` route on `pkvsyncd serve` (default on), and the server is
+  listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as
+  `io.github.cyberkurry/pkv-sync`.
+- **Built for LLM-maintained wikis.** Beyond reading and writing, an agent can
+  search by frontmatter, page through results exactly, lint a layer's links,
+  find the pages whose sources went stale, and write behind a dry run plus
+  content-hash guards — see the
+  [LLM Wiki workflow](./public-docs/llm-wiki-howto.md).
 - **Bounded by default.** Admin-created passwords follow the setup-grade
   strong policy, token secrets are shown exactly once, uploads and MCP
   responses are size-capped, and live SSE streams revalidate revoked tokens.

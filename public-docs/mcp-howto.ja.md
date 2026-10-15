@@ -12,10 +12,11 @@ PKV Sync は MCP server を通じて vault 内容を公開できます。サー�
 
 - `list_vaults`: 認証済みユーザーが利用できる vault を一覧表示します。
 - `list_files {vault_id, at?}`: HEAD、または `at` が指定された場合はその commit SHA の paths を一覧表示します。
-- `read_file {vault_id, path}`: HEAD のファイルを読み取ります。
-- `read_file_at_commit {vault_id, path, commit}`: 特定 commit のファイルを読み取ります。
-- `search {vault_id, query, at?, limit?}`: テキストファイルに対して大文字小文字を区別しない substring search を実行します。`at` で過去の commit に scope し、`limit` で返される一致数の上限を指定します。
-- `link_graph {vault_id, at?, path_prefix?, limit?}`: vault の wikilink と Markdown link graph を返します。応答には、ファイルごとの node、`outlinks`、計算された `inlinks`、orphaned pages、`missing` または `ambiguous` reason を持つ broken links、`truncated` flag が含まれます。
+- `read_file {vault_id, path}`: HEAD のファイルを読み取ります。応答には `sha256` が含まれます。これは書き込みガードが期待する hash です。
+- `read_file_at_commit {vault_id, path, commit}`: 特定 commit のファイルを読み取ります（こちらも `sha256` 付き）。
+- `search {vault_id, query, at?, limit?, path_prefix?, frontmatter?, after?}`: テキストファイルに対して大文字小文字を区別しない substring search を実行します。`at` で過去の commit に scope し、`limit` は返される一致数の上限（厳密な上限であり、1 ページがそれを超えることはありません）です。`path_prefix` はファイルを読み取る前に走査対象を 1 つの subtree に絞り込みます。`frontmatter` はトップレベルの frontmatter で絞り込みます（`{"kind":"wiki"}` は trim された単一の scalar 全体に一致し、`{"sources":true}` はキーの存在を要求し、フィルタで除外されたファイルも内容予算に計上されます）。`after` は不透明なカーソルです。直前の応答の `next_after` をそのまま渡すと、ページ間で結果が正確に分割され、飛ばされる項目も重複する項目もありません。このサーバーが発行していないカーソルは `invalid_cursor` として拒否されます。
+- `link_graph {vault_id, at?, path_prefix?, limit?, kind?}`: vault の wikilink と Markdown link graph を返します。応答には、ファイルごとの node、`outlinks`、計算された `inlinks`、orphaned pages、`missing` または `ambiguous` reason を持つ broken links、`truncated` flag が含まれます。`kind` はトップレベルの frontmatter の `kind:` が一致するファイルだけを残しますが、link target の解決は引き続きすべての visible text file に対して行われるため、source page を cite する wiki page が broken と誤って報告されることはなく、orphan は選択された層の内側で計算されます。
+- `stale_pages {vault_id, path_prefix?, at?, limit?}`: ページ自身の `source_commit` アンカーより後に source が変更された wiki pages を報告します。各 entry には `changed_sources`、`removed_sources`、`renamed`（`from`/`to`）、`unresolved_sources`、`last_reconciled` が含まれます。比較は git tree diff であるため、「根拠が動いた」ことだけを答え、「この主張が誤っている」ことは決して答えません。後者は agent の判断に委ねられます。3 つの誠実さのルールがあります。サーバーが検証できない source（hidden、excluded、存在しない）は、破棄せず `unresolved_sources` に報告します。`sources:` を宣言していても `source_commit` がないページは、推測と比較されるのではなく `missing_source_commit` に一覧表示します。diff が一覧の上限で打ち切られたページは、何も一覧に載っていなくても `verified: false` を返すため、不完全な走査がクリーンであるかのように読まれることはありません。LLM Wiki ワークフローガイドに記載された `sources:`/`source_commit:` の frontmatter 規約が必要です。
 - `changes_since {vault_id, since_commit, path_prefix?, limit?}`: `since_commit` 以降に追加、変更、削除、rename されたファイルを一覧表示します。応答には `from_commit`、現在の `to_commit`、`changes`、`truncated` が含まれます。`since_commit` が HEAD の ancestor でない場合、client が vault を再読み取りできるように `unrelated_commit` を返します。
 - `write_file {vault_id, path, content, parent_commit}`: `parent_commit` による optimistic concurrency でテキストファイルを作成または更新します。
 - `delete_file {vault_id, path, parent_commit}`: `parent_commit` による optimistic concurrency でファイルを削除します。
@@ -85,10 +86,18 @@ MCP 仕様の `Origin` ヘッダーによる DNS-rebinding チェックは `/mcp
 
 PKV Sync は読み取り tools と併せて 4 つの MCP write tools を提供します。
 
-- `write_file(vault_id, path, content, parent_commit)`: テキストファイルを作成または更新します。
-- `delete_file(vault_id, path, parent_commit)`: ファイルを削除します。
-- `write_files(vault_id, parent_commit, writes[], deletes[])`: 複数のテキストファイルを 1 つの commit で atomically に作成、更新、削除します。path が無効、file が `max_file_size` を超える、batch が空 (`empty_batch`)、または batch が 100 changes を超える (`batch_too_large`) 場合、何も commit されません。古い `parent_commit` では通常の `Conflict` response を返します。
-- `move_file(vault_id, parent_commit, from, to)`: 1 つのテキストファイルを単一 commit で移動または rename します。既存 target (`target_exists`)、binary/blob-pointer source (`unsupported_binary_move`)、存在しないまたは hidden の source (`not_found`) は拒否します。
+- `write_file(vault_id, path, content, parent_commit, dry_run?, expected_hashes?)`: テキストファイルを作成または更新します。
+- `delete_file(vault_id, path, parent_commit, dry_run?, expected_hashes?)`: ファイルを削除します。
+- `write_files(vault_id, parent_commit, writes[], deletes[], dry_run?, expected_hashes?)`: 複数のテキストファイルを 1 つの commit で atomically に作成、更新、削除します。path が無効、file が `max_file_size` を超える、batch が空 (`empty_batch`)、または batch が 100 changes を超える (`batch_too_large`) 場合、何も commit されません。古い `parent_commit` では通常の `Conflict` response を返します。
+- `move_file(vault_id, parent_commit, from, to, dry_run?, expected_hashes?)`: 1 つのテキストファイルを単一 commit で移動または rename します。既存 target (`target_exists`)、binary/blob-pointer source (`unsupported_binary_move`)、存在しないまたは hidden の source (`not_found`) は拒否します。
+
+### Dry runs and content guards
+
+2 つのオプション引数により、agent の書き込みは実行前にレビューでき、同時に行われる人間の編集に対して安全になります。
+
+`dry_run: true` は本番の呼び出しが行うすべての検証（parent の最新性、path の可視性、サイズとバッチの上限、以下に示すガード）を行い、commit も活動記録も書き込みクォータの消費も行わずに `{"dry_run": true, "would_write": [{"path", "change", "old_path?", "size_bytes"}], "parent_commit"}` を返します。move は 1 件の `rename` entry として報告されます。ただしこれは約束ではありません。commit path より下にあるチェック（file-kind および exclude-glob の適用）は実行されないため、実際の書き込みが拒否される状況でも dry run は通過することがあります。
+
+`expected_hashes: {"<path>": "<sha256>"}` は個々のファイルをガードします。値は agent が読み取ったときに `read_file` が返した hash です。ガード対象の path が 1 つでも一致しなくなった場合、呼び出し全体が `content_diverged: path=<p> expected=<sha> actual=<sha|"null">` で拒否され、何も commit されません（binary の target は即座に拒否されます。呼び出し元が受け取っていない bytes を hash できるはずがないためです）。この map は追加方式であるため、既存の client にとって `deletes[]` の形は変わりません。`expected_hashes` は `parent_commit` の後に判定されます。親が古ければ、client はいずれにせよ再読み取りが必要になるため、これまでどおり `Conflict` が優先されます。
 
 ### Optimistic concurrency control
 
@@ -102,11 +111,15 @@ Write tools は `(token, vault)` ペアごとに 1 分あたり 60 writes に制
 
 ### Audit trail
 
-成功した write、batch write、move、delete はすべて、activity log に `mcp_write` または `mcp_delete` として記録され、details には path summary、commit、size が含まれます。管理者は activity page から AI-driven changes を確認できます。
+成功した write、batch write、move、delete はすべて、activity log に `mcp_write` または `mcp_delete` として記録され、details には変更を行った tool、path summary、commit、size が含まれます。管理画面の activity page はデバイス（agent）名の隣に tool を表示し、`?agent=<デバイス名>` と `?tool=<ツール名>` で絞り込めるため、「どの agent がこれを削除したのか」と「この agent が何をしてきたのか」のどちらにも答えられます。dry run は何も記録しません。何も起きていないからです。
 
 ### Caveat: writes enter git history
 
 AI-driven writes は vault git history の commits になります。通常の git operations で roll back できますが、commit 済みの変更を「発生しなかった」ことにはできません。この audit trail は意図的なものです。
+
+## Registry
+
+サーバーは公式 MCP Registry に `io.github.cyberkurry/pkv-sync`（このリポジトリの `mcp/server.json`）として掲載されています。これは公開済みのコンテナイメージを指し、`PKV_TOKEN` と `PKV_VAULT_ID` でセッションを構成します。セルフホストのサーバーは、上記のコマンドを使って手作業で接続することもできます。
 
 ## Client notes
 

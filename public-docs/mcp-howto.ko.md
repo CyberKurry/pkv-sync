@@ -12,10 +12,11 @@ PKV Sync는 MCP server를 통해 vault 내용을 노출할 수 있습니다. 서
 
 - `list_vaults`: 인증된 사용자가 사용할 수 있는 vault를 나열합니다.
 - `list_files {vault_id, at?}`: HEAD 또는 `at`이 지정된 경우 해당 commit SHA의 paths를 나열합니다.
-- `read_file {vault_id, path}`: HEAD의 파일을 읽습니다.
-- `read_file_at_commit {vault_id, path, commit}`: 특정 commit의 파일을 읽습니다.
-- `search {vault_id, query, at?, limit?}`: 텍스트 파일에서 대소문자를 구분하지 않는 substring search를 수행합니다. `at`은 과거 commit으로 범위를 한정하고, `limit`은 반환되는 일치 수의 상한을 지정합니다.
-- `link_graph {vault_id, at?, path_prefix?, limit?}`: vault의 wikilink 및 Markdown link graph를 반환합니다. 응답에는 파일별 node와 `outlinks`, 계산된 `inlinks`, orphaned pages, `missing` 또는 `ambiguous` reason이 있는 broken links, 그리고 `truncated` flag가 포함됩니다.
+- `read_file {vault_id, path}`: HEAD의 파일을 읽습니다. 응답에는 write 가드가 기대하는 hash인 `sha256`이 포함됩니다.
+- `read_file_at_commit {vault_id, path, commit}`: 특정 commit의 파일을 읽습니다(마찬가지로 `sha256` 포함).
+- `search {vault_id, query, at?, limit?, path_prefix?, frontmatter?, after?}`: 텍스트 파일에서 대소문자를 구분하지 않는 substring search를 수행합니다. `at`은 과거 commit으로 범위를 한정하고, `limit`은 반환되는 일치 수의 상한을 지정합니다(엄격한 상한이므로 한 페이지가 이 값을 넘지 않습니다). `path_prefix`는 파일을 읽기 전에 스캔 범위를 하나의 subtree로 제한합니다. `frontmatter`는 최상위 frontmatter로 필터링합니다(`{"kind":"wiki"}`는 trim된 전체 scalar와 일치하고, `{"sources":true}`는 키가 존재해야 하며, 필터에서 걸러진 파일도 content budget에 계상됩니다). `after`는 불투명 커서입니다. 이전 응답의 `next_after`를 그대로 되돌려 전달하면 페이지들이 겹침이나 누락 없이 결과를 정확히 나눠 가지므로, 건너뛰거나 반복되는 항목이 없습니다. 이 서버가 발급하지 않은 커서는 `invalid_cursor`로 거부됩니다.
+- `link_graph {vault_id, at?, path_prefix?, limit?, kind?}`: vault의 wikilink 및 Markdown link graph를 반환합니다. 응답에는 파일별 node와 `outlinks`, 계산된 `inlinks`, orphaned pages, `missing` 또는 `ambiguous` reason이 있는 broken links, 그리고 `truncated` flag가 포함됩니다. `kind`는 최상위 frontmatter의 `kind:`가 일치하는 파일만 남기지만, 링크 대상은 여전히 보이는 모든 텍스트 파일에 대해 해석됩니다. 따라서 wiki 페이지가 source 페이지를 인용해도 broken으로 잘못 보고되지 않으며, orphaned pages는 선택한 층 안에서 계산됩니다.
+- `stale_pages {vault_id, path_prefix?, at?, limit?}`: 페이지 자체의 `source_commit` 앵커 이후 source가 변경된 wiki 페이지를 보고합니다. 각 항목에는 `changed_sources`, `removed_sources`, `renamed`(`from`/`to`), `unresolved_sources`, `last_reconciled`가 나열됩니다. 이 비교는 git tree diff이므로 "근거가 움직였다"는 점을 알려줄 뿐이며, "이 주장이 틀렸다"는 판단은 하지 않습니다. 그 판단은 agent의 몫입니다. 세 가지 정직 규칙이 있습니다. 서버가 확인할 수 없는 source(hidden, excluded 또는 존재하지 않음)는 누락시키지 않고 `unresolved_sources`에 보고합니다. `sources:`를 선언했지만 `source_commit`이 없는 페이지는 추측과 비교하는 대신 `missing_source_commit`에 나열합니다. 그리고 diff가 목록 상한에서 잘린 페이지는 나열된 항목이 없더라도 `verified: false`로 반환되므로, 불완전한 스캔이 깨끗한 결과로 읽히지 않습니다. LLM Wiki workflow 문서에 설명된 `sources:`/`source_commit:` frontmatter 규칙이 필요합니다.
 - `changes_since {vault_id, since_commit, path_prefix?, limit?}`: `since_commit` 이후 추가, 수정, 삭제, rename된 파일을 나열합니다. 응답에는 `from_commit`, 현재 `to_commit`, `changes`, `truncated`가 포함됩니다. `since_commit`이 HEAD의 ancestor가 아니면 클라이언트가 vault를 다시 읽을 수 있도록 `unrelated_commit`을 반환합니다.
 - `write_file {vault_id, path, content, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 텍스트 파일을 만들거나 업데이트합니다.
 - `delete_file {vault_id, path, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 파일을 삭제합니다.
@@ -85,10 +86,18 @@ MCP 사양의 `Origin` 헤더 DNS-rebinding 검사는 `/mcp`에서 의도적으�
 
 PKV Sync는 읽기 tools와 함께 네 개의 MCP write tools를 제공합니다.
 
-- `write_file(vault_id, path, content, parent_commit)`: 텍스트 파일을 만들거나 업데이트합니다.
-- `delete_file(vault_id, path, parent_commit)`: 파일을 삭제합니다.
-- `write_files(vault_id, parent_commit, writes[], deletes[])`: 여러 텍스트 파일을 하나의 commit에서 atomically 만들고, 업데이트하고, 삭제합니다. path가 유효하지 않거나, 파일이 `max_file_size`를 넘거나, batch가 비어 있거나(`empty_batch`), batch가 100 changes를 넘으면(`batch_too_large`) 아무것도 commit하지 않습니다. 오래된 `parent_commit`은 일반 `Conflict` response를 반환합니다.
-- `move_file(vault_id, parent_commit, from, to)`: 하나의 텍스트 파일을 단일 commit에서 이동하거나 rename합니다. 이미 존재하는 target(`target_exists`), binary/blob-pointer source(`unsupported_binary_move`), 없거나 hidden인 source(`not_found`)는 거부합니다.
+- `write_file(vault_id, path, content, parent_commit, dry_run?, expected_hashes?)`: 텍스트 파일을 만들거나 업데이트합니다.
+- `delete_file(vault_id, path, parent_commit, dry_run?, expected_hashes?)`: 파일을 삭제합니다.
+- `write_files(vault_id, parent_commit, writes[], deletes[], dry_run?, expected_hashes?)`: 여러 텍스트 파일을 하나의 commit에서 atomically 만들고, 업데이트하고, 삭제합니다. path가 유효하지 않거나, 파일이 `max_file_size`를 넘거나, batch가 비어 있거나(`empty_batch`), batch가 100 changes를 넘으면(`batch_too_large`) 아무것도 commit하지 않습니다. 오래된 `parent_commit`은 일반 `Conflict` response를 반환합니다.
+- `move_file(vault_id, parent_commit, from, to, dry_run?, expected_hashes?)`: 하나의 텍스트 파일을 단일 commit에서 이동하거나 rename합니다. 이미 존재하는 target(`target_exists`), binary/blob-pointer source(`unsupported_binary_move`), 없거나 hidden인 source(`not_found`)는 거부합니다.
+
+### Dry runs and content guards
+
+두 가지 선택 인자는 agent의 쓰기를 실행 전에 검토할 수 있게 하고, 동시에 이루어지는 사람의 편집으로부터 안전하게 만듭니다.
+
+`dry_run: true`는 실제 호출이 검사할 모든 것(`parent_commit` 최신 여부, path 가시성, 크기 및 batch 상한, 아래의 가드)을 검증하고, commit하거나 활동을 기록하거나 write quota를 소비하지 않은 채 `{"dry_run": true, "would_write": [{"path", "change", "old_path?", "size_bytes"}], "parent_commit"}`를 반환합니다. move는 `rename` 항목 하나로 보고됩니다. 다만 이는 약속이 아닙니다. commit 경로 아래에 있는 검사(file-kind 및 exclude-glob 적용)는 실행되지 않으므로, dry run은 통과하지만 실제 쓰기는 거부될 수 있습니다.
+
+`expected_hashes: {"<path>": "<sha256>"}`는 호출 최상위의 map으로 개별 파일을 지키는 가드입니다. 값은 agent가 파일을 읽을 때 `read_file`이 반환한 hash입니다. 가드 대상 path 중 하나라도 더 이상 일치하지 않으면 호출 전체가 `content_diverged: path=<p> expected=<sha> actual=<sha|"null">`와 함께 거부되며(바이너리 대상은 받은 적 없는 바이트를 hash할 수 없으므로 즉시 거부됩니다) 아무것도 commit되지 않습니다. 이 map은 추가 방식이므로 기존 클라이언트의 `deletes[]` 형태는 그대로입니다. `expected_hashes`는 `parent_commit` 뒤에 검사됩니다. 부모가 오래된 경우에는 클라이언트가 어차피 다시 읽어야 하므로 기존대로 `Conflict`가 우선합니다.
 
 ### Optimistic concurrency control
 
@@ -102,11 +111,15 @@ Write tools는 `(token, vault)` 쌍별로 분당 60 writes로 제한됩니다. `
 
 ### Audit trail
 
-성공한 모든 write, batch write, move, delete는 activity log에 `mcp_write` 또는 `mcp_delete`로 기록되며, details에는 path summary, commit, size가 포함됩니다. 관리자는 activity page에서 AI-driven changes를 검토할 수 있습니다.
+성공한 모든 write, batch write, move, delete는 activity log에 `mcp_write` 또는 `mcp_delete`로 기록되며, details에는 변경을 수행한 도구, path summary, commit, size가 포함됩니다. 관리자 activity page는 장치(agent) 이름 옆에 도구를 표시하고 `?agent=<device name>` 및 `?tool=<tool name>`으로 필터링할 수 있으므로, "어느 agent가 이것을 삭제했는가"와 "이 agent가 무엇을 해 왔는가"에 모두 답할 수 있습니다. dry run은 아무 일도 일어나지 않았으므로 아무것도 기록하지 않습니다.
 
 ### Caveat: writes enter git history
 
 AI-driven writes는 vault git history의 commits가 됩니다. 일반 git operations로 roll back할 수 있지만, 이미 commit된 변경을 "never have happened"로 만들 방법은 없습니다. 이 audit trail은 의도된 것입니다.
+
+## Registry
+
+이 서버는 공식 MCP Registry에 `io.github.cyberkurry/pkv-sync`(이 저장소의 `mcp/server.json`)로 등록되어 있습니다. 이 항목은 게시된 컨테이너 이미지를 가리키며 `PKV_TOKEN`과 `PKV_VAULT_ID`로 세션을 구성합니다. 자체 호스팅하는 서버는 위 명령으로 직접 연결할 수도 있습니다.
 
 ## Client notes
 

@@ -10,10 +10,11 @@ PKV Sync 可以通过 MCP server 暴露笔记库内容。服务端在返回文�
 
 - `list_vaults`：列出已认证用户可访问的笔记库。
 - `list_files {vault_id, at?}`：列出 HEAD 的路径；设置 `at` 时，列出该 commit SHA 下的路径。
-- `read_file {vault_id, path}`：读取 HEAD 下的文件。
-- `read_file_at_commit {vault_id, path, commit}`：读取指定 commit 下的文件。
-- `search {vault_id, query, at?, limit?}`：在文本文件中执行大小写不敏感的子串搜索。`at` 将范围限定到某个历史 commit；`limit` 限制返回的匹配数量。
-- `link_graph {vault_id, at?, path_prefix?, limit?}`：返回笔记库的 wikilink 和 Markdown 链接图。响应包含每个文件节点的 `outlinks` 和计算出的 `inlinks`、孤立页面、带有 `missing` 或 `ambiguous` 原因的断链，以及 `truncated` 标志。
+- `read_file {vault_id, path}`：读取 HEAD 下的文件。响应会带上 `sha256`，也就是写入守卫所期望的哈希。
+- `read_file_at_commit {vault_id, path, commit}`：读取指定 commit 下的文件（同样带有 `sha256`）。
+- `search {vault_id, query, at?, limit?, path_prefix?, frontmatter?, after?}`：在文本文件中执行大小写不敏感的子串搜索。`at` 将范围限定到某个历史 commit；`limit` 限制返回的匹配数量（硬上限——一页绝不会超出该上限）；`path_prefix` 会在读取任何文件之前把扫描限定到某个子树；`frontmatter` 按顶层 frontmatter 过滤（`{"kind":"wiki"}` 匹配去除首尾空白后的完整标量，`{"sources":true}` 要求该键存在，而被过滤器丢弃的文件仍会计入内容预算）；`after` 是不透明游标——把上一次响应中的 `next_after` 原样传回，各页就能精确铺满结果，既不跳过也不重复。凡不是本服务端签发的游标都会被拒绝并报 `invalid_cursor`。
+- `link_graph {vault_id, at?, path_prefix?, limit?, kind?}`：返回笔记库的 wikilink 和 Markdown 链接图。响应包含每个文件节点的 `outlinks` 和计算出的 `inlinks`、孤立页面、带有 `missing` 或 `ambiguous` 原因的断链，以及 `truncated` 标志。`kind` 只保留顶层 frontmatter `kind:` 匹配的文件，而链接目标仍会对整个可见文本文件解析——因此引用了 source 页面的 wiki 页面不会被报为断链，孤儿则在被选中的层内计算。
+- `stale_pages {vault_id, path_prefix?, at?, limit?}`：报告哪些 wiki 页面的 source 在该页自身 `source_commit` 锚点之后发生了变化。每个条目列出 `changed_sources`、`removed_sources`、`renamed`（`from`/`to`）、`unresolved_sources` 和 `last_reconciled`。比较基于 git tree diff，因此它回答的是“证据移动了”——绝不会是“这个论断错了”，后者仍然由 agent 判断。三条诚实规则：服务端无法核实的 source（隐藏、被排除或不存在）会记录在 `unresolved_sources` 中，而不是被丢弃；声明了 `sources:` 却没有 `source_commit` 的页面会列入 `missing_source_commit`，而不是拿猜测去度量；diff 在清单上限处被裁剪的页面即使什么都没列出，也会返回 `verified: false`，因此不完整的扫描不可能被读成干净。需要 LLM Wiki 工作流指南中记录的 `sources:`/`source_commit:` frontmatter 约定。
 - `changes_since {vault_id, since_commit, path_prefix?, limit?}`：列出自 `since_commit` 以来新增、修改、删除或重命名的文件。响应包含 `from_commit`、当前 `to_commit`、`changes` 和 `truncated`；如果 `since_commit` 不是 HEAD 的祖先，工具会返回 `unrelated_commit`，以便客户端重新读取笔记库。
 - `write_file {vault_id, path, content, parent_commit}`：以 `parent_commit` 进行乐观并发控制，创建或更新文本文件。
 - `delete_file {vault_id, path, parent_commit}`：以 `parent_commit` 进行乐观并发控制，删除文件。
@@ -83,10 +84,18 @@ MCP 规范中的 `Origin` 请求头 DNS-rebinding 检查未在 `/mcp` 上实现�
 
 PKV Sync 在读取工具之外提供四个 MCP 写入工具：
 
-- `write_file(vault_id, path, content, parent_commit)`：创建或更新文本文件。
-- `delete_file(vault_id, path, parent_commit)`：删除文件。
-- `write_files(vault_id, parent_commit, writes[], deletes[])`：在一个 commit 中原子地创建、更新和删除多个文本文件。如果任一路径无效、文件超过 `max_file_size`、批次为空（`empty_batch`），或批次超过 100 个变更（`batch_too_large`），服务端不会提交任何内容。陈旧的 `parent_commit` 会返回常规 `Conflict` 响应。
-- `move_file(vault_id, parent_commit, from, to)`：在单个 commit 中移动或重命名一个文本文件。它会拒绝已存在的目标（`target_exists`）、二进制／blob-pointer 源文件（`unsupported_binary_move`），以及缺失或隐藏的源文件（`not_found`）。
+- `write_file(vault_id, path, content, parent_commit, dry_run?, expected_hashes?)`：创建或更新文本文件。
+- `delete_file(vault_id, path, parent_commit, dry_run?, expected_hashes?)`：删除文件。
+- `write_files(vault_id, parent_commit, writes[], deletes[], dry_run?, expected_hashes?)`：在一个 commit 中原子地创建、更新和删除多个文本文件。如果任一路径无效、文件超过 `max_file_size`、批次为空（`empty_batch`），或批次超过 100 个变更（`batch_too_large`），服务端不会提交任何内容。陈旧的 `parent_commit` 会返回常规 `Conflict` 响应。
+- `move_file(vault_id, parent_commit, from, to, dry_run?, expected_hashes?)`：在单个 commit 中移动或重命名一个文本文件。它会拒绝已存在的目标（`target_exists`）、二进制／blob-pointer 源文件（`unsupported_binary_move`），以及缺失或隐藏的源文件（`not_found`）。
+
+### Dry run 与内容守卫
+
+两个可选参数让 agent 的写入在真正发生之前可被审查，并且不会被并发的人工编辑破坏。
+
+`dry_run: true` 会校验真实调用会校验的一切（parent 是否仍然最新、路径可见性、大小与批次上限、下面的守卫），并返回 `{"dry_run": true, "would_write": [{"path", "change", "old_path?", "size_bytes"}], "parent_commit"}`，但不提交、不记录活动、不消耗写入额度。移动会报告为一条 `rename` 条目。它不是承诺：位于提交路径之下的检查（文件类型与 exclude glob 强制）不会运行，因此 dry run 可能通过，而真实写入被拒绝。
+
+`expected_hashes: {"<path>": "<sha256>"}` 逐文件守卫——也就是 agent 读取这些文件时 `read_file` 返回的哈希。如果任何被守卫的路径不再匹配，整个调用会被拒绝并报 `content_diverged: path=<p> expected=<sha> actual=<sha|"null">`（二进制目标会被直接拒绝，因为调用方不可能对从未收到过的字节计算哈希），并且不会提交任何内容。这个 map 是增量式的，因此 `deletes[]` 的形态对现有客户端保持不变。`expected_hashes` 在 `parent_commit` 之后校验：父提交过期时仍然返回 `Conflict`，因为客户端无论如何都必须重新读取。
 
 ### 乐观并发控制
 
@@ -100,11 +109,15 @@ PKV Sync 在读取工具之外提供四个 MCP 写入工具：
 
 ### 审计记录
 
-每次成功写入、批量写入、移动或删除都会在活动日志中记录为 `mcp_write` 或 `mcp_delete`，details 中包含路径摘要、commit 和 size。管理员可以在活动页查看 AI 驱动的改动。
+每次成功写入、批量写入、移动或删除都会在活动日志中记录为 `mcp_write` 或 `mcp_delete`，details 中包含发起该改动的工具、路径摘要、commit 和 size。管理页会在设备（agent）名旁显示工具，并支持按 `?agent=<设备名>` 与 `?tool=<工具名>` 过滤，因此“哪个 agent 删了它”和“这个 agent 一直在做什么”都能回答。dry run 不记录任何内容，因为什么都没发生。
 
 ### 注意：写入会进入 git 历史
 
 AI 驱动的写入会成为笔记库 git 历史中的 commit。你可以通过普通 git 操作回滚，但无法让已经提交的改动“从未发生”；这种可审计性是有意设计。
+
+## Registry
+
+服务端已收录于官方 MCP Registry，名为 `io.github.cyberkurry/pkv-sync`（本仓库内的 `mcp/server.json`），它指向已发布的容器镜像，并用 `PKV_TOKEN` 和 `PKV_VAULT_ID` 配置会话。自托管的服务端也可以按上文命令手工接入。
 
 ## 客户端提示
 
