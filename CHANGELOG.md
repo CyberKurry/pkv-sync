@@ -7,6 +7,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- MCP `search` gains structured filters for LLM-maintained wiki vaults: a
+  `frontmatter` filter (top-level scalars match as trimmed whole strings;
+  `true` requires the key to exist, and the howto's indented `sources:` block
+  counts), a `path_prefix` scope, and an opaque `after` pagination cursor.
+  `limit` stays a hard cap; pages tile the match set exactly, so nothing is
+  skipped or duplicated, and the cursor always advances. A `after` value this
+  server did not issue is rejected as `invalid_cursor` instead of silently
+  restarting the walk.
+
 ### Fixed
 
 - Release: the plugin store mirror can no longer be sunk by the attestation

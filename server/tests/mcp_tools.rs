@@ -243,6 +243,9 @@ async fn search_finds_case_insensitive_text_matches_and_skips_binary_and_blob_co
             query: "needle".into(),
             at: None,
             limit: None,
+            path_prefix: None,
+            frontmatter: None,
+            after: None,
         },
     )
     .await
@@ -285,6 +288,9 @@ async fn search_rejects_trees_over_safe_file_limit() {
             query: "needle".into(),
             at: None,
             limit: None,
+            path_prefix: None,
+            frontmatter: None,
+            after: None,
         },
     )
     .await

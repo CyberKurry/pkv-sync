@@ -13,6 +13,7 @@ use anyhow::{anyhow, bail, Result};
 use base64::Engine;
 use rmcp::model::{object, Tool, ToolAnnotations};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::LazyLock;
@@ -101,11 +102,52 @@ pub struct SearchInput {
     pub query: String,
     pub at: Option<String>,
     pub limit: Option<usize>,
+    /// Restrict the scan to one subtree; matched against the tree before
+    /// any file is read (no read amplification).
+    #[serde(default)]
+    pub path_prefix: Option<String>,
+    /// Top-level frontmatter constraints: `true` requires the key to exist
+    /// (scalar or list), a string requires a trimmed whole-string scalar
+    /// match. Files dropped by this filter still count against the content
+    /// budget.
+    #[serde(default)]
+    pub frontmatter: Option<std::collections::HashMap<String, Value>>,
+    /// Opaque pagination cursor from a previous call's `next_after`.
+    /// Pass it back verbatim; it encodes the (path, line) where the last
+    /// page stopped, so no match is skipped or duplicated.
+    #[serde(default)]
+    pub after: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct SearchOutput {
     pub matches: Vec<SearchMatch>,
+    /// Opaque cursor to pass as `after` for the next page, or null when the
+    /// walk finished. Best-effort snapshot: pin `at` for a stable walk.
+    pub next_after: Option<String>,
+}
+
+/// Exact resume position for `search` pagination. `line` is the 1-based
+/// line number of the last match returned for `path`; the next page resumes
+/// at `line + 1`. Serialised as JSON (paths may contain any byte, so a
+/// separator-joined format would be ambiguous) and treated as opaque by
+/// clients.
+#[derive(Debug, Serialize, Deserialize)]
+struct SearchCursor {
+    path: String,
+    line: usize,
+}
+
+impl SearchCursor {
+    fn encode(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    fn decode(raw: &str) -> Result<Self> {
+        serde_json::from_str(raw).map_err(|_| {
+            anyhow!("invalid_cursor: the `after` value was not produced by a previous search call")
+        })
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -339,8 +381,12 @@ pub async fn read_file_at_commit(
 pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Result<SearchOutput> {
     ensure_owned_vault(state, user_id, &input.vault_id).await?;
     if input.query.is_empty() {
+        // Deliberately not an "enumerate pages with this frontmatter" mode:
+        // listing is list_files' job. An empty query returns no matches even
+        // with filters attached.
         return Ok(SearchOutput {
             matches: Vec::new(),
+            next_after: None,
         });
     }
 
@@ -348,6 +394,15 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     let filter = sync::vault_path_filter(state, &input.vault_id)
         .await
         .map_err(api_error_to_anyhow)?;
+    let prefix = match input.path_prefix.as_deref() {
+        Some("") => String::new(),
+        Some(prefix) => normalize_mcp_path(prefix.to_string())?,
+        None => String::new(),
+    };
+    let cursor = match input.after.as_deref() {
+        Some(raw) => Some(SearchCursor::decode(raw)?),
+        None => None,
+    };
     let tree = git
         .list_tree(&input.vault_id, input.at.as_deref())
         .await
@@ -358,9 +413,24 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
                 input.at.is_some(),
             )
         })?;
+    // Sorted tree => the after_path cursor's <= comparison is a code
+    // invariant instead of a git storage detail (list_files/link_graph
+    // already sort; search joins them).
+    let mut tree = tree;
+    tree.sort_by(|left, right| left.path.cmp(&right.path));
+    // The tree-size gate counts what this call will actually scan: prefix
+    // and cursor first, so a big vault with a small wiki layer stays
+    // searchable (the Synthesis-Horizon case the filter exists for).
     let visible_count = tree
         .iter()
         .filter(|entry| sync::path_visible_on_read(&filter, &entry.path))
+        .filter(|entry| path_under_prefix(&entry.path, &prefix))
+        .filter(|entry| {
+            cursor
+                .as_ref()
+                .map(|cursor| entry.path.as_str() >= cursor.path.as_str())
+                .unwrap_or(true)
+        })
         .take(SEARCH_MAX_TREE_FILES + 1)
         .count();
     if visible_count > SEARCH_MAX_TREE_FILES {
@@ -381,13 +451,23 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     // budget decision is made from tree-entry sizes BEFORE read_files
     // materializes blob contents, so an entry that does not fit in the
     // remaining budget never enters the chunk (H-3).
+    let mut exhausted = true;
+    let mut last_consumed_path: Option<(String, usize)> = None;
     let mut iter = tree
         .into_iter()
-        .filter(|entry| sync::path_visible_on_read(&filter, &entry.path));
+        .filter(|entry| sync::path_visible_on_read(&filter, &entry.path))
+        .filter(|entry| path_under_prefix(&entry.path, &prefix))
+        .filter(|entry| {
+            cursor
+                .as_ref()
+                .map(|cursor| entry.path.as_str() >= cursor.path.as_str())
+                .unwrap_or(true)
+        });
     loop {
         let mut candidates: Vec<(String, u64)> = Vec::new();
         for entry in iter.by_ref() {
             if matches.len() >= limit {
+                exhausted = false;
                 break;
             }
             if entry.is_blob_pointer || !classifier.is_text_path(&entry.path) {
@@ -424,9 +504,6 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
                 )
             })?;
         for ((path, size), file) in chunk.into_iter().zip(files) {
-            if matches.len() >= limit {
-                break;
-            }
             // Defense in depth: the chunk collector above already gates on
             // tree entry sizes, so this post-read accumulation should never
             // fire in practice. It stays because tree sizes could lie (a
@@ -442,23 +519,70 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
             let Ok(text) = String::from_utf8(bytes) else {
                 continue;
             };
-            for (idx, line) in text.lines().enumerate() {
-                if contains_ascii_case_insensitive(line, &needle) {
-                    let line = line.to_string();
-                    matches.push(SearchMatch {
-                        path: path.clone(),
-                        line,
-                        line_number: idx + 1,
-                    });
-                    if matches.len() >= limit {
-                        break;
-                    }
+            // Frontmatter constraints are checked after the read on purpose:
+            // a file dropped here has still been materialised, so it must
+            // keep counting against the content budget (otherwise the
+            // filter becomes a way to enumerate a large vault for free).
+            if let Some(wanted) = &input.frontmatter {
+                let parsed = super::frontmatter::Frontmatter::parse(&text);
+                let keep = wanted.iter().all(|(key, value)| match parsed.as_ref() {
+                    None => false,
+                    Some(fm) => match value {
+                        Value::Bool(true) => fm.has(key),
+                        Value::String(expected) => fm.scalar(key) == Some(expected.as_str()),
+                        _ => false,
+                    },
+                });
+                if !keep {
+                    continue;
                 }
             }
+            // Resume inside the cursor's own file: skip the lines already
+            // returned by the previous page. `limit` stays a hard cap, and
+            // the (path, line) cursor means nothing is stranded by stopping
+            // mid-file — the next page picks up exactly here.
+            let first_line = cursor
+                .as_ref()
+                .filter(|cursor| cursor.path == path)
+                .map(|cursor| cursor.line)
+                .unwrap_or(0);
+            let mut limit_hit = false;
+            for (idx, line) in text.lines().enumerate() {
+                let line_number = idx + 1;
+                if line_number <= first_line {
+                    continue;
+                }
+                if contains_ascii_case_insensitive(line, &needle) {
+                    matches.push(SearchMatch {
+                        path: path.clone(),
+                        line: line.to_string(),
+                        line_number,
+                    });
+                    if matches.len() >= limit {
+                        last_consumed_path = Some((path.clone(), line_number));
+                        limit_hit = true;
+                        break;
+                    }
+                    last_consumed_path = Some((path.clone(), line_number));
+                }
+            }
+            if limit_hit {
+                // Files after this one in the tree are still unscanned.
+                exhausted = false;
+                break;
+            }
+        }
+        if !exhausted {
+            break;
         }
     }
 
-    Ok(SearchOutput { matches })
+    Ok(SearchOutput {
+        matches,
+        next_after: (!exhausted)
+            .then(|| last_consumed_path.map(|(path, line)| SearchCursor { path, line }.encode()))
+            .flatten(),
+    })
 }
 
 pub async fn link_graph(
@@ -1138,7 +1262,7 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         tool(
             "search",
-            "Search text files in a vault with case-insensitive substring matching.",
+            "Search text files in a vault with case-insensitive substring matching, optionally scoped by path prefix, top-level frontmatter keys, and a pagination cursor.",
             object(serde_json::json!({
                 "type": "object",
                 "required": ["vault_id", "query"],
@@ -1146,7 +1270,10 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
                     "vault_id": { "type": "string" },
                     "query": { "type": "string" },
                     "at": { "type": ["string", "null"] },
-                    "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": SEARCH_MAX_LIMIT }
+                    "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": SEARCH_MAX_LIMIT },
+                    "path_prefix": { "type": ["string", "null"], "description": "Restrict the scan to one subtree; applied before any file is read and before the tree-size gate counts." },
+                    "frontmatter": { "type": ["object", "null"], "description": "Top-level frontmatter constraints. A string value must equal the trimmed whole scalar; true requires the key to exist (scalars and lists both count). Files dropped by this filter still count against the content budget. An empty query returns no matches even with filters." },
+                    "after": { "type": ["string", "null"], "description": "Opaque pagination cursor: pass the previous response's `next_after` back verbatim. It encodes the (path, line) resume point, so pages neither skip nor duplicate matches, and `limit` stays a hard cap. Best-effort snapshot; pin 'at' for a stable walk." }
                 },
                 "additionalProperties": false
             })),
@@ -1867,6 +1994,9 @@ mod tests {
                 query: "needle".into(),
                 at: None,
                 limit: None,
+                path_prefix: None,
+                frontmatter: None,
+                after: None,
             },
         )
         .await
@@ -1908,6 +2038,9 @@ mod tests {
                 query: "needle".into(),
                 at: None,
                 limit: None,
+                path_prefix: None,
+                frontmatter: None,
+                after: None,
             },
         )
         .await
@@ -1915,6 +2048,284 @@ mod tests {
 
         assert_eq!(out.matches.len(), 1);
         assert_eq!(out.matches[0].path, "note.md");
+    }
+
+    #[tokio::test]
+    async fn search_frontmatter_filter_uses_howto_shape() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        // The wiki page uses the howto's indented block list; the others have
+        // a scalar kind, no frontmatter at all, or a nested-only key.
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                (
+                    "wiki/a.md",
+                    "---\nkind: wiki\nsources:\n  - s1.md\n---\nneedle here",
+                ),
+                ("src/s1.md", "---\nkind: source\n---\nneedle here"),
+                ("plain.md", "needle here"),
+            ],
+        )
+        .await;
+        let mut wanted = std::collections::HashMap::new();
+        wanted.insert("kind".to_string(), serde_json::json!("wiki"));
+        let out = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: vault_id.clone(),
+                query: "needle".into(),
+                at: None,
+                limit: None,
+                path_prefix: None,
+                frontmatter: Some(wanted),
+                after: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.matches.len(), 1, "matches: {:?}", out.matches);
+        assert_eq!(out.matches[0].path, "wiki/a.md");
+        assert_eq!(out.next_after, None);
+
+        // Existence form: `true` must accept the list-valued key too.
+        let mut exists = std::collections::HashMap::new();
+        exists.insert("sources".to_string(), serde_json::json!(true));
+        let out = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id,
+                query: "needle".into(),
+                at: None,
+                limit: None,
+                path_prefix: None,
+                frontmatter: Some(exists),
+                after: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.matches.len(), 1);
+        assert_eq!(out.matches[0].path, "wiki/a.md");
+    }
+
+    #[tokio::test]
+    async fn search_pagination_tiles_the_match_set_exactly() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                ("a.md", "needle 1\nneedle 2\nneedle 3\nneedle 4\nneedle 5\n"),
+                ("b.md", "needle 6\n"),
+            ],
+        )
+        .await;
+
+        let first = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: vault_id.clone(),
+                query: "needle".into(),
+                at: None,
+                limit: Some(3),
+                path_prefix: None,
+                frontmatter: None,
+                after: None,
+            },
+        )
+        .await
+        .unwrap();
+        // `limit` stays a hard cap (no token-budget surprise)...
+        assert_eq!(first.matches.len(), 3, "matches: {:?}", first.matches);
+        assert!(first.next_after.is_some());
+
+        let second = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: vault_id.clone(),
+                query: "needle".into(),
+                at: None,
+                limit: Some(3),
+                path_prefix: None,
+                frontmatter: None,
+                after: first.next_after.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        let third = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: vault_id.clone(),
+                query: "needle".into(),
+                at: None,
+                limit: Some(3),
+                path_prefix: None,
+                frontmatter: None,
+                after: second.next_after.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(third.next_after, None, "walk must terminate");
+
+        // ...and the pages still tile the result exactly: every match line
+        // once, in order, with nothing stranded at a page boundary.
+        let mut paged: Vec<(String, usize)> = first
+            .matches
+            .iter()
+            .chain(second.matches.iter())
+            .chain(third.matches.iter())
+            .map(|m| (m.path.clone(), m.line_number))
+            .collect();
+        paged.sort();
+        assert_eq!(
+            paged,
+            vec![
+                ("a.md".to_string(), 1),
+                ("a.md".to_string(), 2),
+                ("a.md".to_string(), 3),
+                ("a.md".to_string(), 4),
+                ("a.md".to_string(), 5),
+                ("b.md".to_string(), 1),
+            ],
+            "pages must tile the match set exactly"
+        );
+    }
+
+    #[tokio::test]
+    async fn search_rejects_a_cursor_it_did_not_issue() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(&state, &vault_id, &[("a.md", "needle")]).await;
+        let err = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id,
+                query: "needle".into(),
+                at: None,
+                limit: None,
+                path_prefix: None,
+                frontmatter: None,
+                after: Some("not-a-cursor".into()),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().starts_with("invalid_cursor:"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn search_path_prefix_scopes_the_tree_cap() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let mut changes = Vec::with_capacity(SEARCH_MAX_TREE_FILES + 1);
+        for idx in 0..SEARCH_MAX_TREE_FILES {
+            changes.push(FileChange::Upsert {
+                path: format!("bulk/{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: b"bulk filler".to_vec(),
+                },
+            });
+        }
+        changes.push(FileChange::Upsert {
+            path: "wiki/one.md".into(),
+            file: StoredFile::Text {
+                bytes: b"needle".to_vec(),
+            },
+        });
+        git.commit_changes(&vault_id, None, &changes, "seed bulk vault")
+            .await
+            .unwrap();
+
+        // Unscoped, the same vault still trips the cap.
+        let err = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: vault_id.clone(),
+                query: "needle".into(),
+                at: None,
+                limit: None,
+                path_prefix: None,
+                frontmatter: None,
+                after: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("too many files to search"),
+            "expected the tree cap, got: {err}"
+        );
+
+        // Scoped to the wiki layer, the cap counts what the call scans.
+        let out = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: vault_id.clone(),
+                query: "needle".into(),
+                at: None,
+                limit: None,
+                path_prefix: Some("wiki".into()),
+                frontmatter: None,
+                after: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(out.matches.len(), 1);
+        assert_eq!(out.matches[0].path, "wiki/one.md");
+
+        // A sibling directory is not under the prefix.
+        let out = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: vault_id.clone(),
+                query: "needle".into(),
+                at: None,
+                limit: None,
+                path_prefix: Some("wiki2".into()),
+                frontmatter: None,
+                after: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(out.matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn search_empty_query_with_frontmatter_returns_empty() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(&state, &vault_id, &[("a.md", "---\nkind: wiki\n---\nx")]).await;
+        let mut wanted = std::collections::HashMap::new();
+        wanted.insert("kind".to_string(), serde_json::json!("wiki"));
+        let out = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id,
+                query: String::new(),
+                at: None,
+                limit: None,
+                path_prefix: None,
+                frontmatter: Some(wanted),
+                after: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(out.matches.is_empty());
+        assert_eq!(out.next_after, None);
     }
 
     #[test]
@@ -2785,6 +3196,9 @@ mod tests {
                 query: "needle".into(),
                 at: None,
                 limit: Some(10_000),
+                path_prefix: None,
+                frontmatter: None,
+                after: None,
             },
         )
         .await
@@ -2819,6 +3233,9 @@ mod tests {
                 query: "needle".into(),
                 at: None,
                 limit: None,
+                path_prefix: None,
+                frontmatter: None,
+                after: None,
             },
         )
         .await
@@ -2876,6 +3293,9 @@ mod tests {
                 query: "needle".into(),
                 at: None,
                 limit: None,
+                path_prefix: None,
+                frontmatter: None,
+                after: None,
             },
         )
         .await
@@ -2930,6 +3350,9 @@ mod tests {
                 query: "needle".into(),
                 at: None,
                 limit: None,
+                path_prefix: None,
+                frontmatter: None,
+                after: None,
             },
         )
         .await
@@ -2973,6 +3396,9 @@ mod tests {
                 query: "needle".into(),
                 at: None,
                 limit: None,
+                path_prefix: None,
+                frontmatter: None,
+                after: None,
             },
         )
         .await

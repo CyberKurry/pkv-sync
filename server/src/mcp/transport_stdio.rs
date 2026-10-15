@@ -835,6 +835,7 @@ fn is_public_mcp_tool_error(message: &str) -> bool {
         "empty_batch:",
         "file_too_large:",
         "invalid_commit:",
+        "invalid_cursor:",
         "invalid_path:",
         "not_found:",
         "path_conflict:",
@@ -886,6 +887,26 @@ mod tests {
     use crate::db::pool;
     use crate::db::repos::NewUser;
     use std::time::Duration;
+
+    /// Client-correctable mistakes must reach the client; anything else stays
+    /// masked as `internal server error`. New tool error prefixes belong in
+    /// this list, and therefore in this test (M-5 / review C-2).
+    #[test]
+    fn public_tool_error_whitelist_covers_correctable_errors() {
+        for message in [
+            "invalid_cursor: the `after` value was not produced by a previous search call",
+            "invalid_path: empty path",
+            "not_found: 'a.md' does not exist",
+            "rate_limited: mcp write rate limit (60/min) exceeded for this token+vault; retry in 1s",
+        ] {
+            assert!(
+                is_public_mcp_tool_error(message),
+                "must be public: {message}"
+            );
+        }
+        assert!(!is_public_mcp_tool_error("git: object not found"));
+        assert!(!is_public_mcp_tool_error("sqlx: database is locked"));
+    }
 
     async fn test_state() -> AppState {
         let tmp = tempfile::tempdir().unwrap();
