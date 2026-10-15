@@ -142,7 +142,11 @@ async fn start_test_server() -> (TestServer, AppState, String, String) {
 
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
+        // A hang guard, not a performance assertion: CI runners run these
+        // binaries in parallel on a cold cache with on-access virus scanning,
+        // where one push can exceed a tight timeout (the same saturation that
+        // produced `Db(PoolTimedOut)`). A test that should fail still fails.
+        .timeout(Duration::from_secs(30))
         .build()
         .unwrap()
 }

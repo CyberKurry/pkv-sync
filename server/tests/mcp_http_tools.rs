@@ -806,7 +806,11 @@ async fn http_mcp_sse_rejects_when_subscriber_limit_is_reached() {
         .await;
     });
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
+        // A hang guard, not a performance assertion: CI runners run these
+        // binaries in parallel on a cold cache with on-access virus scanning,
+        // where one push can exceed a tight timeout (the same saturation that
+        // produced `Db(PoolTimedOut)`). A test that should fail still fails.
+        .timeout(Duration::from_secs(30))
         .build()
         .unwrap();
 
