@@ -136,11 +136,40 @@ pub enum UserOp {
     },
 }
 
+/// Which vault an stdio MCP session exposes.
+///
+/// `--vault` wins; `PKV_VAULT_ID` is the fallback an MCP client can set
+/// without threading our CLI flags through its own config (the registry
+/// entry for this server relies on it). An empty value is treated as unset —
+/// exporting `PKV_VAULT_ID=` must not look like a vault id.
+///
+/// The environment is passed in rather than read here so the rule is a pure
+/// function: env mutation in tests would race every other test in the
+/// process.
+pub fn resolve_mcp_vault(cli: Option<String>, env_value: Option<String>) -> Option<String> {
+    cli.or_else(|| env_value.filter(|value| !value.trim().is_empty()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::CommandFactory;
     use std::path::PathBuf;
+
+    #[test]
+    fn mcp_vault_prefers_the_flag_and_falls_back_to_the_env() {
+        assert_eq!(
+            resolve_mcp_vault(Some("from-flag".into()), Some("from-env".into())),
+            Some("from-flag".into())
+        );
+        assert_eq!(
+            resolve_mcp_vault(None, Some("from-env".into())),
+            Some("from-env".into())
+        );
+        assert_eq!(resolve_mcp_vault(None, None), None);
+        // An exported-but-empty variable is not a vault id.
+        assert_eq!(resolve_mcp_vault(None, Some("   ".into())), None);
+    }
 
     #[test]
     fn cli_parses_serve() {

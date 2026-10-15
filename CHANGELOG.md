@@ -7,6 +7,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+- `pkvsyncd mcp` accepts `PKV_VAULT_ID` when `--vault` is omitted, so an MCP
+  client can configure the vault through the environment the way it already
+  configures the token through `PKV_TOKEN` (an empty value counts as unset).
+  This is what the MCP Registry entry for this server relies on.
+
 - Admin activity: MCP writes are now attributable. Each `mcp_write` /
   `mcp_delete` row records the tool that made the change alongside the
   token's device name (the agent), the activity page shows the tool next to

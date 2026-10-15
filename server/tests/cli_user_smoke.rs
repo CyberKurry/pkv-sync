@@ -44,6 +44,24 @@ fn run(args: &[&str], input: Option<&str>) -> Output {
     wait_with_timeout(args, child)
 }
 
+/// Same as `run`, but with environment variables set — the MCP stdio entry
+/// point is documented as reading `PKV_TOKEN`/`PKV_VAULT_ID`, so the registry
+/// configuration has to be exercised through the real process.
+fn run_with_env(args: &[&str], env: &[(&str, &str)]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pkvsyncd"));
+    command
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let mut child = command.spawn().unwrap();
+    drop(child.stdin.take());
+    wait_with_timeout(args, child)
+}
+
 fn assert_success(output: Output) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -152,6 +170,38 @@ trusted_proxies = ["127.0.0.1/32"]
         &["-c", cfg, "user", "passwd", "bob"],
         Some("N3wStr0ngPass!\n"),
     ));
+}
+
+#[test]
+fn mcp_takes_its_vault_from_the_environment() {
+    // E-2: the registry entry for this server configures the vault through
+    // `PKV_VAULT_ID` (there is no per-user way to template a CLI flag into a
+    // package definition), so the fallback must work in the real binary. A
+    // bogus token is fine: reaching the token check proves the vault was
+    // resolved, while the old behaviour failed earlier with
+    // "--vault is required for stdio transport".
+    let tmp = tempfile::tempdir().unwrap();
+    let (cfg, _db) = write_test_config(&tmp);
+    let output = run_with_env(
+        &["-c", &cfg, "mcp"],
+        &[
+            ("PKV_VAULT_ID", "vault-from-env"),
+            ("PKV_TOKEN", "pks_bogus"),
+        ],
+    );
+    let stderr = assert_failure(output);
+    assert!(
+        !stderr.contains("PKV_VAULT_ID is required"),
+        "the environment fallback must satisfy the vault requirement: {stderr}"
+    );
+
+    // Without either source the message names both.
+    let output = run_with_env(&["-c", &cfg, "mcp"], &[("PKV_TOKEN", "pks_bogus")]);
+    let stderr = assert_failure(output);
+    assert!(
+        stderr.contains("--vault or PKV_VAULT_ID is required"),
+        "the error must say how to provide a vault: {stderr}"
+    );
 }
 
 #[test]

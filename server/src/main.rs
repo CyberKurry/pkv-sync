@@ -192,8 +192,13 @@ fn main() -> anyhow::Result<()> {
                 // stdio is the only transport: standalone HTTP was removed;
                 // HTTP MCP runs embedded in `pkvsyncd serve` via
                 // [mcp].embed_in_serve (default true).
-                let vault_id = vault
-                    .ok_or_else(|| anyhow::anyhow!("--vault is required for stdio transport"))?;
+                let vault_id = pkv_sync_server::cli::resolve_mcp_vault(
+                    vault,
+                    std::env::var("PKV_VAULT_ID").ok(),
+                )
+                .ok_or_else(|| {
+                    anyhow::anyhow!("--vault or PKV_VAULT_ID is required for stdio transport")
+                })?;
                 let token = token
                     .or_else(|| std::env::var("PKV_TOKEN").ok())
                     .ok_or_else(|| {
