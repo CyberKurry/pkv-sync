@@ -2,7 +2,7 @@
 
 [English](./admin-manual.md) | [简体中文](./admin-manual.zh-CN.md) | 繁體中文 | [日本語](./admin-manual.ja.md) | [한국어](./admin-manual.ko.md)
 
-文件版本：v1.6.1。
+文件版本：v1.7.0。
 
 本文涵蓋自託管 PKV Sync 服務端的日常管理。網路與主機加固請同時閱讀部署加固指南。
 
@@ -212,7 +212,7 @@ https://sync.example.com/k_xxx/
 `SHA256SUMS` 驗證 SHA-256，並印出 systemd／手動替換的步驟。它不會熱替換正在
 執行的行程。
 
-用 `pkvsyncd upgrade --version 1.6.1` 指定特定發行版。如果命令找不到相符的資產
+用 `pkvsyncd upgrade --version 1.7.0` 指定特定發行版。如果命令找不到相符的資產
 或校驗和，請改走手動下載 GitHub 發行版的路徑，並自行驗證 `SHA256SUMS`。發行資產也帶有 GitHub artifact attestation：`gh attestation verify <file> --repo cyberkurry/pkv-sync` 可證明某個二進位檔、外掛 zip 或 `SHA256SUMS` 來自本倉庫的發行工作流。
 
 0.x 的部署請不要把 1.0 的二進位或映像檔指向既有的 `metadata.db`。先備份、

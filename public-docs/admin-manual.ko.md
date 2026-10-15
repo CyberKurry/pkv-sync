@@ -2,7 +2,7 @@
 
 [English](./admin-manual.md) | [简体中文](./admin-manual.zh-CN.md) | [繁體中文](./admin-manual.zh-Hant.md) | [日本語](./admin-manual.ja.md) | 한국어
 
-문서 버전: v1.6.1.
+문서 버전: v1.7.0.
 
 이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
 
@@ -214,7 +214,7 @@ https://sync.example.com/k_xxx/
 `pkvsyncd.new.exe`)로 내려받습니다. 이 명령은 `SHA256SUMS`에서 SHA-256을 검증하고
 systemd／수동 교체 단계를 출력합니다. 실행 중인 프로세스를 핫 교체하지는 않습니다.
 
-`pkvsyncd upgrade --version 1.6.1`으로 특정 릴리스를 지정할 수 있습니다. 일치하는
+`pkvsyncd upgrade --version 1.7.0`으로 특정 릴리스를 지정할 수 있습니다. 일치하는
 에셋이나 체크섬을 찾지 못하면 GitHub 릴리스를 직접 내려받는 경로를 따라가고
 `SHA256SUMS`를 직접 검증하세요. 릴리스 자산에는 GitHub artifact attestation도 함께 제공됩니다. `gh attestation verify <file> --repo cyberkurry/pkv-sync`로 바이너리, 플러그인 zip, `SHA256SUMS`가 이 저장소의 릴리스 워크플로에서 빌드되었음을 확인할 수 있습니다.
 

@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-15
+
 - The container image carries the MCP Registry ownership annotation
   (`io.modelcontextprotocol.server.name`), without which the registry refuses
   the OCI package. `docs_check` now holds the image annotation, the
