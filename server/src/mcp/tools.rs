@@ -821,21 +821,23 @@ pub async fn changes_since(
         .limit
         .unwrap_or(CHANGES_SINCE_MAX_ENTRIES)
         .min(CHANGES_SINCE_MAX_ENTRIES);
-    let visible = git
+    let (delta_entries, delta_truncated) = git
         .list_changes_between(&input.vault_id, &input.since_commit, &head)
-        .await?
-        .into_iter()
-        .filter(|change| {
-            path_under_prefix(&change.path, &prefix)
-                && mcp_path_visible(&filter, &change.path)
-                && change
-                    .old_path
-                    .as_ref()
-                    .is_none_or(|old_path| mcp_path_visible(&filter, old_path))
-        });
+        .await?;
+    let visible = delta_entries.into_iter().filter(|change| {
+        path_under_prefix(&change.path, &prefix)
+            && mcp_path_visible(&filter, &change.path)
+            && change
+                .old_path
+                .as_ref()
+                .is_none_or(|old_path| mcp_path_visible(&filter, old_path))
+    });
 
     let mut changes = Vec::new();
-    let mut truncated = false;
+    // The git-side clip and this call's own limit are both truncation: a
+    // client that reconnects with the returned commit must know the list was
+    // cut, or it will treat the gap as "nothing happened".
+    let mut truncated = delta_truncated;
     for change in visible {
         if changes.len() >= limit {
             truncated = true;

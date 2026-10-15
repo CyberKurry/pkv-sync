@@ -216,12 +216,16 @@ pub trait GitVaultStore: Send + Sync {
         path: &str,
         at: Option<&str>,
     ) -> Result<Option<StoredFile>, GitStoreError>;
+    /// Tree diff between two commits, with the `LIST_CHANGES_MAX` clip
+    /// reported. Callers MUST surface the flag: a clipped change list reads
+    /// as "nothing else changed", which is how a stale page (or a missed
+    /// sync) hides.
     async fn list_changes_between(
         &self,
         vault_id: &str,
         from: &str,
         to: &str,
-    ) -> Result<Vec<ChangedEntry>, GitStoreError>;
+    ) -> Result<(Vec<ChangedEntry>, bool), GitStoreError>;
     async fn is_ancestor(
         &self,
         vault_id: &str,
@@ -1162,64 +1166,68 @@ impl GitVaultStore for Git2VaultStore {
         vault_id: &str,
         from: &str,
         to: &str,
-    ) -> Result<Vec<ChangedEntry>, GitStoreError> {
+    ) -> Result<(Vec<ChangedEntry>, bool), GitStoreError> {
         let p = self.repo_path(vault_id)?;
         let from = from.to_string();
         let to = to.to_string();
-        tokio::task::spawn_blocking(move || -> Result<Vec<ChangedEntry>, GitStoreError> {
-            let repo = Repository::open_bare(&p)?;
-            let from_commit = repo.find_commit(parse_full_oid(&from)?)?;
-            let to_commit = repo.find_commit(parse_full_oid(&to)?)?;
-            let from_tree = from_commit.tree()?;
-            let to_tree = to_commit.tree()?;
-            let mut diff = repo.diff_tree_to_tree(Some(&from_tree), Some(&to_tree), None)?;
-            let mut find = DiffFindOptions::new();
-            find.renames(true);
-            diff.find_similar(Some(&mut find))?;
+        tokio::task::spawn_blocking(
+            move || -> Result<(Vec<ChangedEntry>, bool), GitStoreError> {
+                let repo = Repository::open_bare(&p)?;
+                let from_commit = repo.find_commit(parse_full_oid(&from)?)?;
+                let to_commit = repo.find_commit(parse_full_oid(&to)?)?;
+                let from_tree = from_commit.tree()?;
+                let to_tree = to_commit.tree()?;
+                let mut diff = repo.diff_tree_to_tree(Some(&from_tree), Some(&to_tree), None)?;
+                let mut find = DiffFindOptions::new();
+                find.renames(true);
+                diff.find_similar(Some(&mut find))?;
 
-            let mut out = Vec::new();
-            for delta in diff.deltas() {
-                if out.len() >= LIST_CHANGES_MAX {
-                    break;
+                let mut out = Vec::new();
+                let mut truncated = false;
+                for delta in diff.deltas() {
+                    if out.len() >= LIST_CHANGES_MAX {
+                        truncated = true;
+                        break;
+                    }
+                    let status = delta.status();
+                    let entry = match status {
+                        Delta::Added => ChangedEntry {
+                            path: delta_path(delta.new_file().path())?,
+                            status: ChangeStatus::Added,
+                            old_path: None,
+                        },
+                        Delta::Deleted => ChangedEntry {
+                            path: delta_path(delta.old_file().path())?,
+                            status: ChangeStatus::Deleted,
+                            old_path: None,
+                        },
+                        Delta::Renamed => ChangedEntry {
+                            path: delta_path(delta.new_file().path())?,
+                            status: ChangeStatus::Renamed,
+                            old_path: Some(delta_path(delta.old_file().path())?),
+                        },
+                        Delta::Modified | Delta::Typechange => ChangedEntry {
+                            path: delta_path(delta.new_file().path())?,
+                            status: ChangeStatus::Modified,
+                            old_path: None,
+                        },
+                        Delta::Copied => ChangedEntry {
+                            path: delta_path(delta.new_file().path())?,
+                            status: ChangeStatus::Added,
+                            old_path: None,
+                        },
+                        _ => continue,
+                    };
+                    out.push(entry);
                 }
-                let status = delta.status();
-                let entry = match status {
-                    Delta::Added => ChangedEntry {
-                        path: delta_path(delta.new_file().path())?,
-                        status: ChangeStatus::Added,
-                        old_path: None,
-                    },
-                    Delta::Deleted => ChangedEntry {
-                        path: delta_path(delta.old_file().path())?,
-                        status: ChangeStatus::Deleted,
-                        old_path: None,
-                    },
-                    Delta::Renamed => ChangedEntry {
-                        path: delta_path(delta.new_file().path())?,
-                        status: ChangeStatus::Renamed,
-                        old_path: Some(delta_path(delta.old_file().path())?),
-                    },
-                    Delta::Modified | Delta::Typechange => ChangedEntry {
-                        path: delta_path(delta.new_file().path())?,
-                        status: ChangeStatus::Modified,
-                        old_path: None,
-                    },
-                    Delta::Copied => ChangedEntry {
-                        path: delta_path(delta.new_file().path())?,
-                        status: ChangeStatus::Added,
-                        old_path: None,
-                    },
-                    _ => continue,
-                };
-                out.push(entry);
-            }
-            out.sort_by(|left, right| {
-                left.path
-                    .cmp(&right.path)
-                    .then_with(|| left.old_path.cmp(&right.old_path))
-            });
-            Ok(out)
-        })
+                out.sort_by(|left, right| {
+                    left.path
+                        .cmp(&right.path)
+                        .then_with(|| left.old_path.cmp(&right.old_path))
+                });
+                Ok((out, truncated))
+            },
+        )
         .await
         .map_err(|_| GitStoreError::Panic)?
     }
@@ -1789,11 +1797,12 @@ mod tests {
             .await
             .unwrap();
 
-        let changes = store
+        let (changes, truncated) = store
             .list_changes_between("v1", &base, &head)
             .await
             .unwrap();
 
+        assert!(!truncated, "a three-entry diff must not report truncation");
         assert!(changes.contains(&ChangedEntry {
             path: "a.md".into(),
             status: ChangeStatus::Modified,
@@ -1894,12 +1903,55 @@ mod tests {
             .await
             .unwrap();
 
-        let changes = store
+        let (changes, truncated) = store
             .list_changes_between("v1", &base, &head)
             .await
             .unwrap();
 
         assert_eq!(changes.len(), 8);
+        // The clip must be reported, not silent: a caller that cannot tell
+        // "eight changes" from "at least eight" would under-report staleness.
+        assert!(truncated, "hitting LIST_CHANGES_MAX must set the flag");
+    }
+
+    #[tokio::test]
+    async fn list_changes_between_reports_untruncated_listings() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "seed.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"seed".to_vec(),
+                    },
+                }],
+                "base",
+            )
+            .await
+            .unwrap();
+        let head = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "one.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"one".to_vec(),
+                    },
+                }],
+                "head",
+            )
+            .await
+            .unwrap();
+        let (changes, truncated) = store
+            .list_changes_between("v1", &base, &head)
+            .await
+            .unwrap();
+        assert_eq!(changes.len(), 1);
+        assert!(!truncated);
     }
 
     #[tokio::test]

@@ -17,6 +17,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
   skipped or duplicated, and the cursor always advances. A `after` value this
   server did not issue is rejected as `invalid_cursor` instead of silently
   restarting the walk.
+- `changes_since` now reports truncation when the underlying git tree diff
+  was clipped at its entry cap. The clip was previously silent, so a large
+  diff could read as "nothing else changed" — the same failure mode a stale
+  wiki page hides behind.
 - MCP `link_graph` gains a `kind` filter so the wiki layer can be linted on
   its own. Only files whose top-level frontmatter `kind:` matches become
   nodes, but link targets still resolve against every visible text file, so a
