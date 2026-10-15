@@ -818,6 +818,27 @@ code, kbd, samp {
     border-color: var(--pkv-ink-faint);
 }
 
+/* Free-text filters (agent / tool) mirror the selects so the header row keeps
+ * one visual language. */
+.header-filter-form > input.filter-input {
+    flex: 0 1 180px;
+    min-width: 150px;
+    max-width: 240px;
+    min-height: 36px;
+    font-size: var(--pkv-text-sm);
+    padding: 0.35rem 0.75rem;
+    background: var(--pkv-paper-raised);
+    border: var(--pkv-rule-hair);
+    border-radius: var(--pkv-radius-2);
+    box-shadow: var(--pkv-shadow-sm);
+    color: inherit;
+}
+
+.header-filter-form > input.filter-input:hover,
+.header-filter-form > input.filter-input:focus {
+    border-color: var(--pkv-ink-faint);
+}
+
 /* =====================================================================
  * 7. Buttons & Micro-interactions
  * =================================================================== */

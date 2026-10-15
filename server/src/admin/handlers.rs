@@ -3021,6 +3021,13 @@ type ActivityRow = (
 struct ActivityFilters {
     user_id: Option<String>,
     action: Option<String>,
+    /// Exact match on the token's device name — for MCP writes that is the
+    /// name the operator gave the agent (e.g. "claude-code").
+    agent: Option<String>,
+    /// The MCP tool that made the change. Matched against the details JSON
+    /// with LIKE, so it is an approximation of a JSON lookup; the value is
+    /// escaped, so a `%` in a tool name cannot widen the match.
+    tool: Option<String>,
 }
 
 async fn list_admin_activities(
@@ -3030,6 +3037,9 @@ async fn list_admin_activities(
 ) -> Result<Vec<ActivityView>, ApiError> {
     let user_id = filters.user_id.as_deref().filter(|s| !s.is_empty());
     let action = filters.action.as_deref().filter(|s| !s.is_empty());
+    let agent = filters.agent.as_deref().filter(|s| !s.is_empty());
+    let tool = filters.tool.as_deref().filter(|s| !s.is_empty());
+    let tool_pattern = tool.map(|tool| format!("%\"tool\":\"{}\"%", escape_like(tool)));
     let mut sql = String::from(
         "SELECT a.timestamp, u.username, a.action, a.vault_id, v.name, tok.device_name,
                 a.client_ip, a.user_agent, a.details
@@ -3045,6 +3055,12 @@ async fn list_admin_activities(
     if action.is_some() {
         sql.push_str(" AND a.action = ?");
     }
+    if agent.is_some() {
+        sql.push_str(" AND tok.device_name = ?");
+    }
+    if tool_pattern.is_some() {
+        sql.push_str(" AND a.details LIKE ? ESCAPE '\\'");
+    }
     sql.push_str(" ORDER BY a.timestamp DESC LIMIT ?");
 
     let mut query = sqlx::query_as::<_, ActivityRow>(&sql);
@@ -3053,6 +3069,12 @@ async fn list_admin_activities(
     }
     if let Some(action) = action {
         query = query.bind(action);
+    }
+    if let Some(agent) = agent {
+        query = query.bind(agent);
+    }
+    if let Some(pattern) = tool_pattern {
+        query = query.bind(pattern);
     }
     let rows: Vec<ActivityRow> = query.bind(limit).fetch_all(&state.pool).await?;
     let timezone = state.runtime_cfg.timezone().await;
@@ -3079,6 +3101,7 @@ async fn list_admin_activities(
                     vault_id: vault_id.or(detail_vault_id),
                     vault_name: vault_name.or(detail_vault_name),
                     device_name,
+                    tool: activity_detail_tool(details.as_deref()),
                     client_ip: client_ip.map(|ip| mask_client_ip(&ip)),
                     user_agent,
                 }
@@ -3103,6 +3126,26 @@ fn activity_detail_vault(details: Option<&str>) -> (Option<String>, Option<Strin
         .and_then(|value| value.as_str())
         .map(str::to_string);
     (vault_id, vault_name)
+}
+
+/// The MCP tool recorded in an activity row's details, when there is one.
+/// Older rows (and non-MCP actions) simply have no `tool` key.
+fn activity_detail_tool(details: Option<&str>) -> Option<String> {
+    let details = details?;
+    let value = serde_json::from_str::<serde_json::Value>(details).ok()?;
+    value
+        .get("tool")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+}
+
+/// Escape a user-supplied needle for `LIKE ... ESCAPE '\'`, so `%` and `_`
+/// in the input match literally instead of acting as wildcards.
+fn escape_like(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 fn mask_client_ip(value: &str) -> String {
@@ -3242,12 +3285,16 @@ async fn activity_page(
 ) -> Result<Response, ApiError> {
     let selected_user_id = filters.user_id.clone().unwrap_or_default();
     let selected_action = filters.action.clone().unwrap_or_default();
+    let selected_agent = filters.agent.clone().unwrap_or_default();
+    let selected_tool = filters.tool.clone().unwrap_or_default();
     Ok(render_html(ActivityTemplate {
         t: admin_text(&headers, &cookies),
         activities: list_admin_activities(&state, ADMIN_ACTIVITY_LIMIT, &filters).await?,
         users: list_activity_filter_users(&state).await?,
         selected_user_id,
         selected_action,
+        selected_agent,
+        selected_tool,
     }))
 }
 

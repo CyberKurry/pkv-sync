@@ -19,7 +19,11 @@
     <option value="view_commit" {% if selected_action == "view_commit" %}selected{% endif %}>{{ t.view_commit_action }}</option>
     <option value="view_history" {% if selected_action == "view_history" %}selected{% endif %}>{{ t.view_history_action }}</option>
     <option value="view_diff" {% if selected_action == "view_diff" %}selected{% endif %}>{{ t.view_diff_action }}</option>
+    <option value="mcp_write" {% if selected_action == "mcp_write" %}selected{% endif %}>{{ t.mcp_write_action }}</option>
+    <option value="mcp_delete" {% if selected_action == "mcp_delete" %}selected{% endif %}>{{ t.mcp_delete_action }}</option>
   </select>
+  <input type="text" name="agent" value="{{ selected_agent }}" placeholder="{{ t.filter_agent }}" aria-label="{{ t.filter_agent }}" class="filter-input">
+  <input type="text" name="tool" value="{{ selected_tool }}" placeholder="{{ t.filter_tool }}" aria-label="{{ t.filter_tool }}" class="filter-input">
   <noscript><button class="secondary small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#filter"></use></svg>{{ t.apply }}</button></noscript>
 </form>
 {% endblock %}
@@ -40,7 +44,10 @@
           <details class="inline-details"><summary>{{ t.id }}</summary><code>{{ vault_id }}</code></details>
           {% endif %}
         </td>
-        <td>{% if let Some(device_name) = a.device_name %}{{ device_name }}{% else %}<span class="muted-text">—</span>{% endif %}</td>
+        <td>
+          {% if let Some(device_name) = a.device_name %}{{ device_name }}{% else %}<span class="muted-text">—</span>{% endif %}
+          {% if let Some(tool) = a.tool %}<span class="pill pill-blue">{{ tool }}</span>{% endif %}
+        </td>
         <td>{% if let Some(client_ip) = a.client_ip %}{{ client_ip }}{% else %}<span class="muted-text">—</span>{% endif %}</td>
         <td>{% if let Some(user_agent) = a.user_agent %}{{ user_agent }}{% else %}<span class="muted-text">—</span>{% endif %}</td>
       </tr>

@@ -7,6 +7,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+- Admin activity: MCP writes are now attributable. Each `mcp_write` /
+  `mcp_delete` row records the tool that made the change alongside the
+  token's device name (the agent), the activity page shows the tool next to
+  the device, and the list can be filtered by `?agent=` (exact device name)
+  and `?tool=` (escaped `LIKE` on the details JSON, so `%`/`_` cannot widen
+  the match). The action dropdown gains the MCP actions, and rows written
+  before this change render exactly as they did.
+
 - MCP write tools gain two guards for agent-driven edits: `dry_run` returns
   what the call would write (`would_write`, with `rename` expressed as one
   entry) without committing, recording activity or consuming the 60/min

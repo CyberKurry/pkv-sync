@@ -433,6 +433,9 @@ struct WriteToolRequest {
     vault_id: String,
     parent_commit: String,
     activity_action: &'static str,
+    /// The MCP tool name, recorded in the activity details so the admin page
+    /// can attribute a write to the agent that made it.
+    activity_tool: &'static str,
     activity_path: String,
     activity_size_bytes: usize,
     change: PushChange,
@@ -444,6 +447,7 @@ struct WriteBatchRequest {
     vault_id: String,
     parent_commit: String,
     activity_action: &'static str,
+    activity_tool: &'static str,
     activity_path: String,
     activity_size_bytes: usize,
     changes: Vec<PushChange>,
@@ -1496,6 +1500,7 @@ pub async fn write_file(
             vault_id: input.vault_id,
             parent_commit: input.parent_commit,
             activity_action: "mcp_write",
+            activity_tool: "write_file",
             activity_path: path.clone(),
             activity_size_bytes: size_bytes,
             change: PushChange::Text {
@@ -1522,6 +1527,7 @@ pub async fn delete_file(
             vault_id: input.vault_id,
             parent_commit: input.parent_commit,
             activity_action: "mcp_delete",
+            activity_tool: "delete_file",
             activity_path: path.clone(),
             activity_size_bytes: 0,
             change: PushChange::Delete { path },
@@ -1612,6 +1618,7 @@ pub async fn write_files(
             vault_id: input.vault_id,
             parent_commit: input.parent_commit,
             activity_action: "mcp_write",
+            activity_tool: "write_files",
             activity_path: format!("{total} files"),
             activity_size_bytes: total_bytes,
             changes,
@@ -1711,6 +1718,7 @@ pub async fn move_file(
             vault_id: input.vault_id,
             parent_commit: input.parent_commit,
             activity_action: "mcp_write",
+            activity_tool: "move_file",
             activity_path: format!("{from} -> {to}"),
             activity_size_bytes,
             changes: vec![
@@ -1981,6 +1989,7 @@ async fn apply_write_tool(
             vault_id: input.vault_id,
             parent_commit: input.parent_commit,
             activity_action: input.activity_action,
+            activity_tool: input.activity_tool,
             activity_path: input.activity_path,
             activity_size_bytes: input.activity_size_bytes,
             changes: vec![input.change],
@@ -2113,6 +2122,7 @@ async fn apply_preflighted_write_batch(
                 user,
                 &input.vault_id,
                 input.activity_action,
+                input.activity_tool,
                 &input.activity_path,
                 input.activity_size_bytes,
                 &resp.new_commit,
@@ -2176,22 +2186,29 @@ fn public_git_read_error(error: GitStoreError, spec: &str, reading_commit: bool)
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn record_mcp_write_activity(
     state: &AppState,
     user: &AuthenticatedUser,
     vault_id: &str,
     action: &'static str,
+    tool: &'static str,
     path: &str,
     size_bytes: usize,
     commit: &str,
 ) -> Result<()> {
     #[derive(Serialize)]
     struct McpWriteDetails<'a> {
+        /// Which MCP tool performed the write. The admin activity page shows
+        /// it next to the device name, so a human can tell "an agent deleted
+        /// this" from "the plugin synced a local delete".
+        tool: &'a str,
         path: &'a str,
         commit: &'a str,
         size_bytes: usize,
     }
     let details = serde_json::to_string(&McpWriteDetails {
+        tool,
         path,
         commit,
         size_bytes,
@@ -3206,6 +3223,117 @@ mod tests {
             matches!(real, WriteToolOutput::Success { .. }),
             "the real move must still be allowed: {real:?}"
         );
+    }
+
+    /// The admin page can only attribute a write if the tool name actually
+    /// reached the activity row. The page-level test inserts rows by hand, so
+    /// this pins the write path itself, for all four write tools.
+    #[tokio::test]
+    async fn write_tools_record_the_tool_name_in_activity_details() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vault_id, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &user_id).await;
+
+        write_file(
+            &state,
+            &auth,
+            WriteFileInput {
+                vault_id: vault_id.clone(),
+                path: "a.md".into(),
+                content: "two".into(),
+                parent_commit: head,
+                dry_run: None,
+                expected_hashes: None,
+            },
+        )
+        .await
+        .unwrap();
+        let head = Git2VaultStore::new(state.default_vault_root())
+            .head(&vault_id)
+            .await
+            .unwrap()
+            .unwrap();
+        write_files(
+            &state,
+            &auth,
+            WriteFilesInput {
+                vault_id: vault_id.clone(),
+                parent_commit: head,
+                writes: vec![FileWrite {
+                    path: "b.md".into(),
+                    content: "three".into(),
+                }],
+                deletes: vec!["a.md".into()],
+                dry_run: None,
+                expected_hashes: None,
+            },
+        )
+        .await
+        .unwrap();
+        let head = Git2VaultStore::new(state.default_vault_root())
+            .head(&vault_id)
+            .await
+            .unwrap()
+            .unwrap();
+        move_file(
+            &state,
+            &auth,
+            MoveFileInput {
+                vault_id: vault_id.clone(),
+                parent_commit: head,
+                from: "b.md".into(),
+                to: "c.md".into(),
+                dry_run: None,
+                expected_hashes: None,
+            },
+        )
+        .await
+        .unwrap();
+        let head = Git2VaultStore::new(state.default_vault_root())
+            .head(&vault_id)
+            .await
+            .unwrap()
+            .unwrap();
+        delete_file(
+            &state,
+            &auth,
+            DeleteFileInput {
+                vault_id: vault_id.clone(),
+                path: "c.md".into(),
+                parent_commit: head,
+                dry_run: None,
+                expected_hashes: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        // Only the MCP rows: the sync layer also records a `push` row per
+        // commit, which is not what this test is about.
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT action, details FROM sync_activity
+             WHERE vault_id = ? AND action IN ('mcp_write', 'mcp_delete')
+             ORDER BY timestamp, rowid",
+        )
+        .bind(&vault_id)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap();
+        let details: Vec<String> = rows
+            .iter()
+            .filter_map(|(_, details)| details.clone())
+            .collect();
+        assert_eq!(details.len(), 4, "one row per write: {rows:?}");
+        for (details, tool) in
+            details
+                .iter()
+                .zip(["write_file", "write_files", "move_file", "delete_file"])
+        {
+            assert!(
+                details.contains(&format!("\"tool\":\"{tool}\"")),
+                "row for {tool} must name it: {details}"
+            );
+        }
     }
 
     #[tokio::test]

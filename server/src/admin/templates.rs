@@ -296,6 +296,8 @@ pub struct ActivityView {
     pub vault_id: Option<String>,
     pub vault_name: Option<String>,
     pub device_name: Option<String>,
+    /// MCP tool that performed the change, when the row has one.
+    pub tool: Option<String>,
     pub client_ip: Option<String>,
     pub user_agent: Option<String>,
 }
@@ -314,6 +316,8 @@ pub struct ActivityTemplate {
     pub users: Vec<ActivityFilterUser>,
     pub selected_user_id: String,
     pub selected_action: String,
+    pub selected_agent: String,
+    pub selected_tool: String,
 }
 
 #[cfg(test)]
@@ -410,6 +414,7 @@ mod tests {
                 device_name: Some("Laptop".into()),
                 client_ip: None,
                 user_agent: None,
+                tool: None,
             }],
         }
         .render()
@@ -1410,6 +1415,7 @@ mod tests {
                 device_name: Some("Laptop".into()),
                 client_ip: Some("127.0.0.1".into()),
                 user_agent: Some("PKVSync-Plugin/0.1.0".into()),
+                tool: None,
             }],
             users: vec![ActivityFilterUser {
                 id: "u1".into(),
@@ -1417,6 +1423,8 @@ mod tests {
             }],
             selected_user_id: String::new(),
             selected_action: String::new(),
+            selected_agent: String::new(),
+            selected_tool: String::new(),
         }
         .render()
         .unwrap();

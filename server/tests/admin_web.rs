@@ -1492,6 +1492,127 @@ async fn activity_page_filters_by_user_and_action() {
     assert!(body.contains("<option value=\"pull\" selected>Pull</option>"));
 }
 
+/// D-7: an MCP write must be attributable. The activity row carries the
+/// tool that made the change, the device column already carried the token's
+/// name, and both are filterable — so an operator can answer "which agent
+/// deleted this page" and "what has the agent been doing".
+#[tokio::test]
+async fn activity_page_attributes_mcp_writes_to_their_tool_and_agent() {
+    let (app, state, _dir) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let admin_id = first_admin_user_id(&app, &session_cookie).await;
+    // The agent token the rows point at: its device_name is the agent name.
+    let agent_token = state
+        .tokens
+        .create(NewToken {
+            user_id: &admin_id,
+            token_hash: &token::hash("agent-raw"),
+            device_id: "agent-device",
+            device_name: "claude-code",
+        })
+        .await
+        .unwrap();
+    // A second agent, so the filter has something to exclude.
+    let other_token = state
+        .tokens
+        .create(NewToken {
+            user_id: &admin_id,
+            token_hash: &token::hash("other-raw"),
+            device_id: "other-device",
+            device_name: "other-agent",
+        })
+        .await
+        .unwrap();
+
+    for (token_id, tool, path) in [
+        (Some(agent_token.id.clone()), Some("write_files"), "a.md"),
+        (Some(other_token.id.clone()), Some("delete_file"), "b.md"),
+        // A row written before this change: no tool key at all.
+        (Some(agent_token.id.clone()), None, "c.md"),
+    ] {
+        let details = match tool {
+            Some(tool) => Some(
+                serde_json::json!({
+                    "tool": tool,
+                    "path": path,
+                    "commit": "deadbeef",
+                    "size_bytes": 3,
+                })
+                .to_string(),
+            ),
+            None => Some(
+                serde_json::json!({ "path": path, "commit": "deadbeef", "size_bytes": 3 })
+                    .to_string(),
+            ),
+        };
+        state
+            .activities
+            .insert(NewActivity {
+                user_id: &admin_id,
+                vault_id: None,
+                token_id: token_id.as_deref(),
+                action: "mcp_write",
+                commit_hash: None,
+                client_ip: Some("127.0.0.1"),
+                user_agent: Some("mcp-client/1.0"),
+                details: details.as_deref(),
+            })
+            .await
+            .unwrap();
+    }
+
+    // Unfiltered: the tool shows up next to the device, and the legacy row
+    // (no tool key) still renders.
+    let mut req = request(Method::GET, "/admin/activity", Body::empty());
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = read_body(resp).await;
+    assert!(body.contains("claude-code"), "agent name must render");
+    assert!(
+        body.contains(">write_files<"),
+        "tool badge must render: {body}"
+    );
+    assert!(body.contains(">delete_file<"));
+    assert!(
+        body.matches("claude-code").count() >= 2,
+        "the legacy row (no tool key) must still render its device: {body}"
+    );
+
+    // agent=<device name>: only that agent's rows survive.
+    let mut req = request(
+        Method::GET,
+        "/admin/activity?agent=claude-code",
+        Body::empty(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let body = read_body(resp).await;
+    assert!(body.contains(">write_files<"));
+    assert!(
+        !body.contains("other-agent"),
+        "other agent must be filtered out"
+    );
+    assert!(!body.contains(">delete_file<"));
+
+    // tool=write_files: only that tool's row survives.
+    let mut req = request(
+        Method::GET,
+        "/admin/activity?tool=write_files",
+        Body::empty(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
+    let body = read_body(resp).await;
+    assert!(body.contains(">write_files<"));
+    assert!(!body.contains(">delete_file<"));
+    // The filter survives into the form so the operator can see it applied.
+    assert!(body.contains("value=\"write_files\""));
+}
+
 #[tokio::test]
 async fn activity_page_masks_client_ips_and_limits_recent_rows() {
     let (app, state, _dir) = app_with_state().await;
