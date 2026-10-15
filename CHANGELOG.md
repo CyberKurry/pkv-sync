@@ -9,11 +9,7 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [1.7.0] - 2026-10-15
 
-- The container image carries the MCP Registry ownership annotation
-  (`io.modelcontextprotocol.server.name`), without which the registry refuses
-  the OCI package. `docs_check` now holds the image annotation, the
-  `server.json` name, its 100-character description limit and the image tag
-  in agreement, so a publish cannot fail on metadata that drifted.
+### Added
 
 - `mcp/server.json` describes the server for the MCP Registry (OCI package on
   `ghcr.io`, stdio transport, `PKV_TOKEN`/`PKV_VAULT_ID` configuration). The
@@ -44,8 +40,6 @@ and this project adheres to semantic versioning starting at v1.0.0.
   field keeps its `Vec<String>` shape — the guard is an additive top-level
   map, so existing clients are unaffected.
 
-### Added
-
 - MCP `stale_pages`: the mechanical half of wiki lint. Each wiki page
   declares `sources:` and the `source_commit` it was last reconciled
   against (see the LLM-wiki howto); the tool diffs that anchor against the
@@ -61,8 +55,6 @@ and this project adheres to semantic versioning starting at v1.0.0.
   cannot read as clean. Anchors are resolved once per distinct commit, which
   keeps a 1000-commit / 200-page vault at ~100ms.
 
-### Added
-
 - MCP `search` gains structured filters for LLM-maintained wiki vaults: a
   `frontmatter` filter (top-level scalars match as trimmed whole strings;
   `true` requires the key to exist, and the howto's indented `sources:` block
@@ -71,10 +63,7 @@ and this project adheres to semantic versioning starting at v1.0.0.
   skipped or duplicated, and the cursor always advances. A `after` value this
   server did not issue is rejected as `invalid_cursor` instead of silently
   restarting the walk.
-- `changes_since` now reports truncation when the underlying git tree diff
-  was clipped at its entry cap. The clip was previously silent, so a large
-  diff could read as "nothing else changed" — the same failure mode a stale
-  wiki page hides behind.
+
 - MCP `link_graph` gains a `kind` filter so the wiki layer can be linted on
   its own. Only files whose top-level frontmatter `kind:` matches become
   nodes, but link targets still resolve against every visible text file, so a
@@ -82,6 +71,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
   genuinely missing target still is; orphans are computed inside the layer.
 
 ### Fixed
+
+- The container image carries the MCP Registry ownership annotation
+  (`io.modelcontextprotocol.server.name`), without which the registry refuses
+  the OCI package. `docs_check` now holds the image annotation, the
+  `server.json` name, its 100-character description limit and the image tag
+  in agreement, so a publish cannot fail on metadata that drifted.
+
+- `changes_since` now reports truncation when the underlying git tree diff
+  was clipped at its entry cap. The clip was previously silent, so a large
+  diff could read as "nothing else changed" — the same failure mode a stale
+  wiki page hides behind.
 
 - Release: the plugin store mirror can no longer be sunk by the attestation
   workflow it generates. Pushing a file under `.github/workflows/` needs the
