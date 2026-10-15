@@ -8,6 +8,7 @@ fails CI instead of relying on a reviewer noticing.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -148,6 +149,50 @@ def check_versions(failures: list[str], version: str) -> None:
         )
 
 
+def check_server_json(failures: list[str], version: str) -> None:
+    """Keep the MCP Registry entry in lockstep with the release.
+
+    The registry keys a published server by name+version, so a stale
+    `server.json` either republishes the same version or advertises a tag that
+    was never built. The image tag in the OCI identifier is checked too: the
+    definition is useless if it points at a tag the release did not push.
+    """
+    path = ROOT / "mcp" / "server.json"
+    if not path.exists():
+        failures.append("mcp/server.json: missing")
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        failures.append(f"mcp/server.json: not valid JSON ({error})")
+        return
+    if data.get("version") != version:
+        failures.append(
+            f"mcp/server.json: version {data.get('version')} != workspace {version}"
+        )
+    name = str(data.get("name", ""))
+    if not name.startswith("io.github.cyberkurry/"):
+        failures.append(
+            f"mcp/server.json: name {name!r} is not in the publisher's namespace"
+        )
+    packages = data.get("packages")
+    if not isinstance(packages, list) or not packages:
+        failures.append("mcp/server.json: no packages declared")
+        return
+    for package in packages:
+        transport = package.get("transport") or {}
+        if not transport.get("type"):
+            failures.append("mcp/server.json: a package declares no transport type")
+    for package in packages:
+        identifier = str(package.get("identifier", ""))
+        if package.get("registryType") != "oci":
+            continue
+        if not identifier.endswith(":" + version):
+            failures.append(
+                f"mcp/server.json: oci identifier {identifier} does not tag {version}"
+            )
+
+
 def check_links(failures: list[str]) -> None:
     for path in all_docs():
         if path.suffix != ".md":
@@ -174,6 +219,7 @@ def main() -> int:
     check_switcher_rows(failures)
     check_language_coverage(failures)
     check_versions(failures, version)
+    check_server_json(failures, version)
     check_links(failures)
 
     if failures:

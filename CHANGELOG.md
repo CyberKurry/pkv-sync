@@ -7,6 +7,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+- `mcp/server.json` describes the server for the MCP Registry (OCI package on
+  `ghcr.io`, stdio transport, `PKV_TOKEN`/`PKV_VAULT_ID` configuration). The
+  public-doc check now fails when its version, image tag or namespace drifts
+  from the release, so a stale entry cannot be published or point at a tag
+  that was never built.
+
 - `pkvsyncd mcp` accepts `PKV_VAULT_ID` when `--vault` is omitted, so an MCP
   client can configure the vault through the environment the way it already
   configures the token through `PKV_TOKEN` (an empty value counts as unset).

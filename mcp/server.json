@@ -1,0 +1,84 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cyberkurry/pkv-sync",
+  "description": "Self-hosted, Git-native sync server for Obsidian vaults with a built-in MCP server: read and write notes, structured search, link graph, stale-page detection, and guarded writes (dry-run plus content-hash checks) over your own infrastructure.",
+  "title": "PKV Sync",
+  "websiteUrl": "https://github.com/CyberKurry/pkv-sync/blob/main/public-docs/mcp-howto.md",
+  "repository": {
+    "url": "https://github.com/CyberKurry/pkv-sync",
+    "source": "github"
+  },
+  "version": "1.6.1",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/cyberkurry/pkv-sync:1.6.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-v",
+          "value": "{data_dir}:/var/lib/pkv-sync",
+          "description": "Mount the PKV Sync data directory (SQLite metadata plus the bare git vaults)",
+          "isRequired": true,
+          "variables": {
+            "data_dir": {
+              "description": "Host directory that holds the PKV Sync data",
+              "format": "filepath",
+              "isRequired": true
+            }
+          }
+        },
+        {
+          "type": "named",
+          "name": "-v",
+          "value": "{config_file}:/etc/pkv-sync/config.toml:ro",
+          "description": "Mount the server config file read-only",
+          "isRequired": true,
+          "variables": {
+            "config_file": {
+              "description": "Host path of the config.toml the server already runs with",
+              "format": "filepath",
+              "isRequired": true
+            }
+          }
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "-c"
+        },
+        {
+          "type": "positional",
+          "value": "/etc/pkv-sync/config.toml"
+        },
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "PKV_TOKEN",
+          "description": "A PKV Sync device token with access to the vault this session should expose",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "PKV_VAULT_ID",
+          "description": "Vault id the MCP session exposes (the vault is listed in the admin panel)",
+          "isRequired": true
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "tool": "manual",
+      "source": "https://github.com/CyberKurry/pkv-sync"
+    }
+  }
+}
