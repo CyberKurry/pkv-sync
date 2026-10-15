@@ -7,6 +7,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+- MCP write tools gain two guards for agent-driven edits: `dry_run` returns
+  what the call would write (`would_write`, with `rename` expressed as one
+  entry) without committing, recording activity or consuming the 60/min
+  write quota, and `expected_hashes` refuses a batch whose file changed since
+  the caller read it (`content_diverged` names the path with the expected and
+  actual hashes). `read_file` now returns the `sha256` that guard wants, so a
+  caller never has to re-encode the payload to compute it. The `deletes`
+  field keeps its `Vec<String>` shape — the guard is an additive top-level
+  map, so existing clients are unaffected.
+
 ### Added
 
 - MCP `stale_pages`: the mechanical half of wiki lint. Each wiki page

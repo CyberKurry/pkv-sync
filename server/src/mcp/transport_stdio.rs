@@ -834,6 +834,7 @@ fn is_public_mcp_tool_error(message: &str) -> bool {
     const PREFIXES: &[&str] = &[
         "batch_too_large:",
         "conflicting_path:",
+        "content_diverged:",
         "duplicate_path:",
         "empty_batch:",
         "file_too_large:",
@@ -897,6 +898,7 @@ mod tests {
     #[test]
     fn public_tool_error_whitelist_covers_correctable_errors() {
         for message in [
+            "content_diverged: path=a.md expected=abc actual=def",
             "invalid_cursor: the `after` value was not produced by a previous search call",
             "invalid_path: empty path",
             "not_found: 'a.md' does not exist",

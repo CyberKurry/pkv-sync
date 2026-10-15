@@ -99,6 +99,10 @@ pub struct ReadFileOutput {
     pub content: String,
     pub mime: Option<String>,
     pub encoding: Option<String>,
+    /// SHA-256 of the exact stored bytes, hex encoded. This is the value the
+    /// write tools' `expected_hashes` asks for, so a caller can base an edit
+    /// on what it actually read instead of re-encoding the payload.
+    pub sha256: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -286,6 +290,17 @@ pub struct WriteFileInput {
     pub path: String,
     pub content: String,
     pub parent_commit: String,
+    /// Validate everything and report what would change without committing.
+    /// Consumes no write quota and records no activity. Passing this does not
+    /// guarantee the real write will succeed: checks that live below the
+    /// commit path (file-kind and exclude-glob enforcement) are not run.
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+    /// Optional guard per path: the SHA-256 the caller last read for it (from
+    /// `read_file`'s `sha256`). A mismatch aborts the whole call with
+    /// `content_diverged` and commits nothing.
+    #[serde(default)]
+    pub expected_hashes: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -293,6 +308,10 @@ pub struct DeleteFileInput {
     pub vault_id: String,
     pub path: String,
     pub parent_commit: String,
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+    #[serde(default)]
+    pub expected_hashes: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -309,6 +328,10 @@ pub struct WriteFilesInput {
     pub writes: Vec<FileWrite>,
     #[serde(default)]
     pub deletes: Vec<String>,
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+    #[serde(default)]
+    pub expected_hashes: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -317,6 +340,11 @@ pub struct MoveFileInput {
     pub parent_commit: String,
     pub from: String,
     pub to: String,
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+    /// Guard for the source path (the `from` side) only.
+    #[serde(default)]
+    pub expected_hashes: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -329,6 +357,76 @@ pub enum WriteToolOutput {
         conflict: bool,
         current_head: Option<String>,
     },
+    /// A `dry_run` answer: exactly what the call would have written, with
+    /// nothing committed.
+    DryRun {
+        dry_run: bool,
+        would_write: Vec<WouldWrite>,
+        parent_commit: String,
+    },
+}
+
+#[derive(Debug, Serialize)]
+pub struct WouldWrite {
+    pub path: String,
+    /// `upsert`, `delete` or `rename`.
+    pub change: &'static str,
+    /// Set for renames (the source path).
+    pub old_path: Option<String>,
+    pub size_bytes: usize,
+}
+
+/// SHA-256 of stored bytes, hex encoded — the currency of `expected_hashes`.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+/// Refuse the whole batch when any guarded path no longer matches what the
+/// caller read. This is the optimistic half of "AI writes safely": the
+/// parent_commit CAS protects the vault as a whole, and this protects the
+/// individual file the agent is editing from a concurrent human edit that
+/// already landed in the same commit window.
+async fn verify_expected_hashes(
+    state: &AppState,
+    vault_id: &str,
+    at: Option<&str>,
+    expected: Option<&std::collections::HashMap<String, String>>,
+) -> Result<()> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    let git = state.git_store();
+    // Deterministic order so a multi-path mismatch always reports the same
+    // path (and the tests can pin it).
+    let mut paths: Vec<&String> = expected.keys().collect();
+    paths.sort();
+    for path in paths {
+        let want = &expected[path];
+        let actual = match git
+            .read_file(vault_id, path, at)
+            .await
+            .map_err(git_error_to_anyhow)?
+        {
+            Some(StoredFile::Text { bytes }) => sha256_hex(&bytes),
+            Some(StoredFile::BlobPointer { .. }) => {
+                // Binary payloads are stored out of band; their bytes are
+                // what a caller cannot have hashed from a `read_file` text
+                // body, so a guard on one is refused outright rather than
+                // silently accepted.
+                bail!(
+                    "content_diverged: path={path} expected={want} actual=binary-pointer (binary files cannot be guarded by content hash)"
+                );
+            }
+            None => "null".to_string(),
+        };
+        if actual != *want {
+            bail!("content_diverged: path={path} expected={want} actual={actual}");
+        }
+    }
+    Ok(())
 }
 
 struct WriteToolRequest {
@@ -338,6 +436,8 @@ struct WriteToolRequest {
     activity_path: String,
     activity_size_bytes: usize,
     change: PushChange,
+    dry_run: bool,
+    expected_hashes: Option<std::collections::HashMap<String, String>>,
 }
 
 struct WriteBatchRequest {
@@ -347,6 +447,12 @@ struct WriteBatchRequest {
     activity_path: String,
     activity_size_bytes: usize,
     changes: Vec<PushChange>,
+    dry_run: bool,
+    expected_hashes: Option<std::collections::HashMap<String, String>>,
+    /// Populated by the caller for a dry run; `changes` already describes
+    /// what would happen, but a rename reports two changes (delete + add)
+    /// and callers want it as one line.
+    would_write: Vec<WouldWrite>,
 }
 
 pub async fn list_vaults(state: &AppState, user_id: &str) -> Result<ListVaultsOutput> {
@@ -1396,6 +1502,8 @@ pub async fn write_file(
                 path,
                 content: input.content,
             },
+            dry_run: input.dry_run.unwrap_or(false),
+            expected_hashes: input.expected_hashes,
         },
     )
     .await
@@ -1417,6 +1525,8 @@ pub async fn delete_file(
             activity_path: path.clone(),
             activity_size_bytes: 0,
             change: PushChange::Delete { path },
+            dry_run: input.dry_run.unwrap_or(false),
+            expected_hashes: input.expected_hashes,
         },
     )
     .await
@@ -1470,6 +1580,31 @@ pub async fn write_files(
         changes.push(PushChange::Delete { path });
     }
 
+    let would_write = changes
+        .iter()
+        .map(|change| match change {
+            PushChange::Text { path, content } => WouldWrite {
+                path: path.clone(),
+                change: "upsert",
+                old_path: None,
+                size_bytes: content.len(),
+            },
+            PushChange::Delete { path } => WouldWrite {
+                path: path.clone(),
+                change: "delete",
+                old_path: None,
+                size_bytes: 0,
+            },
+            // The MCP batch builder only produces text and delete changes;
+            // blob writes arrive through the sync API, not this tool.
+            PushChange::Blob { path, .. } => WouldWrite {
+                path: path.clone(),
+                change: "upsert",
+                old_path: None,
+                size_bytes: 0,
+            },
+        })
+        .collect();
     apply_write_batch(
         state,
         user,
@@ -1480,6 +1615,9 @@ pub async fn write_files(
             activity_path: format!("{total} files"),
             activity_size_bytes: total_bytes,
             changes,
+            dry_run: input.dry_run.unwrap_or(false),
+            expected_hashes: input.expected_hashes,
+            would_write,
         },
     )
     .await
@@ -1520,6 +1658,37 @@ pub async fn move_file(
         None => bail!("not_found: '{from}' does not exist"),
     };
 
+    // A dry run answers before any of the write bookkeeping: no quota, no
+    // activity, no CAS. Its validations are the ones above (parent currency,
+    // visibility, source presence, target absence), which is exactly what the
+    // real call checks first.
+    if input.dry_run.unwrap_or(false) {
+        let content = match &source {
+            StoredFile::Text { bytes } => String::from_utf8(bytes.clone())
+                .map_err(|_| anyhow!("unsupported_binary_move: '{from}' is not UTF-8 text"))?,
+            StoredFile::BlobPointer { .. } => {
+                bail!("unsupported_binary_move: '{from}' is binary; v1 supports text only");
+            }
+        };
+        if git.read_file(&input.vault_id, &to, at).await?.is_some() {
+            bail!("target_exists: '{to}' already exists");
+        }
+        verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+        return Ok(dry_run_output(
+            &input.parent_commit,
+            vec![WouldWrite {
+                path: to,
+                change: "rename",
+                old_path: Some(from),
+                size_bytes: content.len(),
+            }],
+        ));
+    }
+
+    // Unchanged ordering for the real path: the attempt is recorded before
+    // the content-kind check, so a rejected binary move still costs one
+    // attempt (pinned by `move_file_binary_source_consumes_write_rate_limit`),
+    // while path-shaped refusals above cost nothing.
     record_mcp_write_rate_limit(state, user, &input.vault_id)?;
     let content = match source {
         StoredFile::Text { bytes } => String::from_utf8(bytes)
@@ -1532,6 +1701,7 @@ pub async fn move_file(
     if git.read_file(&input.vault_id, &to, at).await?.is_some() {
         bail!("target_exists: '{to}' already exists");
     }
+    verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
     let activity_size_bytes = content.len();
 
     apply_preflighted_write_batch(
@@ -1547,6 +1717,9 @@ pub async fn move_file(
                 PushChange::Delete { path: from },
                 PushChange::Text { path: to, content },
             ],
+            dry_run: false,
+            expected_hashes: None,
+            would_write: Vec::new(),
         },
     )
     .await
@@ -1688,7 +1861,9 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
                     "vault_id": { "type": "string" },
                     "path": { "type": "string" },
                     "content": { "type": "string" },
-                    "parent_commit": { "type": "string" }
+                    "parent_commit": { "type": "string" },
+                    "dry_run": { "type": ["boolean", "null"], "description": "Validate and report what would change (would_write) without committing. Consumes no write quota and records no activity. Not a guarantee the real write succeeds: file-kind and exclude-glob enforcement live below the commit path." },
+                    "expected_hashes": { "type": ["object", "null"], "additionalProperties": { "type": "string" }, "description": "Optional per-path guard: the sha256 a previous read_file returned for that path. Any mismatch aborts the whole call with content_diverged and commits nothing." }
                 },
                 "additionalProperties": false
             })),
@@ -1703,7 +1878,9 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
                 "properties": {
                     "vault_id": { "type": "string" },
                     "path": { "type": "string" },
-                    "parent_commit": { "type": "string" }
+                    "parent_commit": { "type": "string" },
+                    "dry_run": { "type": ["boolean", "null"], "description": "Validate and report what would change (would_write) without committing. Consumes no write quota and records no activity. Not a guarantee the real write succeeds: file-kind and exclude-glob enforcement live below the commit path." },
+                    "expected_hashes": { "type": ["object", "null"], "additionalProperties": { "type": "string" }, "description": "Optional per-path guard: the sha256 a previous read_file returned for that path. Any mismatch aborts the whole call with content_diverged and commits nothing." }
                 },
                 "additionalProperties": false
             })),
@@ -1730,7 +1907,9 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
                             "additionalProperties": false
                         }
                     },
-                    "deletes": { "type": "array", "items": { "type": "string" } }
+                    "deletes": { "type": "array", "items": { "type": "string" } },
+                    "dry_run": { "type": ["boolean", "null"], "description": "Validate and report what would change (would_write) without committing. Consumes no write quota and records no activity. Not a guarantee the real write succeeds: file-kind and exclude-glob enforcement live below the commit path." },
+                    "expected_hashes": { "type": ["object", "null"], "additionalProperties": { "type": "string" }, "description": "Optional per-path guard: the sha256 a previous read_file returned for that path. Any mismatch aborts the whole call with content_diverged and commits nothing." }
                 },
                 "additionalProperties": false
             })),
@@ -1746,7 +1925,9 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
                     "vault_id": { "type": "string" },
                     "parent_commit": { "type": "string" },
                     "from": { "type": "string" },
-                    "to": { "type": "string" }
+                    "to": { "type": "string" },
+                    "dry_run": { "type": ["boolean", "null"], "description": "Validate and report the rename (would_write) without committing. Consumes no write quota and records no activity." },
+                    "expected_hashes": { "type": ["object", "null"], "additionalProperties": { "type": "string" }, "description": "Optional guard for the source path: the sha256 a previous read_file returned for `from`. A mismatch aborts with content_diverged." }
                 },
                 "additionalProperties": false
             })),
@@ -1764,6 +1945,35 @@ async fn apply_write_tool(
     user: &AuthenticatedUser,
     input: WriteToolRequest,
 ) -> Result<WriteToolOutput> {
+    if input.dry_run {
+        // Dry runs validate the same preconditions the real call would, but
+        // take no write quota, record no activity and commit nothing.
+        if let Some(conflict) = ensure_write_ready_without_rate_limit(
+            state,
+            user,
+            &input.vault_id,
+            &input.parent_commit,
+        )
+        .await?
+        {
+            return Ok(conflict);
+        }
+        let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
+        verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+        return Ok(dry_run_output(
+            &input.parent_commit,
+            vec![WouldWrite {
+                path: input.activity_path.clone(),
+                change: "upsert",
+                old_path: None,
+                size_bytes: input.activity_size_bytes,
+            }],
+        ));
+    }
+    // The guard runs in the batch path, after the CAS preflight: an
+    // out-of-date parent_commit must keep winning as a Conflict (the client
+    // has to re-read anyway), and only then does a stale file reject as
+    // content_diverged.
     apply_write_batch(
         state,
         user,
@@ -1774,6 +1984,9 @@ async fn apply_write_tool(
             activity_path: input.activity_path,
             activity_size_bytes: input.activity_size_bytes,
             changes: vec![input.change],
+            dry_run: false,
+            expected_hashes: input.expected_hashes,
+            would_write: Vec::new(),
         },
     )
     .await
@@ -1784,12 +1997,40 @@ async fn apply_write_batch(
     user: &AuthenticatedUser,
     input: WriteBatchRequest,
 ) -> Result<WriteToolOutput> {
+    if input.dry_run {
+        if let Some(conflict) = ensure_write_ready_without_rate_limit(
+            state,
+            user,
+            &input.vault_id,
+            &input.parent_commit,
+        )
+        .await?
+        {
+            return Ok(conflict);
+        }
+        let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
+        verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+        return Ok(dry_run_output(&input.parent_commit, input.would_write));
+    }
     if let Some(conflict) =
         apply_write_preflight(state, user, &input.vault_id, input.parent_commit.clone()).await?
     {
         return Ok(conflict);
     }
+    // Checked after the preflight (so an out-of-date parent still wins as a
+    // Conflict) and before the push, so a diverged file aborts the batch
+    // without consuming the CAS attempt.
+    let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
+    verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
     apply_preflighted_write_batch(state, user, input).await
+}
+
+fn dry_run_output(parent_commit: &str, would_write: Vec<WouldWrite>) -> WriteToolOutput {
+    WriteToolOutput::DryRun {
+        dry_run: true,
+        would_write,
+        parent_commit: parent_commit.to_string(),
+    }
 }
 
 async fn apply_write_preflight(
@@ -2034,6 +2275,7 @@ fn render_bytes(path: String, bytes: Vec<u8>, mime: Option<String>) -> Result<Re
                 return Ok(ReadFileOutput {
                     path,
                     is_binary: false,
+                    sha256: sha256_hex(content.as_bytes()),
                     content,
                     mime,
                     encoding: Some("utf-8".into()),
@@ -2059,12 +2301,14 @@ fn binary_output(path: String, bytes: Vec<u8>, mime: Option<String>) -> Result<R
             "binary response of {len} bytes exceeds the {MCP_MAX_BINARY_RESPONSE_BYTES}-byte limit"
         );
     }
+    let sha256 = sha256_hex(&bytes);
     Ok(ReadFileOutput {
         path,
         is_binary: true,
         content: base64::engine::general_purpose::STANDARD.encode(bytes),
         mime,
         encoding: Some("base64".into()),
+        sha256,
     })
 }
 
@@ -2152,7 +2396,7 @@ mod tests {
     use super::*;
     use crate::auth::password;
     use crate::db::pool;
-    use crate::db::repos::{NewUser, RuntimeConfigRepo, UserRepo};
+    use crate::db::repos::{NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo};
     use crate::service::{vault, vault_settings};
     use crate::storage::blob::{BlobStore, LocalFsBlobStore};
     use crate::storage::git::read_probe;
@@ -2207,6 +2451,30 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    /// The write path keys activity and the rate limiter on a real token row,
+    /// so tests must authenticate like the transports do.
+    async fn authenticated_user(state: &AppState, user_id: &str) -> AuthenticatedUser {
+        let raw = crate::auth::token::generate();
+        let token_row = state
+            .tokens
+            .create(NewToken {
+                user_id,
+                token_hash: &crate::auth::token::hash(&raw),
+                device_id: "tools-test-device",
+                device_name: "tools-test",
+            })
+            .await
+            .unwrap();
+        let user = state.users.find_by_id(user_id).await.unwrap().unwrap();
+        AuthenticatedUser {
+            user_id: user.id,
+            username: user.username,
+            is_admin: user.is_admin,
+            token_id: token_row.id,
+            device_id: token_row.device_id,
+        }
     }
 
     async fn seed_text_files(state: &AppState, vault_id: &str, files: &[(&str, &str)]) -> String {
@@ -2722,6 +2990,264 @@ mod tests {
         }
         page.push_str(&format!("source_commit: {source_commit}\n---\n\n# Page\n"));
         page
+    }
+
+    #[tokio::test]
+    async fn write_dry_run_reports_plan_and_commits_nothing() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vault_id, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &user_id).await;
+
+        let out = write_file(
+            &state,
+            &auth,
+            WriteFileInput {
+                vault_id: vault_id.clone(),
+                path: "a.md".into(),
+                content: "two".into(),
+                parent_commit: head.clone(),
+                dry_run: Some(true),
+                expected_hashes: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        match out {
+            WriteToolOutput::DryRun {
+                dry_run,
+                would_write,
+                parent_commit,
+            } => {
+                assert!(dry_run);
+                assert_eq!(parent_commit, head);
+                assert_eq!(would_write.len(), 1);
+                assert_eq!(would_write[0].path, "a.md");
+                assert_eq!(would_write[0].change, "upsert");
+                assert_eq!(would_write[0].size_bytes, 3);
+            }
+            other => panic!("expected a dry run, got: {other:?}"),
+        }
+
+        // Nothing landed: the head is unchanged and the content is intact.
+        let git = Git2VaultStore::new(state.default_vault_root());
+        assert_eq!(
+            git.head(&vault_id).await.unwrap().as_deref(),
+            Some(head.as_str())
+        );
+        let current = read_file(
+            &state,
+            &user_id,
+            ReadFileInput {
+                vault_id,
+                path: "a.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(current.content, "one");
+    }
+
+    #[tokio::test]
+    async fn write_dry_run_does_not_consume_the_rate_limit() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vault_id, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &user_id).await;
+
+        // Burn the whole window on dry runs: if any of them took a token the
+        // real write below would be refused.
+        for _ in 0..80 {
+            write_file(
+                &state,
+                &auth,
+                WriteFileInput {
+                    vault_id: vault_id.clone(),
+                    path: "a.md".into(),
+                    content: "two".into(),
+                    parent_commit: head.clone(),
+                    dry_run: Some(true),
+                    expected_hashes: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let real = write_file(
+            &state,
+            &auth,
+            WriteFileInput {
+                vault_id,
+                path: "a.md".into(),
+                content: "two".into(),
+                parent_commit: head,
+                dry_run: None,
+                expected_hashes: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            matches!(real, WriteToolOutput::Success { .. }),
+            "a real write after 80 dry runs must still be allowed (limit is 60/min): {real:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_rejects_a_diverged_file_without_committing() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vault_id, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &user_id).await;
+
+        let mut wrong = std::collections::HashMap::new();
+        wrong.insert("a.md".to_string(), sha256_hex(b"something else"));
+        let err = write_file(
+            &state,
+            &auth,
+            WriteFileInput {
+                vault_id: vault_id.clone(),
+                path: "a.md".into(),
+                content: "two".into(),
+                parent_commit: head.clone(),
+                dry_run: None,
+                expected_hashes: Some(wrong),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().starts_with("content_diverged: path=a.md"),
+            "got: {err}"
+        );
+        let git = Git2VaultStore::new(state.default_vault_root());
+        assert_eq!(
+            git.head(&vault_id).await.unwrap().as_deref(),
+            Some(head.as_str()),
+            "a refused write must not move the head"
+        );
+
+        // The right hash (what read_file hands out) goes through.
+        let current = read_file(
+            &state,
+            &user_id,
+            ReadFileInput {
+                vault_id: vault_id.clone(),
+                path: "a.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(current.sha256, sha256_hex(b"one"));
+        let mut right = std::collections::HashMap::new();
+        right.insert("a.md".to_string(), current.sha256);
+        let ok = write_file(
+            &state,
+            &auth,
+            WriteFileInput {
+                vault_id,
+                path: "a.md".into(),
+                content: "two".into(),
+                parent_commit: head,
+                dry_run: None,
+                expected_hashes: Some(right),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(matches!(ok, WriteToolOutput::Success { .. }), "got: {ok:?}");
+    }
+
+    #[tokio::test]
+    async fn move_file_dry_run_reports_a_rename_and_takes_no_quota() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vault_id, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &user_id).await;
+
+        for _ in 0..80 {
+            let out = move_file(
+                &state,
+                &auth,
+                MoveFileInput {
+                    vault_id: vault_id.clone(),
+                    parent_commit: head.clone(),
+                    from: "a.md".into(),
+                    to: "b.md".into(),
+                    dry_run: Some(true),
+                    expected_hashes: None,
+                },
+            )
+            .await
+            .unwrap();
+            match out {
+                WriteToolOutput::DryRun { would_write, .. } => {
+                    assert_eq!(would_write[0].change, "rename");
+                    assert_eq!(would_write[0].path, "b.md");
+                    assert_eq!(would_write[0].old_path.as_deref(), Some("a.md"));
+                }
+                other => panic!("expected a dry run, got: {other:?}"),
+            }
+        }
+        // move_file used to record the limiter before its own body, so this
+        // real move would have been refused had the dry runs consumed quota.
+        let real = move_file(
+            &state,
+            &auth,
+            MoveFileInput {
+                vault_id,
+                parent_commit: head,
+                from: "a.md".into(),
+                to: "b.md".into(),
+                dry_run: None,
+                expected_hashes: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            matches!(real, WriteToolOutput::Success { .. }),
+            "the real move must still be allowed: {real:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_files_accepts_the_legacy_deletes_shape() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vault_id, &[("a.md", "one"), ("b.md", "two")]).await;
+        let auth = authenticated_user(&state, &user_id).await;
+
+        // The unchanged `Vec<String>` deletes shape must keep working: the
+        // guard is an additive top-level map, not a reshape of the batch.
+        let out = write_files(
+            &state,
+            &auth,
+            WriteFilesInput {
+                vault_id: vault_id.clone(),
+                parent_commit: head,
+                writes: vec![FileWrite {
+                    path: "c.md".into(),
+                    content: "three".into(),
+                }],
+                deletes: vec!["a.md".into()],
+                dry_run: None,
+                expected_hashes: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            matches!(out, WriteToolOutput::Success { .. }),
+            "got: {out:?}"
+        );
+        let git = Git2VaultStore::new(state.default_vault_root());
+        assert!(git
+            .read_file(&vault_id, "a.md", None)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(git
+            .read_file(&vault_id, "c.md", None)
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
