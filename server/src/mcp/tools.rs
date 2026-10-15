@@ -163,6 +163,12 @@ pub struct LinkGraphInput {
     pub at: Option<String>,
     pub path_prefix: Option<String>,
     pub limit: Option<usize>,
+    /// Restrict the graph to files whose top-level frontmatter `kind:`
+    /// equals this value. Targets still resolve against every visible text
+    /// file, so a link that leaves the selected layer is not reported as
+    /// broken unless the target is genuinely absent.
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -611,6 +617,24 @@ pub async fn link_graph(
     let mut graph_files = Vec::new();
     let mut scanned_bytes = 0usize;
     let mut truncated = false;
+    // With a `kind` filter the reported nodes are one layer, but link
+    // targets must still resolve against the whole visible text tree —
+    // otherwise a wiki page citing a source page would be reported as a
+    // broken link (a false statement the agent may then "fix").
+    let resolution_paths: Vec<String> = match &input.kind {
+        None => Vec::new(),
+        Some(_) => tree
+            .iter()
+            .filter(|entry| {
+                !entry.is_blob_pointer
+                    && classifier.is_text_path(&entry.path)
+                    && path_under_prefix(&entry.path, &prefix)
+                    && !crate::service::exclude::is_hidden_path(&entry.path)
+                    && sync::path_visible_on_read(&filter, &entry.path)
+            })
+            .map(|entry| entry.path.clone())
+            .collect(),
+    };
     let mut iter = tree.into_iter().filter(|entry| {
         !entry.is_blob_pointer
             && classifier.is_text_path(&entry.path)
@@ -670,6 +694,15 @@ pub async fn link_graph(
                 truncated = true;
                 break;
             }
+            if let Some(kind) = &input.kind {
+                let matches = super::frontmatter::Frontmatter::parse(&text)
+                    .and_then(|fm| fm.scalar("kind").map(str::to_string))
+                    .as_deref()
+                    == Some(kind.as_str());
+                if !matches {
+                    continue;
+                }
+            }
             graph_files.push((path.clone(), text));
         }
         if truncated {
@@ -677,12 +710,14 @@ pub async fn link_graph(
         }
     }
 
-    let paths_by_path = graph_files
-        .iter()
-        .map(|(path, _)| path.clone())
-        .collect::<HashSet<_>>();
+    let index_paths: Vec<String> = if resolution_paths.is_empty() {
+        graph_files.iter().map(|(path, _)| path.clone()).collect()
+    } else {
+        resolution_paths
+    };
+    let paths_by_path = index_paths.iter().cloned().collect::<HashSet<_>>();
     let mut by_basename: HashMap<String, Vec<String>> = HashMap::new();
-    for (path, _) in &graph_files {
+    for path in &index_paths {
         if let Some(stem) = Path::new(path).file_stem().and_then(|s| s.to_str()) {
             by_basename
                 .entry(stem.to_string())
@@ -1288,7 +1323,8 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
                     "vault_id": { "type": "string" },
                     "at": { "type": ["string", "null"] },
                     "path_prefix": { "type": ["string", "null"] },
-                    "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": LINK_GRAPH_MAX_NODES }
+                    "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": LINK_GRAPH_MAX_NODES },
+                    "kind": { "type": ["string", "null"], "description": "Only files whose top-level frontmatter `kind:` equals this value become nodes. Link targets still resolve against every visible text file, so links leaving the selected layer are not reported as broken unless the target is truly absent." }
                 },
                 "additionalProperties": false
             })),
@@ -2344,6 +2380,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn link_graph_kind_filter_selects_one_layer_without_false_broken_links() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                // wiki layer: one page links inside the layer, one to a
+                // source page, one to a genuinely missing page.
+                (
+                    "w/a.md",
+                    "---\nkind: wiki\n---\n[[w/b]] [[s/raw]] [[w/ghost]]",
+                ),
+                ("w/b.md", "---\nkind: wiki\n---\nalone"),
+                ("s/raw.md", "---\nkind: source\n---\nraw material"),
+                ("n/plain.md", "no frontmatter at all"),
+            ],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: None,
+                limit: None,
+                kind: Some("wiki".into()),
+            },
+        )
+        .await
+        .unwrap();
+
+        let paths: Vec<&str> = out.nodes.iter().map(|node| node.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec!["w/a.md", "w/b.md"],
+            "only the wiki layer is a node"
+        );
+
+        // The link to the source page resolves against the full tree, so it
+        // must NOT be reported as broken...
+        assert!(
+            !out.broken.iter().any(|b| b.raw_link == "s/raw"),
+            "a cross-layer link must not be called broken: {:?}",
+            out.broken
+        );
+        // ...while a link to a page that truly does not exist still is.
+        assert!(
+            out.broken
+                .iter()
+                .any(|b| b.raw_link == "w/ghost" && b.reason == BrokenReason::Missing),
+            "genuinely missing target must stay broken: {:?}",
+            out.broken
+        );
+        // Orphans are computed inside the selected layer: a is unlinked,
+        // b is linked from a, and the source/plain files are not nodes at
+        // all.
+        assert!(out.orphans.contains(&"w/a.md".to_string()));
+        assert!(!out.orphans.contains(&"w/b.md".to_string()));
+        assert!(!out.orphans.contains(&"s/raw.md".to_string()));
+    }
+
+    #[tokio::test]
     async fn link_graph_reports_links_orphans_broken_and_hides_filtered_paths() {
         let (state, user_id, vault_id, _tmp) = state_user_vault().await;
         seed_text_files(
@@ -2367,6 +2467,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2423,6 +2524,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2457,6 +2559,7 @@ mod tests {
                 at: None,
                 path_prefix: Some("./docs".into()),
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2492,6 +2595,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2527,6 +2631,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2562,6 +2667,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2598,6 +2704,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2634,6 +2741,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2671,6 +2779,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2708,6 +2817,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2742,6 +2852,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2774,6 +2885,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -2836,6 +2948,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: Some(1),
+                kind: None,
             },
         )
         .await
@@ -3449,6 +3562,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
@@ -3492,6 +3606,7 @@ mod tests {
                 at: None,
                 path_prefix: None,
                 limit: None,
+                kind: None,
             },
         )
         .await
