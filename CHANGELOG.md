@@ -9,6 +9,37 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Vault-wide data loss when a device's deletion was rejected by the server
+  (delete-vs-modify): the client kept the path in its sync index after the
+  rejection, so its next pass re-classified the missing file as a fresh
+  local delete and re-sent it — the server's fast path (`if_match` equals
+  head) then deleted the file unconditionally, destroying the other
+  device's committed edit on every device. The rejected-delete verdict is
+  now accepted: the remote content is preserved in a `.conflict-*` sidecar
+  and the path leaves the index with the head advance, so the deletion is
+  never re-litigated.
+- REST SSE reconnects with an unlocatable `Last-Event-ID` (history the
+  server no longer has — GC'd, rolled back, or state imported from another
+  server) silently replayed nothing and continued the live stream, letting
+  the client advance its head over commits it never applied; a later edit
+  then overwrote the missed remote changes. The REST stream now runs the
+  same existence probe the MCP stream already has: an unlocatable or
+  malformed resume position emits `lagged`, forcing a full resync.
+- The conflict-resolution dialog's "Keep local" destroyed the user's local
+  edit and "Accept remote" republished the local draft to every device:
+  the dialog assumed the conflict sidecar always held the remote version,
+  but in the common dirty-vs-remote shape the sidecar holds the LOCAL
+  draft (the disk keeps the remote). Actions and column headers are now
+  derived from the sidecar's actual role, which is encoded in its
+  generated name, and both "keep local" shapes preserve the user's data.
+- The sync engine's SSE subscription leaked one server connection on every
+  settings save, login/logout, and vault switch (rebuild aborted the
+  engine but never stopped its event stream); after 16 rebuilds the
+  per-user SSE cap silently demoted sync to polling until restart.
+  Rebuild and invalidate now share one teardown sequence.
+- A failed migration to PKV Sync left the sync engine permanently null for
+  the session: the status bar still showed "connected" while every file
+  change silently no-oped. The engine is now rebuilt on the failure path.
 - MCP `delete_file` with `dry_run` reported the change as an `upsert`. The
   dry-run answer for single-change tools was built separately from the batch
   path and hardcoded the change kind, so an agent asking "what would this
