@@ -11,6 +11,20 @@ pub struct RestoreReport {
     pub verify: VerifyReport,
 }
 
+/// V12: does the directory carry any artifact a PKV Sync restore would
+/// itself have written? Anything else non-empty is treated as foreign.
+fn looks_like_pkv_data_dir(dir: &Path) -> bool {
+    [
+        "metadata.db",
+        "vaults",
+        "blobs",
+        "config.toml",
+        "manifest.json",
+    ]
+    .iter()
+    .any(|name| dir.join(name).exists())
+}
+
 pub fn run(
     backup_dir: &Path,
     target_data_dir: &Path,
@@ -43,6 +57,25 @@ pub fn run(
     }
 
     if force {
+        // V12 hardening: --force clears the target before the restore
+        // copies over it, so one mistyped --data-dir must not be able to
+        // wipe an unrelated non-empty directory. A directory that looks
+        // like a PKV Sync data dir (any of the restored component names)
+        // is fair game; anything else non-empty requires an explicit
+        // acknowledgement via a marker file.
+        if target_data_dir.exists() && !looks_like_pkv_data_dir(target_data_dir) {
+            let non_empty = fs::read_dir(target_data_dir)
+                .map(|mut entries| entries.next().is_some())
+                .unwrap_or(false);
+            if non_empty {
+                anyhow::bail!(
+                    "refusing to clear {}: it does not look like a PKV Sync data \
+                     directory (no metadata.db/vaults/blobs found). Move its contents \
+                     or point --data-dir at a PKV Sync data directory",
+                    target_data_dir.display()
+                );
+            }
+        }
         fs::create_dir_all(target_data_dir)?;
         remove_dir_contents(target_data_dir)?;
     } else {

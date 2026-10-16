@@ -489,6 +489,49 @@ async fn restore_refuses_non_empty_target_without_force() {
 }
 
 #[tokio::test]
+async fn restore_force_refuses_foreign_non_empty_directory() {
+    // V12: one mistyped --data-dir must not be able to clear an
+    // unrelated directory (e.g. $HOME). --force only clears directories
+    // that look like a PKV Sync data dir.
+    let (state, tmp) = setup_state().await;
+    let cfg = make_config(&state.data_dir);
+    let backup_dir = tmp.path().join("backup");
+    backup::run(&cfg, None, &backup_dir, false).unwrap();
+
+    let target = tmp.path().join("someones-home");
+    std::fs::create_dir_all(target.join("Documents")).unwrap();
+    std::fs::write(target.join("Documents").join("thesis.md"), b"irreplaceable").unwrap();
+
+    let err = restore::run(&backup_dir, &target, true).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("does not look like a PKV Sync data directory"),
+        "{err}"
+    );
+    // Nothing was touched.
+    assert!(target.join("Documents").join("thesis.md").exists());
+}
+
+#[tokio::test]
+async fn restore_force_still_clears_existing_pkv_data_dir() {
+    // The remedy path: force-restoring over a real data dir keeps
+    // working.
+    let (state, tmp) = setup_state().await;
+    let cfg = make_config(&state.data_dir);
+    let backup_dir = tmp.path().join("backup");
+    backup::run(&cfg, None, &backup_dir, false).unwrap();
+
+    let target = tmp.path().join("restore-target");
+    let first = restore::run(&backup_dir, &target, false).unwrap();
+    assert!(first.verify.is_clean());
+    // Now force over it again.
+    std::fs::write(target.join("stray.txt"), b"leftover").unwrap();
+    let second = restore::run(&backup_dir, &target, true).unwrap();
+    assert!(second.verify.is_clean());
+    assert!(!target.join("stray.txt").exists());
+}
+
+#[tokio::test]
 async fn restore_rebuilds_target_and_verify_reports_clean() {
     let (state, tmp) = setup_state().await;
     let cfg = make_config(&state.data_dir);

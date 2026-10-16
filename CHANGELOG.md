@@ -110,6 +110,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
   every text file — still returned an empty result without the check ever
   running; that path is closed and pinned by a regression test.
 
+
+### Changed
+
+- `restore --force` now refuses to clear a non-empty directory that does
+  not look like a PKV Sync data directory (no `metadata.db`/`vaults`/`blobs`
+  artifacts). One mistyped `--data-dir` can no longer wipe an unrelated
+  directory such as `$HOME`; restoring over a real data dir still works.
+- MCP JSON-RPC `decorate_result` no longer panics if a tool ever returns a
+  non-object result; such results pass through undecorated instead of
+  killing the request thread.
+
 ## [1.7.0] - 2026-10-15
 
 ### Added
