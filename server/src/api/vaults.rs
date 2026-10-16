@@ -544,13 +544,10 @@ async fn events(
         .filter(|h| !h.trim().is_empty())
     {
         Some(last_event_id) => {
-            let replay = crate::service::events::replay_events_after(
-                state.vault_root(),
-                &id,
-                last_event_id,
-            )
-            .await
-            .map_err(|e| ApiError::internal(e.to_string()))?;
+            let replay =
+                crate::service::events::replay_events_after(state.vault_root(), &id, last_event_id)
+                    .await
+                    .map_err(|e| ApiError::internal(e.to_string()))?;
             // S1: an empty replay is ambiguous — "nothing was missed" and
             // "cannot locate this resume position" (GC'd history, rollback,
             // state imported from another server) both come back as

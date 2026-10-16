@@ -11,6 +11,7 @@ import {
 } from "../sync/unified-diff";
 import type { Strings } from "../i18n";
 import { format } from "../i18n";
+import { errorToMessage } from "../util";
 import { fillDiffCell } from "./diff-cells";
 
 const TEXT_DETECT_EXTENSIONS = new Set([
@@ -61,6 +62,7 @@ function looksBinary(sample: string): boolean {
 export class ConflictResolveModal extends Modal {
   private isMounted = false;
   private loadGeneration = 0;
+  private readFailed = false;
 
   constructor(
     app: App,
@@ -102,9 +104,13 @@ export class ConflictResolveModal extends Modal {
 
   private async loadContent(): Promise<void> {
     const generation = this.nextLoadGeneration();
+    this.readFailed = false;
     if (this.pair.kind === "merge_markers") {
       const rendered = await this.renderMergeMarkerFlow(generation);
       if (!rendered || !this.canRender(generation)) return;
+      // A read failure already rendered its own retry actions (V8);
+      // only a successful read gets the resolve actions.
+      if (this.readFailed) return;
       this.renderMergeMarkerActions();
       return;
     }
@@ -138,9 +144,15 @@ export class ConflictResolveModal extends Modal {
       } else {
         this.renderDiff(originalContent, conflictContent);
       }
-    } catch {
+    } catch (error) {
+      // V8: a read failure (sidecar already resolved, IO error, another
+      // window touching the vault) is not "binary content" — reporting it
+      // as such invited the user to click a destructive button on a file
+      // whose contents were never shown.
       if (!this.canRender(generation)) return;
-      this.renderBinaryNotice();
+      this.readFailed = true;
+      this.renderReadFailed(errorToMessage(error));
+      return;
     }
 
     if (!this.canRender(generation)) return;
@@ -172,9 +184,9 @@ export class ConflictResolveModal extends Modal {
       } else {
         this.renderMergeMarkerPreview(conflictContent);
       }
-    } catch {
+    } catch (error) {
       if (!this.canRender(generation)) return false;
-      this.renderBinaryNotice();
+      this.renderReadFailed(errorToMessage(error));
     }
     return true;
   }
@@ -212,6 +224,46 @@ export class ConflictResolveModal extends Modal {
       cls: "pkvsync-conflict-binary",
       text: this.labels.conflictBinaryNotice
     });
+  }
+
+  /**
+   * V8: a read failure is not binary content. Render the real reason
+   * with a retry, and NO accept-style actions — the user must see the
+   * contents before deciding to keep or discard anything.
+   */
+  private renderReadFailed(reason: string): void {
+    this.contentEl.createDiv({
+      cls: "pkvsync-conflict-error",
+      text: format(this.labels.conflictReadFailed, { reason })
+    });
+    const actions = this.contentEl.createDiv({
+      cls: "pkvsync-conflict-actions"
+    });
+    const retry = actions.createEl("button", {
+      cls: "pkvsync-button is-primary",
+      text: this.labels.historyRetry
+    });
+    retry.addEventListener("click", () => {
+      this.contentEl.empty();
+      this.renderChrome();
+      void this.loadContent();
+    });
+    const dismiss = actions.createEl("button", {
+      cls: "pkvsync-button is-ghost",
+      text: this.labels.dismissConflictButton
+    });
+    dismiss.addEventListener("click", () => this.close());
+  }
+
+  private renderChrome(): void {
+    this.contentEl.createEl("h2", {
+      text: this.labels.conflictResolveTitle
+    });
+    const pathEl = this.contentEl.createDiv({
+      cls: "pkvsync-conflict-path",
+      text: this.pair.originalPath
+    });
+    pathEl.setAttr("title", this.pair.originalPath);
   }
 
   private renderDiff(original: string, conflict: string): void {

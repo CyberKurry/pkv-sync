@@ -9,6 +9,32 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The `.obsidian` sync allowlist editor could wipe the server-side
+  allowlist: the save button was clickable before the current value
+  finished loading, and a failed load left the textarea empty — clicking
+  save then sent the empty list as a full replacement while the UI reported
+  success. Saving is now blocked until the current value arrives, a failed
+  load turns the button into an explicit retry, and a late load can no
+  longer overwrite what the user typed.
+- Closing the migration dialog while it was running did not cancel it: the
+  vault switch, index save, and "migrated N files" notice all fired after
+  the user walked away. A close mid-run now suppresses the completion path
+  — no vault switch, no success notice; the engine is rebuilt so the
+  session stays functional.
+- The "Update now" button stayed permanently disabled after a failed update
+  (offline, checksum mismatch): the failure path rethrew and skipped the
+  re-enable, leaving the banner advertising an update the button could not
+  deliver. The button state now resets from the current update
+  availability, so retry works.
+- The conflict list and the file-menu resolve entry silently rendered
+  nothing when a conflict sidecar vanished between listing and reading.
+  Both surfaces now show the error with a retry instead of a bare title or
+  a no-op menu click.
+- The conflict-resolution dialog reported read failures (sidecar already
+  resolved, IO error) as "binary file" while still offering the destructive
+  accept buttons. A read failure now shows the actual reason with a retry
+  and no accept actions — the user sees the contents before deciding
+  anything.
 - The push file-kind gate was one-way: text content targeting a path
   outside the server's configured text extensions (`data.csv`, `script.sh`,
   `README`, `Makefile`) was rejected with `wrong_file_kind`, while blob
