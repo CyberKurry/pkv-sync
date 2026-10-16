@@ -560,6 +560,22 @@ pub async fn read_file_at_commit(
 
 pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Result<SearchOutput> {
     ensure_owned_vault(state, user_id, &input.vault_id).await?;
+    // Validate the frontmatter filter before anything else (R5-1): the check
+    // used to live inside the per-file loop, so a vault with no scannable
+    // text under the given prefix — binary-only, or a prefix that excludes
+    // every text file — returned an empty result without the filter ever
+    // running. An agent got "no page matches" for a comparison that does not
+    // exist. At the entry it fires for every call, and a filter that can
+    // never match no longer spends the content budget either.
+    if let Some(wanted) = &input.frontmatter {
+        for (key, value) in wanted {
+            if !matches!(value, Value::Bool(true) | Value::String(_)) {
+                bail!(
+                    "invalid_path: frontmatter filter for '{key}' must be true or a string, got {value}"
+                );
+            }
+        }
+    }
     if input.query.is_empty() {
         // Deliberately not an "enumerate pages with this frontmatter" mode:
         // listing is list_files' job. An empty query returns no matches even
@@ -704,19 +720,6 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
             // keep counting against the content budget (otherwise the
             // filter becomes a way to enumerate a large vault for free).
             if let Some(wanted) = &input.frontmatter {
-                // Validate the filter once, before scanning (R4-3): an
-                // unsupported value used to silently drop every file, so
-                // `{"draft": false}` read as "no page matches" instead of
-                // "that comparison does not exist". Rejecting it up front
-                // also stops the scan from spending the content budget on a
-                // filter that can never match.
-                for (key, value) in wanted {
-                    if !matches!(value, Value::Bool(true) | Value::String(_)) {
-                        bail!(
-                            "invalid_path: frontmatter filter for '{key}' must be true or a string, got {value}"
-                        );
-                    }
-                }
                 let parsed = super::frontmatter::Frontmatter::parse(&text);
                 let keep = wanted.iter().all(|(key, value)| match parsed.as_ref() {
                     None => false,
@@ -2964,6 +2967,97 @@ mod tests {
     /// matched against nothing. `{"draft": false}` used to return an empty
     /// result set, which reads as "no page is a draft" — a wrong answer with
     /// no error attached.
+    /// R5-1: the filter-value validation used to sit inside the per-file
+    /// loop, so it only ran once at least one text file had been read. On a
+    /// vault with no scannable text — binary-only, or a `path_prefix` that
+    /// excludes every text file — the loop broke before validating and the
+    /// caller got an empty result for a comparison that does not exist.
+    /// Both shapes are pinned here; the validation now runs at the entry.
+    #[tokio::test]
+    async fn search_rejects_bad_filters_even_with_no_scannable_text() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        let blob = LocalFsBlobStore::new(state.default_blob_root());
+        let bytes = Bytes::from_static(b"binary payload");
+        let hash = LocalFsBlobStore::sha256(&bytes);
+        blob.put_verified(&hash, bytes.clone()).await.unwrap();
+        state
+            .blob_refs
+            .add_refs(&vault_id, "seed", std::slice::from_ref(&hash))
+            .await
+            .unwrap();
+        // Binary-only vault: one blob-pointer entry, nothing scannable.
+        git.commit_changes(
+            &vault_id,
+            None,
+            &[
+                FileChange::Upsert {
+                    path: "image.bin".into(),
+                    file: StoredFile::BlobPointer {
+                        hash: hash.clone(),
+                        size: bytes.len() as u64,
+                        mime: Some("application/octet-stream".into()),
+                    },
+                },
+                // The only text file lives outside the prefix used below.
+                FileChange::Upsert {
+                    path: "sub/notes.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"needle".to_vec(),
+                    },
+                },
+            ],
+            "seed",
+        )
+        .await
+        .unwrap();
+
+        let mut wanted = std::collections::HashMap::new();
+        wanted.insert("kind".to_string(), serde_json::json!(false));
+
+        // Shape 1: no text file in the tree at all.
+        let err = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: vault_id.clone(),
+                query: "needle".into(),
+                at: None,
+                limit: None,
+                path_prefix: None,
+                frontmatter: Some(wanted.clone()),
+                after: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("must be true or a string"),
+            "binary-only vault must still reject the filter, got: {err}"
+        );
+
+        // Shape 2: text exists, but the prefix excludes all of it.
+        let err = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id,
+                query: "needle".into(),
+                at: None,
+                limit: None,
+                path_prefix: Some("elsewhere".into()),
+                frontmatter: Some(wanted),
+                after: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("must be true or a string"),
+            "a prefix that excludes every text file must still reject it, got: {err}"
+        );
+    }
+
     #[tokio::test]
     async fn search_rejects_unsupported_frontmatter_filter_values() {
         let (state, user_id, vault_id, _tmp) = state_user_vault().await;

@@ -18,8 +18,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 - MCP `search` silently returned an empty result when a `frontmatter` filter
   used an unsupported value (`false`, a number, `null`, an array, an
   object): every file was dropped with no error, which reads as "no page
-  matches". The filter is now validated before scanning and rejects those
-  values with `invalid_path`, naming the key and the value.
+  matches". The filter is now validated at the entry of every call and
+  rejects those values with `invalid_path`, naming the key and the value.
+  The first fix validated inside the per-file loop, so a vault with nothing
+  scannable under the given prefix — binary-only, or a prefix that excludes
+  every text file — still returned an empty result without the check ever
+  running; that path is closed and pinned by a regression test.
 
 ## [1.7.0] - 2026-10-15
 
