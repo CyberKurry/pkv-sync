@@ -2611,7 +2611,10 @@ mod tests {
             builder.insert("todo.md", blob_b, BLOB_FILEMODE).unwrap();
             let tree_oid = builder.write().unwrap();
             let tree = repo.find_tree(tree_oid).unwrap();
-            let s = repo.signature().unwrap();
+            // Same signature source as the store itself (sig()) —
+            // repo.signature() reads global git config, which CI runners
+            // do not have.
+            let s = Signature::now("PKV Sync", "pkv-sync@example.invalid").unwrap();
             let oid = repo
                 .commit(Some(MAIN_REF), &s, &s, "seed", &tree, &[])
                 .unwrap();
