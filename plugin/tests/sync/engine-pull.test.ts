@@ -1469,6 +1469,112 @@ describe("SyncEngine pull", () => {
     expect(idx.saved?.files["note.md"]?.lastSyncedHash).toBe(mergedHash);
   });
 
+  it("does not resend a delete the server already rejected (S2 delete-vs-modify)", async () => {
+    // Sequence: A and B both synced a.md; B deleted it locally; before B's
+    // push landed, A edited and pushed. The server's auto-merge REJECTED
+    // B's delete (delete-vs-modify -> Conflict) and kept A's edit. B's
+    // backflow pull then reports a.md as modified while B has no local
+    // file — the isLocalDeleted branch writes a .conflict-* sidecar and
+    // must ACCEPT the server's verdict: the head advances and the path
+    // leaves the index so the NEXT pass does not classify it as a fresh
+    // local delete and re-send it (which the fast path would execute
+    // unconditionally, destroying A's committed edit vault-wide).
+    const cleanHash = await sha256Text("clean");
+    const remoteHash = await sha256Text("A's committed edit");
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: cleanHash,
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 5
+        }
+      }
+    });
+    const vault = new FakeVault([]);
+    const pushes: Array<{ ifMatch: string | null; changes: unknown[] }> = [];
+    let pullCall = 0;
+    const api = {
+      state: vi.fn().mockResolvedValue({ current_head: "c1", changed_since: true }),
+      pull: vi.fn().mockImplementation(async () => {
+        pullCall += 1;
+        // First pull: covers (c0, c1] — the merge commit where the server
+        // rejected B's delete and kept A's edit.
+        if (pullCall === 1) {
+          return {
+            from: "c0",
+            to: "c1",
+            added: [],
+            modified: [
+              {
+                path: "a.md",
+                file_type: "text",
+                size: 19,
+                content_inline: "A's committed edit"
+              }
+            ],
+            deleted: []
+          };
+        }
+        return { from: "c1", to: "c1", added: [], modified: [], deleted: [] };
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockImplementation(
+        async (_v: string, ifMatch: string | null, changes: unknown[]) => {
+          pushes.push({ ifMatch, changes });
+          // The real server answers B's stale delete with the auto-merge
+          // verdict: outcome "conflict" = delete REJECTED.
+          if (pushes.length === 1) {
+            return {
+              new_commit: "c1",
+              files_changed: 0,
+              merge_outcomes: [{ path: "a.md", outcome: "conflict" }]
+            };
+          }
+          return { new_commit: "c9", files_changed: changes.length };
+        }
+      ),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "B-laptop",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      labels: en,
+      setStatus: vi.fn()
+    });
+
+    // First pass: B's delete went out with ifMatch=c0, the server
+    // auto-merged and REJECTED it; the pull reports a.md modified.
+    // Server verdict shape: the rejected delete keeps the index entry,
+    // the pull then hits the isLocalDeleted branch (no local file).
+    await engine.syncNow();
+    // Second pass: the verdict must hold — no delete for a.md again.
+    await engine.syncNow();
+
+    const resentDeletes = pushes.filter((push) =>
+      push.changes.some(
+        (change) => (change as { kind: string; path: string }).kind === "delete"
+      )
+    );
+    expect(resentDeletes).toHaveLength(1);
+    // The server's rejected-delete verdict leaves A's edit preserved as a
+    // remote sidecar on disk (writeRemoteConflict), and the head advanced
+    // past the verdict so the path cannot be reclassified as deleted.
+    const sidecar = [...vault.writes.keys()].find((path) =>
+      path.includes(".conflict-")
+    );
+    expect(sidecar).toBeDefined();
+    expect(vault.writes.get(sidecar!)).toBe("A's committed edit");
+    expect(idx.saved?.lastSyncedCommit).toBe("c1");
+  });
+
   it("SSE inline apply on clean file applies directly without push", async () => {
     vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
     const syncedContent = "synced text";

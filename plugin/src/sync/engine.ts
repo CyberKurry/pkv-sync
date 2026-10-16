@@ -600,6 +600,16 @@ export class SyncEngine {
     const pulledText = new Map<string, string>();
     const touched: LocalFileSnapshot[] = [];
     const deleted: string[] = [];
+    // Paths whose local deletion the server already rejected: the pull
+    // reports them as modified while no local file exists, meaning a
+    // delete-vs-modify verdict landed against us. They keep a .conflict-*
+    // sidecar of the remote content and MUST leave the index with the
+    // head advance — otherwise the next scanPendingFrom reclassifies the
+    // missing file as a fresh local delete and re-sends it, which the
+    // server's fast path (if_match == head) would then execute
+    // unconditionally, destroying the other device's committed edit
+    // vault-wide (S2).
+    const deleteRejected: string[] = [];
 
     try {
       for (const file of [...pull.added, ...pull.modified]) {
@@ -609,6 +619,7 @@ export class SyncEngine {
         const indexed = index.files[file.path];
         if (isLocalDeleted(local, indexed?.lastSyncedHash)) {
           await this.writeRemoteConflict(file, pull.to);
+          deleteRejected.push(file.path);
           continue;
         }
 
@@ -687,6 +698,9 @@ export class SyncEngine {
     let appliedIndex: LocalIndex | null = null;
     const touchedSynced = touched.filter((file) => shouldSyncPath(file.path));
     const deletedApplied = deleted.filter((path) => shouldSyncPath(path) && pathAccepted(path));
+    const rejectedApplied = deleteRejected.filter(
+      (path) => shouldSyncPath(path) || shouldAcceptRemoteConflictPath(path)
+    );
     // Final index advance: the per-file loop's last await may have
     // straddled an abort (M-10) — a replaced generation must not move the
     // head the replacement engine is about to own.
@@ -694,6 +708,9 @@ export class SyncEngine {
     await this.opts.index.updateIndex((current) => {
       let next = markSynced(current, pull.to, touchedSynced);
       next = markDeleted(next, pull.to, deletedApplied);
+      // Server-rejected deletes drop their index entry under the same
+      // head advance: the verdict is accepted, not re-litigated.
+      next = markDeleted(next, next.lastSyncedCommit, rejectedApplied);
       appliedIndex = next;
       return next;
     });

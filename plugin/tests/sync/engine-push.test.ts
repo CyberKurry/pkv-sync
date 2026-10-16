@@ -1251,17 +1251,19 @@ describe("SyncEngine push", () => {
 
     await engine.syncNow();
 
-    // The index entry for the rejected delete SURVIVES (not treated as a
-    // brand-new never-pushed file on the next scan).
-    expect(idx.saved?.files["x.md"]).toBeDefined();
-    // The remote content must NOT be resurrected onto x.md's original path —
-    // it lands in a .conflict-* copy, preserving the user's delete intent.
+    // S2 supersedes the M-11 tail: the entry initially survives the
+    // rejected delete (so the pull sees "locally deleted" and writes the
+    // .conflict-* copy), and the pull then ACCEPTS the verdict — the
+    // path leaves the index under the head advance, so the next pass
+    // cannot reclassify it as a fresh local delete and re-send it.
     expect(vault.writes.get("x.md")).toBeUndefined();
     const conflictWrite = [...vault.writes.keys()].find((p) =>
       p.startsWith("x.conflict-")
     );
     expect(conflictWrite).toBeDefined();
     expect(vault.writes.get(conflictWrite!)).toBe("remote edit");
+    expect(idx.saved?.lastSyncedCommit).toBe("c2");
+    expect(idx.saved?.files["x.md"]).toBeUndefined();
   });
 
   it("backflow pull overwrites local and advances head after merged push", async () => {
