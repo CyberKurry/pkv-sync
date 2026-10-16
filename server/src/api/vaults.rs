@@ -544,9 +544,36 @@ async fn events(
         .filter(|h| !h.trim().is_empty())
     {
         Some(last_event_id) => {
-            crate::service::events::replay_events_after(state.vault_root(), &id, last_event_id)
-                .await
-                .map_err(|e| ApiError::internal(e.to_string()))?
+            let replay = crate::service::events::replay_events_after(
+                state.vault_root(),
+                &id,
+                last_event_id,
+            )
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+            // S1: an empty replay is ambiguous — "nothing was missed" and
+            // "cannot locate this resume position" (GC'd history, rollback,
+            // state imported from another server) both come back as
+            // `Events(vec![])`. Falling through to the live stream on the
+            // latter drops every event between the client's position and
+            // now without a word. The REST stream gets the same
+            // existence-probe contract the MCP stream already has (R3-2):
+            // an unlocatable position is reported as `lagged` so the client
+            // resyncs. The probe only runs in the empty case, so the
+            // common caught-up reconnect pays nothing.
+            match replay {
+                crate::service::events::ReplayEvents::Events(events)
+                    if events.is_empty()
+                        && !crate::service::events::commit_exists_in_vault(
+                            state.vault_root(),
+                            &id,
+                            last_event_id,
+                        ) =>
+                {
+                    crate::service::events::ReplayEvents::Lagged
+                }
+                other => other,
+            }
         }
         None => crate::service::events::ReplayEvents::Events(Vec::new()),
     };

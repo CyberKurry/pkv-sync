@@ -172,6 +172,31 @@ pub async fn replay_events_after(
         .map_err(|_| anyhow::anyhow!("blocking task panicked"))?
 }
 
+/// Whether `commit` exists in the vault's object database. Used to
+/// disambiguate an empty replay ("caught up") from an unlocatable resume
+/// position ("cannot honour this Last-Event-ID") — the latter must be
+/// reported as `lagged` so the client resyncs instead of silently
+/// advancing over commits it never applied. Malformed values (not a
+/// 40-hex OID) report `false`: they are never legitimate positions.
+pub fn commit_exists_in_vault(vault_root: &Path, vault_id: &str, commit: &str) -> bool {
+    let Ok(vault_path) = storage_vault_path(vault_root, vault_id) else {
+        return false;
+    };
+    let Ok(oid) = Oid::from_str(commit) else {
+        return false;
+    };
+    std::thread::scope(|scope| {
+        scope
+            .spawn(move || {
+                Repository::open_bare(vault_path)
+                    .map(|repo| repo.find_commit(oid).is_ok())
+                    .unwrap_or(false)
+            })
+            .join()
+            .unwrap_or(false)
+    })
+}
+
 fn replay_events_after_blocking(vault_path: PathBuf, last: Oid) -> anyhow::Result<ReplayEvents> {
     let repo = match Repository::open_bare(vault_path) {
         Ok(repo) => repo,

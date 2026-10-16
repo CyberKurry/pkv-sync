@@ -322,6 +322,62 @@ async fn reconnect_with_last_event_id_replays_missed_commits() {
     assert!(body.find("b.md") < body.find("c.md"));
 }
 
+#[tokio::test]
+async fn reconnect_with_unknown_last_event_id_emits_lagged_not_silent_empty_replay() {
+    // S1: a resume position the server cannot locate (GC'd history, state
+    // imported from another server, rollback) must surface as `lagged` so
+    // the client resyncs — never as an empty replay followed by the live
+    // stream, which would let the client advance its head over commits it
+    // never applied. Mirrors the MCP-side probe (R3-2).
+    let (ts, _state, raw, vid, _first_commit) = start_test_server().await;
+    let sse_url = format!("http://{}/api/vaults/{}/events", ts.addr, vid);
+
+    let sse_resp = auth_headers(
+        reqwest::Client::new()
+            .get(&sse_url)
+            .bearer_auth(&raw)
+            .header("Last-Event-ID", "0".repeat(40)),
+        &ts.key,
+    )
+    .send()
+    .await
+    .unwrap();
+
+    let body = read_until(sse_resp, &["event: lagged"]).await;
+
+    assert!(
+        body.contains("event: lagged"),
+        "expected an unlocatable resume position to emit lagged, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn reconnect_with_malformed_last_event_id_emits_lagged() {
+    // S1 sibling: a present-but-unusable Last-Event-ID is an explicit resume
+    // request the server cannot honour — it must degrade to lagged (resync),
+    // not to "no resume requested" (silent live stream).
+    let (ts, _state, raw, vid, _first_commit) = start_test_server().await;
+    let sse_url = format!("http://{}/api/vaults/{}/events", ts.addr, vid);
+
+    let sse_resp = auth_headers(
+        reqwest::Client::new()
+            .get(&sse_url)
+            .bearer_auth(&raw)
+            .header("Last-Event-ID", "not-an-oid"),
+        &ts.key,
+    )
+    .send()
+    .await
+    .unwrap();
+
+    let body = read_until(sse_resp, &["event: lagged"]).await;
+
+    assert!(
+        body.contains("event: lagged"),
+        "expected a malformed resume position to emit lagged, got: {body}"
+    );
+}
+
 struct EnvVarGuard {
     key: &'static str,
     previous: Option<String>,
