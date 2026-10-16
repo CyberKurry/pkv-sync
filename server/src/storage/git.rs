@@ -817,7 +817,7 @@ fn encode_file(f: StoredFile) -> Result<Vec<u8>, serde_json::Error> {
     }
 }
 
-fn decode_file(path: &str, bytes: Vec<u8>) -> StoredFile {
+pub(crate) fn decode_file(path: &str, bytes: Vec<u8>) -> StoredFile {
     if let Some(file) = parse_blob_pointer(&bytes).and_then(|p| p.into_file_for_path(path)) {
         return file;
     }

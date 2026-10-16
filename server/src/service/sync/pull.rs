@@ -3,7 +3,7 @@ use crate::db::repos::{NewActivity, SyncActivityRepo};
 use crate::service::vault;
 use crate::service::AppState;
 use crate::storage::git::{
-    parse_blob_pointer, storage_vault_path, GitStoreError, GitVaultStore, StoredFile, TreeEntry,
+    storage_vault_path, GitStoreError, GitVaultStore, StoredFile, TreeEntry,
 };
 use crate::storage::path;
 use git2::{Oid, Repository};
@@ -317,7 +317,7 @@ async fn files_to_pull(
                     .get_path(Path::new(&request.path))
                     .map_err(|_| GitStoreError::NotFound)?;
                 let blob = repo.find_blob(entry.id())?;
-                let file = decode_pull_file(&request.path, blob.content().to_vec());
+                let file = crate::storage::git::decode_file(&request.path, blob.content().to_vec());
                 let file = match file {
                     StoredFile::Text { bytes } => text_pull_file(&request.path, bytes),
                     StoredFile::BlobPointer { hash, size, .. } => {
@@ -374,13 +374,6 @@ fn blob_pull_file(path: &str, hash: String, size: u64) -> PullFile {
         content_inline: None,
         blob_hash: Some(hash),
     }
-}
-
-fn decode_pull_file(path: &str, bytes: Vec<u8>) -> StoredFile {
-    if let Some(file) = parse_blob_pointer(&bytes).and_then(|p| p.into_file_for_path(path)) {
-        return file;
-    }
-    StoredFile::Text { bytes }
 }
 
 /// Read a normalized vault path after the caller has enforced read visibility.
@@ -447,24 +440,6 @@ mod tests {
         assert!(
             implementation.contains(&guarded_join),
             "files_to_pull should use the shared storage vault path guard"
-        );
-    }
-
-    #[test]
-    fn decode_pull_file_parses_pointer_json_once() {
-        let source = include_str!("pull.rs");
-        let fn_start = source.find("fn decode_pull_file").unwrap();
-        let next_fn = source[fn_start + 1..]
-            .find("\n/// Read a normalized vault path")
-            .or_else(|| source[fn_start + 1..].find("\nfn "))
-            .map(|idx| fn_start + 1 + idx)
-            .unwrap();
-        let decode_impl = &source[fn_start..next_fn];
-
-        assert_eq!(
-            decode_impl.matches("parse_blob_pointer(").count(),
-            1,
-            "decode_pull_file should parse pointer JSON at most once via shared helper"
         );
     }
 
