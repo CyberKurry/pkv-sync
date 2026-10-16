@@ -108,7 +108,18 @@ async fn pull_for_user(
             deleted: vec![],
         });
     };
-    let (current, base) = match since {
+    let rc = state.runtime_cfg.snapshot().await;
+    let path_filter = sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await?;
+    // An unresolvable `since` (malformed, or a commit this vault does not
+    // have — state imported from another server, pruned history, a
+    // hand-written API call) must not surface as a 500: the client
+    // retries 5xx forever. It is answerable — behave like a first sync
+    // and return the full tree (S4).
+    let effective_since = match since {
+        Some(s) if git.commit_exists(vault_id, s).await.unwrap_or(false) => Some(s),
+        _ => None,
+    };
+    let (current, base) = match effective_since {
         Some(s) => {
             let [cur, b] = git
                 .list_tree_maps(vault_id, [Some(h.as_str()), Some(s)])
@@ -124,15 +135,28 @@ async fn pull_for_user(
             (cur, std::collections::BTreeMap::new())
         }
     };
-    if current.len() > max_tree_entries || base.len() > max_tree_entries {
+    // The budget guards the RESPONSE, so it must count what the response
+    // can carry: visible entries only. Counting the raw tree maps made a
+    // vault whose hidden entries exceeded the limit 413 forever — every
+    // pull failed even when the visible set was tiny, and no API could
+    // clear the state (S3).
+    let visible_current = current.len()
+        - current
+            .keys()
+            .filter(|p| !path_visible_on_read(&path_filter, p))
+            .count();
+    let visible_base = base.len()
+        - base
+            .keys()
+            .filter(|p| !path_visible_on_read(&path_filter, p))
+            .count();
+    if visible_current > max_tree_entries || visible_base > max_tree_entries {
         return Err(ApiError::new(
             axum::http::StatusCode::PAYLOAD_TOO_LARGE,
             "pull_too_large",
             format!("vault has too many files for one pull response; limit is {max_tree_entries}"),
         ));
     }
-    let rc = state.runtime_cfg.snapshot().await;
-    let path_filter = sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await?;
     let mut pull_paths = Vec::new();
     let mut deleted = Vec::new();
 
@@ -213,7 +237,10 @@ async fn pull_for_user(
         })
         .await?;
     Ok(PullResp {
-        from: since.map(str::to_string),
+        // Report the base the response was actually computed against: a
+        // degraded unknown `since` answered as a first sync must say so
+        // (`from: null`), not echo a position it did not use.
+        from: effective_since.map(str::to_string),
         to: head,
         added,
         modified,
@@ -480,6 +507,118 @@ mod tests {
 
         assert_eq!(err.status, axum::http::StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(err.code, "pull_too_large");
+    }
+
+    #[tokio::test]
+    async fn pull_budget_counts_only_visible_entries_not_filtered_ones() {
+        // S3: the budget check ran on the raw tree maps before the
+        // exclusion filter, so a vault whose hidden entries exceed the
+        // limit 413'd forever even when the visible set was tiny — with
+        // no API to clear the state. The budget must count what the
+        // response can actually carry: visible entries only.
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let git = state.git_store();
+        let changes = (0..4)
+            .map(|idx| crate::storage::git::FileChange::Upsert {
+                path: format!(".hidden/note-{idx}.md"),
+                file: StoredFile::Text {
+                    bytes: idx.to_string().into_bytes(),
+                },
+            })
+            .chain([crate::storage::git::FileChange::Upsert {
+                path: "visible.md".to_string(),
+                file: StoredFile::Text {
+                    bytes: b"v".to_vec(),
+                },
+            }])
+            .collect::<Vec<_>>();
+        git.commit_changes(&vid, None, &changes, "seed")
+            .await
+            .unwrap();
+
+        // Budget 2: 4 hidden entries would trip the old check; only the
+        // single visible entry is countable now.
+        let pulled = pull_for_user(
+            &state,
+            &user.user_id,
+            None,
+            &vid,
+            None,
+            RequestMetadata::default(),
+            2,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(pulled.added.len(), 1);
+        assert_eq!(pulled.added[0].path, "visible.md");
+    }
+
+    #[tokio::test]
+    async fn pull_with_unknown_since_falls_back_to_full_pull_not_500() {
+        // S4: a `since` the vault cannot resolve (state imported from
+        // another server, pruned history, hand-written API call) used to
+        // fall into list_tree_maps, whose Oid::from_str/find_commit
+        // failure surfaced as a 500 — which the client retries forever.
+        // An unknown base is answerable: behave like a first sync and
+        // return the full tree.
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let git = state.git_store();
+        let changes = [crate::storage::git::FileChange::Upsert {
+            path: "note.md".to_string(),
+            file: StoredFile::Text {
+                bytes: b"one".to_vec(),
+            },
+        }];
+        git.commit_changes(&vid, None, &changes, "seed")
+            .await
+            .unwrap();
+
+        let pulled = pull_for_user(
+            &state,
+            &user.user_id,
+            None,
+            &vid,
+            Some(&"0".repeat(40)),
+            RequestMetadata::default(),
+            MAX_PULL_TREE_ENTRIES,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(pulled.from, None);
+        assert_eq!(pulled.added.len(), 1);
+        assert_eq!(pulled.added[0].path, "note.md");
+    }
+
+    #[tokio::test]
+    async fn pull_with_malformed_since_falls_back_to_full_pull_not_500() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let git = state.git_store();
+        let changes = [crate::storage::git::FileChange::Upsert {
+            path: "note.md".to_string(),
+            file: StoredFile::Text {
+                bytes: b"one".to_vec(),
+            },
+        }];
+        git.commit_changes(&vid, None, &changes, "seed")
+            .await
+            .unwrap();
+
+        let pulled = pull_for_user(
+            &state,
+            &user.user_id,
+            None,
+            &vid,
+            Some("not-an-oid"),
+            RequestMetadata::default(),
+            MAX_PULL_TREE_ENTRIES,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(pulled.from, None);
+        assert_eq!(pulled.added.len(), 1);
     }
 
     #[tokio::test]

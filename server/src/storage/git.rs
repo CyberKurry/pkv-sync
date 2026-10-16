@@ -198,6 +198,9 @@ pub(crate) mod read_probe {
 pub trait GitVaultStore: Send + Sync {
     async fn ensure_repo(&self, vault_id: &str) -> Result<(), GitStoreError>;
     async fn head(&self, vault_id: &str) -> Result<Option<String>, GitStoreError>;
+    /// Whether `commit` exists in the vault's object database. Malformed
+    /// values report `false` — they are never legitimate positions.
+    async fn commit_exists(&self, vault_id: &str, commit: &str) -> Result<bool, GitStoreError>;
     async fn commit_changes(
         &self,
         vault_id: &str,
@@ -1071,6 +1074,22 @@ impl GitVaultStore for Git2VaultStore {
             }
             let repo = Repository::open_bare(&p)?;
             Ok(main_ref_target(&repo)?.map(|o| o.to_string()))
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
+    async fn commit_exists(&self, vault_id: &str, commit: &str) -> Result<bool, GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let commit = commit.to_string();
+        tokio::task::spawn_blocking(move || -> Result<bool, GitStoreError> {
+            if !p.exists() {
+                return Ok(false);
+            }
+            let repo = Repository::open_bare(&p)?;
+            let oid = Oid::from_str(&commit)?;
+            let found = repo.find_commit(oid).is_ok();
+            Ok(found)
         })
         .await
         .map_err(|_| GitStoreError::Panic)?

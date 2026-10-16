@@ -9,6 +9,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- `pull` counted the 50k-entry budget against the raw git trees before the
+  exclusion filter, so a vault holding more than 50k hidden entries (admin
+  added excludes, hidden paths that lost their allowlist) failed every pull
+  with 413 forever — even when only a handful of files were visible — and
+  no API could clear the state. The budget now counts only the entries the
+  response can carry.
+- `pull` with an unresolvable `since` (commit pruned from history, plugin
+  state restored from another server, hand-written API call) failed with a
+  500 that clients retry forever. An unknown base is now answered like a
+  first sync: the full tree with `from: null`, so the client converges.
 - Vault-wide data loss when a device's deletion was rejected by the server
   (delete-vs-modify): the client kept the path in its sync index after the
   rejection, so its next pass re-classified the missing file as a fresh
