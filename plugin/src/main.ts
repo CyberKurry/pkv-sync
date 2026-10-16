@@ -801,14 +801,24 @@ export default class PKVSyncPlugin extends Plugin {
             push: (vaultId, ifMatch, changes, deviceName) =>
               syncApi.push(vaultId, ifMatch, changes, deviceName)
           };
-          const result = await migrateToPkv({
-            vault: this.app.vault,
-            api,
-            vaultName,
-            deviceName: this.settings.deviceName,
-            textExtensions: new Set(this.settings.textExtensions),
-            onProgress
-          });
+          let result;
+          try {
+            result = await migrateToPkv({
+              vault: this.app.vault,
+              api,
+              vaultName,
+              deviceName: this.settings.deviceName,
+              textExtensions: new Set(this.settings.textExtensions),
+              onProgress
+            });
+          } catch (error) {
+            // The engine was invalidated before the migration started; a
+            // failed migration must not leave it null for the rest of the
+            // session (V3): file changes would silently no-op behind a
+            // status bar that still says "connected".
+            this.rebuildSyncEngine();
+            throw error;
+          }
           this.settings.selectedVaultId = result.vaultId;
           this.settings.selectedVaultName = result.vaultName;
           this.settings.lastSyncSuccessAt = Math.floor(Date.now() / 1000);
