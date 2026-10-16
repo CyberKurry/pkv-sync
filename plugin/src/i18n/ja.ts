@@ -119,6 +119,8 @@ export const ja = {
   vaultSyncAllowlistSaveButton: "保存",
   vaultSyncAllowlistSaved: ".obsidian 同期の許可リストを保存しました",
   vaultSyncAllowlistLoadFailed: ".obsidian 同期の許可リストの読み込みに失敗しました",
+  vaultSyncAllowlistNotLoaded: "現在の許可リストがまだ読み込まれていません。再読み込みしてから保存してください",
+  vaultSyncAllowlistRetryButton: "再読み込み",
   vaultSyncAllowlistSaveFailed: ".obsidian 同期の許可リストの保存に失敗しました",
   currentDeviceSuffix: "（現在のデバイス）",
   syncStatusTitle: "PKV Sync ステータス",
@@ -220,7 +222,9 @@ export const ja = {
   conflictAcceptedRemoteNotice: "リモートのバージョンを採用しました。次回の同期で push されます",
   markersStillPresent:
     "ファイルに競合マーカーが残っています。先にエディタで解決してください。",
-  conflictResolveFailed: "競合の解決に失敗しました"
+  conflictResolveFailed: "競合の解決に失敗しました",
+  conflictReadFailed: "競合ファイルを読み込めませんでした：{reason}",
+  conflictsListLoadFailed: "競合ファイルの読み込みに失敗しました",
 } satisfies typeof en;
 
 export const jaInReview = true;

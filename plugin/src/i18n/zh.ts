@@ -117,6 +117,8 @@ export const zh = {
   vaultSyncAllowlistSaveButton: "保存",
   vaultSyncAllowlistSaved: "已保存 .obsidian 同步允许列表",
   vaultSyncAllowlistLoadFailed: "加载 .obsidian 同步允许列表失败",
+  vaultSyncAllowlistNotLoaded: "当前允许列表尚未加载，请重新加载后再保存",
+  vaultSyncAllowlistRetryButton: "重试加载",
   vaultSyncAllowlistSaveFailed: "保存 .obsidian 同步允许列表失败",
   currentDeviceSuffix: "（当前）",
   syncStatusTitle: "PKV Sync 状态",
@@ -213,5 +215,7 @@ export const zh = {
   conflictAcceptedLocalNotice: "已保留本地版本并删除冲突文件",
   conflictAcceptedRemoteNotice: "已采纳远端版本，将在下次同步推送",
   markersStillPresent: "文件中仍有冲突标记。请先在编辑器中解决。",
-  conflictResolveFailed: "解决冲突失败"
+  conflictResolveFailed: "解决冲突失败",
+  conflictReadFailed: "无法读取冲突文件：{reason}",
+  conflictsListLoadFailed: "加载冲突文件失败",
 } satisfies typeof en;

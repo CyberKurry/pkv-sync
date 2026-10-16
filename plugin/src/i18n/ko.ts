@@ -127,6 +127,8 @@ export const ko = {
   vaultSyncAllowlistSaveButton: "저장",
   vaultSyncAllowlistSaved: ".obsidian 동기화 허용 목록을 저장했습니다",
   vaultSyncAllowlistLoadFailed: ".obsidian 동기화 허용 목록을 불러오지 못했습니다",
+  vaultSyncAllowlistNotLoaded: "현재 허용 목록이 아직 로드되지 않았습니다. 다시 로드한 후 저장하세요",
+  vaultSyncAllowlistRetryButton: "다시 로드",
   vaultSyncAllowlistSaveFailed: ".obsidian 동기화 허용 목록을 저장하지 못했습니다",
   currentDeviceSuffix: " (현재)",
   syncStatusTitle: "PKV Sync 상태",
@@ -228,7 +230,9 @@ export const ko = {
   conflictAcceptedRemoteNotice: "원격 버전을 적용했습니다. 다음 동기화 때 push됩니다",
   markersStillPresent:
     "파일에 충돌 마커가 아직 남아 있습니다. 먼저 편집기에서 해결하세요.",
-  conflictResolveFailed: "충돌 해결 실패"
+  conflictResolveFailed: "충돌 해결 실패",
+  conflictReadFailed: "충돌 파일을 읽을 수 없습니다: {reason}",
+  conflictsListLoadFailed: "충돌 파일을 로드하지 못했습니다",
 } satisfies typeof en;
 
 export const koInReview = true;

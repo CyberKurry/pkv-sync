@@ -117,6 +117,8 @@ export const en = {
   vaultSyncAllowlistSaveButton: "Save",
   vaultSyncAllowlistSaved: "Saved .obsidian sync allowlist",
   vaultSyncAllowlistLoadFailed: "Failed to load .obsidian sync allowlist",
+  vaultSyncAllowlistNotLoaded: "Current allowlist not loaded yet — reload before saving",
+  vaultSyncAllowlistRetryButton: "Retry load",
   vaultSyncAllowlistSaveFailed: "Failed to save .obsidian sync allowlist",
   currentDeviceSuffix: " (current)",
   syncStatusTitle: "PKV Sync Status",
@@ -218,5 +220,7 @@ export const en = {
   conflictAcceptedRemoteNotice: "Accepted remote version, will push on next sync",
   markersStillPresent:
     "Conflict markers still present in file. Resolve them in your editor first.",
-  conflictResolveFailed: "Failed to resolve conflict"
+  conflictResolveFailed: "Failed to resolve conflict",
+  conflictReadFailed: "Could not read the conflict file: {reason}",
+  conflictsListLoadFailed: "Failed to load conflict files",
 };

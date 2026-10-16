@@ -48,6 +48,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
   private syncTimeExpanded = false;
   private conflictCount: number | null = null;
   private conflictCountAt = 0;
+  private allowlistLoadGeneration = 0;
 
   constructor(
     app: App,
@@ -492,6 +493,17 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     const t = this.plugin.text();
     const vaultId = this.plugin.settings.selectedVaultId;
     if (!vaultId) return;
+    // V4: track whether the CURRENT server value has arrived. Saves
+    // before that would PUT the empty textarea as a full replacement and
+    // wipe the allowlist. The generation counter also stops a late load
+    // from overwriting what the user typed meanwhile.
+    let allowlistLoaded = false;
+    let loadFailed = false;
+    // `?? 0` tolerates a missing instance field (prototype-only callers
+    // in tests); the guard compares numbers.
+    const previousGeneration = this.allowlistLoadGeneration ?? 0;
+    const loadGeneration = previousGeneration + 1;
+    this.allowlistLoadGeneration = loadGeneration;
 
     const section = body.createDiv({ cls: "pkv-sync-vault-settings" });
     section.createDiv({ cls: "pkv-sync-section-label", text: t.vaultSyncAllowlist });
@@ -516,32 +528,58 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         ).join("\n");
       }
     );
+    const saveHandler = async (): Promise<void> => {
+      // V4: a save before the current value finished loading (or after
+      // the load failed) would PUT the empty textarea as a full
+      // replacement and silently wipe the server-side allowlist.
+      if (!allowlistLoaded) {
+        if (loadFailed) {
+          // The load already failed: the button now reads "retry" — the
+          // constructive action is to reload the panel, not to save an
+          // unpopulated textarea.
+          this.refresh();
+          return;
+        }
+        new Notice(t.vaultSyncAllowlistNotLoaded);
+        return;
+      }
+      saveButton.disabled = true;
+      try {
+        await this.plugin.api().putVaultSettings(vaultId, {
+          extra_sync_globs: this.parseGlobTextarea(textarea.value)
+        });
+        new Notice(t.vaultSyncAllowlistSaved);
+      } catch (error) {
+        new Notice(`${t.vaultSyncAllowlistSaveFailed}: ${errorToMessage(error)}`);
+      } finally {
+        saveButton.disabled = false;
+      }
+    };
     const saveButton = this.renderButton(
       actions,
       t.vaultSyncAllowlistSaveButton,
       "primary",
-      async () => {
-        saveButton.disabled = true;
-        try {
-          await this.plugin.api().putVaultSettings(vaultId, {
-            extra_sync_globs: this.parseGlobTextarea(textarea.value)
-          });
-          new Notice(t.vaultSyncAllowlistSaved);
-        } catch (error) {
-          new Notice(`${t.vaultSyncAllowlistSaveFailed}: ${errorToMessage(error)}`);
-        } finally {
-          saveButton.disabled = false;
-        }
-      }
+      saveHandler
     );
+    // Disabled until the current value arrives (V4).
+    saveButton.disabled = true;
 
     try {
       const settings: VaultSettings = await this.plugin
         .api()
         .getVaultSettings(vaultId);
+      if (loadGeneration !== this.allowlistLoadGeneration) return;
       textarea.value = this.formatGlobTextarea(settings.extra_sync_globs);
+      allowlistLoaded = true;
+      saveButton.disabled = false;
     } catch (error) {
+      if (loadGeneration !== this.allowlistLoadGeneration) return;
       new Notice(`${t.vaultSyncAllowlistLoadFailed}: ${errorToMessage(error)}`);
+      // Failed load: the button becomes an explicit retry instead of a
+      // destructive save of an unpopulated textarea (V4).
+      loadFailed = true;
+      saveButton.disabled = false;
+      saveButton.setText(t.vaultSyncAllowlistRetryButton);
     }
   }
 
@@ -621,7 +659,18 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     const updateButton = this.renderButton(actions, t.updateNow, "primary", async () => {
       if (!this.plugin.availableUpdate) return;
       updateButton.disabled = true;
-      await this.plugin.applyPluginUpdate(this.plugin.availableUpdate);
+      try {
+        await this.plugin.applyPluginUpdate(this.plugin.availableUpdate);
+      } catch {
+        // applyPluginUpdate already surfaced the failure Notice and
+        // rethrows; swallowing here keeps the button state recoverable
+        // (V6) — the banner still shows the update, so retry must stay
+        // possible.
+      } finally {
+        // V6: reset from the CURRENT availability — a failed apply keeps
+        // the update available (retry), a successful one clears it.
+        updateButton.disabled = !this.plugin.availableUpdate;
+      }
       this.refresh();
     });
     updateButton.disabled = !this.plugin.availableUpdate;

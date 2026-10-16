@@ -299,7 +299,9 @@ describe("vault sync allowlist settings", () => {
         vaultSyncAllowlistSaveButton: "Save",
         vaultSyncAllowlistSaved: "Saved dotfile sync allowlist",
         vaultSyncAllowlistLoadFailed: "Failed to load dotfile sync allowlist",
-        vaultSyncAllowlistSaveFailed: "Failed to save dotfile sync allowlist"
+        vaultSyncAllowlistSaveFailed: "Failed to save dotfile sync allowlist",
+        vaultSyncAllowlistNotLoaded: "Current allowlist not loaded yet",
+        vaultSyncAllowlistRetryButton: "Retry load"
       })
     };
     const tab = Object.create(PKVSyncSettingTab.prototype) as {
@@ -361,7 +363,9 @@ describe("vault sync allowlist settings", () => {
       "vaultSyncAllowlistSaveButton",
       "vaultSyncAllowlistSaved",
       "vaultSyncAllowlistLoadFailed",
-      "vaultSyncAllowlistSaveFailed"
+      "vaultSyncAllowlistSaveFailed",
+      "vaultSyncAllowlistNotLoaded",
+      "vaultSyncAllowlistRetryButton"
     ] as const;
 
     for (const key of keys) {
@@ -371,6 +375,63 @@ describe("vault sync allowlist settings", () => {
       expect(zh[key].length).toBeGreaterThan(0);
     }
     expect(zh.vaultSyncAllowlistHint).toContain("。");
+  });
+
+  it("does not PUT an unloaded allowlist when the load fails (V4)", async () => {
+    // The save button is wired and clickable before the GET resolves;
+    // with the load failing, a save would PUT the empty textarea as a
+    // full replacement and silently wipe the server allowlist.
+    const { tab, putVaultSettings } = buildAllowlistTab();
+    tab.plugin.api = () => ({
+      getVaultSettings: vi.fn().mockRejectedValue(new Error("offline")),
+      putVaultSettings
+    }) as never;
+    const refresh = vi.fn();
+    Object.assign(tab, { refresh });
+    const body = new MockElement("div");
+    notices.length = 0;
+
+    await tab.renderVaultSyncAllowlist(body);
+
+    expect(notices.at(-1)).toContain("Failed to load dotfile sync allowlist");
+    // The button became an explicit retry; clicking it re-renders
+    // instead of saving the unpopulated textarea.
+    await body.clickButton("Retry load");
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(putVaultSettings).not.toHaveBeenCalled();
+  });
+
+  it("saves only after the current allowlist has loaded (V4)", async () => {
+    let releaseLoad!: (value: { extra_sync_globs: string[] }) => void;
+    const loadPromise = new Promise<{ extra_sync_globs: string[] }>(
+      (resolve) => {
+        releaseLoad = resolve;
+      }
+    );
+    const getVaultSettings = vi.fn().mockReturnValue(loadPromise);
+    const putVaultSettings = vi.fn().mockResolvedValue(undefined);
+    const { tab } = buildAllowlistTab();
+    tab.plugin.api = () => ({
+      getVaultSettings,
+      putVaultSettings
+    }) as never;
+    const body = new MockElement("div");
+    notices.length = 0;
+
+    const renderDone = tab.renderVaultSyncAllowlist(body);
+    // Save while the GET is still in flight: the empty textarea must
+    // not be PUT.
+    await body.clickButton("Save");
+    expect(putVaultSettings).not.toHaveBeenCalled();
+    expect(notices.at(-1)).toBe("Current allowlist not loaded yet");
+
+    releaseLoad({ extra_sync_globs: [".obsidian/themes/**"] });
+    await renderDone;
+
+    await body.clickButton("Save");
+    expect(putVaultSettings).toHaveBeenCalledWith("vault-1", {
+      extra_sync_globs: [".obsidian/themes/**"]
+    });
   });
   it("has localized first-run setup guidance in every plugin locale", () => {
     for (const bundle of [en, zh, zhHant, ja, ko]) {
@@ -422,6 +483,48 @@ describe("plugin updates settings", () => {
     await body.clickButton("Update now");
 
     expect(applyPluginUpdate).toHaveBeenCalledWith(plugin.availableUpdate);
+  });
+
+  it("re-enables the update button after a failed apply so retry stays possible (V6)", async () => {
+    const applyPluginUpdate = vi.fn().mockRejectedValue(new Error("sha256 mismatch"));
+    const plugin = {
+      manifest: { version: "0.8.0" },
+      settings: {
+        checkForUpdates: true,
+        updateSource: "server",
+        lastUpdateCheckAt: 1_000,
+        timezone: "Asia/Shanghai"
+      },
+      availableUpdate: {
+        version: "0.8.1",
+        releaseNotesUrl: "https://example.com/v0.8.1"
+      },
+      text: () => en,
+      saveSettings: vi.fn().mockResolvedValue(undefined),
+      scheduleUpdateChecks: vi.fn(),
+      checkForPluginUpdates: vi.fn().mockResolvedValue(null),
+      applyPluginUpdate
+    };
+    const tab = Object.create(PKVSyncSettingTab.prototype) as {
+      plugin: typeof plugin;
+      display: () => void;
+      renderUpdates: (body: MockElement) => void;
+      refresh(): void;
+    };
+    tab.plugin = plugin;
+    tab.display = vi.fn();
+    Object.assign(tab, { refresh: vi.fn() });
+    const body = new MockElement("div");
+
+    tab.renderUpdates(body);
+    const button = body.findButtonByText("Update now");
+    expect(button?.disabled).toBe(false);
+
+    // applyPluginUpdate rethrows; the handler must not leave the button
+    // disabled (the update is still available — retry must work).
+    await body.clickButton("Update now");
+
+    expect(button?.disabled).toBe(false);
   });
 
   it("has localized update strings in every plugin locale", () => {
@@ -941,6 +1044,10 @@ class MockElement {
       if (found) return found;
     }
     return undefined;
+  }
+
+  findButtonByText(text: string): MockElement | undefined {
+    return this.findButton(text);
   }
 
   private createChild(
