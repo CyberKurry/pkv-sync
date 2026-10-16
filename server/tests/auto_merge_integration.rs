@@ -1050,6 +1050,12 @@ async fn merge_blob_upsert_untouched_by_remote_outcome_clean() {
 
 #[tokio::test]
 async fn merge_blob_upsert_conflict_remote_modified_same_path() {
+    // S6 renamed the semantics: a blob pointer may no longer replace a
+    // configured text path (that flip silently dropped inline/merge/diff
+    // properties), so the old scenario — blob onto note.md, remote
+    // modified, conflict with a blob sidecar — is now rejected at the
+    // gate before any merge. Blob-vs-blob conflict machinery is covered
+    // by the blob-path merge tests; this test now pins the rejection.
     let (state, user, vault_id, _tmp) = setup().await;
     let base = sync::push(
         &state,
@@ -1091,7 +1097,7 @@ async fn merge_blob_upsert_conflict_remote_modified_same_path() {
         .await
         .unwrap();
 
-    let merged = sync::push(
+    let err = sync::push(
         &state,
         &user,
         &vault_id,
@@ -1108,38 +1114,15 @@ async fn merge_blob_upsert_conflict_remote_modified_same_path() {
         },
     )
     .await
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(merged.files_changed, 1);
-    let outcomes = merged
-        .merge_outcomes
-        .expect("merge_outcomes should be present");
-    assert_eq!(outcomes.len(), 1);
-    assert_eq!(outcomes[0].path, "note.md");
-    assert_eq!(outcomes[0].outcome, sync::MergeOutcomeKind::Conflict);
-    let conflict_path = outcomes[0]
-        .conflict_path
-        .as_ref()
-        .expect("conflict should have a conflict_path");
-    assert!(conflict_path.contains(".conflict-"));
-
+    assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(err.code, "wrong_file_kind");
+    // The text path keeps its remote content untouched.
     assert_eq!(
         read_text(&state, &vault_id, "note.md").await,
         "remote modified"
     );
-
-    let git = pkv_sync_server::storage::git::Git2VaultStore::new(state.default_vault_root());
-    let conflict_file = git
-        .read_file(&vault_id, conflict_path, None)
-        .await
-        .unwrap()
-        .expect("conflict sidecar should exist");
-    match conflict_file {
-        pkv_sync_server::storage::git::StoredFile::BlobPointer { hash, .. } => {
-            assert_eq!(hash, blob_hash);
-        }
-        other => panic!("expected blob pointer in conflict sidecar, got {other:?}"),
-    }
 }
 
 #[tokio::test]
