@@ -12,8 +12,11 @@ import { en } from "../src/i18n/en";
 interface CapturedOptions {
   onStart(
     vaultName: string,
-    onProgress: (p: unknown) => void
+    onProgress: (p: unknown) => void,
+    isCancelled?: () => boolean
   ): Promise<unknown>;
+  /** modal closes mid-migration (V5 simulation) */
+  simulateClose?(): void;
 }
 
 const captured: CapturedOptions[] = [];
@@ -30,7 +33,6 @@ vi.mock("../src/ui/migrate-modal", () => ({
     open(): void {}
   }
 }));
-
 vi.mock("../src/sync/migrate-from-obsidian-sync", () => ({
   scanVaultForMigration: () => ({
     files: [],
@@ -132,5 +134,31 @@ describe("PKVSyncPlugin migration failure (V3)", () => {
     await captured[0].onStart("Migrated vault", () => undefined);
 
     expect(calls).toEqual(["invalidate", "saveSettings", "saveSyncIndex", "rebuild"]);
+  });
+
+  it("does not switch vaults when the migration was cancelled mid-run (V5)", async () => {
+    vi.mocked(migrateToPkv).mockResolvedValue({
+      vaultId: "v1",
+      vaultName: "Migrated",
+      scannedFiles: 3,
+      pushedFiles: 3,
+      skippedCount: 0,
+      totalBytes: 100,
+      batches: 1,
+      lastCommit: "c1",
+      index: { lastSyncedCommit: "c1", files: {} }
+    });
+    const { plugin, calls } = makePlugin();
+    plugin.text = () => en as unknown as Record<string, string>;
+
+    await plugin.openMigrationModal();
+    // The user closes the modal while the migration is still running;
+    // the onStart callback observes isCancelled() === true afterwards.
+    await captured[0].onStart("Migrated vault", () => undefined, () => true);
+
+    // No vault switch, no index save, no success notice — the engine is
+    // still rebuilt so the session stays functional.
+    expect(calls).toEqual(["invalidate", "rebuild"]);
+    expect(plugin.settings.selectedVaultId).toBeUndefined();
   });
 });

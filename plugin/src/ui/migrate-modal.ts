@@ -15,16 +15,23 @@ export interface MigrateModalOptions {
   initialVaultName: string;
   onStart(
     vaultName: string,
-    onProgress: (progress: MigrationProgress) => void
+    onProgress: (progress: MigrationProgress) => void,
+    isCancelled?: () => boolean
   ): Promise<MigrationResult>;
 }
 
 export class MigrateModal extends Modal {
   private vaultNameInput: HTMLInputElement | null = null;
   private startButton: HTMLButtonElement | null = null;
+  private cancelButton: HTMLButtonElement | null = null;
   private statusEl: HTMLElement | null = null;
   private progressEl: HTMLElement | null = null;
   private running = false;
+  /** V5: closing the modal mid-migration cancels the post-migration
+   * steps. The upload batches themselves are not abortable, but the
+   * vault switch, index save, and "migrated" notice must not fire for a
+   * migration the user walked away from. */
+  private cancelled = false;
 
   constructor(
     app: App,
@@ -39,6 +46,10 @@ export class MigrateModal extends Modal {
   }
 
   onClose(): void {
+    // V5: a close during a running migration marks it cancelled so the
+    // completion path no-ops instead of switching the vault behind the
+    // user's back.
+    if (this.running) this.cancelled = true;
     this.contentEl.empty();
   }
 
@@ -101,14 +112,26 @@ export class MigrateModal extends Modal {
       return;
     }
     this.running = true;
+    this.cancelled = false;
     this.updateStartState();
     try {
-      const result = await this.options.onStart(vaultName, (progress) =>
-        this.renderProgress(progress)
+      const result = await this.options.onStart(
+        vaultName,
+        (progress) => this.renderProgress(progress),
+        // V5: lets onStart skip its post-migration steps (vault switch,
+        // index save, "migrated" notice) when the user closes the modal
+        // while batches are still uploading.
+        () => this.cancelled
       );
+      if (this.cancelled) {
+        // V5: the user closed the modal mid-migration. The uploads may
+        // have completed on the server, but this device must not switch
+        // vaults or claim success for a walk-away.
+        return;
+      }
       this.renderComplete(result);
     } catch (error) {
-      this.renderFailure(error);
+      if (!this.cancelled) this.renderFailure(error);
     } finally {
       this.running = false;
       this.updateStartState();

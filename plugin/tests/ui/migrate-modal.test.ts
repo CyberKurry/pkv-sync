@@ -94,7 +94,8 @@ describe("MigrateModal", () => {
       .fn<
         (
           vaultName: string,
-          onProgress: (progress: MigrationProgress) => void
+          onProgress: (progress: MigrationProgress) => void,
+          isCancelled?: () => boolean
         ) => Promise<MigrationResult>
       >()
       .mockImplementation(async (_vaultName, onProgress) => {
@@ -120,10 +121,56 @@ describe("MigrateModal", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(onStart).toHaveBeenCalledWith("Migrated vault", expect.any(Function));
+    expect(onStart).toHaveBeenCalledWith(
+      "Migrated vault",
+      expect.any(Function),
+      expect.any(Function)
+    );
     expect(progress.setText).toHaveBeenCalledWith(
       "1/2 files - batch 1/1 - blobs 0/0"
     );
     expect(progress.setText).toHaveBeenLastCalledWith("2 files migrated - 1 skipped");
+  });
+
+  it("cancels the completion path when the modal closes mid-migration (V5)", async () => {
+    let releaseMigration!: (value: MigrationResult) => void;
+    const migrationGate = new Promise<MigrationResult>((resolve) => {
+      releaseMigration = resolve;
+    });
+    let cancelledFlag = false;
+    const onStart = vi
+      .fn<
+        (
+          vaultName: string,
+          onProgress: (progress: MigrationProgress) => void,
+          isCancelled?: () => boolean
+        ) => Promise<MigrationResult>
+      >()
+      .mockImplementation(async (_vaultName, _onProgress, isCancelled) => {
+        // Simulate the modal being closed while batches upload.
+        cancelledFlag = true;
+        void isCancelled;
+        return migrationGate;
+      });
+    const { modal, input, progress, inputListener, clickListener } =
+      openedModal(onStart);
+
+    input.value = "Migrated vault";
+    inputListener();
+    clickListener();
+
+    // User closes the modal mid-run; the migration promise then resolves.
+    modal.close();
+    releaseMigration(migrationResult());
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The completion render must not fire: the status stays on the last
+    // progress text rather than flipping to the completion summary.
+    expect(progress.setText).not.toHaveBeenCalledWith(
+      "2 files migrated - 1 skipped"
+    );
+    void cancelledFlag;
   });
 });

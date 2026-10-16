@@ -474,25 +474,33 @@ export default class PKVSyncPlugin extends Plugin {
   private openConflictResolutionFor(file: TFile): void {
     const pairsProvider = (): Promise<ConflictPair[]> =>
       findConflictPairsForPathWithKinds(this.app.vault, file.path);
-    void pairsProvider().then((pairs) => {
-      if (pairs.length === 0) {
-        new Notice(this.text().conflictsListEmpty);
-        return;
-      }
-      if (pairs.length === 1) {
-        const pair = pairs[0];
-        new ConflictResolveModal(
-          this.app,
-          pair,
-          this.text(),
-          () => {
-            this.pushDebouncer?.trigger();
-          }
-        ).open();
-        return;
-      }
-      this.openConflictsList(pairsProvider);
-    });
+    void pairsProvider()
+      .then((pairs) => {
+        if (pairs.length === 0) {
+          new Notice(this.text().conflictsListEmpty);
+          return;
+        }
+        if (pairs.length === 1) {
+          const pair = pairs[0];
+          new ConflictResolveModal(
+            this.app,
+            pair,
+            this.text(),
+            () => {
+              this.pushDebouncer?.trigger();
+            }
+          ).open();
+          return;
+        }
+        this.openConflictsList(pairsProvider);
+      })
+      .catch((error: unknown) => {
+        // V7: a sidecar vanishing between listing and reading rejected
+        // the whole read — the menu item silently did nothing.
+        new Notice(
+          `${this.text().conflictsListLoadFailed}: ${errorToMessage(error)}`
+        );
+      });
   }
 
   historyEnabled(): boolean {
@@ -806,7 +814,7 @@ export default class PKVSyncPlugin extends Plugin {
         detection,
         scan,
         initialVaultName,
-        onStart: async (vaultName, onProgress) => {
+        onStart: async (vaultName, onProgress, isCancelled) => {
           this.invalidateSyncEngine();
           const syncApi = new SyncApi(this.api());
           const api: MigrationApi = {
@@ -835,6 +843,14 @@ export default class PKVSyncPlugin extends Plugin {
             // status bar that still says "connected".
             this.rebuildSyncEngine();
             throw error;
+          }
+          if (isCancelled?.()) {
+            // V5: the user closed the migration modal while uploads were
+            // still running. The server-side vault may exist, but this
+            // device must not switch to it, save its index, or report
+            // success — the user cancelled.
+            this.rebuildSyncEngine();
+            return result;
           }
           this.settings.selectedVaultId = result.vaultId;
           this.settings.selectedVaultName = result.vaultName;
