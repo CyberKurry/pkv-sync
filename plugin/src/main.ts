@@ -22,6 +22,7 @@ import {
   DEFAULT_SETTINGS,
   historyUiAvailable,
   normalizeDebounceMs,
+  normalizeTextExtensions,
   type PKVSyncSettings,
   isLoggedIn
 } from "./settings";
@@ -390,8 +391,24 @@ export default class PKVSyncPlugin extends Plugin {
         cfg.push_debounce_ms,
         this.settings.debounceMs
       );
-      if (debounceMs !== this.settings.debounceMs) {
-        await this.saveSettingsPatch({ debounceMs }, { rebuild: true });
+      // S6: mirror the server's text-extension set on every config
+      // fetch. A stale local set makes the client push text files to
+      // paths the server has since reconfigured (or vice versa), and the
+      // resulting wrong_file_kind 400 wedges the whole batch — every
+      // sync pass re-sends the same rejected change forever.
+      const serverExtensions = normalizeTextExtensions(
+        cfg.supported_text_extensions
+      );
+      const extensionsChanged =
+        JSON.stringify(serverExtensions) !==
+        JSON.stringify(this.settings.textExtensions);
+      if (debounceMs !== this.settings.debounceMs || extensionsChanged) {
+        const patch: Partial<PKVSyncSettings> = { debounceMs };
+        if (extensionsChanged) {
+          this.settings.textExtensions = serverExtensions;
+          patch.textExtensions = serverExtensions;
+        }
+        await this.saveSettingsPatch(patch, { rebuild: true });
       }
     } catch {
       this.serverCapabilities = null;

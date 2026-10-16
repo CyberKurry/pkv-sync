@@ -381,6 +381,86 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn push_accepts_text_content_on_any_extension() {
+        // S6: the text gate was one-way — "text must target a configured
+        // text extension" rejected `data.csv`, `script.sh`, `README`,
+        // `Makefile` — paths a user legitimately edits as text, and which
+        // the plugin accepts as blob uploads only by accident of its own
+        // stale extension list. Valid UTF-8 content IS text; the content
+        // proves the kind, the extension cannot.
+        let (state, user, vid, _tmp) = setup().await;
+        let mut head: Option<String> = None;
+        for path in ["data.csv", "script.sh", "README", "Makefile"] {
+            let resp = push(
+                &state,
+                &user,
+                &vid,
+                head.as_deref(),
+                None,
+                PushReq {
+                    device_name: Some("test".into()),
+                    changes: vec![PushChange::Text {
+                        path: path.into(),
+                        content: "plain text content".into(),
+                    }],
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("push of {path} must succeed: {e:?}"));
+            assert_eq!(resp.files_changed, 1);
+            head = Some(resp.new_commit);
+        }
+        let pulled = pull(&state, &user.user_id, &vid, None).await.unwrap();
+        // Stored as text (inline-able), not as blob pointers.
+        assert!(pulled.added.iter().any(|f| f.path == "README"
+            && f.file_type == "text"
+            && f.content_inline.as_deref() == Some("plain text content")));
+    }
+
+    #[tokio::test]
+    async fn push_rejects_blob_pointer_over_configured_text_path() {
+        // S6 symmetric half: a blob upload must not flip a configured
+        // text path to binary pointer storage — text files (inline-able,
+        // mergeable, diffable) would silently lose those properties.
+        use crate::db::repos::BlobUploadRepo;
+        use crate::storage::blob::BlobStore;
+        let (state, user, vid, _tmp) = setup().await;
+        use crate::storage::blob::LocalFsBlobStore;
+        use bytes::Bytes;
+        let blob_store = LocalFsBlobStore::new(state.default_vault_root().join("blobs"));
+        let bytes = Bytes::from(vec![0x89, 0x50, 0x4e, 0x47]);
+        let hash = LocalFsBlobStore::sha256(&bytes);
+        blob_store.put_verified(&hash, bytes.clone()).await.unwrap();
+        state
+            .blob_uploads
+            .record_upload(&vid, &hash, chrono::Utc::now().timestamp())
+            .await
+            .unwrap();
+
+        let err = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("test".into()),
+                changes: vec![PushChange::Blob {
+                    path: "note.md".into(),
+                    blob_hash: hash,
+                    size: bytes.len() as u64,
+                    mime: Some("image/png".into()),
+                }],
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(err.code, "wrong_file_kind");
+    }
+
+    #[tokio::test]
     async fn push_rejects_double_percent_encoded_traversal_paths() {
         // `%252E%252E/foo.md` used to pass push validation (one decode
         // yields the harmless literal `%2E%2E`), but the stored path then

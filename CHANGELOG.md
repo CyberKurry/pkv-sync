@@ -9,6 +9,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The push file-kind gate was one-way: text content targeting a path
+  outside the server's configured text extensions (`data.csv`, `script.sh`,
+  `README`, `Makefile`) was rejected with `wrong_file_kind`, while blob
+  uploads silently flipped configured text paths to binary pointer storage.
+  Text content now proves its own kind (valid UTF-8) and is accepted on any
+  path; a blob upload targeting a configured text path is rejected instead.
+  The plugin also mirrors `supported_text_extensions` from the server on
+  every config fetch, so a server-side extension change no longer leaves
+  stale clients re-sending a rejected batch forever.
 - Pushing a path whose name case-folds onto a different existing entry in
   the same directory (for example `todo.md` against an existing `Todo.md`)
   was accepted by the case-sensitive git store but collapses onto one file

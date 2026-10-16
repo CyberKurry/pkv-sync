@@ -1452,11 +1452,13 @@ async fn write_files_oversized_file_reports_public_max_file_size_error() {
 }
 
 #[tokio::test]
-async fn write_files_wrong_file_kind_reports_public_error() {
-    // M-5: push-side forwarded codes reachable through the MCP write tools
-    // must stay public. A binary extension sent as text content reaches
-    // push's `wrong_file_kind` rejection via api_error_to_anyhow's
-    // "{code}: {message}" forwarding.
+async fn write_files_text_on_binary_extension_is_accepted() {
+    // S6 removed the text-side extension gate: text content proves its
+    // own kind, so an MCP agent can write `image.png`-style paths as
+    // text if it really wants to. The previous M-5 test pinned the
+    // removed rejection; this pins the new acceptance (the public-error
+    // contract for the remaining wrong_file_kind — the blob half — is
+    // covered by the REST push tests).
     let (state, _tmp) = test_state().await;
     let (user, raw) = create_user_with_token(&state, "mcp-write-files-kind").await;
     let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
@@ -1470,19 +1472,29 @@ async fn write_files_wrong_file_kind_reports_public_error() {
             "vault_id": vault.id,
             "parent_commit": head,
             "writes": [
-                { "path": "image.png", "content": "not really a png" }
+                { "path": "data.csv", "content": "a,b\n1,2\n" }
             ]
         }),
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    let message = body["error"]["message"].as_str().unwrap();
-    assert!(
-        message.contains("wrong_file_kind"),
-        "must surface the push-side wrong_file_kind code, got: {message}"
+    assert_eq!(body["error"], serde_json::json!(null), "got: {body}");
+    let commit = structured(&body)["commit"].as_str().unwrap().to_string();
+    // Read via the store: read_file's own view classifies non-default
+    // extensions as binary (base64) — that is the reader's presentation,
+    // not the storage kind, which is what S6 changed.
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let file = git
+        .read_file(&vault.id, "data.csv", Some(&commit))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        file,
+        StoredFile::Text {
+            bytes: b"a,b\n1,2\n".to_vec()
+        }
     );
-    assert_ne!(message, "internal server error");
 }
 
 #[tokio::test]

@@ -356,12 +356,10 @@ async fn push_with_request_metadata_internal(
                         ),
                     ));
                 }
-                if !classifier.is_text_path(&p) {
-                    return Err(ApiError::bad_request(
-                        "wrong_file_kind",
-                        "non-text path sent as text",
-                    ));
-                }
+                // S6: no extension gate on text pushes — the content is a
+                // UTF-8 string, which IS the proof of kind; the extension
+                // list only decides which paths the CLIENT offers as text,
+                // and stale lists must not wedge the whole batch on 400.
                 event_changes.push(text_event_with_budget(&p, &content, &mut inline_budget));
                 git_changes.push(FileChange::Upsert {
                     path: p,
@@ -387,6 +385,15 @@ async fn push_with_request_metadata_internal(
                             "file exceeds max_file_size of {} bytes",
                             runtime_cfg.max_file_size
                         ),
+                    ));
+                }
+                // S6 (symmetric half): a blob pointer must not replace a
+                // configured text path — that would flip a text file to
+                // binary storage against the server's own configuration.
+                if classifier.is_text_path(&p) {
+                    return Err(ApiError::bad_request(
+                        "wrong_file_kind",
+                        "configured text path sent as blob",
                     ));
                 }
                 if !crate::storage::blob::is_sha256_hex(&blob_hash) {

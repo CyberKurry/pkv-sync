@@ -49,12 +49,7 @@ pub(super) async fn try_auto_merge_push(
                         ),
                     ));
                 }
-                if !input.classifier.is_text_path(&normalized) {
-                    return Err(ApiError::bad_request(
-                        "wrong_file_kind",
-                        "non-text path sent as text",
-                    ));
-                }
+                // S6: no extension gate on text pushes (see push.rs).
 
                 let base_text =
                     read_merge_text(&git, input.vault_id, &normalized, input.base_commit).await?;
@@ -251,6 +246,14 @@ pub(super) async fn try_auto_merge_push(
                             "file exceeds max_file_size of {} bytes",
                             input.runtime_cfg.max_file_size
                         ),
+                    ));
+                }
+                // S6 (symmetric half): see push.rs — a blob pointer must
+                // not replace a configured text path.
+                if input.classifier.is_text_path(&normalized) {
+                    return Err(ApiError::bad_request(
+                        "wrong_file_kind",
+                        "configured text path sent as blob",
                     ));
                 }
                 if !crate::storage::blob::is_sha256_hex(&blob_hash) {
