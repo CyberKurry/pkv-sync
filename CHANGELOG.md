@@ -7,6 +7,20 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- MCP `delete_file` with `dry_run` reported the change as an `upsert`. The
+  dry-run answer for single-change tools was built separately from the batch
+  path and hardcoded the change kind, so an agent asking "what would this
+  delete do" was told "it would write the file" — the preview lied about the
+  one thing it exists to preview. Both paths now derive the report from the
+  same `PushChange` mapping, so the divergence is structurally impossible.
+- MCP `search` silently returned an empty result when a `frontmatter` filter
+  used an unsupported value (`false`, a number, `null`, an array, an
+  object): every file was dropped with no error, which reads as "no page
+  matches". The filter is now validated before scanning and rejects those
+  values with `invalid_path`, naming the key and the value.
+
 ## [1.7.0] - 2026-10-15
 
 ### Added

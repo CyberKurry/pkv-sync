@@ -704,6 +704,19 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
             // keep counting against the content budget (otherwise the
             // filter becomes a way to enumerate a large vault for free).
             if let Some(wanted) = &input.frontmatter {
+                // Validate the filter once, before scanning (R4-3): an
+                // unsupported value used to silently drop every file, so
+                // `{"draft": false}` read as "no page matches" instead of
+                // "that comparison does not exist". Rejecting it up front
+                // also stops the scan from spending the content budget on a
+                // filter that can never match.
+                for (key, value) in wanted {
+                    if !matches!(value, Value::Bool(true) | Value::String(_)) {
+                        bail!(
+                            "invalid_path: frontmatter filter for '{key}' must be true or a string, got {value}"
+                        );
+                    }
+                }
                 let parsed = super::frontmatter::Frontmatter::parse(&text);
                 let keep = wanted.iter().all(|(key, value)| match parsed.as_ref() {
                     None => false,
@@ -1586,31 +1599,7 @@ pub async fn write_files(
         changes.push(PushChange::Delete { path });
     }
 
-    let would_write = changes
-        .iter()
-        .map(|change| match change {
-            PushChange::Text { path, content } => WouldWrite {
-                path: path.clone(),
-                change: "upsert",
-                old_path: None,
-                size_bytes: content.len(),
-            },
-            PushChange::Delete { path } => WouldWrite {
-                path: path.clone(),
-                change: "delete",
-                old_path: None,
-                size_bytes: 0,
-            },
-            // The MCP batch builder only produces text and delete changes;
-            // blob writes arrive through the sync API, not this tool.
-            PushChange::Blob { path, .. } => WouldWrite {
-                path: path.clone(),
-                change: "upsert",
-                old_path: None,
-                size_bytes: 0,
-            },
-        })
-        .collect();
+    let would_write = would_write_from_changes(&changes);
     apply_write_batch(
         state,
         user,
@@ -1807,7 +1796,7 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
                     "at": { "type": ["string", "null"] },
                     "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": SEARCH_MAX_LIMIT },
                     "path_prefix": { "type": ["string", "null"], "description": "Restrict the scan to one subtree; applied before any file is read and before the tree-size gate counts." },
-                    "frontmatter": { "type": ["object", "null"], "description": "Top-level frontmatter constraints. A string value must equal the trimmed whole scalar; true requires the key to exist (scalars and lists both count). Files dropped by this filter still count against the content budget. An empty query returns no matches even with filters." },
+                    "frontmatter": { "type": ["object", "null"], "description": "Top-level frontmatter constraints. A string value must equal the trimmed whole scalar; true requires the key to exist (scalars and lists both count). Any other value (false, numbers, arrays, objects) is rejected as invalid_path before scanning. Files dropped by this filter still count against the content budget. An empty query returns no matches even with filters." },
                     "after": { "type": ["string", "null"], "description": "Opaque pagination cursor: pass the previous response's `next_after` back verbatim. It encodes the (path, line) resume point, so pages neither skip nor duplicate matches, and `limit` stays a hard cap. Best-effort snapshot; pin 'at' for a stable walk." }
                 },
                 "additionalProperties": false
@@ -1953,35 +1942,17 @@ async fn apply_write_tool(
     user: &AuthenticatedUser,
     input: WriteToolRequest,
 ) -> Result<WriteToolOutput> {
-    if input.dry_run {
-        // Dry runs validate the same preconditions the real call would, but
-        // take no write quota, record no activity and commit nothing.
-        if let Some(conflict) = ensure_write_ready_without_rate_limit(
-            state,
-            user,
-            &input.vault_id,
-            &input.parent_commit,
-        )
-        .await?
-        {
-            return Ok(conflict);
-        }
-        let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
-        verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
-        return Ok(dry_run_output(
-            &input.parent_commit,
-            vec![WouldWrite {
-                path: input.activity_path.clone(),
-                change: "upsert",
-                old_path: None,
-                size_bytes: input.activity_size_bytes,
-            }],
-        ));
-    }
-    // The guard runs in the batch path, after the CAS preflight: an
-    // out-of-date parent_commit must keep winning as a Conflict (the client
-    // has to re-read anyway), and only then does a stale file reject as
-    // content_diverged.
+    // Single-change tools delegate to the batch path entirely, dry run
+    // included (R4-1/R4-2): this wrapper used to build its own dry-run
+    // answer with a hardcoded `change: "upsert"`, which reported a delete as
+    // an upsert, and duplicated the batch's guard sequence. Deriving the
+    // report from the same `PushChange` mapping the batch uses makes that
+    // class of divergence structurally impossible. The hash guard still runs
+    // in the batch path, after the CAS preflight: an out-of-date
+    // `parent_commit` must keep winning as a Conflict (the client has to
+    // re-read anyway), and only then does a stale file reject as
+    // `content_diverged`.
+    let changes = vec![input.change];
     apply_write_batch(
         state,
         user,
@@ -1992,10 +1963,10 @@ async fn apply_write_tool(
             activity_tool: input.activity_tool,
             activity_path: input.activity_path,
             activity_size_bytes: input.activity_size_bytes,
-            changes: vec![input.change],
-            dry_run: false,
+            would_write: would_write_from_changes(&changes),
+            changes,
+            dry_run: input.dry_run,
             expected_hashes: input.expected_hashes,
-            would_write: Vec::new(),
         },
     )
     .await
@@ -2032,6 +2003,37 @@ async fn apply_write_batch(
     let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
     verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
     apply_preflighted_write_batch(state, user, input).await
+}
+
+/// The one place that turns a `PushChange` into the dry-run report line.
+/// Single-change and batch tools both go through it, so a delete can never be
+/// reported as an upsert by a second, divergent mapping (R4-1/R4-2).
+fn would_write_from_changes(changes: &[PushChange]) -> Vec<WouldWrite> {
+    changes
+        .iter()
+        .map(|change| match change {
+            PushChange::Text { path, content } => WouldWrite {
+                path: path.clone(),
+                change: "upsert",
+                old_path: None,
+                size_bytes: content.len(),
+            },
+            PushChange::Delete { path } => WouldWrite {
+                path: path.clone(),
+                change: "delete",
+                old_path: None,
+                size_bytes: 0,
+            },
+            // The MCP batch builder only produces text and delete changes;
+            // blob writes arrive through the sync API, not this tool.
+            PushChange::Blob { path, .. } => WouldWrite {
+                path: path.clone(),
+                change: "upsert",
+                old_path: None,
+                size_bytes: 0,
+            },
+        })
+        .collect()
 }
 
 fn dry_run_output(parent_commit: &str, would_write: Vec<WouldWrite>) -> WriteToolOutput {
@@ -2958,6 +2960,48 @@ mod tests {
         assert!(out.matches.is_empty());
     }
 
+    /// R4-3: an unsupported filter value must be refused, not silently
+    /// matched against nothing. `{"draft": false}` used to return an empty
+    /// result set, which reads as "no page is a draft" — a wrong answer with
+    /// no error attached.
+    #[tokio::test]
+    async fn search_rejects_unsupported_frontmatter_filter_values() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[("a.md", "---\nkind: wiki\n---\nneedle")],
+        )
+        .await;
+        for bad in [
+            serde_json::json!(false),
+            serde_json::json!(1),
+            serde_json::json!(null),
+        ] {
+            let mut wanted = std::collections::HashMap::new();
+            wanted.insert("kind".to_string(), bad.clone());
+            let err = search(
+                &state,
+                &user_id,
+                SearchInput {
+                    vault_id: vault_id.clone(),
+                    query: "needle".into(),
+                    at: None,
+                    limit: None,
+                    path_prefix: None,
+                    frontmatter: Some(wanted),
+                    after: None,
+                },
+            )
+            .await
+            .unwrap_err();
+            assert!(
+                err.to_string().contains("must be true or a string"),
+                "value {bad} must be rejected up front, got: {err}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn search_empty_query_with_frontmatter_returns_empty() {
         let (state, user_id, vault_id, _tmp) = state_user_vault().await;
@@ -3334,6 +3378,55 @@ mod tests {
                 "row for {tool} must name it: {details}"
             );
         }
+    }
+
+    /// R4-1: a dry-run delete must report `change: "delete"`. The bug was
+    /// that the single-change wrapper hardcoded `"upsert"` in its dry-run
+    /// answer, so an agent asking "what would this do" about a delete was
+    /// told "it would write the file" — the plan lied about the very thing
+    /// the feature exists to preview.
+    #[tokio::test]
+    async fn delete_file_dry_run_reports_a_delete() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vault_id, &[("doomed.md", "bye")]).await;
+        let auth = authenticated_user(&state, &user_id).await;
+
+        let out = delete_file(
+            &state,
+            &auth,
+            DeleteFileInput {
+                vault_id: vault_id.clone(),
+                path: "doomed.md".into(),
+                parent_commit: head.clone(),
+                dry_run: Some(true),
+                expected_hashes: None,
+            },
+        )
+        .await
+        .unwrap();
+        match out {
+            WriteToolOutput::DryRun { would_write, .. } => {
+                assert_eq!(would_write.len(), 1, "one change: {would_write:?}");
+                assert_eq!(
+                    would_write[0].change, "delete",
+                    "a dry-run delete must not be reported as an upsert (R4-1)"
+                );
+                assert_eq!(would_write[0].path, "doomed.md");
+            }
+            other => panic!("expected a dry run, got: {other:?}"),
+        }
+
+        // And nothing landed.
+        let git = Git2VaultStore::new(state.default_vault_root());
+        assert_eq!(
+            git.head(&vault_id).await.unwrap().as_deref(),
+            Some(head.as_str())
+        );
+        assert!(git
+            .read_file(&vault_id, "doomed.md", None)
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
