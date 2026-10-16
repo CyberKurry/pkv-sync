@@ -895,6 +895,60 @@ fn write_tree_contents(
         return Ok(base_tree.map(|tree| tree.id()));
     }
 
+    // Case-folding guard (S5): git trees are case-sensitive, but clients
+    // on macOS/Windows fold case, so "Todo.md" and "todo.md" in one
+    // directory materialize as the SAME file locally while the index
+    // records both spellings — one of them then reads as "deleted" and
+    // the re-sent delete destroys the other device's file. Reject any
+    // write that would place two case-folded-equal names in one
+    // directory: the incoming edit against the surviving base entries,
+    // and edits against each other. Deletes are exempt (they can only
+    // remove the hazard).
+    let mut folded_edits: std::collections::HashMap<String, &str> =
+        std::collections::HashMap::with_capacity(edits.len());
+    for name in edits.keys() {
+        let key = name.to_lowercase();
+        match folded_edits.get(key.as_str()) {
+            Some(existing) if existing != name => {
+                return Err(GitStoreError::PathConflict(format!(
+                    "{prefix}{name} case-conflicts with {prefix}{existing}"
+                )));
+            }
+            _ => {
+                folded_edits.insert(key, name);
+            }
+        }
+    }
+    if let Some(tree) = base_tree {
+        for entry in tree.iter() {
+            let Some(base_name) = entry.name() else {
+                continue;
+            };
+            let Some(new_name) = folded_edits.get(&base_name.to_lowercase()) else {
+                continue;
+            };
+            if *new_name != base_name {
+                let op_upserts = edits
+                    .get(*new_name)
+                    .map(|edit| matches!(edit.op, Some(EditOp::Upsert(_))))
+                    .unwrap_or(false)
+                    || !edits
+                        .get(*new_name)
+                        .map(|edit| edit.children.is_empty())
+                        .unwrap_or(true);
+                let op_deletes = edits
+                    .get(*new_name)
+                    .map(|edit| matches!(edit.op, Some(EditOp::Delete)) && edit.children.is_empty())
+                    .unwrap_or(false);
+                if op_upserts && !op_deletes {
+                    return Err(GitStoreError::PathConflict(format!(
+                        "{prefix}{new_name} case-conflicts with existing {prefix}{base_name}"
+                    )));
+                }
+            }
+        }
+    }
+
     let mut builder = repo.treebuilder(base_tree)?;
     for (name, edit) in edits {
         apply_tree_child(repo, &mut builder, name, edit, prefix)?;
@@ -2464,6 +2518,163 @@ mod tests {
             .unwrap();
         let map = store.list_tree_map("v1", Some(&c)).await.unwrap();
         assert!(map.contains_key("a.md"));
+    }
+
+    #[tokio::test]
+    async fn upsert_rejects_case_fold_conflict_with_existing_entry() {
+        // S5: "Todo.md" exists; pushing "todo.md" would place two
+        // case-folded-equal names in one directory. On case-insensitive
+        // clients both spellings collapse onto one file while the index
+        // tracks both — the phantom one reads as deleted and the re-sent
+        // delete destroys the other device's file vault-wide.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "Todo.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"a".to_vec(),
+                    },
+                }],
+                "c",
+            )
+            .await
+            .unwrap();
+
+        let result = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "todo.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"b".to_vec(),
+                    },
+                }],
+                "case conflict",
+            )
+            .await;
+
+        assert!(matches!(result, Err(GitStoreError::PathConflict(_))));
+    }
+
+    #[tokio::test]
+    async fn upsert_rejects_case_fold_conflict_within_one_batch() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+
+        let result = store
+            .commit_changes(
+                "v1",
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "Readme.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"a".to_vec(),
+                        },
+                    },
+                    FileChange::Upsert {
+                        path: "README.md".into(),
+                        file: StoredFile::Text {
+                            bytes: b"b".to_vec(),
+                        },
+                    },
+                ],
+                "batch case conflict",
+            )
+            .await;
+
+        assert!(matches!(result, Err(GitStoreError::PathConflict(_))));
+    }
+
+    #[tokio::test]
+    async fn delete_still_allowed_for_case_folded_variant() {
+        // The guard must not block the REMEDY: deleting one side of an
+        // existing case conflict is how a client resolves it, and such
+        // trees exist from before the guard. Deletes cannot add a
+        // hazard. The conflicting pair is seeded with a raw git2 commit
+        // because the guarded API now refuses to create it.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        store.ensure_repo("v1").await.unwrap();
+        let repo_path = store.repo_path("v1").unwrap();
+        let base = {
+            let repo = Repository::open_bare(&repo_path).unwrap();
+            let blob_a = repo.blob(b"a").unwrap();
+            let blob_b = repo.blob(b"legacy").unwrap();
+            let mut builder = repo.treebuilder(None).unwrap();
+            builder.insert("Todo.md", blob_a, BLOB_FILEMODE).unwrap();
+            builder.insert("todo.md", blob_b, BLOB_FILEMODE).unwrap();
+            let tree_oid = builder.write().unwrap();
+            let tree = repo.find_tree(tree_oid).unwrap();
+            let s = repo.signature().unwrap();
+            let oid = repo
+                .commit(Some(MAIN_REF), &s, &s, "seed", &tree, &[])
+                .unwrap();
+            oid.to_string()
+        };
+
+        let result = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Delete {
+                    path: "todo.md".into(),
+                }],
+                "delete one side",
+            )
+            .await;
+
+        assert!(result.is_ok());
+        let map = store
+            .list_tree_map("v1", result.ok().as_deref())
+            .await
+            .unwrap();
+        assert!(map.contains_key("Todo.md"));
+        assert!(!map.contains_key("todo.md"));
+    }
+
+    #[tokio::test]
+    async fn case_identical_upsert_is_not_a_conflict() {
+        // Re-upserting the exact same spelling (or a same-name blob
+        // refresh) must keep working — the guard only fires on a FOLD
+        // collision between distinct spellings.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "Todo.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"a".to_vec(),
+                    },
+                }],
+                "c",
+            )
+            .await
+            .unwrap();
+
+        let result = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "Todo.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"updated".to_vec(),
+                    },
+                }],
+                "same spelling",
+            )
+            .await;
+
+        assert!(result.is_ok());
     }
 
     #[test]

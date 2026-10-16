@@ -9,6 +9,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Pushing a path whose name case-folds onto a different existing entry in
+  the same directory (for example `todo.md` against an existing `Todo.md`)
+  was accepted by the case-sensitive git store but collapses onto one file
+  on case-insensitive clients (macOS, Windows): the sync index then tracked
+  a spelling that did not exist on disk, read it as deleted, and the re-sent
+  delete destroyed the other device's file vault-wide. Upserts that would
+  create such a pair — against the tree or within one batch — are now
+  rejected with `path_conflict`; deleting either side remains the supported
+  remedy.
 - `pull` counted the 50k-entry budget against the raw git trees before the
   exclusion filter, so a vault holding more than 50k hidden entries (admin
   added excludes, hidden paths that lost their allowlist) failed every pull
