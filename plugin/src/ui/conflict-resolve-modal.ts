@@ -222,16 +222,29 @@ export class ConflictResolveModal extends Modal {
     const table = container.createDiv({ cls: "pkvsync-diff-split" });
     table.setAttr("role", "table");
 
+    // V1: the columns describe WHERE each version lives, derived from
+    // the sidecar role — never a local/remote guess. In the common
+    // dirty-vs-remote shape the sidecar holds the LOCAL draft and the
+    // original path holds the remote; labeling the columns by role keeps
+    // "keep local" pointing at the user's edit in every producer shape.
+    const leftLabel =
+      this.pair.sidecarRole === "local"
+        ? this.labels.conflictDiskRemoteLabel
+        : this.labels.conflictDiskAbsentLabel;
+    const rightLabel =
+      this.pair.sidecarRole === "local"
+        ? this.labels.conflictSidecarLocalLabel
+        : this.labels.conflictSidecarRemoteLabel;
     const header = table.createDiv({ cls: "pkvsync-diff-split-header" });
     header.createDiv({ cls: "pkvsync-diff-line-no" });
     header.createDiv({
       cls: "pkvsync-diff-header-cell",
-      text: this.labels.acceptLocalButton
+      text: leftLabel
     });
     header.createDiv({ cls: "pkvsync-diff-line-no" });
     header.createDiv({
       cls: "pkvsync-diff-header-cell",
-      text: this.labels.acceptRemoteButton
+      text: rightLabel
     });
 
     const { rows, truncated } = lineDiffSideBySide(original, conflict);
@@ -294,6 +307,10 @@ export class ConflictResolveModal extends Modal {
       cls: "pkvsync-conflict-actions"
     });
 
+    // V1: action labels follow the sidecar role so the button promises
+    // what the action does in every producer shape. Keep-local on a
+    // local-role sidecar restores the user's draft; keep-local on a
+    // remote-role sidecar keeps the deletion.
     const localBtn = actions.createEl("button", {
       cls: "pkvsync-button is-primary",
       text: this.labels.acceptLocalButton
@@ -312,7 +329,6 @@ export class ConflictResolveModal extends Modal {
     });
     dismissBtn.addEventListener("click", () => this.close());
   }
-
   private renderMergeMarkerActions(): void {
     const actions = this.contentEl.createDiv({
       cls: "pkvsync-conflict-actions"

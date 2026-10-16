@@ -45,11 +45,41 @@ export function originalPathFor(conflictPath: string): string | null {
   return `${m[1]}${m[2] ?? ""}`;
 }
 
+/**
+ * Which version of the file lives in the conflict sidecar (V1).
+ *
+ * Producers, and what each writes into the sidecar:
+ * - engine.writeConflict (local dirty vs incoming remote): the LOCAL
+ *   content; the disk keeps the remote. Sidecar role "local".
+ * - engine.writeRemoteConflict (local deletion vs remote modification):
+ *   the REMOTE content; the disk has nothing. Sidecar role "remote".
+ *   The literal device name "remote" cannot collide with a real device
+ *   suffix (safeDeviceName maps an empty/unusable name to "device").
+ * - server merge (write_text_conflict_sidecar / conflicted three-way
+ *   merge): the pushed LOCAL content; the canonical path keeps the
+ *   remote. Sidecar role "local".
+ *
+ * The role decides what "keep local" and "accept remote" mean. With the
+ * wrong role, "keep local" trashed the user's only local copy and
+ * "accept remote" republished the local draft vault-wide.
+ */
+export type SidecarRole = "local" | "remote";
+
+export function sidecarRoleFor(conflictPath: string): SidecarRole {
+  const name = conflictPath.split("/").pop() ?? conflictPath;
+  const m = name.match(
+    /\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-([A-Za-z0-9_-]+)(?:\.[^/.]+)?$/
+  );
+  return m?.[1] === "remote" ? "remote" : "local";
+}
+
 export interface ConflictPair {
   originalPath: string;
   conflictPath: string;
   kind: ConflictPairKind;
   conflictFile: TFile;
+  /** Which version the sidecar holds; derived from the producer suffix. */
+  sidecarRole: SidecarRole;
 }
 
 export function hasMergeMarkers(content: string): boolean {
@@ -71,7 +101,8 @@ export function pairConflicts(
             originalPath: orig,
             conflictPath: f.path,
             kind: "remote_copy" as const,
-            conflictFile: f
+            conflictFile: f,
+            sidecarRole: sidecarRoleFor(f.path)
           }
         : null;
     })

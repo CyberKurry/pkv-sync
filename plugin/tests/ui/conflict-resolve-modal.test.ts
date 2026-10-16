@@ -19,7 +19,8 @@ describe("ConflictResolveModal async rendering", () => {
       originalPath: original.path,
       conflictPath: conflict.path,
       kind: "remote_copy",
-      conflictFile: conflict
+      conflictFile: conflict,
+      sidecarRole: "remote"
     };
     const modal = new ConflictResolveModal(
       {
