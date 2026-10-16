@@ -94,21 +94,25 @@ pub fn legacy_negotiate_initialize(requested: &str) -> &'static str {
 }
 
 pub fn decorate_result(mut result: Value, cache: Option<(u64, &str)>) -> Value {
-    let obj = result.as_object_mut().expect("result must be an object");
-    obj.insert("resultType".into(), json!("complete"));
-    if let Some((ttl, scope)) = cache {
-        obj.insert("ttlMs".into(), json!(ttl));
-        obj.insert("cacheScope".into(), json!(scope));
-    }
-    obj.entry("_meta").or_insert_with(|| json!({}));
-    if let Some(meta) = obj.get_mut("_meta").and_then(Value::as_object_mut) {
-        meta.insert(
-            META_SERVER_INFO.into(),
-            json!({
-                "name": SERVER_NAME,
-                "version": env!("CARGO_PKG_VERSION"),
-            }),
-        );
+    // V13: tools return objects, but a future tool returning a scalar or
+    // array must not panic the request thread — decorate what can be
+    // decorated and pass the rest through untouched.
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert("resultType".into(), json!("complete"));
+        if let Some((ttl, scope)) = cache {
+            obj.insert("ttlMs".into(), json!(ttl));
+            obj.insert("cacheScope".into(), json!(scope));
+        }
+        obj.entry("_meta").or_insert_with(|| json!({}));
+        if let Some(meta) = obj.get_mut("_meta").and_then(Value::as_object_mut) {
+            meta.insert(
+                META_SERVER_INFO.into(),
+                json!({
+                    "name": SERVER_NAME,
+                    "version": env!("CARGO_PKG_VERSION"),
+                }),
+            );
+        }
     }
     result
 }
@@ -186,6 +190,16 @@ pub fn validate_modern_headers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decorate_result_passes_non_object_results_through_without_panicking() {
+        // V13: the old implementation expected an object; a tool
+        // returning a scalar would have panicked the request thread.
+        let scalar = decorate_result(json!("done"), None);
+        assert_eq!(scalar, json!("done"));
+        let array = decorate_result(json!([1, 2]), None);
+        assert_eq!(array, json!([1, 2]));
+    }
 
     #[test]
     fn initialize_is_always_legacy_even_with_modern_version() {
