@@ -12,13 +12,29 @@ import type PKVSyncPlugin from "./main";
 export class SyncOrchestrator {
   constructor(private readonly plugin: PKVSyncPlugin) {}
 
+  /**
+   * Tear down the current engine generation: stop the SSE subscription
+   * FIRST, then abort any in-flight pass. Both rebuild() and invalidate()
+   * must run this identical sequence — abort() alone does not release the
+   * SSE connection (events-client owns its own controller and reconnect
+   * loop), so a rebuild that only aborted leaked one subscription per
+   * call until the server's 16-per-user SSE cap silently demoted sync to
+   * polling (V2).
+   */
+  private teardownEngine(): void {
+    this.plugin.engine?.stopEventSubscription();
+    // Same reasoning as the abort below (audit M-10): an in-flight sync
+    // pass must stop before the engine reference is dropped.
+    this.plugin.engine?.abort();
+  }
+
   rebuild(): void {
     // Abort any in-flight pass of the PREVIOUS generation before dropping
     // the reference (audit M-10): without this the old engine keeps its
     // old vault/server credentials and writes/trashes into the CURRENT
     // local vault while its index writes are swallowed by the generation
     // guard — unindexed mutations the new engine then misreads.
-    this.plugin.engine?.abort();
+    this.teardownEngine();
     const generation = ++this.plugin.syncGeneration;
     this.plugin.pushDebouncer?.cancel();
     if (this.plugin.pollTimer !== null) {
@@ -86,10 +102,7 @@ export class SyncOrchestrator {
   }
 
   invalidate(): void {
-    this.plugin.engine?.stopEventSubscription();
-    // Same reasoning as rebuild(): an in-flight sync pass must stop before
-    // the engine reference is dropped (audit M-10).
-    this.plugin.engine?.abort();
+    this.teardownEngine();
     this.plugin.pushDebouncer?.cancel();
     if (this.plugin.pollTimer !== null) {
       window.clearInterval(this.plugin.pollTimer);

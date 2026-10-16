@@ -448,6 +448,71 @@ describe("SyncEngine abort (M-10)", () => {
     }
   });
 
+  it("stops the previous generation's SSE subscription when the orchestrator rebuilds (V2)", async () => {
+    // rebuild() used to only abort() the old engine — the SSE stream is
+    // owned by events-client's own controller, so the subscription (and
+    // its reconnect loop) survived every rebuild and leaked one server
+    // connection per call until the 16-per-user cap demoted sync to
+    // polling. A rebuild must run the same teardown as invalidate().
+    const { SyncOrchestrator } = await import("../../src/sync-orchestrator");
+    const unsubscribes: number[] = [];
+    vi.mocked(subscribeVaultEvents).mockImplementation(() => {
+      const handle = unsubscribes.length + 1;
+      unsubscribes.push(handle);
+      return () => {
+        unsubscribes.splice(unsubscribes.indexOf(handle), 1);
+      };
+    });
+
+    const plugin = {
+      syncGeneration: 0,
+      pushDebouncer: null,
+      pollTimer: null,
+      fallbackTimer: null,
+      engine: null,
+      api: vi.fn(() => ({})),
+      loadSyncIndex: async () => ({ lastSyncedCommit: null, files: {} }),
+      saveSyncIndex: async () => undefined,
+      updateSyncIndex: async () => undefined,
+      statusEl: null,
+      text: (() => ({})) as unknown as () => never,
+      recordSyncSuccess: vi.fn(),
+      settings: {
+        serverUrl: "https://sync.example.com",
+        deploymentKey: "k",
+        token: "t",
+        userId: "u",
+        selectedVaultId: "v1",
+        deviceName: "d",
+        textExtensions: ["md"],
+        extraExcludeGlobs: [],
+        debounceMs: 250,
+        pollIntervalSeconds: 30,
+        deviceId: "dev"
+      },
+      manifest: { version: "1.7.0" },
+      app: { vault: {} }
+    };
+    const orchestrator = new SyncOrchestrator(plugin as never);
+    try {
+      orchestrator.rebuild();
+      expect(unsubscribes).toHaveLength(1);
+
+      orchestrator.rebuild();
+      // The OLD engine's subscription was closed before the new engine
+      // subscribed — exactly one live subscription per generation.
+      expect(unsubscribes).toHaveLength(1);
+      expect(plugin.engine).toBeInstanceOf(SyncEngine);
+
+      orchestrator.invalidate();
+      expect(unsubscribes).toHaveLength(0);
+    } finally {
+      // Drop timers the mock plugin never clears.
+      if (plugin.pollTimer !== null) window.clearInterval(plugin.pollTimer);
+      if (plugin.fallbackTimer !== null) window.clearInterval(plugin.fallbackTimer);
+    }
+  });
+
   it("aborts mid inline-apply silently: no Notice, no error status (R2-7)", async () => {
     // R2-7: the M-10 per-file abort check inside applyInlineText's
     // updateIndex throws SyncAbortedError between the dirty check and
