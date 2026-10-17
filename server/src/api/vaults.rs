@@ -558,6 +558,14 @@ async fn events(
             // an unlocatable position is reported as `lagged` so the client
             // resyncs. The probe only runs in the empty case, so the
             // common caught-up reconnect pays nothing.
+            //
+            // K5: a rollback landing between the empty replay and the
+            // probe would leave a commit that still exists in the object
+            // database but is no longer reachable from head, so the probe
+            // says "found" and the client believes it is caught up. That
+            // is benign here — a rollback publishes its own event, and no
+            // commit made before the rollback can be missed by a client
+            // that already has it.
             match replay {
                 crate::service::events::ReplayEvents::Events(events)
                     if events.is_empty()

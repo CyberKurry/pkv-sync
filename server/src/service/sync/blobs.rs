@@ -35,10 +35,19 @@ pub async fn upload_check(
         .blob_uploads
         .uploaded_hashes_for_vault(vault_id, &hashes)
         .await?;
+    let store = blob_store(state);
     let mut missing = Vec::new();
     for h in hashes {
-        let available_to_vault = refs.contains(&h) || uploads.contains(&h);
-        if !available_to_vault {
+        let db_available = refs.contains(&h) || uploads.contains(&h);
+        // K4: the metadata DB can outlive the blob directory (partial
+        // restores, manual cleanup). Trusting the DB alone told the
+        // client "nothing missing", so it never re-uploaded and every
+        // push retried the same batch forever on missing_blob. A blob is
+        // only genuinely available when BOTH the vault's records and the
+        // store agree; an I/O error counts as missing (re-uploading is
+        // safe and self-healing).
+        let on_disk = db_available && store.has(&h).await.unwrap_or(false);
+        if !on_disk {
             missing.push(h);
         }
     }

@@ -9,6 +9,18 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The blob upload check trusted the metadata database alone: when the
+  blob directory was restored without its rows (or a blob file was removed
+  by hand), the server told the client "nothing missing", so the client
+  never re-uploaded and every push retried the same batch forever on
+  `missing_blob`. A blob now counts as available only when the vault's
+  records and the store agree.
+- An auto-merge batch whose changes all resolved to no-ops returned without
+  recording the idempotency entry or the activity trail, so a retrying
+  client was reprocessed as a brand-new push. No-op batches now record both.
+- Conflict sidecars created without a device name were named after the
+  account's login username, which then synced to every device in the vault.
+  They fall back to the neutral `device` token instead.
 - Poll/debounce-triggered sync passes are fire-and-forget, but their
   rejections were never consumed: every timer tick while offline produced
   an unhandled promise rejection (the failure was already shown in the

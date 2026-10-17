@@ -61,8 +61,8 @@ pub fn run(
         // copies over it, so one mistyped --data-dir must not be able to
         // wipe an unrelated non-empty directory. A directory that looks
         // like a PKV Sync data dir (any of the restored component names)
-        // is fair game; anything else non-empty requires an explicit
-        // acknowledgement via a marker file.
+        // is fair game; anything else non-empty is refused outright —
+        // there is no override flag.
         if target_data_dir.exists() && !looks_like_pkv_data_dir(target_data_dir) {
             let non_empty = fs::read_dir(target_data_dir)
                 .map(|mut entries| entries.next().is_some())

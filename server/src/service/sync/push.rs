@@ -835,23 +835,23 @@ fn hash_len_prefixed(hasher: &mut Sha256, value: &str) {
     hasher.update(value.as_bytes());
 }
 
-struct PushMetadataInput<'a> {
-    state: &'a AppState,
-    user: &'a crate::auth::AuthenticatedUser,
-    vault_id: &'a str,
-    new_commit: &'a str,
-    blob_hashes: &'a [String],
-    parent: Option<&'a str>,
-    git_changes: &'a [FileChange],
-    files_changed: usize,
-    idempotency_key: Option<&'a str>,
-    request_hash: Option<&'a str>,
-    client_ip: Option<&'a str>,
-    user_agent: Option<&'a str>,
-    resp: &'a PushResp,
+pub(super) struct PushMetadataInput<'a> {
+    pub(super) state: &'a AppState,
+    pub(super) user: &'a crate::auth::AuthenticatedUser,
+    pub(super) vault_id: &'a str,
+    pub(super) new_commit: &'a str,
+    pub(super) blob_hashes: &'a [String],
+    pub(super) parent: Option<&'a str>,
+    pub(super) git_changes: &'a [FileChange],
+    pub(super) files_changed: usize,
+    pub(super) idempotency_key: Option<&'a str>,
+    pub(super) request_hash: Option<&'a str>,
+    pub(super) client_ip: Option<&'a str>,
+    pub(super) user_agent: Option<&'a str>,
+    pub(super) resp: &'a PushResp,
 }
 
-async fn record_push_metadata(input: PushMetadataInput<'_>) -> Result<(), ApiError> {
+pub(super) async fn record_push_metadata(input: PushMetadataInput<'_>) -> Result<(), ApiError> {
     let state = input.state;
     let git = state.git_store();
     let stats_delta = push_stats_delta(&git, input.vault_id, input.parent, input.git_changes)

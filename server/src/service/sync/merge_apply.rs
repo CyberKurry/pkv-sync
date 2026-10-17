@@ -11,6 +11,7 @@ use super::paths::{
     ensure_generated_push_path, generated_push_path_is_valid, reject_filtered_push_path,
 };
 use super::push::commit_prepared_push;
+use super::push::{record_push_metadata, PushMetadataInput};
 use super::{
     AutoMergePushInput, CommitPushInput, MergeOutcomeEntry, MergeOutcomeKind, PreparedPush,
     PushChange, PushReq, PushResp,
@@ -32,7 +33,9 @@ pub(super) async fn try_auto_merge_push(
         changes,
         device_name,
     } = input.req;
-    let conflict_device_name = device_name.as_deref().unwrap_or(&input.user.username);
+    // K4: fall back to a neutral name, never the login username — the
+    // conflict sidecar name is synced to every device in the vault.
+    let conflict_device_name = device_name.as_deref().unwrap_or("device");
 
     for change in changes {
         match change {
@@ -383,11 +386,32 @@ pub(super) async fn try_auto_merge_push(
         if merge_outcomes.is_empty() {
             return Ok(None);
         }
-        return Ok(Some(PushResp {
+        let resp = PushResp {
             new_commit: input.current_head.to_string(),
             files_changed: 0,
             merge_outcomes: Some(merge_outcomes),
-        }));
+        };
+        // K4: a batch whose every change resolved to a no-op still needs
+        // the idempotency record and the activity trail. Without them a
+        // retrying client was reprocessed as a brand-new push and the
+        // original attempt left no trace.
+        record_push_metadata(PushMetadataInput {
+            state: input.state,
+            user: input.user,
+            vault_id: input.vault_id,
+            new_commit: &resp.new_commit,
+            blob_hashes: &[],
+            parent: Some(input.current_head),
+            git_changes: &[],
+            files_changed: 0,
+            idempotency_key: input.idempotency_key,
+            request_hash: input.request_hash,
+            client_ip: input.request_metadata.client_ip,
+            user_agent: input.request_metadata.user_agent,
+            resp: &resp,
+        })
+        .await?;
+        return Ok(Some(resp));
     }
 
     let mut text_count = 0u64;

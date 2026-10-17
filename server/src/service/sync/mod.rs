@@ -418,6 +418,199 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn upload_check_reports_missing_when_blob_file_is_gone() {
+        // K4: the DB can outlive the blob directory. Trusting the DB told
+        // the client "nothing missing", so it never re-uploaded and every
+        // push retried the same batch forever on missing_blob.
+        let (state, user, vid, _tmp) = setup().await;
+        let bytes = Bytes::from_static(b"payload");
+        let store = crate::service::sync::blob_store(&state);
+        let hash = LocalFsBlobStore::sha256(&bytes);
+        super::upload_blob(&state, &user.user_id, &vid, &hash, bytes.clone())
+            .await
+            .unwrap();
+        // Metadata says available; the file disappears underneath.
+        store.delete(&hash).await.unwrap();
+
+        let checked = super::upload_check(&state, &user.user_id, &vid, vec![hash.clone()])
+            .await
+            .unwrap();
+        assert_eq!(checked.missing, vec![hash.clone()]);
+
+        // Re-uploading heals it: the check reports it present again.
+        super::upload_blob(&state, &user.user_id, &vid, &hash, bytes)
+            .await
+            .unwrap();
+        let checked = super::upload_check(&state, &user.user_id, &vid, vec![hash.clone()])
+            .await
+            .unwrap();
+        assert!(checked.missing.is_empty());
+    }
+
+    #[tokio::test]
+    async fn auto_merge_noop_batch_records_idempotency_and_activity() {
+        // K4: a batch where every change resolved to a no-op left no
+        // idempotency record and no activity trail, so a retrying client
+        // was reprocessed as a brand-new push.
+        let (state, user, vid, _tmp) = setup().await;
+        let base = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("base".into()),
+                changes: vec![PushChange::Text {
+                    path: "a.md".into(),
+                    content: "one".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        // Move the head so the next push is stale and takes the
+        // auto-merge path (a fresh head would take the fast path and
+        // apply the delete as an ordinary commit).
+        push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("device-b".into()),
+                changes: vec![PushChange::Text {
+                    path: "b.md".into(),
+                    content: "two".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        // A stale-base delete of a path that never existed at base or head:
+        // the auto-merge resolves it to a clean no-op with no git changes.
+        let noop_req = || PushReq {
+            device_name: Some("device-b".into()),
+            changes: vec![PushChange::Delete {
+                path: "never-existed.md".into(),
+            }],
+        };
+        let resp = push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            Some("noop-key-2"),
+            noop_req(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.files_changed, 0);
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sync_activity WHERE vault_id = ? AND action = 'push'",
+        )
+        .bind(&vid)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        // base push + b.md push + the no-op batch = 3 activities.
+        assert_eq!(count, 3, "no-op batch must leave an activity trail");
+
+        // The retry with the same idempotency key replays the stored
+        // response instead of processing again.
+        let replay = push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            Some("noop-key-2"),
+            noop_req(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(replay.new_commit, resp.new_commit);
+        let count_after: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sync_activity WHERE vault_id = ? AND action = 'push'",
+        )
+        .bind(&vid)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(count_after, 3, "replay must not add another activity row");
+    }
+
+    #[tokio::test]
+    async fn conflict_sidecar_name_does_not_leak_the_login_name() {
+        // K4: without a device name the sidecar was named after the
+        // account's login username, which syncs to every device.
+        let (state, user, vid, _tmp) = setup().await;
+        let base = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("base".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "alpha\nbeta\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        // Remote edits the same line...
+        push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("device-b".into()),
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "remote edit\nbeta\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        // ...and the stale writer edits it differently, with NO device name.
+        let merged = push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: None,
+                changes: vec![PushChange::Text {
+                    path: "note.md".into(),
+                    content: "local edit\nbeta\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let outcomes = merged.merge_outcomes.expect("merge outcomes");
+        let conflict_path = outcomes[0].conflict_path.clone().expect("conflict sidecar");
+        assert!(
+            conflict_path.contains("-device"),
+            "sidecar should use the neutral device token: {conflict_path}"
+        );
+        assert!(
+            !conflict_path.contains(&format!("-{}", user.username)),
+            "sidecar must not leak the login name: {conflict_path}"
+        );
+    }
+
+    #[tokio::test]
     async fn push_rejects_blob_pointer_over_configured_text_path() {
         // S6 symmetric half: a blob upload must not flip a configured
         // text path to binary pointer storage — text files (inline-able,
