@@ -102,6 +102,7 @@ export const en = {
   inlineApplyFailed:
     "Failed to apply realtime update for {path}: {reason}. Falling back to full sync.",
   conflictNotice: "PKV Sync conflict: {path}",
+  conflictCopyFailed: "Could not write the conflict copy for {path}: {reason}",
   connectedToServer: "Connected to {serverName}",
   changeServer: "Change server",
   loggedIn: "Logged in",

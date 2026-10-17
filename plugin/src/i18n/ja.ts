@@ -104,6 +104,7 @@ export const ja = {
   inlineApplyFailed:
     "{path} のリアルタイム更新を適用できませんでした: {reason}。完全同期にフォールバックします。",
   conflictNotice: "PKV Sync の競合: {path}",
+  conflictCopyFailed: "競合コピーを書き込めませんでした（{path}）：{reason}",
   connectedToServer: "{serverName} に接続しました",
   changeServer: "サーバーを変更",
   loggedIn: "ログインしました",

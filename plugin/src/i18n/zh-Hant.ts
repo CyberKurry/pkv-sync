@@ -102,6 +102,7 @@ export const zhHant = {
   noticeSyncComplete: "PKV Sync 同步完成",
   inlineApplyFailed: "無法套用 {path} 的即時更新：{reason}。將回退到完整同步。",
   conflictNotice: "PKV Sync 衝突：{path}",
+  conflictCopyFailed: "無法為 {path} 寫入衝突副本：{reason}",
   connectedToServer: "已連線到「{serverName}」",
   changeServer: "變更伺服器",
   loggedIn: "已登入",

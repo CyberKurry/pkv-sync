@@ -91,7 +91,10 @@ export interface SyncEngineOptions {
     status: "connected" | "syncing" | "offline" | "error",
     detail?: string
   ): void;
-  labels?: Pick<Strings, "inlineApplyFailed" | "conflictNotice">;
+  labels?: Pick<
+    Strings,
+    "inlineApplyFailed" | "conflictNotice" | "conflictCopyFailed"
+  >;
   onSyncSuccess?(): void | Promise<void>;
   vaultSettingsReader?: (vaultId: string) => Promise<VaultSettings>;
 }
@@ -635,7 +638,19 @@ export class SyncEngine {
         const local = currentByPath.get(file.path);
         const indexed = index.files[file.path];
         if (isLocalDeleted(local, indexed?.lastSyncedHash)) {
-          await this.writeRemoteConflict(file, pull.to);
+          try {
+            await this.writeRemoteConflict(file, pull.to);
+          } catch (error) {
+            // W3: a sidecar the filesystem refuses (sidecar name longer
+            // than the path limit, read-only directory) must not wedge the
+            // vault at this commit forever. Nothing local is at stake here
+            // — the local file is already gone — and the remote content
+            // remains in the server history, so accept the verdict after
+            // telling the user. An abort is not a failure and must
+            // propagate.
+            if (error instanceof SyncAbortedError) throw error;
+            this.reportSidecarFailure(file.path, error);
+          }
           deleteRejected.push(file.path);
           continue;
         }
@@ -789,18 +804,37 @@ export class SyncEngine {
     });
   }
 
+  /**
+   * Conflict sidecars already written in this engine generation, keyed by
+   * the conflict's content identity. A pull that fails on some other file
+   * is retried from the same base, so the conflict branch runs again; the
+   * timestamped sidecar name changes on every attempt, which used to stack
+   * an unbounded number of copies of the same content (W2). Reusing the
+   * copy while it still exists makes the retry idempotent; if the user
+   * resolved it (the file is gone) the next attempt writes a fresh one.
+   */
+  private readonly writtenConflictSidecars = new Map<string, string>();
+
+  private sidecarAlreadyWritten(key: string): boolean {
+    const existing = this.writtenConflictSidecars.get(key);
+    return existing !== undefined && this.opts.vault.exists(existing);
+  }
+
   private async writeConflict(
     path: string,
     local: LocalFileSnapshot | undefined
   ): Promise<void> {
     if (!local) return;
     this.throwIfAborted();
+    const key = `${path}\u0000local\u0000${local.hash}`;
+    if (this.sidecarAlreadyWritten(key)) return;
     const cpath = conflictPath(path, this.opts.deviceName);
     if (local.kind === "text") {
       await this.opts.vault.writeText(cpath, local.content ?? "");
     } else if (local.bytes) {
       await this.opts.vault.writeBinary(cpath, local.bytes);
     }
+    this.writtenConflictSidecars.set(key, cpath);
     new Notice(
       format((this.opts.labels ?? strings()).conflictNotice, { path: cpath })
     );
@@ -808,6 +842,8 @@ export class SyncEngine {
 
   private async writeRemoteConflict(file: PullFile, atCommit: string): Promise<void> {
     this.throwIfAborted();
+    const key = `${file.path}\u0000remote\u0000${atCommit}`;
+    if (this.sidecarAlreadyWritten(key)) return;
     const cpath = conflictPath(file.path, "remote");
     if (file.file_type === "text") {
       const content =
@@ -826,9 +862,20 @@ export class SyncEngine {
       );
       await this.opts.vault.writeBinary(cpath, bytes);
     }
+    this.writtenConflictSidecars.set(key, cpath);
     new Notice(
       format((this.opts.labels ?? strings()).conflictNotice, { path: cpath })
     );
+  }
+
+  private reportSidecarFailure(path: string, error: unknown): void {
+    const message = format(
+      (this.opts.labels ?? strings()).conflictCopyFailed,
+      { path, reason: errorToMessage(error) }
+    );
+    debugLog("[pkv-sync] conflict sidecar could not be written:", error);
+    new Notice(message);
+    this.opts.setStatus("error", message);
   }
 
   private async applyInlineText(path: string, content: string, commit: string): Promise<void> {

@@ -9,6 +9,19 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- A pull that failed on one file (a blob whose bytes do not match, a disk
+  error) was retried from the same base, and every retry re-wrote the
+  delete-vs-modify conflict copy under a fresh timestamp — an unbounded
+  pile of identical `.conflict-*` copies of the same remote content. The
+  engine now remembers the copies it wrote this session and reuses them
+  while they still exist, so a retry is idempotent without hiding a new
+  conflict later.
+- A conflict copy the filesystem refuses to write (sidecar name over the
+  path limit, read-only directory) failed the entire pull on every attempt,
+  leaving the sync head stuck with no way out. That failure now surfaces as
+  a notice and the delete-vs-modify verdict is still accepted — nothing
+  local is at stake (the file was already deleted) and the remote content
+  remains in the server history.
 - The generated-conflict-sidecar detector matched any name containing
   `.conflict-` followed by four digits, so ordinary user files such as
   `report.conflict-2024.md` were treated as server-generated conflict copies
