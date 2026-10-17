@@ -9,6 +9,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The blob existence check probed the store serially, paying one round trip
+  per hash; over a network-mounted blob directory that multiplied the
+  latency by the batch size. Probes now run with bounded concurrency (32 at
+  a time) while the response keeps the request's order.
 - A burst of stale events after an SSE reconnect (the server replays up to
   64 of them) each triggered its own full sync — a vault scan plus an HTTP
   pull per event — even though one convergence covers the whole burst. The

@@ -9,6 +9,38 @@ use super::{blob_store, UploadCheckResp};
 
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
 
+/// How many blob-existence probes run at once. Each probe is one stat;
+/// the cap keeps a 10k-hash request from spawning 10k tasks while still
+/// overlapping the round trips of a network-mounted blob directory.
+const BLOB_PROBE_CONCURRENCY: usize = 32;
+
+/// Probe which of `hashes` exist in `store`, with bounded concurrency.
+/// Errors count as "not present": re-uploading is safe and self-healing.
+async fn probe_many(
+    store: &crate::storage::blob::LocalFsBlobStore,
+    hashes: &[&String],
+) -> std::collections::HashSet<String> {
+    use crate::storage::blob::BlobStore;
+    let mut present = std::collections::HashSet::with_capacity(hashes.len());
+    for chunk in hashes.chunks(BLOB_PROBE_CONCURRENCY) {
+        let mut set = tokio::task::JoinSet::new();
+        for hash in chunk {
+            let store = store.clone();
+            let hash = (*hash).clone();
+            set.spawn(async move {
+                let found = store.has(&hash).await.unwrap_or(false);
+                (hash, found)
+            });
+        }
+        while let Some(joined) = set.join_next().await {
+            if let Ok((hash, true)) = joined {
+                present.insert(hash);
+            }
+        }
+    }
+    present
+}
+
 pub async fn upload_check(
     state: &AppState,
     user_id: &str,
@@ -35,22 +67,25 @@ pub async fn upload_check(
         .blob_uploads
         .uploaded_hashes_for_vault(vault_id, &hashes)
         .await?;
+    // K4: the metadata DB can outlive the blob directory (partial restores,
+    // manual cleanup). Trusting the DB alone told the client "nothing
+    // missing", so it never re-uploaded and every push retried the same
+    // batch forever on missing_blob. A blob is only genuinely available
+    // when BOTH the vault's records and the store agree; an I/O error
+    // counts as missing (re-uploading is safe and self-healing).
     let store = blob_store(state);
-    let mut missing = Vec::new();
-    for h in hashes {
-        let db_available = refs.contains(&h) || uploads.contains(&h);
-        // K4: the metadata DB can outlive the blob directory (partial
-        // restores, manual cleanup). Trusting the DB alone told the
-        // client "nothing missing", so it never re-uploaded and every
-        // push retried the same batch forever on missing_blob. A blob is
-        // only genuinely available when BOTH the vault's records and the
-        // store agree; an I/O error counts as missing (re-uploading is
-        // safe and self-healing).
-        let on_disk = db_available && store.has(&h).await.unwrap_or(false);
-        if !on_disk {
-            missing.push(h);
-        }
-    }
+    let candidates: Vec<&String> = hashes
+        .iter()
+        .filter(|h| refs.contains(*h) || uploads.contains(*h))
+        .collect();
+    let present = probe_many(&store, &candidates).await;
+    // R7R2-2: the probes run with bounded concurrency — over a
+    // network-mounted blob directory the serial version paid one round
+    // trip per hash. Response order still follows the request.
+    let missing = hashes
+        .into_iter()
+        .filter(|h| !present.contains(h))
+        .collect();
     Ok(UploadCheckResp { missing })
 }
 
@@ -203,6 +238,41 @@ mod tests {
             .unwrap();
 
         assert_eq!(resp.missing, vec![hash]);
+    }
+
+    #[tokio::test]
+    async fn upload_check_preserves_request_order_across_parallel_probes() {
+        // R7R2-2: the probes now run with bounded concurrency. The answer
+        // must stay identical to the serial version — same membership AND
+        // the same order as the request (the client pairs them by index).
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let store = LocalFsBlobStore::new(state.default_blob_root());
+        let mut hashes = Vec::new();
+        for i in 0..40u8 {
+            let data = Bytes::from(vec![i]);
+            let hash = LocalFsBlobStore::sha256(&data);
+            store.put_verified(&hash, data).await.unwrap();
+            state
+                .blob_uploads
+                .record_upload(&vid, &hash, chrono::Utc::now().timestamp())
+                .await
+                .unwrap();
+            hashes.push(hash);
+        }
+        // Remove every third file from disk; its row survives.
+        let mut expected_missing = Vec::new();
+        for (idx, hash) in hashes.iter().enumerate() {
+            if idx % 3 == 0 {
+                store.delete(hash).await.unwrap();
+                expected_missing.push(hash.clone());
+            }
+        }
+
+        let resp = upload_check(&state, &user.user_id, &vid, hashes)
+            .await
+            .unwrap();
+
+        assert_eq!(resp.missing, expected_missing);
     }
 
     #[tokio::test]
