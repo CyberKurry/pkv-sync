@@ -172,29 +172,65 @@ pub async fn replay_events_after(
         .map_err(|_| anyhow::anyhow!("blocking task panicked"))?
 }
 
+/// Outcome of the object-database probe (M-3/R2-6/R3-2) for a resume
+/// position. `Missing` and `Unknown` lead to the same answer — `lagged` —
+/// because they both mean "this resume position cannot be honoured here":
+/// the honest direction for a position we cannot locate, or cannot even
+/// look up, is a resync, never a silently-advanced live stream. They are
+/// distinguished only by how loudly the probe reports the failure, so a
+/// storage hiccup is visible in the logs instead of looking like a GC'd
+/// commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitProbe {
+    Found,
+    Missing,
+    Unknown,
+}
+
 /// Whether `commit` exists in the vault's object database. Used to
 /// disambiguate an empty replay ("caught up") from an unlocatable resume
 /// position ("cannot honour this Last-Event-ID") — the latter must be
 /// reported as `lagged` so the client resyncs instead of silently
 /// advancing over commits it never applied. Malformed values (not a
-/// 40-hex OID) report `false`: they are never legitimate positions.
-pub fn commit_exists_in_vault(vault_root: &Path, vault_id: &str, commit: &str) -> bool {
+/// 40-hex OID) are `Unknown`: they are never legitimate positions.
+///
+/// K3: one shared implementation for the REST and MCP streams. The git
+/// lookup runs on the blocking pool — the REST caller previously ran a
+/// thread::scope + join inline on a tokio worker, stalling it for the
+/// duration of cold-cache disk I/O.
+pub async fn probe_commit(vault_root: &Path, vault_id: &str, commit: &str) -> CommitProbe {
     let Ok(vault_path) = storage_vault_path(vault_root, vault_id) else {
-        return false;
+        return CommitProbe::Unknown;
     };
     let Ok(oid) = Oid::from_str(commit) else {
-        return false;
+        return CommitProbe::Unknown;
     };
-    std::thread::scope(|scope| {
-        scope
-            .spawn(move || {
-                Repository::open_bare(vault_path)
-                    .map(|repo| repo.find_commit(oid).is_ok())
-                    .unwrap_or(false)
-            })
-            .join()
-            .unwrap_or(false)
+    let probe = tokio::task::spawn_blocking(move || {
+        Repository::open_bare(vault_path)
+            .map(|repo| repo.find_commit(oid).is_ok())
+            .map_err(|err| err.message().to_string())
     })
+    .await;
+    match probe {
+        Ok(Ok(true)) => CommitProbe::Found,
+        Ok(Ok(false)) => CommitProbe::Missing,
+        Ok(Err(message)) => {
+            tracing::warn!(
+                vault_id = %vault_id,
+                error = %message,
+                "could not probe whether the resume commit exists; the client is told to resync"
+            );
+            CommitProbe::Unknown
+        }
+        Err(join_err) => {
+            tracing::warn!(
+                vault_id = %vault_id,
+                error = %join_err,
+                "commit-existence probe task failed; the client is told to resync"
+            );
+            CommitProbe::Unknown
+        }
+    }
 }
 
 fn replay_events_after_blocking(vault_path: PathBuf, last: Oid) -> anyhow::Result<ReplayEvents> {

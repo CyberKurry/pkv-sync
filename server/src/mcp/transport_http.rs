@@ -803,56 +803,6 @@ fn mcp_last_event_id(headers: &HeaderMap) -> LastEventId {
     }
 }
 
-/// Outcome of the object-database probe (M-3/R2-6/R3-2) for a resume
-/// position. `Missing` and `Unknown` lead to the same answer — `lagged` —
-/// because they both mean "this resume position cannot be honoured here":
-/// the honest direction for a position we cannot locate, or cannot even
-/// look up, is a resync, never a silently-advanced live stream. They are
-/// distinguished only by how loudly the probe reports the failure, so a
-/// storage hiccup is visible in the logs instead of looking like a GC'd
-/// commit.
-enum CommitProbe {
-    Found,
-    Missing,
-    Unknown,
-}
-
-async fn commit_exists_in_vault(state: &AppState, vault_id: &str, commit: &str) -> CommitProbe {
-    let Ok(vault_path) = crate::storage::git::storage_vault_path(state.vault_root(), vault_id)
-    else {
-        return CommitProbe::Unknown;
-    };
-    let Ok(oid) = git2::Oid::from_str(commit) else {
-        return CommitProbe::Unknown;
-    };
-    let probe = tokio::task::spawn_blocking(move || {
-        git2::Repository::open_bare(vault_path)
-            .map(|repo| repo.find_commit(oid).is_ok())
-            .map_err(|err| err.message().to_string())
-    })
-    .await;
-    match probe {
-        Ok(Ok(true)) => CommitProbe::Found,
-        Ok(Ok(false)) => CommitProbe::Missing,
-        Ok(Err(message)) => {
-            tracing::warn!(
-                vault_id = %vault_id,
-                error = %message,
-                "could not probe whether the resume commit exists; the client is told to resync"
-            );
-            CommitProbe::Unknown
-        }
-        Err(join_err) => {
-            tracing::warn!(
-                vault_id = %vault_id,
-                error = %join_err,
-                "commit-existence probe task failed; the client is told to resync"
-            );
-            CommitProbe::Unknown
-        }
-    }
-}
-
 async fn mcp_replay_events_after(
     state: &AppState,
     vaults: &[crate::db::repos::Vault],
@@ -898,7 +848,9 @@ async fn mcp_replay_events_after(
     if events_all.is_empty() && !vaults.is_empty() {
         let mut known_to_any_vault = false;
         for vault in vaults {
-            if let CommitProbe::Found = commit_exists_in_vault(state, &vault.id, commit).await {
+            if let crate::service::events::CommitProbe::Found =
+                crate::service::events::probe_commit(state.vault_root(), &vault.id, commit).await
+            {
                 known_to_any_vault = true;
                 break;
             }

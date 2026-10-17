@@ -9,6 +9,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The SSE resume-position probe ran its git lookup inline on a tokio
+  worker thread on the REST path (the MCP path already used the blocking
+  pool), so a cold-cache lookup stalled request processing. Both streams
+  now share one async probe that runs the lookup on the blocking pool;
+  behavior is unchanged (unlocatable/malformed positions still mean
+  `lagged`).
 - The case-fold guard (which rejects two names that a case-insensitive
   client would collapse onto one file) missed canonically equivalent
   spellings: `café.md` in NFC and NFD are two git entries but one file on

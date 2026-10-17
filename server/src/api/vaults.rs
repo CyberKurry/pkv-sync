@@ -561,11 +561,13 @@ async fn events(
             match replay {
                 crate::service::events::ReplayEvents::Events(events)
                     if events.is_empty()
-                        && !crate::service::events::commit_exists_in_vault(
+                        && crate::service::events::probe_commit(
                             state.vault_root(),
                             &id,
                             last_event_id,
-                        ) =>
+                        )
+                        .await
+                            != crate::service::events::CommitProbe::Found =>
                 {
                     crate::service::events::ReplayEvents::Lagged
                 }
