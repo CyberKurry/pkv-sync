@@ -1674,6 +1674,80 @@ describe("SyncEngine pull", () => {
     expect(api.pull).toHaveBeenCalled();
   });
 
+  it("coalesces a burst of stale replayed events into one sync (R7R2-1)", async () => {
+    // A reconnect can replay up to MAX_SSE_REPLAY_COMMITS (64) events, all
+    // of them older than a position a poll already reached. Each stale
+    // event used to trigger its own full sync (vault scan + HTTP pull);
+    // the whole burst must cost exactly one.
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const hash = await sha256Text("current");
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c5",
+      files: {
+        "note.md": {
+          lastSyncedHash: hash,
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 7
+        }
+      }
+    });
+    const vault = new FakeVault([
+      { path: "note.md", hash, size: 7, kind: "text", content: "current" }
+    ]);
+    const api = {
+      state: vi.fn().mockResolvedValue({ current_head: "c5", changed_since: false }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c5",
+        to: "c5",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      labels: en,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      setStatus: vi.fn()
+    });
+
+    engine.startEventSubscription();
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+    for (const [commit, parent] of [["c2", "c1"], ["c3", "c2"], ["c4", "c3"]] as const) {
+      options.onEvent({
+        kind: "commit",
+        commit,
+        parent,
+        source_device_id: "other",
+        at: 1_700_000_000,
+        changes: [
+          { kind: "text_inline", path: "note.md", content: `stale ${commit}` }
+        ]
+      });
+    }
+
+    await vi.waitFor(() => expect(api.pull).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(api.pull).toHaveBeenCalledTimes(1);
+    expect(vault.writes.get("note.md")).toBeUndefined();
+    expect(idx.saved?.lastSyncedCommit).toBe("c5");
+  });
+
   it("still applies a live event that extends the index position (W1)", async () => {
     // Positive control: the guard must not block the healthy sequence —
     // event C6 whose parent is the index position C5 applies inline.

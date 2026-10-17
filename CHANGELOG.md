@@ -9,6 +9,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- A burst of stale events after an SSE reconnect (the server replays up to
+  64 of them) each triggered its own full sync — a vault scan plus an HTTP
+  pull per event — even though one convergence covers the whole burst. The
+  engine now remembers the position the last convergence reached and skips
+  further syncs until the head moves, so the burst costs one sync.
 - The blob upload check trusted the metadata database alone: when the
   blob directory was restored without its rows (or a blob file was removed
   by hand), the server told the client "nothing missing", so the client

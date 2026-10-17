@@ -253,23 +253,7 @@ export class SyncEngine {
             await this.syncNowInsideChainTask();
             return;
           }
-          // W1: only inline-apply events that extend the index position
-          // exactly. `markSynced` records whatever commit it is handed —
-          // there is no monotonicity check — so an event older than the
-          // current position (an SSE reconnect whose Last-Event-ID predates
-          // a poll that already synced past it) would overwrite newer local
-          // content with stale content and roll the head BACK. Events that
-          // do not extend the position go through a full sync instead,
-          // which converges whether the cause is a stale replay or a
-          // missed event; the stale case costs one empty conditional pull.
-          const indexAtEvent = await this.opts.index.loadIndex();
-          if (ev.commit === indexAtEvent.lastSyncedCommit) {
-            return;
-          }
-          if (ev.parent !== indexAtEvent.lastSyncedCommit) {
-            await this.syncNowInsideChainTask();
-            return;
-          }
+          if (!(await this.reconcileEventPosition(ev))) return;
           let needFallbackPull = false;
           for (const change of ev.changes) {
             try {
@@ -828,6 +812,14 @@ export class SyncEngine {
    * copy while it still exists makes the retry idempotent; if the user
    * resolved it (the file is gone) the next attempt writes a fresh one.
    */
+  /**
+   * The index position a convergence sync reached in this generation, used
+   * to coalesce a burst of stale replayed events into one sync (R7R2-1).
+   * `null` = nothing converged yet; it is only compared against the current
+   * head, so any head change makes it stale and re-arms the sync.
+   */
+  private convergedHead: string | null = null;
+
   private readonly writtenConflictSidecars = new Map<string, string>();
 
   private sidecarAlreadyWritten(key: string): boolean {
@@ -987,6 +979,45 @@ export class SyncEngine {
       await this.opts.vault.trash(path);
       return markDeleted(index, commit, [path]);
     });
+  }
+
+  /**
+   * W1 + R7R2-1: decide whether an SSE event may be applied inline.
+   *
+   * `markSynced` records whatever commit it is handed — there is no
+   * monotonicity check — so an event older than the current index position
+   * (an SSE reconnect whose Last-Event-ID predates a poll that already
+   * synced past it) must not be applied: it would overwrite newer content
+   * with stale content and roll the head BACK.
+   *
+   * An event that does not extend the position exactly means the index is
+   * out of step with the stream (stale replay, or a missed event); the
+   * only safe move is a full sync, which converges either way. Because the
+   * server replays up to MAX_SSE_REPLAY_COMMITS events, that decision can
+   * fire once per replayed event; `convergedHead` remembers the position a
+   * convergence sync reached, so a burst of stale events costs ONE sync
+   * instead of one per event (each of which is a vault scan plus an HTTP
+   * pull).
+   *
+   * Returns true when the event extends the position and may be applied.
+   */
+  private async reconcileEventPosition(ev: VaultEvent): Promise<boolean> {
+    const index = await this.opts.index.loadIndex();
+    if (ev.commit === index.lastSyncedCommit) return false;
+    if (ev.parent !== index.lastSyncedCommit) {
+      if (
+        this.convergedHead !== null &&
+        this.convergedHead === index.lastSyncedCommit
+      ) {
+        return false;
+      }
+      await this.syncNowInsideChainTask();
+      // Read the position the pass reached; a failed pass throws before
+      // this line, so `convergedHead` only ever records a real convergence.
+      this.convergedHead = (await this.opts.index.loadIndex()).lastSyncedCommit;
+      return false;
+    }
+    return true;
   }
 
   private async advanceIndexHead(commit: string): Promise<void> {
