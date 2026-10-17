@@ -567,15 +567,49 @@ fn conflict_path_for(original: &str, device_name: &str) -> String {
 
 /// A server-generated auto-merge conflict sidecar must remain visible on
 /// read/pull surfaces even when its name matches a user exclude glob.
+///
+/// K1: match the FULL generated grammar, not just "some digits after
+/// `.conflict-`". `conflict_path_for` produces
+/// `<base>.conflict-YYYY-MM-DD-HHMMSS-[<nonce8>-]<device><ext>`; the
+/// plugin's own writer produces the same shape without a nonce. The old
+/// "4 digits after the marker" test also matched user files such as
+/// `report.conflict-2024.md` and pushed them into the hidden-read
+/// whitelist, where an admin exclude no longer applies to them.
 pub(crate) fn is_generated_conflict_sidecar(path: &str) -> bool {
     let file = path.rsplit('/').next().unwrap_or(path);
-    match file.find(".conflict-") {
-        Some(idx) => {
-            let after = &file[idx + ".conflict-".len()..];
-            after.len() > 4 && after.as_bytes()[..4].iter().all(u8::is_ascii_digit)
-        }
-        None => false,
+    let Some(idx) = file.find(".conflict-") else {
+        return false;
+    };
+    let rest = &file[idx + ".conflict-".len()..];
+    let bytes = rest.as_bytes();
+    // `YYYY-MM-DD-`
+    if bytes.len() < 11
+        || !bytes[..4].iter().all(u8::is_ascii_digit)
+        || bytes[4] != b'-'
+        || !bytes[5..7].iter().all(u8::is_ascii_digit)
+        || bytes[7] != b'-'
+        || !bytes[8..10].iter().all(u8::is_ascii_digit)
+        || bytes[10] != b'-'
+    {
+        return false;
     }
+    // `HHMMSS-`
+    if bytes.len() < 18 || !bytes[11..17].iter().all(u8::is_ascii_digit) || bytes[17] != b'-' {
+        return false;
+    }
+    // Device token (a real device name, the literal "remote", or the
+    // server's 8-char nonce) followed by the optional original extension.
+    // Device names only ever contain [A-Za-z0-9_-], so the extension is
+    // whatever follows the last dot.
+    let tail = &rest[18..];
+    let device = match tail.rfind('.') {
+        Some(dot) => &tail[..dot],
+        None => tail,
+    };
+    !device.is_empty()
+        && device
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
 }
 
 fn safe_conflict_device_name(name: &str) -> String {
@@ -614,6 +648,52 @@ mod tests {
         assert_ne!(first, second);
         assert!(first.starts_with("notes/daily.conflict-"));
         assert!(first.ends_with(".md"));
+    }
+
+    #[test]
+    fn generated_conflict_paths_are_detected() {
+        // K1: the detector must accept everything conflict_path_for (and
+        // the plugin's nonce-less variant) can produce.
+        for device in ["Laptop", "remote", "B-laptop", "d"] {
+            let generated = conflict_path_for("notes/daily.md", device);
+            assert!(
+                is_generated_conflict_sidecar(&generated),
+                "generated sidecar should be detected: {generated}"
+            );
+        }
+        let no_ext = conflict_path_for("README", "Laptop");
+        assert!(is_generated_conflict_sidecar(&no_ext), "{no_ext}");
+        // Plugin writer: `conflictPath(path, deviceName)` has no nonce.
+        assert!(is_generated_conflict_sidecar(
+            "note.conflict-2026-05-16-143000-phone.md"
+        ));
+        assert!(is_generated_conflict_sidecar(
+            "note.conflict-2026-05-16-143000-remote.md"
+        ));
+    }
+
+    #[test]
+    fn user_files_are_not_mistaken_for_generated_sidecars() {
+        // K1: the old detector accepted any name with four digits after
+        // `.conflict-`, pulling user files into the hidden-read whitelist
+        // where an admin exclude no longer applies.
+        for user_file in [
+            "report.conflict-2024.md",
+            "notes.conflict-1234-anything",
+            "diary.conflict-2026x.md",
+            // Date present but the time half is not HHMMSS.
+            "a.conflict-2026-10-17-x12345-laptop.md",
+            "a.conflict-2026-10-17-01234-laptop.md",
+            // Empty device token.
+            "a.conflict-2026-10-17-011234-.md",
+            // Device token with a character the generators never emit.
+            "a.conflict-2026-10-17-011234-la pt.md",
+        ] {
+            assert!(
+                !is_generated_conflict_sidecar(user_file),
+                "user file must not be treated as generated: {user_file}"
+            );
+        }
     }
 
     #[test]

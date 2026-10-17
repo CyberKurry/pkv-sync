@@ -9,6 +9,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The generated-conflict-sidecar detector matched any name containing
+  `.conflict-` followed by four digits, so ordinary user files such as
+  `report.conflict-2024.md` were treated as server-generated conflict copies
+  and bypassed administrator exclude globs on every read surface. Detection
+  now requires the full generated grammar (date, time, device token and
+  optional extension) that both the server and the plugin emit.
 - A replayed SSE event older than the local sync position could overwrite
   newer content and roll the sync head BACK: after a reconnect whose resume
   point predated a poll that had already synced past it, the replay was
