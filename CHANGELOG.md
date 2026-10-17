@@ -9,6 +9,21 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Poll/debounce-triggered sync passes are fire-and-forget, but their
+  rejections were never consumed: every timer tick while offline produced
+  an unhandled promise rejection (the failure was already shown in the
+  status bar). All timer kicks now share one helper that swallows the
+  rejection.
+- The mirrored text-extension set was compared by string, so a server that
+  merely reordered the array triggered an engine rebuild on every config
+  fetch; it is now compared as a set. The plugin also re-reads the server
+  config every tenth poll tick, so a long-running session notices a
+  server-side extension change instead of waiting for a reload.
+- A rebuild-forbidden settings save (the migration path) still let the
+  config mirror trigger a rebuild: during a migration the new vault id is
+  saved BEFORE the migrated index, so a mirror-triggered rebuild could
+  start an engine on the new vault with the old empty index and re-push
+  everything. The mirror now honours the caller's rebuild permission.
 - The realtime stream's reconnect backoff reset as soon as the server
   accepted the connection, so a server that accepts and immediately closes
   produced a permanent ~1 Hz reconnect storm; backoff now resets only when

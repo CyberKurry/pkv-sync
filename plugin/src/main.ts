@@ -177,7 +177,9 @@ export default class PKVSyncPlugin extends Plugin {
       writePluginSettingsWithoutAuth(data, this.settings)
     );
     this.persistAuth();
-    void this.refreshServerCapabilities();
+    // W7: a rebuild-forbidden save (the migration path) must also forbid
+    // the mirror's own rebuild.
+    void this.refreshServerCapabilities(options.rebuild !== false);
     this.updateStatus();
     if (options.rebuild !== false) this.rebuildSyncEngine();
   }
@@ -374,7 +376,17 @@ export default class PKVSyncPlugin extends Plugin {
     return this.historyClient;
   }
 
-  private async refreshServerCapabilities(): Promise<void> {
+  /**
+   * Fetch GET /api/config and mirror the server-controlled knobs into
+   * local settings.
+   *
+   * `allowRebuild` is false on the migration path: the migration sets the
+   * new vault id, then calls saveSettings({rebuild:false}) BEFORE saving
+   * the migrated index. A mirror-triggered rebuild in that window would
+   * start an engine against the new vault with the OLD (empty) index and
+   * re-push the whole vault (W7).
+   */
+  async refreshServerCapabilities(allowRebuild = true): Promise<void> {
     if (
       !isFetchableServerUrl(this.settings.serverUrl) ||
       !this.settings.deploymentKey
@@ -399,16 +411,19 @@ export default class PKVSyncPlugin extends Plugin {
       const serverExtensions = normalizeTextExtensions(
         cfg.supported_text_extensions
       );
+      // W6: compare as sets — the server may reorder the array without
+      // changing it, and a string comparison then triggered a needless
+      // engine rebuild on every config fetch.
       const extensionsChanged =
-        JSON.stringify(serverExtensions) !==
-        JSON.stringify(this.settings.textExtensions);
+        [...serverExtensions].sort().join("\u0000") !==
+        [...this.settings.textExtensions].sort().join("\u0000");
       if (debounceMs !== this.settings.debounceMs || extensionsChanged) {
         const patch: Partial<PKVSyncSettings> = { debounceMs };
         if (extensionsChanged) {
           this.settings.textExtensions = serverExtensions;
           patch.textExtensions = serverExtensions;
         }
-        await this.saveSettingsPatch(patch, { rebuild: true });
+        await this.saveSettingsPatch(patch, { rebuild: allowRebuild });
       }
     } catch {
       this.serverCapabilities = null;

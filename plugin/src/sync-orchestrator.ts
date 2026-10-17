@@ -83,10 +83,19 @@ export class SyncOrchestrator {
     });
     this.plugin.engine.startEventSubscription();
     this.plugin.pushDebouncer = new Debouncer(this.plugin.settings.debounceMs, () => {
-      void this.plugin.engine?.syncNow();
+      this.kickSync();
     });
+    let pollTicks = 0;
     this.plugin.pollTimer = window.setInterval(() => {
-      void this.plugin.engine?.syncNow();
+      this.kickSync();
+      // W6: the server's text-extension set is mirrored on load and on
+      // every settings save; a long-running plugin would otherwise not
+      // notice a server-side change until reload. Refresh it on a low
+      // cadence from the poll timer.
+      pollTicks += 1;
+      if (pollTicks % 10 === 0) {
+        void this.plugin.refreshServerCapabilities().catch(() => undefined);
+      }
     }, this.plugin.settings.pollIntervalSeconds * 1000);
     const fallbackMs = Math.max(
       30_000,
@@ -95,10 +104,17 @@ export class SyncOrchestrator {
     this.plugin.fallbackTimer = window.setInterval(() => {
       this.plugin.pushDebouncer?.trigger();
     }, fallbackMs);
-    // void: the kick promise must not be observable by callers, and any
-    // SyncAbortedError from a concurrently-rebuilt generation is already
-    // swallowed inside syncInner.
-    void this.plugin.engine.syncNow().catch(() => undefined);
+    this.kickSync();
+  }
+
+  /**
+   * Fire-and-forget a sync pass (W4). `syncInner` rethrows for callers and
+   * the status element already shows the failure, so the rejection must be
+   * consumed here — otherwise every timer tick while offline produced an
+   * unhandled promise rejection.
+   */
+  private kickSync(): void {
+    void this.plugin.engine?.syncNow().catch(() => undefined);
   }
 
   invalidate(): void {

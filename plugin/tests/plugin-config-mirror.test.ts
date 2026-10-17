@@ -22,7 +22,7 @@ type Harness = {
   api(): { config(): Promise<unknown> };
   updateStatus(): void;
   rebuildSyncEngine(): void;
-  refreshServerCapabilities(): Promise<void>;
+  refreshServerCapabilities(allowRebuild?: boolean): Promise<void>;
 };
 
 function makePlugin(configResponse: {
@@ -72,6 +72,34 @@ describe("refreshServerCapabilities mirrors server config (S6)", () => {
     expect(plugin.settings.textExtensions).toEqual(["md", "canvas", "json"]);
     expect(saved).toHaveLength(1);
     expect(getRebuilt()).toBe(1);
+  });
+
+  it("does not rebuild when the server only reorders the extension list (W6)", async () => {
+    const { plugin, saved, getRebuilt } = makePlugin({
+      supported_text_extensions: ["css", "md", "txt"],
+      push_debounce_ms: 250
+    });
+
+    await plugin.refreshServerCapabilities();
+
+    expect(plugin.settings.textExtensions).toEqual(["md", "txt", "css"]);
+    expect(saved).toHaveLength(0);
+    expect(getRebuilt()).toBe(0);
+  });
+
+  it("does not rebuild when the caller forbids it (W7 migration path)", async () => {
+    const { plugin, saved, getRebuilt } = makePlugin({
+      supported_text_extensions: ["md", "canvas"],
+      push_debounce_ms: 250
+    });
+
+    await plugin.refreshServerCapabilities(false);
+
+    // The mirror still persists the new set...
+    expect(plugin.settings.textExtensions).toEqual(["md", "canvas"]);
+    expect(saved).toHaveLength(1);
+    // ...but must not start an engine before the migrated index is saved.
+    expect(getRebuilt()).toBe(0);
   });
 
   it("does not rewrite settings when the set already matches", async () => {
