@@ -9,6 +9,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- A replayed SSE event older than the local sync position could overwrite
+  newer content and roll the sync head BACK: after a reconnect whose resume
+  point predated a poll that had already synced past it, the replay was
+  applied inline because the dirty check only compares hashes (which still
+  matched), and the index accepted whatever commit it was handed. Events now
+  apply inline only when they extend the current position exactly; anything
+  else converges through a sync, so a stale replay can neither clobber newer
+  content nor regress the head.
 - The `.obsidian` sync allowlist editor could wipe the server-side
   allowlist: the save button was clickable before the current value
   finished loading, and a failed load left the textarea empty — clicking

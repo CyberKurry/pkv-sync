@@ -1286,10 +1286,17 @@ describe("SyncEngine pull", () => {
       pull: vi
         .fn()
         .mockRejectedValueOnce(new Error("server offline"))
+        // W1: the follow-up event does not extend the index position (the
+        // failed pass never advanced it), so the engine converges through
+        // a real pull rather than applying the newer event's changes
+        // alone — which would skip c1's content forever.
         .mockResolvedValue({
-          from: null,
-          to: null,
-          added: [],
+          from: "c0",
+          to: "c2",
+          added: [
+            { path: "first.md", file_type: "text", size: 5, content_inline: "first" },
+            { path: "second.md", file_type: "text", size: 6, content_inline: "second" }
+          ],
           modified: [],
           deleted: []
         }),
@@ -1352,6 +1359,10 @@ describe("SyncEngine pull", () => {
     await vi.waitFor(() => {
       expect(vault.writes.get("second.md")).toBe("second");
     });
+    // The point of the test: one failed fallback does not wedge the chain;
+    // the next event is still processed. W1 adds the other half — the
+    // skipped commit's content is recovered too, not silently dropped.
+    expect(vault.writes.get("first.md")).toBe("first");
     expect(idx.saved?.lastSyncedCommit).toBe("c2");
   });
 
@@ -1573,6 +1584,168 @@ describe("SyncEngine pull", () => {
     expect(sidecar).toBeDefined();
     expect(vault.writes.get(sidecar!)).toBe("A's committed edit");
     expect(idx.saved?.lastSyncedCommit).toBe("c1");
+  });
+
+  it("ignores a replayed commit older than the index position (W1)", async () => {
+    // SSE reconnect: the client resume position (Last-Event-ID) is older
+    // than the index because a poll already synced past it. The server
+    // replays the missed commits — whose content is STALE relative to
+    // what the poll applied. Applying them inline would overwrite the
+    // newer local content and roll lastSyncedCommit BACK (markSynced
+    // records whatever commit it is handed). Only an event that extends
+    // the index position exactly may be applied inline.
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const newHash = await sha256Text("newer content");
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c5",
+      files: {
+        "note.md": {
+          lastSyncedHash: newHash,
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 14
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "note.md",
+        hash: newHash,
+        size: 14,
+        kind: "text",
+        content: "newer content"
+      }
+    ]);
+    const api = {
+      state: vi.fn().mockResolvedValue({ current_head: "c5", changed_since: false }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c5",
+        to: "c5",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      labels: en,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      setStatus: vi.fn()
+    });
+
+    engine.startEventSubscription();
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+    // Replayed C3 (child of C2), while the index already stands at C5.
+    options.onEvent({
+      kind: "commit",
+      commit: "c3",
+      parent: "c2",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [
+        { kind: "text_inline", path: "note.md", content: "stale old content" }
+      ]
+    });
+
+    // Give the event chain a tick to run.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The stale content must never reach the vault, and the head must not
+    // move backwards.
+    expect(vault.writes.get("note.md")).toBeUndefined();
+    expect(idx.saved?.lastSyncedCommit).toBe("c5");
+    expect(idx.saved?.files["note.md"]?.lastSyncedHash).toBe(newHash);
+    // The guard routes the stale event into a conditional sync instead of
+    // applying it inline; the pull from c5 is that observable signal.
+    expect(api.pull).toHaveBeenCalled();
+  });
+
+  it("still applies a live event that extends the index position (W1)", async () => {
+    // Positive control: the guard must not block the healthy sequence —
+    // event C6 whose parent is the index position C5 applies inline.
+    vi.mocked(subscribeVaultEvents).mockReturnValue(vi.fn());
+    const oldHash = await sha256Text("old content");
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c5",
+      files: {
+        "note.md": {
+          lastSyncedHash: oldHash,
+          lastSyncedAt: 1,
+          kind: "text",
+          size: 11
+        }
+      }
+    });
+    const vault = new FakeVault([
+      {
+        path: "note.md",
+        hash: oldHash,
+        size: 11,
+        kind: "text",
+        content: "old content"
+      }
+    ]);
+    const api = {
+      state: vi.fn(),
+      pull: vi.fn().mockResolvedValue({
+        from: "c6",
+        to: "c6",
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: api as unknown as SyncEngineOptions["api"],
+      index: idx,
+      labels: en,
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc",
+      token: "tok",
+      deviceId: "dev",
+      setStatus: vi.fn()
+    });
+
+    engine.startEventSubscription();
+    const options = vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions;
+    options.onEvent({
+      kind: "commit",
+      commit: "c6",
+      parent: "c5",
+      source_device_id: "other",
+      at: 1_700_000_100,
+      changes: [
+        { kind: "text_inline", path: "note.md", content: "fresh content" }
+      ]
+    });
+
+    await vi.waitFor(() => {
+      expect(vault.writes.get("note.md")).toBe("fresh content");
+    });
+    expect(idx.saved?.lastSyncedCommit).toBe("c6");
+    expect(api.pull).not.toHaveBeenCalled();
   });
 
   it("SSE inline apply on clean file applies directly without push", async () => {

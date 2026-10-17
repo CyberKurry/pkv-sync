@@ -247,6 +247,23 @@ export class SyncEngine {
             await this.syncNowInsideChainTask();
             return;
           }
+          // W1: only inline-apply events that extend the index position
+          // exactly. `markSynced` records whatever commit it is handed —
+          // there is no monotonicity check — so an event older than the
+          // current position (an SSE reconnect whose Last-Event-ID predates
+          // a poll that already synced past it) would overwrite newer local
+          // content with stale content and roll the head BACK. Events that
+          // do not extend the position go through a full sync instead,
+          // which converges whether the cause is a stale replay or a
+          // missed event; the stale case costs one empty conditional pull.
+          const indexAtEvent = await this.opts.index.loadIndex();
+          if (ev.commit === indexAtEvent.lastSyncedCommit) {
+            return;
+          }
+          if (ev.parent !== indexAtEvent.lastSyncedCommit) {
+            await this.syncNowInsideChainTask();
+            return;
+          }
           let needFallbackPull = false;
           for (const change of ev.changes) {
             try {
