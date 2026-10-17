@@ -113,6 +113,7 @@ export const ko = {
     "{path}의 실시간 업데이트를 적용하지 못했습니다: {reason}. 전체 동기화로 전환합니다.",
   conflictNotice: "PKV Sync 충돌: {path}",
   conflictCopyFailed: "{path}의 충돌 사본을 작성하지 못했습니다: {reason}",
+  sseAuthFailed: "실시간 동기화가 중지되었습니다: 서버가 토큰을 거부했습니다",
   connectedToServer: "「{serverName}」에 연결되었습니다",
   changeServer: "서버 변경",
   loggedIn: "로그인됨",

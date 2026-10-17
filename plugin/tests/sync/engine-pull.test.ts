@@ -12,7 +12,8 @@ import { notices } from "../mocks/obsidian";
 import { en } from "../../src/i18n/en";
 
 vi.mock("../../src/api/events-client", () => ({
-  subscribeVaultEvents: vi.fn()
+  subscribeVaultEvents: vi.fn(),
+  SseAuthError: class SseAuthError extends Error {}
 }));
 
 class FakeVault {

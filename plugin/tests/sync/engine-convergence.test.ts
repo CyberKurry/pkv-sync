@@ -27,7 +27,8 @@ import { shouldSyncPath } from "../../src/sync/vault-adapter";
 import { notices } from "../mocks/obsidian";
 
 vi.mock("../../src/api/events-client", () => ({
-  subscribeVaultEvents: vi.fn()
+  subscribeVaultEvents: vi.fn(),
+  SseAuthError: class SseAuthError extends Error {}
 }));
 
 // ── Fake infrastructure ─────────────────────────────────────────────────────

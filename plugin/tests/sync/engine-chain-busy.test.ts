@@ -10,7 +10,8 @@ import type { LocalFileSnapshot, LocalIndex, PullResponse } from "../../src/sync
 import { shouldSyncPath } from "../../src/sync/vault-adapter";
 
 vi.mock("../../src/api/events-client", () => ({
-  subscribeVaultEvents: vi.fn()
+  subscribeVaultEvents: vi.fn(),
+  SseAuthError: class SseAuthError extends Error {}
 }));
 
 class FakeVault {

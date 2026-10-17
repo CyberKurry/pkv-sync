@@ -103,6 +103,7 @@ export const zh = {
   inlineApplyFailed: "无法应用 {path} 的实时更新：{reason}。将回退到完整同步。",
   conflictNotice: "PKV Sync 冲突：{path}",
   conflictCopyFailed: "无法为 {path} 写入冲突副本：{reason}",
+  sseAuthFailed: "实时同步已停止：服务器拒绝了该令牌",
   connectedToServer: "已连接到 {serverName}",
   changeServer: "修改服务器",
   loggedIn: "已登录",

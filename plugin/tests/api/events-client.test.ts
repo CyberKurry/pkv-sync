@@ -160,6 +160,58 @@ describe("subscribeVaultEvents", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("stops reconnecting when the server rejects the token (W5)", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      body: null,
+    } as Response);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const onError = vi.fn();
+
+    subscribe({ ...baseOpts, onEvent: vi.fn(), onError });
+
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toMatchObject({ name: "SseAuthError", status: 401 });
+
+    // A revoked token never fixes itself by retrying: no reconnect even
+    // after the maximum backoff window.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the backoff growing when the server accepts and closes without data (W5)", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            body: mockSseStream([]),
+          }) as Response
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    subscribe({ ...baseOpts, onEvent: vi.fn(), onError: vi.fn() });
+
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // First retry after the base delay.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Second retry waits twice as long — the accept-then-close server no
+    // longer resets the counter (it used to storm at ~1 Hz forever).
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("sends a plugin identity header for browser fetch SSE requests", async () => {
     setFetchResponse(() => null, false, 403);
 

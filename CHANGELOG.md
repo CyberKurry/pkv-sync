@@ -9,6 +9,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The realtime stream's reconnect backoff reset as soon as the server
+  accepted the connection, so a server that accepts and immediately closes
+  produced a permanent ~1 Hz reconnect storm; backoff now resets only when
+  the stream actually delivers data. A 401/403 (revoked or expired token)
+  used to be retried as a generic transient error every 30 seconds forever;
+  it now stops the stream and reports that realtime sync was stopped by an
+  authentication failure (polling keeps the vault syncing).
 - The SSE resume-position probe ran its git lookup inline on a tokio
   worker thread on the REST path (the MCP path already used the blocking
   pool), so a cold-cache lookup stalled request processing. Both streams

@@ -1,6 +1,6 @@
 import { Notice } from "obsidian";
 import { ApiError } from "../api/client";
-import { subscribeVaultEvents } from "../api/events-client";
+import { SseAuthError, subscribeVaultEvents } from "../api/events-client";
 import type { SyncApi } from "../api/sync-client";
 import type { VaultEvent } from "../api/types";
 import type { VaultSettings } from "../api/types";
@@ -93,7 +93,10 @@ export interface SyncEngineOptions {
   ): void;
   labels?: Pick<
     Strings,
-    "inlineApplyFailed" | "conflictNotice" | "conflictCopyFailed"
+    | "inlineApplyFailed"
+    | "conflictNotice"
+    | "conflictCopyFailed"
+    | "sseAuthFailed"
   >;
   onSyncSuccess?(): void | Promise<void>;
   vaultSettingsReader?: (vaultId: string) => Promise<VaultSettings>;
@@ -311,6 +314,18 @@ export class SyncEngine {
         }).catch(() => undefined);
       },
       onError: (err: Error) => {
+        if (err instanceof SseAuthError) {
+          // W5: the stream is stopped for good (revoked/expired token).
+          // The poll timer keeps the vault syncing, but realtime stays
+          // off until the credentials are fixed — say so instead of
+          // pretending reconnects will continue.
+          debugLog("[pkv-sync] SSE stream stopped (authentication):", err);
+          this.opts.setStatus(
+            "error",
+            (this.opts.labels ?? strings()).sseAuthFailed
+          );
+          return;
+        }
         debugLog("[pkv-sync] SSE event stream error; automatic reconnect will continue:", err);
       },
     });

@@ -8,7 +8,8 @@ import {
 import type { LocalIndex } from "../../src/sync/types";
 
 vi.mock("../../src/api/events-client", () => ({
-  subscribeVaultEvents: vi.fn()
+  subscribeVaultEvents: vi.fn(),
+  SseAuthError: class SseAuthError extends Error {}
 }));
 
 class FakeIndex implements IndexPersistence {

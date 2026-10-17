@@ -103,6 +103,7 @@ export const en = {
     "Failed to apply realtime update for {path}: {reason}. Falling back to full sync.",
   conflictNotice: "PKV Sync conflict: {path}",
   conflictCopyFailed: "Could not write the conflict copy for {path}: {reason}",
+  sseAuthFailed: "Realtime sync stopped: the server rejected the token",
   connectedToServer: "Connected to {serverName}",
   changeServer: "Change server",
   loggedIn: "Logged in",

@@ -4,6 +4,19 @@ import { isLocalHttpAllowed } from "../url";
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 
+/**
+ * W5: the server refused the credentials (401/403). Reconnecting cannot
+ * fix this — the old loop retried a revoked token every 30s forever and
+ * presented an auth problem as a transient stream error. The subscriber
+ * surfaces this as a stopped stream.
+ */
+export class SseAuthError extends Error {
+  constructor(readonly status: number) {
+    super(`SSE authentication failed (HTTP ${status})`);
+    this.name = "SseAuthError";
+  }
+}
+
 export interface SubscribeOptions {
   serverUrl: string;
   vaultId: string;
@@ -49,10 +62,15 @@ export function subscribeVaultEvents(opts: SubscribeOptions): () => void {
           redirect: "error",
           signal: controller.signal,
         });
+        if (resp.status === 401 || resp.status === 403) {
+          // W5: a revoked/expired token never fixes itself by
+          // reconnecting. Stop the stream and report the real cause.
+          opts.onError(new SseAuthError(resp.status));
+          return;
+        }
         if (!resp.ok || !resp.body) {
           opts.onError(new Error(`SSE failed: HTTP ${resp.status}`));
         } else {
-          reconnectAttempt = 0;
           await readEventStream(resp.body, {
             ownDeviceId: opts.ownDeviceId,
             onEvent: opts.onEvent,
@@ -63,6 +81,13 @@ export function subscribeVaultEvents(opts: SubscribeOptions): () => void {
               if (commit === lastEmittedCommitId) return false;
               if (commit) lastEmittedCommitId = commit;
               return true;
+            },
+            // W5: reset the backoff only once the stream is demonstrably
+            // alive. Resetting on "the server accepted the connection"
+            // turned a server that accepts and immediately closes into
+            // a permanent ~1 Hz reconnect storm.
+            onHealthy: () => {
+              reconnectAttempt = 0;
             },
             signal: controller.signal,
           });
@@ -88,6 +113,8 @@ interface ReadEventStreamOptions {
   onEvent: (e: VaultEvent) => void;
   onCommit: (commit: string) => void;
   shouldEmit: (commit: string) => boolean;
+  /** Called once per connection when the first bytes arrive. */
+  onHealthy: () => void;
   signal: AbortSignal;
 }
 
@@ -98,9 +125,14 @@ async function readEventStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
+  let healthy = false;
   while (!opts.signal.aborted) {
     const { done, value } = await reader.read();
     if (done) return;
+    if (!healthy && value && value.byteLength > 0) {
+      healthy = true;
+      opts.onHealthy();
+    }
     buf += decoder.decode(value, { stream: true });
     let idx: number;
     while ((idx = buf.indexOf("\n\n")) !== -1) {
