@@ -1163,7 +1163,7 @@ mod tests {
             .find("fn push_request_hash")
             .expect("push_request_hash implementation exists");
         let next_struct = source[fn_start..]
-            .find("\nstruct PushMetadataInput")
+            .find("struct PushMetadataInput")
             .map(|idx| fn_start + idx)
             .expect("metadata input follows hash helper");
         let implementation = &source[fn_start..next_struct];

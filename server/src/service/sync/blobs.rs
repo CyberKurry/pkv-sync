@@ -184,7 +184,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upload_check_trusts_vault_upload_row_when_blob_file_is_missing() {
+    async fn upload_check_reports_upload_row_without_blob_file_as_missing() {
+        // K4a: this used to trust the vault's upload row alone, so a
+        // metadata DB that outlived the blob directory told the client
+        // "nothing missing" — the client never re-uploaded and every push
+        // retried the same batch forever on missing_blob. A row without
+        // the file is not availability.
         let (state, user, vid, _tmp) = state_user_vault().await;
         let hash = "1".repeat(64);
         state
@@ -193,11 +198,11 @@ mod tests {
             .await
             .unwrap();
 
-        let resp = upload_check(&state, &user.user_id, &vid, vec![hash])
+        let resp = upload_check(&state, &user.user_id, &vid, vec![hash.clone()])
             .await
             .unwrap();
 
-        assert!(resp.missing.is_empty());
+        assert_eq!(resp.missing, vec![hash]);
     }
 
     #[tokio::test]
