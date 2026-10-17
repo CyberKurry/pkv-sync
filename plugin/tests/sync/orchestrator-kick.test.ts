@@ -8,7 +8,12 @@ import type { LocalIndex } from "../../src/sync/types";
  * an unhandled promise rejection.
  */
 describe("SyncOrchestrator timer kicks (W4)", () => {
-  afterEach(() => {
+  afterEach(async () => {
+    // rebuild() starts a REAL subscribeVaultEvents loop whose async error
+    // path (fetch -> onError -> debugLog) dereferences the stubbed window
+    // after the assertions finish. Give those microtasks a tick while the
+    // stub still exists, then tear down.
+    await new Promise((resolve) => setTimeout(resolve, 20));
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -22,7 +27,12 @@ describe("SyncOrchestrator timer kicks (W4)", () => {
       },
       clearInterval: vi.fn(),
       setTimeout: globalThis.setTimeout,
-      clearTimeout: globalThis.clearTimeout
+      clearTimeout: globalThis.clearTimeout,
+      // debugLog dereferences window.process.env.NODE_ENV on the SSE
+      // error path; without this the stub itself throws inside an async
+      // callback and vitest reports an unhandled rejection (which fails
+      // the coverage CI job).
+      process: { env: { NODE_ENV: "test" } }
     });
 
     const syncClientModule = await import("../../src/api/sync-client");
@@ -136,7 +146,12 @@ describe("SyncOrchestrator timer kicks (W4)", () => {
       },
       clearInterval: vi.fn(),
       setTimeout: globalThis.setTimeout,
-      clearTimeout: globalThis.clearTimeout
+      clearTimeout: globalThis.clearTimeout,
+      // debugLog dereferences window.process.env.NODE_ENV on the SSE
+      // error path; without this the stub itself throws inside an async
+      // callback and vitest reports an unhandled rejection (which fails
+      // the coverage CI job).
+      process: { env: { NODE_ENV: "test" } }
     });
 
     const syncClientModule = await import("../../src/api/sync-client");
