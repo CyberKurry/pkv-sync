@@ -27,6 +27,7 @@ anyhow.workspace = true
 uuid.workspace = true
 rand.workspace = true
 regex.workspace = true
+unicode-normalization = "0.1"
 memchr.workspace = true
 subtle.workspace = true
 ipnet.workspace = true

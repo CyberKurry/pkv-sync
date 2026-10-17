@@ -9,6 +9,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The case-fold guard (which rejects two names that a case-insensitive
+  client would collapse onto one file) missed canonically equivalent
+  spellings: `café.md` in NFC and NFD are two git entries but one file on
+  APFS, so the phantom-delete hazard stayed open for non-ASCII names. The
+  comparison key is now NFD-normalized before case folding; the guard also
+  keeps catching non-ASCII case pairs (`Ä`/`ä`) that a pure ASCII fold
+  would have stopped seeing.
 - A pull that failed on one file (a blob whose bytes do not match, a disk
   error) was retried from the same base, and every retry re-wrote the
   delete-vs-modify conflict copy under a fresh timestamp — an unbounded

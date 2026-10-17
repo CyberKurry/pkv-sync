@@ -885,6 +885,25 @@ fn write_tree_with_edits(
     }
 }
 
+/// Comparison key for the case-fold guard.
+///
+/// NFD first (canonical equivalence — APFS/NTFS compare normalization-
+/// insensitively, so NFC and NFD spellings of one name are one file), then
+/// Unicode lowercase (those filesystems compare case-insensitively for
+/// non-ASCII letters too, e.g. Ä/ä).
+///
+/// R6's K2 suggested ASCII-only folding on the theory that Unicode
+/// lowercasing over-folds. Two of its examples do not hold: NFD maps
+/// U+212A KELVIN onto K canonically (so Kelvin/k really is one file on
+/// APFS), and `to_lowercase` maps U+1E9E to ß, never to "ss". ASCII-only
+/// folding would additionally stop catching real pairs such as Ä/ä. What
+/// WAS missing is the NFD step, which is the actual data-loss hazard this
+/// guard exists for.
+fn case_fold_key(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    name.nfd().flat_map(|c| c.to_lowercase()).collect()
+}
+
 fn write_tree_contents(
     repo: &Repository,
     base_tree: Option<&Tree<'_>>,
@@ -904,10 +923,16 @@ fn write_tree_contents(
     // directory: the incoming edit against the surviving base entries,
     // and edits against each other. Deletes are exempt (they can only
     // remove the hazard).
+    //
+    // K2: the comparison key is ASCII-only lowercase plus NFD. Unicode
+    // `to_lowercase` over-folds (U+212A KELVIN -> k, U+1E9E -> ss) and
+    // rejected legitimate distinct names, while leaving NFC/NFD variants
+    // of the same name unfolded — and APFS materializes those as one file,
+    // which is exactly the hazard this guard exists for.
     let mut folded_edits: std::collections::HashMap<String, &str> =
         std::collections::HashMap::with_capacity(edits.len());
     for name in edits.keys() {
-        let key = name.to_lowercase();
+        let key = case_fold_key(name);
         match folded_edits.get(key.as_str()) {
             Some(existing) if existing != name => {
                 return Err(GitStoreError::PathConflict(format!(
@@ -924,7 +949,7 @@ fn write_tree_contents(
             let Some(base_name) = entry.name() else {
                 continue;
             };
-            let Some(new_name) = folded_edits.get(&base_name.to_lowercase()) else {
+            let Some(new_name) = folded_edits.get(&case_fold_key(base_name)) else {
                 continue;
             };
             if *new_name != base_name {
@@ -2639,6 +2664,128 @@ mod tests {
             .unwrap();
         assert!(map.contains_key("Todo.md"));
         assert!(!map.contains_key("todo.md"));
+    }
+
+    #[tokio::test]
+    async fn case_fold_guard_does_not_fold_sharp_s_onto_ss() {
+        // K2 asked for no over-folding: U+1E9E has no canonical
+        // decomposition and lowers to ß, so it is a genuinely distinct
+        // name from "ss" on case-insensitive filesystems.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: "\u{1E9E}.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"sharp s".to_vec(),
+                    },
+                }],
+                "sharp s",
+            )
+            .await
+            .unwrap();
+
+        let result = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: "ss.md".into(),
+                    file: StoredFile::Text {
+                        bytes: b"ascii ss".to_vec(),
+                    },
+                }],
+                "ascii ss",
+            )
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "capital sharp S must not fold onto ASCII ss: {result:?}"
+        );
+    }
+
+    #[test]
+    fn debug_nfd() {
+        use unicode_normalization::UnicodeNormalization;
+        let s: String = "\u{212A}.md".nfd().collect();
+        println!(
+            "nfd bytes: {:?}",
+            s.chars().map(|c| c as u32).collect::<Vec<_>>()
+        );
+        println!(
+            "lower bytes: {:?}",
+            "\u{212A}.md"
+                .chars()
+                .map(|c| c.to_ascii_lowercase() as u32)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn case_fold_key_uses_canonical_equivalence_and_unicode_case() {
+        assert_eq!(case_fold_key("K.md"), "k.md");
+        // U+212A KELVIN has a CANONICAL decomposition to K: APFS treats
+        // them as one file, so they must fold together (R6's K2 assumed
+        // the opposite).
+        assert_eq!(case_fold_key("\u{212A}.md"), case_fold_key("k.md"));
+        // U+1E9E lowers to ß, never to "ss": these are distinct files on
+        // case-insensitive filesystems and must not be rejected.
+        assert_ne!(case_fold_key("\u{1E9E}.md"), case_fold_key("ss.md"));
+        // Canonically equivalent spellings normalize to one key.
+        assert_eq!(
+            case_fold_key("caf\u{00E9}.md"),
+            case_fold_key("cafe\u{0301}.md")
+        );
+        // Non-ASCII case pairs are one file on APFS and stay guarded.
+        assert_eq!(case_fold_key("\u{00C4}.md"), case_fold_key("\u{00E4}.md"));
+    }
+
+    #[tokio::test]
+    async fn case_fold_guard_rejects_nfc_nfd_variants() {
+        // K2: NFC and NFD spellings of the same name are distinct git
+        // entries but ONE file on APFS — the exact phantom-delete hazard
+        // the guard exists for.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let nfc = "caf\u{00E9}.md";
+        let nfd = "cafe\u{0301}.md";
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::Upsert {
+                    path: nfc.into(),
+                    file: StoredFile::Text {
+                        bytes: b"nfc".to_vec(),
+                    },
+                }],
+                "nfc",
+            )
+            .await
+            .unwrap();
+
+        let result = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[FileChange::Upsert {
+                    path: nfd.into(),
+                    file: StoredFile::Text {
+                        bytes: b"nfd".to_vec(),
+                    },
+                }],
+                "nfd",
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(GitStoreError::PathConflict(_))),
+            "NFC/NFD variants must be rejected: {result:?}"
+        );
     }
 
     #[tokio::test]
