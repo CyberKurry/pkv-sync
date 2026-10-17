@@ -9,10 +9,10 @@ import type { LocalIndex } from "../../src/sync/types";
  */
 describe("SyncOrchestrator timer kicks (W4)", () => {
   afterEach(async () => {
-    // rebuild() starts a REAL subscribeVaultEvents loop whose async error
-    // path (fetch -> onError -> debugLog) dereferences the stubbed window
-    // after the assertions finish. Give those microtasks a tick while the
-    // stub still exists, then tear down.
+    // The tests spy on the real engine, so invalidate() (each test's
+    // finally) aborts the real subscribeVaultEvents loop: its in-flight
+    // fetch rejects with AbortError, which the loop's catch consumes. One
+    // drain tick lets that land while the window stub still exists.
     await new Promise((resolve) => setTimeout(resolve, 20));
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -117,13 +117,15 @@ describe("SyncOrchestrator timer kicks (W4)", () => {
     process.on("unhandledRejection", onUnhandled);
     try {
       orchestrator.rebuild();
-      // Replace the engine with one whose pass always fails, the way an
-      // offline poll tick behaves.
-      plugin.engine = {
-        syncNow: () => Promise.reject(new Error("offline")),
-        stopEventSubscription: vi.fn(),
-        abort: vi.fn()
-      } as never;
+      // Spy on the REAL engine rather than replacing it: a replaced engine
+      // leaks the real subscribeVaultEvents loop (invalidate() would call
+      // the fake's no-op stopEventSubscription), and its in-flight fetch
+      // then errors into onError after the window stub is gone — vitest
+      // reports an unhandled rejection and the coverage job fails on it.
+      const realEngine = plugin.engine as unknown as {
+        syncNow: () => Promise<void>;
+      };
+      vi.spyOn(realEngine, "syncNow").mockRejectedValue(new Error("offline"));
       // rebuild() registered two intervals: poll first, fallback second.
       expect(intervals.length).toBeGreaterThanOrEqual(2);
       intervals[0]();
@@ -233,11 +235,12 @@ describe("SyncOrchestrator timer kicks (W4)", () => {
     const orchestrator = new SyncOrchestrator(plugin as never);
     try {
       orchestrator.rebuild();
-      plugin.engine = {
-        syncNow: async () => undefined,
-        stopEventSubscription: vi.fn(),
-        abort: vi.fn()
-      } as never;
+      // Spy on the real engine (not a replacement) so invalidate() tears
+      // down the real subscription — see the W4 test above.
+      const realEngine = plugin.engine as unknown as {
+        syncNow: () => Promise<void>;
+      };
+      vi.spyOn(realEngine, "syncNow").mockResolvedValue(undefined);
       expect(intervals.length).toBeGreaterThanOrEqual(2);
       const poll = intervals[0];
       for (let i = 0; i < 9; i += 1) poll();
