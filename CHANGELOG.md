@@ -9,6 +9,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The official Docker images (both the CI multi-stage `Dockerfile` and the
+  release-binary `Dockerfile.release`) installed only `ca-certificates` and
+  `curl` in the runtime layer. The server disables the Git smart HTTP
+  endpoints and gc/reflog pruning whenever the `git` binary is missing from
+  `PATH` — regardless of the `enable_git_smart_http` toggle — so on Docker
+  every clone/fetch returned `503 git_unavailable` even with the feature
+  enabled. Both runtime images now install `git`; a regression test pins
+  the package list, and integration tests cover the missing-binary
+  degradation path (503 `git_unavailable`, `/api/config` capability
+  `git_smart_http: false`).
 - The blob existence check probed the store serially, paying one round trip
   per hash; over a network-mounted blob directory that multiplied the
   latency by the batch size. Probes now run with bounded concurrency (32 at

@@ -45,3 +45,4 @@ pkvsyncd materialize <vault-id> -o ./output
 - 该仓库通过 HTTP **只读**。你不能通过 Git 推送更改。
 - 请使用 PKV Sync 插件进行更改，并通过常规同步 API 推送。
 - 如果服务器管理员禁用了 Git smart HTTP，克隆或拉取操作将返回 HTTP 503。
+- 自 v1.7.1 起，官方 Docker 镜像已内置 `git` 二进制文件。旧版本镜像（v1.7.0 及更早）的运行时层没有 `git`，因此即使开关已开启，所有克隆／拉取仍会返回 `503 git_unavailable`；请升级镜像，或使用自行添加 `git` 到 `PATH` 的自定义镜像。

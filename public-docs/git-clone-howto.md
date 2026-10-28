@@ -52,3 +52,7 @@ local copy of your vault.
 - The repository is **read-only** over HTTP. You cannot push changes back via Git.
 - Use the PKV Sync plugin to make changes and push them through the normal sync API.
 - If the server admin disables Git smart HTTP, clone or fetch operations return HTTP 503.
+- Server packages since v1.7.1 ship the `git` binary in the official Docker
+  images. On older images (v1.7.0 and earlier) the runtime layer had no `git`,
+  so every clone/fetch returned `503 git_unavailable` even with the toggle on;
+  upgrade, or run a custom image that adds `git` to `PATH`.

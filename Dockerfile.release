@@ -2,8 +2,10 @@ FROM debian:bookworm-slim
 
 ARG TARGETARCH
 
+# git is required by the Git smart HTTP endpoints (git-upload-pack) and
+# gc/reflog pruning; the server disables both when `git` is missing from PATH.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && apt-get install -y --no-install-recommends ca-certificates curl git \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

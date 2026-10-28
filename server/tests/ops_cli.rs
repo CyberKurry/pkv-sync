@@ -86,6 +86,39 @@ fn docker_images_have_runtime_healthchecks() {
     }
 }
 
+/// The server disables the Git smart HTTP endpoints (and gc/reflog pruning)
+/// whenever `git` is absent from PATH, regardless of the runtime toggle —
+/// so every shipped runtime image must install the `git` package. A missing
+/// git here is exactly the "smart HTTP enabled but forever 503" Docker bug.
+#[test]
+fn docker_runtime_images_install_git_for_smart_http() {
+    for (name, dockerfile) in [
+        ("Dockerfile", include_str!("../../Dockerfile")),
+        (
+            "Dockerfile.release",
+            include_str!("../../Dockerfile.release"),
+        ),
+    ] {
+        // Only the final runtime stage matters; builder stages may or may not
+        // need git. Both of our Dockerfiles have exactly one apt-get install
+        // in the runtime stage, anchored by the ca-certificates/curl set.
+        let runtime_stage = dockerfile
+            .rsplit("FROM debian:bookworm-slim")
+            .next()
+            .unwrap_or(dockerfile);
+        let install_line = runtime_stage
+            .lines()
+            .find(|l| l.contains("apt-get install"))
+            .unwrap_or_else(|| panic!("{name} runtime stage has no apt-get install"));
+        assert!(
+            install_line
+                .split_whitespace()
+                .any(|token| token == "git"),
+            "{name} runtime stage must install git (Git smart HTTP + gc pruning shell out to it): {install_line}"
+        );
+    }
+}
+
 #[test]
 fn caddy_proxy_sets_security_headers_and_body_limit() {
     let caddyfile = include_str!("../../deploy/caddy/Caddyfile");

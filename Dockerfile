@@ -24,8 +24,10 @@ FROM debian:bookworm-slim
 # (docs/reference/.../package-types). Keep the two in step — docs_check
 # asserts they agree.
 LABEL io.modelcontextprotocol.server.name="io.github.cyberkurry/pkv-sync"
+# git is required by the Git smart HTTP endpoints (git-upload-pack) and
+# gc/reflog pruning; the server disables both when `git` is missing from PATH.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && apt-get install -y --no-install-recommends ca-certificates curl git \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=server-builder /app/target/release/pkvsyncd /usr/local/bin/pkvsyncd

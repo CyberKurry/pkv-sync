@@ -27,6 +27,13 @@ impl Drop for TestServer {
 }
 
 async fn start_test_server() -> (TestServer, AppState, String, String) {
+    start_test_server_with_git(true).await
+}
+
+/// `git_available = false` reproduces the shipped Docker images, where the
+/// runtime layer installs no `git` binary: the feature toggle may be on, but
+/// every smart HTTP route must still answer 503 `git_unavailable`.
+async fn start_test_server_with_git(git_available: bool) -> (TestServer, AppState, String, String) {
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");
     std::fs::create_dir_all(&data_dir).unwrap();
@@ -61,7 +68,7 @@ async fn start_test_server() -> (TestServer, AppState, String, String) {
     sqlx::migrate!("./migrations").run(&db).await.unwrap();
 
     // Enable git smart HTTP in runtime config
-    let state = AppState::new(db, data_dir.clone(), "t".into(), true)
+    let state = AppState::new(db, data_dir.clone(), "t".into(), git_available)
         .await
         .unwrap();
     state
@@ -220,6 +227,66 @@ async fn info_refs_returns_503_when_disabled() {
     .unwrap();
 
     assert_eq!(resp.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+}
+
+/// Regression for the shipped Docker images lacking `git`: even with the
+/// runtime toggle ON, a missing git binary must surface as 503
+/// `git_unavailable` (not a 500 or a hang), on both smart HTTP routes.
+#[tokio::test]
+async fn info_refs_returns_503_git_unavailable_when_binary_missing() {
+    let (ts, _state, raw, vid) = start_test_server_with_git(false).await;
+
+    push_text_file(&ts, &raw, &vid, "note.md", "hello").await;
+
+    let resp = auth_headers(
+        client().get(format!(
+            "http://{}/git/{}/info/refs?service=git-upload-pack",
+            ts.addr, vid
+        )),
+        &ts.key,
+    )
+    .header("authorization", basic_auth_header(&raw))
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(resp.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(
+        body.get("error")
+            .and_then(|e| e.get("code"))
+            .and_then(|c| c.as_str()),
+        Some("git_unavailable"),
+        "expected git_unavailable error code, got: {body}"
+    );
+}
+
+/// The `/api/config` capability gate: clients must not see
+/// `git_smart_http: true` when the git binary is missing, even with the
+/// runtime toggle on, so plugins don't advertise a clone feature that
+/// would 503 on every request.
+#[tokio::test]
+async fn public_config_capability_is_false_when_git_binary_missing() {
+    let (ts, _state, _raw, _vid) = start_test_server_with_git(false).await;
+
+    let resp = auth_headers(
+        client().get(format!("http://{}/api/config", ts.addr)),
+        &ts.key,
+    )
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let capability = body
+        .pointer("/capabilities/git_smart_http")
+        .and_then(|c| c.as_bool());
+    assert_eq!(
+        capability,
+        Some(false),
+        "git_smart_http capability must be false without a git binary, got: {body}"
+    );
 }
 
 #[tokio::test]

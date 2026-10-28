@@ -45,3 +45,4 @@ pointer files를 실제 binary content로 바꾸어 완전히 사용할 수 있�
 - HTTP를 통한 repository는 **read-only**입니다. Git으로 변경사항을 push할 수 없습니다.
 - 변경은 PKV Sync plugin에서 수행하고 일반 sync API로 push하세요.
 - Server admin이 Git smart HTTP를 비활성화하면 clone 또는 fetch가 HTTP 503을 반환합니다.
+- v1.7.1부터 공식 Docker image에 `git` binary가 포함됩니다. 이전 image(v1.7.0 이하)의 runtime layer에는 `git`이 없어서 토글을 켰더라도 모든 clone/fetch가 `503 git_unavailable`을 반환했습니다. image를 업그레이드하거나 `git`을 `PATH`에 추가한 커스텀 image를 사용하세요.

@@ -45,3 +45,4 @@ pkvsyncd materialize <vault-id> -o ./output
 - HTTP 上的 repository 是**唯讀**。你不能透過 Git push 變更。
 - 請使用 PKV Sync 外掛進行變更，並透過一般 sync API push。
 - 如果 server admin 停用 Git smart HTTP，clone 或 fetch 會回傳 HTTP 503。
+- 自 v1.7.1 起，官方 Docker image 已內建 `git` binary。舊版 image（v1.7.0 及更早）的 runtime 層沒有 `git`，因此即使開關已開啟，所有 clone／fetch 仍會回傳 `503 git_unavailable`；請升級 image，或使用自行加入 `git` 到 `PATH` 的自訂 image。
