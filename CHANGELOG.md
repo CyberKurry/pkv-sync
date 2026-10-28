@@ -19,6 +19,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
   the package list, and integration tests cover the missing-binary
   degradation path (503 `git_unavailable`, `/api/config` capability
   `git_smart_http: false`).
+- `npm audit --audit-level=moderate` (a CI gate) failed on newly published
+  advisories against build-only devDependencies with no code change:
+  `@vitest/mocker`/`vitest` 4.1.11 (moderate, code injection via manual mock
+  registration) and `vite` 8.0.16 (high, `launch-editor` argument escaping).
+  Bumped `vitest`/`@vitest/coverage-v8` to `^4.1.12` and let `npm audit fix`
+  take `vite` to 8.3.5 within the existing range; plugin tests (438),
+  `tsc --noEmit`, and the production build are green, `npm audit` now exits 0.
 - The blob existence check probed the store serially, paying one round trip
   per hash; over a network-mounted blob directory that multiplied the
   latency by the batch size. Probes now run with bounded concurrency (32 at
