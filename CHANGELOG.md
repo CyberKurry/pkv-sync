@@ -26,6 +26,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
   Bumped `vitest`/`@vitest/coverage-v8` to `^4.1.12` and let `npm audit fix`
   take `vite` to 8.3.5 within the existing range; plugin tests (438),
   `tsc --noEmit`, and the production build are green, `npm audit` now exits 0.
+- That dependency bump was prepared on a machine whose npm pulls from a
+  cloud-internal mirror, so 58 newly written `resolved` URLs in
+  `plugin/package-lock.json` pointed at `mirrors.tencentyun.com` — a host
+  that only resolves inside that cloud. `npm ci` in CI (and the Docker
+  plugin-builder stage) died with `ENOTFOUND` on both jobs. All 58 URLs are
+  rewritten back to `https://registry.npmjs.org`; verified with a clean
+  `rm -rf node_modules && npm ci`, `npm audit` (0), vitest 438/438,
+  `tsc --noEmit`, and a production build.
 - The blob existence check probed the store serially, paying one round trip
   per hash; over a network-mounted blob directory that multiplied the
   latency by the batch size. Probes now run with bounded concurrency (32 at
