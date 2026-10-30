@@ -2,7 +2,7 @@
 
 [English](./deployment-hardening.md) | [简体中文](./deployment-hardening.zh-CN.md) | 繁體中文 | [日本語](./deployment-hardening.ja.md) | [한국어](./deployment-hardening.ko.md)
 
-文件版本：v1.7.0。
+文件版本：v1.7.1。
 
 本文假設部署對象是自己、家庭、團隊或可信朋友使用的小型自託管服務。PKV Sync 運維上比較簡單，但服務端會保存可讀的倉庫內容，因此主機和備份衛生很重要。
 
@@ -356,3 +356,7 @@ PKV Sync 會記錄同步、筆記庫生命週期和唯讀瀏覽活動，包括�
 9. 用新二進位或新映像執行 migrations。
 
 PKV Sync 1.0 使用單一 v1 SQLite 基線。在這次基線之後，已發布的 1.x migration 對既有 1.x 部署保持追加式。
+
+## Docker 映像標籤
+
+v1.7.1 的 `ghcr.io/cyberkurry/pkv-sync:1.7.1` 與 `ghcr.io/cyberkurry/pkv-sync:v1.7.1` 指向同一份發布映像。Compose 範例與 MCP Registry 項目使用不帶 `v` 的標籤。為使部署可重現，請優先固定版本標籤；`latest` 會跟隨最新發行版。

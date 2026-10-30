@@ -5,9 +5,13 @@ PKV Sync 是一个自托管的、Git 原生的 Obsidian 笔记库同步服务端
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.7.0。
+文档版本：v1.7.1。
 
 [English](./README.md) · 简体中文 · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
+
+## 状态
+
+PKV Sync 1.7.1 是当前稳定补丁版本，改进了多设备同步收敛、冲突内容保留和 SSE 恢复，修复了官方 Docker 镜像中的 Git 克隆／拉取及活动页文本筛选，并更新了插件构建依赖。
 
 ## 功能
 

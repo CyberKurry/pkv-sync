@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | [简体中文](./cli-reference.zh-CN.md) | 繁體中文 | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
-文件版本：v1.7.0。
+文件版本：v1.7.1。
 
 `pkvsyncd` 是 PKV Sync 的伺服器常駐程式執行檔，提供 HTTP/WebSocket 同步 API、管理介面、MCP 伺服器，以及一小組維運用的子命令。
 
@@ -200,7 +200,7 @@ pkvsyncd restore -i <BACKUP-DIR> [--data-dir <DIR>] [--force]
 
 - `-i, --input <DIR>`：包含 `MANIFEST.json` 的備份目錄。
 - `--data-dir <DIR>`：用以覆寫的目標資料目錄。預設為 `[storage].data_dir`。
-- `--force`：在還原前清空非空的目標資料目錄。
+- `--force`：在還原前清空既有的 PKV Sync 資料目錄。如果非空目錄中沒有 `metadata.db`、`vaults`、`blobs`、`config.toml` 或 `manifest.json` 等標記，命令會拒絕操作，以保護無關檔案。
 
 ### 說明
 
@@ -287,7 +287,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`：只顯示選中的 release、asset 與目標路徑，不實際下載。
 - `--yes`：略過互動確認提示。
-- `--version <VERSION>`：下載指定 release，例如 `1.7.0`，而非最新版本。
+- `--version <VERSION>`：下載指定 release，例如 `1.7.1`，而非最新版本。
 
 ### 說明
 
@@ -305,5 +305,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 下載指定 release
-pkvsyncd upgrade --yes --version 1.7.0
+pkvsyncd upgrade --yes --version 1.7.1
 ```

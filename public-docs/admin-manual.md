@@ -2,7 +2,7 @@
 
 English | [简体中文](./admin-manual.zh-CN.md) | [繁體中文](./admin-manual.zh-Hant.md) | [日本語](./admin-manual.ja.md) | [한국어](./admin-manual.ko.md)
 
-Document version: v1.7.0.
+Document version: v1.7.1.
 
 This manual covers day-to-day administration for a self-hosted PKV Sync server.
 For network and host hardening, read the deployment hardening guide as well.
@@ -337,7 +337,7 @@ download the verified release binary next to the current executable as
 from `SHA256SUMS` and prints the systemd/manual swap steps. It does not hot
 replace the running process.
 
-Use `pkvsyncd upgrade --version 1.7.0` to target a specific release. If the
+Use `pkvsyncd upgrade --version 1.7.1` to target a specific release. If the
 command cannot find a matching asset or checksum, follow the manual GitHub
 release download path and verify `SHA256SUMS` yourself. Release assets also
 carry GitHub artifact attestations: `gh attestation verify <file> --repo

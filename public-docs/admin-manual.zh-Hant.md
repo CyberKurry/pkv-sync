@@ -2,7 +2,7 @@
 
 [English](./admin-manual.md) | [简体中文](./admin-manual.zh-CN.md) | 繁體中文 | [日本語](./admin-manual.ja.md) | [한국어](./admin-manual.ko.md)
 
-文件版本：v1.7.0。
+文件版本：v1.7.1。
 
 本文涵蓋自託管 PKV Sync 服務端的日常管理。網路與主機加固請同時閱讀部署加固指南。
 
@@ -190,7 +190,7 @@ Blob 檔案是內容定址的，可能會保留到垃圾回收確認其超過寬
 - 詳情
 - 時間戳
 
-使用活動篩選可以檢查特定使用者或操作類型。
+使用活動篩選可以檢查特定使用者、操作類型、裝置／智能體或 MCP 工具。使用者與動作下拉選單會自動套用篩選。文字篩選需輸入完整的裝置／智能體名稱或工具名稱，然後按一下「套用」或按 Enter。兩個文字欄位均按完整名稱比對，可以與其他篩選條件組合使用。清空文字欄位並再次套用即可移除對應條件。
 
 `create_vault` 和 `delete_vault` 來自管理面板、外掛和 API 的筆記庫建立／刪除操作。
 
@@ -212,7 +212,7 @@ https://sync.example.com/k_xxx/
 `SHA256SUMS` 驗證 SHA-256，並印出 systemd／手動替換的步驟。它不會熱替換正在
 執行的行程。
 
-用 `pkvsyncd upgrade --version 1.7.0` 指定特定發行版。如果命令找不到相符的資產
+用 `pkvsyncd upgrade --version 1.7.1` 指定特定發行版。如果命令找不到相符的資產
 或校驗和，請改走手動下載 GitHub 發行版的路徑，並自行驗證 `SHA256SUMS`。發行資產也帶有 GitHub artifact attestation：`gh attestation verify <file> --repo cyberkurry/pkv-sync` 可證明某個二進位檔、外掛 zip 或 `SHA256SUMS` 來自本倉庫的發行工作流。
 
 0.x 的部署請不要把 1.0 的二進位或映像檔指向既有的 `metadata.db`。先備份、

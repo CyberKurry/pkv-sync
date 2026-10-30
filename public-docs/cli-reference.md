@@ -2,7 +2,7 @@
 
 English | [简体中文](./cli-reference.zh-CN.md) | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
-Document version: v1.7.0.
+Document version: v1.7.1.
 
 `pkvsyncd` is the PKV Sync server daemon binary. It hosts the HTTP/WebSocket
 sync API, the admin UI, the MCP server, and a small set of operational
@@ -224,7 +224,7 @@ pkvsyncd restore -i <BACKUP-DIR> [--data-dir <DIR>] [--force]
 
 - `-i, --input <DIR>`: backup directory containing `MANIFEST.json`.
 - `--data-dir <DIR>`: target data directory override. Defaults to `[storage].data_dir`.
-- `--force`: clear a non-empty target data directory before restoring.
+- `--force`: clear a non-empty PKV Sync data directory before restoring. A non-empty directory without `metadata.db`, `vaults`, `blobs`, `config.toml`, or `manifest.json` is refused to protect unrelated files.
 
 ### Description
 
@@ -334,7 +334,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: show the selected release, asset, and target path without downloading anything.
 - `--yes`: skip the interactive confirmation prompt.
-- `--version <VERSION>`: download a specific release such as `1.5.0` instead of the latest release.
+- `--version <VERSION>`: download a specific release such as `1.7.1` instead of the latest release.
 
 ### Description
 
@@ -358,5 +358,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # Download a specific release
-pkvsyncd upgrade --yes --version 1.7.0
+pkvsyncd upgrade --yes --version 1.7.1
 ```

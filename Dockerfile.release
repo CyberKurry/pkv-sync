@@ -1,5 +1,7 @@
 FROM debian:bookworm-slim
 
+LABEL io.modelcontextprotocol.server.name="io.github.cyberkurry/pkv-sync"
+
 ARG TARGETARCH
 
 # git is required by the Git smart HTTP endpoints (git-upload-pack) and

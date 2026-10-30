@@ -2,7 +2,7 @@
 
 English | [简体中文](./deployment-hardening.zh-CN.md) | [繁體中文](./deployment-hardening.zh-Hant.md) | [日本語](./deployment-hardening.ja.md) | [한국어](./deployment-hardening.ko.md)
 
-Document version: v1.7.0.
+Document version: v1.7.1.
 
 This guide assumes a small self-hosted deployment for yourself, family, a team,
 or a trusted group of friends. PKV Sync is operationally simple, but it stores
@@ -450,3 +450,7 @@ Before upgrading production:
 
 PKV Sync 1.0 uses a single v1 SQLite baseline. After that baseline, published
 1.x migrations are append-only for existing 1.x deployments.
+
+## Docker image tags
+
+For v1.7.1, `ghcr.io/cyberkurry/pkv-sync:1.7.1` and `ghcr.io/cyberkurry/pkv-sync:v1.7.1` name the same release image. The Compose examples and MCP Registry entry use the tag without `v`. Prefer a version tag for repeatable deployments; `latest` follows the newest release.

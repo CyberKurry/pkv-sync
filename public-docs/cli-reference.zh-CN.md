@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | 简体中文 | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | [한국어](./cli-reference.ko.md)
 
-文档版本：v1.7.0。
+文档版本：v1.7.1。
 
 `pkvsyncd` 是 PKV Sync 的服务端守护进程二进制文件。它承载 HTTP/WebSocket 同步 API、管理界面、MCP 服务器，以及一小组运维子命令。
 
@@ -200,7 +200,7 @@ pkvsyncd restore -i <BACKUP-DIR> [--data-dir <DIR>] [--force]
 
 - `-i, --input <DIR>`：包含 `MANIFEST.json` 的备份目录。
 - `--data-dir <DIR>`：目标 data 目录覆盖项。默认使用 `[storage].data_dir`。
-- `--force`：在恢复前清空非空的目标 data 目录。
+- `--force`：在恢复前清空已有的 PKV Sync 数据目录。若非空目录中没有 `metadata.db`、`vaults`、`blobs`、`config.toml` 或 `manifest.json` 等标记，命令会拒绝操作，以保护无关文件。
 
 ### 说明
 
@@ -287,7 +287,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`：显示所选的发行版、资产和目标路径，但不下载任何文件。
 - `--yes`：跳过交互式确认提示。
-- `--version <VERSION>`：下载指定版本（例如 `1.7.0`），而不是最新发行版。
+- `--version <VERSION>`：下载指定版本（例如 `1.7.1`），而不是最新发行版。
 
 ### 说明
 
@@ -305,5 +305,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 下载指定版本
-pkvsyncd upgrade --yes --version 1.7.0
+pkvsyncd upgrade --yes --version 1.7.1
 ```

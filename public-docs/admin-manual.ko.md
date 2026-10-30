@@ -2,7 +2,7 @@
 
 [English](./admin-manual.md) | [简体中文](./admin-manual.zh-CN.md) | [繁體中文](./admin-manual.zh-Hant.md) | [日本語](./admin-manual.ja.md) | 한국어
 
-문서 버전: v1.7.0.
+문서 버전: v1.7.1.
 
 이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
 
@@ -192,7 +192,7 @@ Settings 페이지는 SQLite에 저장된 값을 편집합니다. 변경 사항�
 - details
 - timestamp
 
-활동 필터를 사용해 특정 사용자나 작업 유형을 확인할 수 있습니다.
+활동은 사용자, 작업 유형, 기기／에이전트 이름 또는 MCP 도구로 필터링할 수 있습니다. 사용자와 작업 선택은 자동으로 적용됩니다. 텍스트 필터에는 기기／에이전트 이름이나 도구 이름 전체를 입력한 뒤 적용 버튼을 누르거나 Enter 키를 누르세요. 이름은 완전히 일치해야 하며 다른 조건과 함께 사용할 수 있습니다. 텍스트 필드를 비우고 다시 적용하면 해당 조건이 해제됩니다.
 
 `create_vault`와 `delete_vault`는 관리 패널, 플러그인, API의 vault 생성/삭제 작업에서 옵니다.
 
@@ -214,7 +214,7 @@ https://sync.example.com/k_xxx/
 `pkvsyncd.new.exe`)로 내려받습니다. 이 명령은 `SHA256SUMS`에서 SHA-256을 검증하고
 systemd／수동 교체 단계를 출력합니다. 실행 중인 프로세스를 핫 교체하지는 않습니다.
 
-`pkvsyncd upgrade --version 1.7.0`으로 특정 릴리스를 지정할 수 있습니다. 일치하는
+`pkvsyncd upgrade --version 1.7.1`으로 특정 릴리스를 지정할 수 있습니다. 일치하는
 에셋이나 체크섬을 찾지 못하면 GitHub 릴리스를 직접 내려받는 경로를 따라가고
 `SHA256SUMS`를 직접 검증하세요. 릴리스 자산에는 GitHub artifact attestation도 함께 제공됩니다. `gh attestation verify <file> --repo cyberkurry/pkv-sync`로 바이너리, 플러그인 zip, `SHA256SUMS`가 이 저장소의 릴리스 워크플로에서 빌드되었음을 확인할 수 있습니다.
 

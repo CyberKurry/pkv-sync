@@ -5,9 +5,15 @@ PKV Sync is a self-hosted, Git-native sync server for Obsidian vaults.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.7.0.
+Document version: v1.7.1.
 
 English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
+
+## Status
+
+PKV Sync 1.7.1 is the current stable patch release. It improves sync convergence,
+conflict preservation and SSE recovery, restores Git clone/fetch in the official
+Docker images, fixes activity text filters, and updates plugin build dependencies.
 
 ## Features
 

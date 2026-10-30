@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | [简体中文](./cli-reference.zh-CN.md) | [繁體中文](./cli-reference.zh-Hant.md) | [日本語](./cli-reference.ja.md) | 한국어
 
-문서 버전: v1.7.0.
+문서 버전: v1.7.1.
 
 `pkvsyncd`는 PKV Sync 서버 데몬 바이너리입니다. HTTP/WebSocket 동기화 API, 관리자 UI, MCP 서버, 그리고 소수의 운영용 서브커맨드를 호스팅합니다.
 
@@ -200,7 +200,7 @@ pkvsyncd restore -i <BACKUP-DIR> [--data-dir <DIR>] [--force]
 
 - `-i, --input <DIR>`: `MANIFEST.json`이 포함된 백업 디렉터리입니다.
 - `--data-dir <DIR>`: 대상 데이터 디렉터리 오버라이드입니다. 기본값은 `[storage].data_dir`입니다.
-- `--force`: 복원 전에 비어 있지 않은 대상 데이터 디렉터리를 비웁니다.
+- `--force`: 복원 전에 기존 PKV Sync 데이터 디렉터리를 비웁니다. 비어 있지 않은 디렉터리에 `metadata.db`, `vaults`, `blobs`, `config.toml`, `manifest.json` 중 어느 것도 없으면 관련 없는 파일을 보호하기 위해 작업을 거부합니다.
 
 ### 설명
 
@@ -287,7 +287,7 @@ pkvsyncd upgrade [--dry-run] [--yes] [--version <VERSION>]
 
 - `--dry-run`: 아무것도 다운로드하지 않고 선택된 릴리스, 에셋, 대상 경로를 표시합니다.
 - `--yes`: 대화형 확인 프롬프트를 건너뜁니다.
-- `--version <VERSION>`: 최신 릴리스 대신 `1.7.0` 같은 특정 릴리스를 다운로드합니다.
+- `--version <VERSION>`: 최신 릴리스 대신 `1.7.1` 같은 특정 릴리스를 다운로드합니다.
 
 ### 설명
 
@@ -305,5 +305,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 특정 릴리스 다운로드
-pkvsyncd upgrade --yes --version 1.7.0
+pkvsyncd upgrade --yes --version 1.7.1
 ```

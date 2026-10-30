@@ -157,7 +157,11 @@ fn compose_examples_avoid_latest_and_floating_proxy_tags() {
     }
 
     let root_compose = include_str!("../../docker-compose.yml");
-    assert!(root_compose.contains("ghcr.io/cyberkurry/pkv-sync:${PKV_SYNC_TAG:-1.7.0}"));
+    let release_image = format!(
+        "ghcr.io/cyberkurry/pkv-sync:${{PKV_SYNC_TAG:-{}}}",
+        env!("CARGO_PKG_VERSION")
+    );
+    assert!(root_compose.contains(&release_image));
     assert!(root_compose.contains("caddy:2.10.2"));
 
     let updater = include_str!("../../deploy/updater/compose.updater.yml");
@@ -167,7 +171,7 @@ fn compose_examples_avoid_latest_and_floating_proxy_tags() {
     let traefik = include_str!("../../deploy/traefik/docker-compose.traefik.yml");
     assert!(traefik.contains("tecnativa/docker-socket-proxy:0.4.2"));
     assert!(traefik.contains("traefik:v3.0.4"));
-    assert!(traefik.contains("ghcr.io/cyberkurry/pkv-sync:${PKV_SYNC_TAG:-1.7.0}"));
+    assert!(traefik.contains(&release_image));
 }
 
 #[test]

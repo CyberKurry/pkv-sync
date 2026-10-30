@@ -2,7 +2,7 @@
 
 [English](./deployment-hardening.md) | 简体中文 | [繁體中文](./deployment-hardening.zh-Hant.md) | [日本語](./deployment-hardening.ja.md) | [한국어](./deployment-hardening.ko.md)
 
-文档版本：v1.7.0。
+文档版本：v1.7.1。
 
 本文假设部署对象是自己、家庭、团队或可信朋友使用的小型自托管服务。PKV Sync 运维上比较简单，但服务端会保存可读的仓库内容，因此主机和备份卫生很重要。
 
@@ -354,3 +354,7 @@ PKV Sync 会记录 push、pull、create_vault 和 delete_vault 活动，包括�
 9. 用新二进制或新镜像运行 migrations。
 
 PKV Sync 1.0 使用单个 v1 SQLite 基线。在这次基线之后，已发布的 1.x migration 对已有 1.x 部署保持追加式。
+
+## Docker 镜像标签
+
+v1.7.1 的 `ghcr.io/cyberkurry/pkv-sync:1.7.1` 与 `ghcr.io/cyberkurry/pkv-sync:v1.7.1` 指向同一份发布镜像。Compose 示例和 MCP Registry 条目使用不带 `v` 的标签。为使部署可重复，请优先固定版本标签；`latest` 会跟随最新发行版。

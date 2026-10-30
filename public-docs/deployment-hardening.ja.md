@@ -2,7 +2,7 @@
 
 [English](./deployment-hardening.md) | [简体中文](./deployment-hardening.zh-CN.md) | [繁體中文](./deployment-hardening.zh-Hant.md) | 日本語 | [한국어](./deployment-hardening.ko.md)
 
-ドキュメントバージョン: v1.7.0。
+ドキュメントバージョン: v1.7.1。
 
 この文書は機械翻訳による初版です。公開前にネイティブ話者によるレビューを推奨します。
 
@@ -358,3 +358,7 @@ PKV Sync は同期、vault ライフサイクル、読み取り専用閲覧ア�
 9. 新しい binary または image で migrations を実行します。
 
 PKV Sync 1.0 は単一の v1 SQLite baseline を使用します。この baseline 以後、公開済みの 1.x migrations は既存の 1.x デプロイメントに対して append-only です。
+
+## Docker イメージのタグ
+
+v1.7.1 では、`ghcr.io/cyberkurry/pkv-sync:1.7.1` と `ghcr.io/cyberkurry/pkv-sync:v1.7.1` は同じリリースイメージを指します。Compose の例と MCP Registry の定義は、`v` のないタグを使用します。再現可能なデプロイにはバージョンタグを固定してください。`latest` は最新のリリースに追従します。

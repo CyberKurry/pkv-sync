@@ -5,9 +5,13 @@ PKV Sync는 Obsidian Vault를 자체 호스팅으로 동기화하는 Git 네이�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-문서 버전: v1.7.0.
+문서 버전: v1.7.1.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · 한국어
+
+## 릴리스 상태
+
+PKV Sync 1.7.1은 현재 안정 패치 릴리스입니다. 여러 기기의 동기화 수렴, 충돌 내용 보존과 SSE 복구를 개선하고, 공식 Docker 이미지의 Git 복제／가져오기와 활동 페이지의 텍스트 필터를 수정했습니다. 플러그인 빌드 의존성도 업데이트했습니다.
 
 ## 기능
 

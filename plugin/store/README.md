@@ -10,6 +10,12 @@ Self-hosted, Git-backed synchronization for Obsidian.
 
 [简体中文](README.zh-CN.md)
 
+## Current release
+
+PKV Sync 1.7.1 improves sync convergence, conflict preservation and SSE recovery,
+fixes migration and conflict-dialog recovery, and updates plugin build dependencies.
+Use the matching server release for the Docker Git and activity-filter fixes.
+
 ## What it is
 
 PKV Sync keeps your vaults in sync across devices through a server **you** host.

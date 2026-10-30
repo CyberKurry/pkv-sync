@@ -7,8 +7,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-10-31
+
 ### Fixed
 
+- Published Docker images now provide both `1.7.1` and `v1.7.1` tags, matching
+  the version pinned by the Compose examples and MCP Registry entry. Previous
+  releases published only the `v`-prefixed tag, so the unprefixed image in those
+  configurations returned `manifest unknown`. Release images also carry the
+  MCP server ownership label, matching the development Dockerfile.
 - Admin activity device/agent and tool text filters could not be submitted with
   JavaScript enabled: the only submit button was inside `noscript`, and the two
   text fields prevented implicit Enter submission. The Apply button is now
