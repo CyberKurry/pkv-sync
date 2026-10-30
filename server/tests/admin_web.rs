@@ -1492,6 +1492,38 @@ async fn activity_page_filters_by_user_and_action() {
     assert!(body.contains("<option value=\"pull\" selected>Pull</option>"));
 }
 
+#[tokio::test]
+async fn activity_text_filters_have_a_submit_button_with_javascript_enabled() {
+    let (app, _state, _dir) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let mut req = request(Method::GET, "/admin/activity", Body::empty());
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = read_body(resp).await;
+
+    let form_pattern =
+        regex::Regex::new(r#"(?s)<form\b[^>]*action="/admin/activity"[^>]*>(.*?)</form>"#).unwrap();
+    let form = form_pattern.captures(&body).expect("activity filter form");
+    let noscript_pattern = regex::Regex::new(r"(?s)<noscript\b[^>]*>.*?</noscript>").unwrap();
+    let scripted_form = noscript_pattern.replace_all(&form[1], "");
+    assert!(scripted_form.contains("name=\"agent\""));
+    assert!(scripted_form.contains("name=\"tool\""));
+
+    let button_pattern = regex::Regex::new(r"<button\b([^>]*)>").unwrap();
+    let type_pattern = regex::Regex::new(r#"\btype=["']([^"']+)["']"#).unwrap();
+    assert!(
+        button_pattern.captures_iter(&scripted_form).any(|button| {
+            type_pattern
+                .captures(&button[1])
+                .is_none_or(|kind| &kind[1] == "submit")
+                && !button[1].contains("disabled")
+        }),
+        "text filters need a submit button outside noscript so clicking Apply or pressing Enter works"
+    );
+}
+
 /// D-7: an MCP write must be attributable. The activity row carries the
 /// tool that made the change, the device column already carried the token's
 /// name, and both are filterable — so an operator can answer "which agent

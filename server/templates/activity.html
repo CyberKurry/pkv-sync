@@ -24,7 +24,7 @@
   </select>
   <input type="text" name="agent" value="{{ selected_agent }}" placeholder="{{ t.filter_agent }}" aria-label="{{ t.filter_agent }}" class="filter-input">
   <input type="text" name="tool" value="{{ selected_tool }}" placeholder="{{ t.filter_tool }}" aria-label="{{ t.filter_tool }}" class="filter-input">
-  <noscript><button class="secondary small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#filter"></use></svg>{{ t.apply }}</button></noscript>
+  <button type="submit" class="secondary small"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#filter"></use></svg>{{ t.apply }}</button>
 </form>
 {% endblock %}
 {% block content %}

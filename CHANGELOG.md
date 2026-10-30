@@ -9,6 +9,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Admin activity device/agent and tool text filters could not be submitted with
+  JavaScript enabled: the only submit button was inside `noscript`, and the two
+  text fields prevented implicit Enter submission. The Apply button is now
+  always available, so clicking it or pressing Enter submits all active filters.
 - The official Docker images (both the CI multi-stage `Dockerfile` and the
   release-binary `Dockerfile.release`) installed only `ca-certificates` and
   `curl` in the runtime layer. The server disables the Git smart HTTP

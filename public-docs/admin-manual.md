@@ -311,7 +311,11 @@ Activity rows include:
 - details
 - timestamp
 
-Use the activity filters to inspect a specific user or operation type.
+Use the activity filters to inspect a specific user, operation type, device/agent,
+or MCP tool. User and action selections apply automatically. For the text filters,
+enter the full device/agent name or tool name, then click **Apply** or press
+**Enter**. Both text filters match full names and can be combined with the other
+filters. Clear a text field and apply again to remove that filter.
 
 ## Sharing Server URLs
 
