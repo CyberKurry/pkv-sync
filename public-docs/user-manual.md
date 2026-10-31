@@ -294,6 +294,9 @@ history-preserving moves — guarded by optimistic concurrency. See
 
 PKV Sync adds these command palette actions:
 
+Unreleased: refreshing account info resumes sync after an identity change.
+An active migration or unresolved storage recovery still keeps sync paused.
+
 - Show sync status
 - Refresh account info
 - Manual sync now

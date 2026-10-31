@@ -31,6 +31,8 @@ export function registerCommands(plugin: PKVSyncPlugin, t: Strings): void {
           stamp
         );
         if (!accepted) return;
+        await plugin.resumeSyncForCurrentScope();
+        if (!plugin.isConnectionCurrent(accepted)) return;
         new Notice(format(t.refreshedVaults, { count: me.vaults.length }));
       } catch (error) {
         new Notice(errorToMessage(error));

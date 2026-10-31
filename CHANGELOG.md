@@ -9,6 +9,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Refreshing account info now resumes sync when the server fills in a user ID
+  or corrects the username, while preserving migration and storage-recovery
+  pauses. Previously the identity update stopped the engine without restarting it.
 - Pushes are now batched by serialized JSON byte size as well as change count.
   A sync with 722 text changes used to be sent as one ~2.4 MB request that the
   server rejected with `413` on every attempt, so the vault never synced. The
