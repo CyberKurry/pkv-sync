@@ -1190,9 +1190,11 @@ export default class PKVSyncPlugin extends Plugin {
           if (!result) throw new Error("migration_result_missing");
           if (engineFailed) {
             new Notice(t.migrateEngineFailed);
-            return result;
+            throw new Error(t.migrateEngineFailed);
           }
-          if (!context.isCompletionCurrent(ticket)) return result;
+          if (!context.isCompletionCurrent(ticket)) {
+            throw new Error(t.migrateScopeChanged);
+          }
           new Notice(
             format(t.migrateCompleteNotice, {
               name: result.vaultName,

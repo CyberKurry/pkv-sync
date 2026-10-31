@@ -297,6 +297,11 @@ PKV Sync adds these command palette actions:
 Unreleased: refreshing account info resumes sync after an identity change.
 An active migration or unresolved storage recovery still keeps sync paused.
 
+Unreleased: migration is complete only when its saved state is still current
+and sync has restarted. If restarting fails, the saved vault selection and
+index remain, and the modal reports recovery failure. A newer selection also
+prevents the old migration from displaying completion.
+
 - Show sync status
 - Refresh account info
 - Manual sync now

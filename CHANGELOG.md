@@ -9,6 +9,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Migration no longer reports completion if engine recovery fails or another
+  selection supersedes it. The modal shows the recovery or scope error while
+  preserving any vault selection and index already committed successfully.
 - Refreshing account info now resumes sync when the server fills in a user ID
   or corrects the username, while preserving migration and storage-recovery
   pauses. Previously the identity update stopped the engine without restarting it.

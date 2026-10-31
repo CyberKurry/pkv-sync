@@ -180,14 +180,14 @@ describe("migration completion commit", () => {
     };
     await h.plugin.openMigrationModal();
 
-    const result = await captured[0].onStart(
+    await expect(captured[0].onStart(
       "New Vault",
       () => undefined,
       () => false
-    );
+    )).rejects.toThrow(h.plugin.text().migrateEngineFailed);
 
-    expect(result).toMatchObject({ vaultId: "vault-new" });
     expect(h.savedSettings().selectedVaultId).toBe("vault-new");
+    expect(h.savedIndex(targetScopeKey(h.oldSettings(), "vault-new")).files).toHaveProperty("a.md");
     expect(notices).toContain(h.plugin.text().migrateEngineFailed);
     expect(notices).not.toContain(h.plugin.text().migrateRecoveryFailed);
   });
