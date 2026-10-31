@@ -88,6 +88,14 @@ export const zh = {
   migrateStageUploadingBlobs: "正在上传二进制文件",
   migrateStagePushing: "正在推送文件",
   migrateStageComplete: "迁移完成",
+  migrateStageCommitting: "正在保存迁移状态，此步骤不可取消。",
+  migrateScopeChanged: "连接或所选 vault 已改变，迁移已停止。",
+  migrateSaveFailed: "迁移状态保存失败，已恢复原选择。",
+  migrateRecoveryFailed:
+    "迁移状态恢复失败，同步已暂停。请检查存储并重新加载插件。",
+  migrateEngineFailed: "迁移状态已保存，但同步引擎未能恢复。",
+  localStateRecoveryFailed:
+    "本地状态恢复失败，同步已暂停。请检查存储并重新加载插件。",
   migrateProgressSummary:
     "{processed}/{total} 个文件 - 批次 {batch}/{batches} - 二进制 {blobs}/{totalBlobs}",
   migrateCompleteSummary: "已迁移 {count} 个文件 - 已跳过 {skipped} 个",

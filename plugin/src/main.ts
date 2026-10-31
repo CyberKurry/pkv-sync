@@ -2,7 +2,18 @@ import { Notice, Platform, Plugin, TFile } from "obsidian";
 import { ApiClient } from "./api/client";
 import { HistoryApi } from "./api/history-client";
 import { SyncApi } from "./api/sync-client";
-import type { CommitSummary, ServerCapabilities } from "./api/types";
+import type {
+  CommitSummary,
+  ServerCapabilities,
+  ServerConfigResponse
+} from "./api/types";
+import {
+  ConnectionContext,
+  OperationStoppedError,
+  type ConnectionIdentity,
+  type ConnectionStamp,
+  type RefreshTicket
+} from "./connection-context";
 import { generateDeviceId } from "./device-id";
 import {
   readPluginSettings,
@@ -32,8 +43,10 @@ import {
   detectObsidianSync,
   migrateToPkv,
   scanVaultForMigration,
-  type MigrationApi
+  type MigrationProgress,
+  type MigrationResult
 } from "./sync/migrate-from-obsidian-sync";
+import { writeMigrationCompletion } from "./sync/migration-commit";
 import {
   deleteConflictFiles,
   findConflictPairsForPathWithKinds,
@@ -60,7 +73,8 @@ import { MigrateModal } from "./ui/migrate-modal";
 import { SyncStatusBar } from "./ui/status-bar";
 import { formatRelativeUnixSeconds, formatUnixSeconds } from "./time";
 import { isFetchableServerUrl } from "./url";
-import { SerializedPluginDataStore } from "./plugin-store";
+import { DataCommitError, SerializedPluginDataStore } from "./plugin-store";
+import { LEGACY_PUSH_LIMITS, normalizePushLimits, type PushLimits } from "./sync/push-limits";
 import {
   recoverPendingUpdate,
   UpdateCheckService,
@@ -68,6 +82,8 @@ import {
   type PluginUpdateStatus
 } from "./services/update-check";
 import { errorToMessage, extensionOf } from "./util";
+
+type CompletionState = "old_safe" | "new_committed" | "disk_uncertain";
 
 export default class PKVSyncPlugin extends Plugin {
   settings: PKVSyncSettings = DEFAULT_SETTINGS;
@@ -90,7 +106,15 @@ export default class PKVSyncPlugin extends Plugin {
   updateDelayTimer: number | null = null;
   updateIntervalTimer: number | null = null;
   private serverCapabilities: ServerCapabilities | null = null;
+  serverPushLimits: Readonly<PushLimits> = LEGACY_PUSH_LIMITS;
+  /**
+   * Set when a local write could not be confirmed on disk. Every entry point
+   * that would rebuild the engine checks it, so a later connection switch or
+   * settings save cannot pretend the storage problem is gone.
+   */
+  persistenceRecoveryRequired = false;
   syncGeneration = 0;
+  private connectionContextInstance: ConnectionContext | null = null;
   private dataStore = new SerializedPluginDataStore(
     () => this.loadData(),
     (data) => this.saveData(data)
@@ -107,6 +131,24 @@ export default class PKVSyncPlugin extends Plugin {
       this.orchestratorInstance = new SyncOrchestrator(this);
     }
     return this.orchestratorInstance;
+  }
+
+  private get connectionContext(): ConnectionContext {
+    this.connectionContextInstance ??= new ConnectionContext(
+      this.currentIdentity(),
+      this.settings.selectedVaultId
+    );
+    return this.connectionContextInstance;
+  }
+
+  private currentIdentity(): ConnectionIdentity {
+    return {
+      serverUrl: this.settings.serverUrl,
+      deploymentKey: this.settings.deploymentKey,
+      token: this.settings.token,
+      userId: this.settings.userId,
+      username: this.settings.username
+    };
   }
 
   async onload(): Promise<void> {
@@ -131,6 +173,13 @@ export default class PKVSyncPlugin extends Plugin {
       this.settings.deploymentKey = auth.deploymentKey ?? "";
       this.settings.userId = auth.userId ?? "";
     }
+    // Identity and selection are captured ONCE from the fully merged
+    // settings (data.json + auth store). Every later write is validated
+    // against this baseline through the protected entries.
+    this.connectionContextInstance = new ConnectionContext(
+      this.currentIdentity(),
+      this.settings.selectedVaultId
+    );
     let shouldSaveSettings = false;
     if (!this.settings.deviceId) {
       this.settings.deviceId = generateDeviceId();
@@ -173,15 +222,107 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   async saveSettings(options: { rebuild?: boolean } = {}): Promise<void> {
-    await this.dataStore.update((data) =>
-      writePluginSettingsWithoutAuth(data, this.settings)
-    );
-    this.persistAuth();
+    await this.connectionContext.runLocal(() => this.persistSettingsLocked());
     // W7: a rebuild-forbidden save (the migration path) must also forbid
     // the mirror's own rebuild.
     void this.refreshServerCapabilities(options.rebuild !== false);
     this.updateStatus();
     if (options.rebuild !== false) this.rebuildSyncEngine();
+  }
+
+  private async persistSettingsLocked(): Promise<void> {
+    await this.dataStore.update((data) =>
+      writePluginSettingsWithoutAuth(data, this.settings)
+    );
+    this.persistAuth();
+  }
+
+  currentPushLimits(): Readonly<PushLimits> {
+    return this.serverPushLimits;
+  }
+
+  captureConnection(): Promise<ConnectionStamp> {
+    return this.connectionContext.runLocal(() =>
+      this.connectionContext.snapshotLocked()
+    );
+  }
+
+  isConnectionCurrent(stamp: ConnectionStamp): boolean {
+    return this.connectionContext.isConnectionCurrent(stamp);
+  }
+
+  apiForConnection(stamp: ConnectionStamp): ApiClient {
+    return new ApiClient({
+      serverUrl: stamp.connection.serverUrl,
+      deploymentKey: stamp.connection.deploymentKey,
+      token: stamp.connection.token,
+      pluginVersion: this.manifest.version
+    });
+  }
+
+  async setConnectionPatch(
+    patch: Partial<ConnectionIdentity>,
+    expected?: ConnectionStamp
+  ): Promise<ConnectionStamp | null> {
+    const accepted = await this.connectionContext.runLocal(async () => {
+      if (expected && !this.connectionContext.isConnectionCurrent(expected)) {
+        return null;
+      }
+      const current = this.currentIdentity();
+      const changed = this.connectionContext.replaceConnectionLocked({
+        serverUrl: patch.serverUrl ?? current.serverUrl,
+        deploymentKey: patch.deploymentKey ?? current.deploymentKey,
+        token: patch.token ?? current.token,
+        userId: patch.userId ?? current.userId,
+        username: patch.username ?? current.username
+      });
+      Object.assign(this.settings, patch);
+      if (changed) {
+        // Derived state belongs to the connection it was fetched for.
+        this.serverPushLimits = LEGACY_PUSH_LIMITS;
+        this.serverCapabilities = null;
+        this.invalidateSyncEngine();
+      }
+      await this.persistSettingsLocked();
+      return this.connectionContext.snapshotLocked();
+    });
+    this.updateStatus();
+    return accepted;
+  }
+
+  async setSelectedVault(
+    vaultId: string,
+    vaultName: string,
+    expected?: ConnectionStamp
+  ): Promise<boolean> {
+    const accepted = await this.connectionContext.runLocal(async () => {
+      if (expected && !this.connectionContext.isConnectionCurrent(expected)) {
+        return false;
+      }
+      const changed = this.connectionContext.replaceSelectionLocked(vaultId);
+      if (
+        !changed &&
+        this.settings.selectedVaultId === vaultId &&
+        this.settings.selectedVaultName === vaultName
+      ) {
+        return true;
+      }
+      this.settings.selectedVaultId = vaultId;
+      this.settings.selectedVaultName = vaultName;
+      await this.persistSettingsLocked();
+      return true;
+    });
+    this.updateStatus();
+    return accepted;
+  }
+
+  async resumeSyncForCurrentScope(): Promise<void> {
+    await this.connectionContext.runLocal(() => {
+      if (this.persistenceRecoveryRequired || this.connectionContext.migrationPaused) {
+        return;
+      }
+      this.rebuildSyncEngine();
+    });
   }
 
   private persistAuth(): void {
@@ -380,57 +521,117 @@ export default class PKVSyncPlugin extends Plugin {
    * Fetch GET /api/config and mirror the server-controlled knobs into
    * local settings.
    *
+   * The response is accepted only if the connection it was requested for is
+   * still current — a delayed answer from server A must never be applied
+   * after the user switched to server B. Returns null when the answer was
+   * dropped or the request failed, so callers do not announce a connection
+   * that was never adopted.
+   *
    * `allowRebuild` is false on the migration path: the migration sets the
    * new vault id, then calls saveSettings({rebuild:false}) BEFORE saving
    * the migrated index. A mirror-triggered rebuild in that window would
    * start an engine against the new vault with the OLD (empty) index and
    * re-push the whole vault (W7).
    */
-  async refreshServerCapabilities(allowRebuild = true): Promise<void> {
+  async refreshServerCapabilities(
+    allowRebuild = true
+  ): Promise<ServerConfigResponse | null> {
     if (
       !isFetchableServerUrl(this.settings.serverUrl) ||
       !this.settings.deploymentKey
     ) {
       this.serverCapabilities = null;
-      return;
+      this.serverPushLimits = LEGACY_PUSH_LIMITS;
+      return null;
     }
+    const ticket = await this.connectionContext.captureRefresh();
+    const client = this.apiForConnection(ticket);
     try {
-      const cfg = await this.api().config();
-      this.serverCapabilities = cfg.capabilities ?? { history: true, diff: true };
-      // Mirror server-controlled push debounce into local settings so the
-      // engine actually honours runtime tuning (Plan J Critical fix).
-      const debounceMs = normalizeDebounceMs(
-        cfg.push_debounce_ms,
-        this.settings.debounceMs
-      );
-      // S6: mirror the server's text-extension set on every config
-      // fetch. A stale local set makes the client push text files to
-      // paths the server has since reconfigured (or vice versa), and the
-      // resulting wrong_file_kind 400 wedges the whole batch — every
-      // sync pass re-sends the same rejected change forever.
-      const serverExtensions = normalizeTextExtensions(
-        cfg.supported_text_extensions
-      );
-      // W6: compare as sets — the server may reorder the array without
-      // changing it, and a string comparison then triggered a needless
-      // engine rebuild on every config fetch.
-      const extensionsChanged =
-        [...serverExtensions].sort().join("\u0000") !==
-        [...this.settings.textExtensions].sort().join("\u0000");
-      if (debounceMs !== this.settings.debounceMs || extensionsChanged) {
-        const patch: Partial<PKVSyncSettings> = { debounceMs };
-        if (extensionsChanged) {
-          this.settings.textExtensions = serverExtensions;
-          patch.textExtensions = serverExtensions;
-        }
-        await this.saveSettingsPatch(patch, { rebuild: allowRebuild });
-      }
+      const cfg = await client.config();
+      return await this.connectionContext.runLocal(async () => {
+        if (!this.connectionContext.isRefreshCurrent(ticket)) return null;
+        await this.applyServerConfigLocked(ticket, cfg, allowRebuild);
+        return cfg;
+      });
     } catch {
-      this.serverCapabilities = null;
+      await this.connectionContext.runLocal(() => {
+        if (!this.connectionContext.isRefreshCurrent(ticket)) return;
+        // Keep the current scope's last valid config; only a successful
+        // answer may replace it.
+      });
+      return null;
+    }
+  }
+
+  private async applyServerConfigLocked(
+    ticket: RefreshTicket,
+    cfg: ServerConfigResponse,
+    allowRebuild: boolean
+  ): Promise<void> {
+    // Mirror server-controlled push debounce into local settings so the
+    // engine actually honours runtime tuning (Plan J Critical fix).
+    const debounceMs = normalizeDebounceMs(
+      cfg.push_debounce_ms,
+      this.settings.debounceMs
+    );
+    // S6: mirror the server's text-extension set on every config
+    // fetch. A stale local set makes the client push text files to
+    // paths the server has since reconfigured (or vice versa), and the
+    // resulting wrong_file_kind 400 wedges the whole batch — every
+    // sync pass re-sends the same rejected change forever.
+    const serverExtensions = normalizeTextExtensions(
+      cfg.supported_text_extensions
+    );
+    // W6: compare as sets — the server may reorder the array without
+    // changing it, and a string comparison then triggered a needless
+    // engine rebuild on every config fetch.
+    const extensionsChanged =
+      [...serverExtensions].sort().join("\u0000") !==
+      [...this.settings.textExtensions].sort().join("\u0000");
+
+    this.serverPushLimits = normalizePushLimits(cfg.push_limits);
+    this.serverCapabilities = cfg.capabilities ?? { history: true, diff: true };
+
+    if (debounceMs === this.settings.debounceMs && !extensionsChanged) return;
+
+    const patch: Partial<PKVSyncSettings> = { debounceMs };
+    if (extensionsChanged) patch.textExtensions = serverExtensions;
+
+    try {
+      await this.dataStore.commitWithRecovery(
+        (raw) => writePluginSettingsPatch(raw, patch),
+        {
+          beforeSave: () => {
+            if (!this.connectionContext.isRefreshCurrent(ticket)) {
+              throw new OperationStoppedError("scope_changed");
+            }
+            return undefined;
+          },
+          publish: () => {
+            Object.assign(this.settings, patch);
+            if (allowRebuild && !this.connectionContext.migrationPaused) {
+              this.rebuildSyncEngine();
+            }
+            return undefined;
+          }
+        }
+      );
+    } catch (error) {
+      // The barrier must be raised BEFORE the gate is released: a queued
+      // connection switch would otherwise rebuild an engine on top of disk
+      // state we could not confirm, and an old request's failure would be
+      // dismissed as stale afterwards.
+      if (error instanceof DataCommitError && error.state !== "restored") {
+        this.persistenceRecoveryRequired = true;
+        this.invalidateSyncEngine();
+        new Notice(this.text().localStateRecoveryFailed);
+      }
+      throw error;
     }
   }
 
   private rebuildSyncEngine(): void {
+    if (this.persistenceRecoveryRequired) return;
     this.orchestrator.rebuild();
   }
 
@@ -830,49 +1031,168 @@ export default class PKVSyncPlugin extends Plugin {
         scan,
         initialVaultName,
         onStart: async (vaultName, onProgress, isCancelled) => {
-          this.invalidateSyncEngine();
-          const syncApi = new SyncApi(this.api());
-          const api: MigrationApi = {
-            createVault: (name) => this.api().createVault(name),
-            state: (vaultId, headSince) => syncApi.state(vaultId, headSince),
-            uploadCheck: (vaultId, hashes) => syncApi.uploadCheck(vaultId, hashes),
-            uploadBlob: (vaultId, hash, bytes) =>
-              syncApi.uploadBlob(vaultId, hash, bytes),
-            push: (vaultId, ifMatch, changes, deviceName) =>
-              syncApi.push(vaultId, ifMatch, changes, deviceName)
+          const context = this.connectionContext;
+          const ticket = await context.runLocal(() => {
+            const began = context.beginMigrationLocked();
+            this.invalidateSyncEngine();
+            return began;
+          });
+          const capturedSettings = { ...this.settings };
+          // The completion is decided by explicit state, never inferred from
+          // "did we catch an error" — a committed record followed by a failed
+          // engine rebuild is not a rollback.
+          let completion: CompletionState = "old_safe";
+          let lastProgress: MigrationProgress | null = null;
+          let result: MigrationResult | null = null;
+          let failure: unknown = null;
+          let engineFailed = false;
+
+          const assertActive = () => {
+            context.assertMigration(ticket);
+            if (ticket.phase === "transferring" && isCancelled?.()) {
+              throw new OperationStoppedError("cancelled");
+            }
           };
-          let result;
+          const report = (progress: MigrationProgress) => {
+            lastProgress = progress;
+            onProgress(progress);
+          };
+
           try {
+            const client = this.apiForConnection(ticket);
+            const syncApi = new SyncApi(client);
             result = await migrateToPkv({
               vault: this.app.vault,
-              api,
+              api: {
+                createVault: (name) => client.createVault(name),
+                state: (vaultId, headSince) => syncApi.state(vaultId, headSince),
+                uploadCheck: (vaultId, hashes) =>
+                  syncApi.uploadCheck(vaultId, hashes),
+                uploadBlob: (vaultId, hash, bytes) =>
+                  syncApi.uploadBlob(vaultId, hash, bytes),
+                push: (vaultId, ifMatch, changes, deviceName) =>
+                  syncApi.push(vaultId, ifMatch, changes, deviceName)
+              },
               vaultName,
-              deviceName: this.settings.deviceName,
-              textExtensions: new Set(this.settings.textExtensions),
-              onProgress
+              deviceName: capturedSettings.deviceName,
+              textExtensions: new Set(capturedSettings.textExtensions),
+              onProgress: report,
+              assertActive,
+              pushLimits: this.currentPushLimits(),
+              pushLabels: this.text()
+            });
+            assertActive();
+
+            const targetScopeKey = syncScopeKey({
+              ...capturedSettings,
+              selectedVaultId: result.vaultId
+            });
+            const selection = {
+              selectedVaultId: result.vaultId,
+              selectedVaultName: result.vaultName,
+              lastSyncSuccessAt: Math.floor(Date.now() / 1000)
+            };
+            const committing: MigrationProgress = {
+              ...(lastProgress ?? {
+                stage: "pushing",
+                totalFiles: result.scannedFiles,
+                processedFiles: result.pushedFiles,
+                pushedFiles: result.pushedFiles,
+                skippedCount: result.skippedCount,
+                totalBytes: result.totalBytes,
+                uploadedBlobs: 0,
+                totalBlobs: 0,
+                currentBatch: result.batches,
+                totalBatches: result.batches
+              }),
+              stage: "committing"
+            };
+            const committedIndex = result.index;
+
+            await context.runLocal(async () => {
+              try {
+                await this.dataStore.commitWithRecovery(
+                  (raw) =>
+                    writeMigrationCompletion(
+                      raw,
+                      selection,
+                      targetScopeKey,
+                      committedIndex
+                    ),
+                  {
+                    beforeSave: () => {
+                      // This synchronous slice is the cancellation deadline:
+                      // no await may be added between the check and the write.
+                      assertActive();
+                      context.beginCommitLocked(ticket);
+                      report(committing);
+                      return undefined;
+                    },
+                    publish: () => {
+                      Object.assign(this.settings, selection);
+                      context.adoptMigrationSelectionLocked(
+                        ticket,
+                        selection.selectedVaultId
+                      );
+                      completion = "new_committed";
+                      return undefined;
+                    }
+                  }
+                );
+              } catch (error) {
+                if (
+                  error instanceof DataCommitError &&
+                  error.state !== "restored"
+                ) {
+                  completion = "disk_uncertain";
+                  this.persistenceRecoveryRequired = true;
+                  this.invalidateSyncEngine();
+                }
+                throw error;
+              }
             });
           } catch (error) {
-            // The engine was invalidated before the migration started; a
-            // failed migration must not leave it null for the rest of the
-            // session (V3): file changes would silently no-op behind a
-            // status bar that still says "connected".
-            this.rebuildSyncEngine();
-            throw error;
+            failure = error;
+          } finally {
+            await context.runLocal(() => {
+              const owned = context.finishMigrationLocked(ticket);
+              if (!owned) return;
+              if (completion === "disk_uncertain" || this.persistenceRecoveryRequired) {
+                return;
+              }
+              try {
+                this.rebuildSyncEngine();
+              } catch {
+                engineFailed = true;
+              }
+            });
           }
-          if (isCancelled?.()) {
-            // V5: the user closed the migration modal while uploads were
-            // still running. The server-side vault may exist, but this
-            // device must not switch to it, save its index, or report
-            // success — the user cancelled.
-            this.rebuildSyncEngine();
+
+          if (failure) {
+            if (failure instanceof DataCommitError) {
+              new Notice(
+                failure.state === "restored"
+                  ? t.migrateSaveFailed
+                  : t.migrateRecoveryFailed
+              );
+            } else if (
+              failure instanceof OperationStoppedError &&
+              failure.reason !== "cancelled"
+            ) {
+              // Never surface the machine reason ("scope_changed" /
+              // "superseded") to the user.
+              const stopped = new Error(t.migrateScopeChanged);
+              new Notice(stopped.message);
+              throw stopped;
+            }
+            throw failure;
+          }
+          if (!result) throw new Error("migration_result_missing");
+          if (engineFailed) {
+            new Notice(t.migrateEngineFailed);
             return result;
           }
-          this.settings.selectedVaultId = result.vaultId;
-          this.settings.selectedVaultName = result.vaultName;
-          this.settings.lastSyncSuccessAt = Math.floor(Date.now() / 1000);
-          await this.saveSettings({ rebuild: false });
-          await this.saveSyncIndex(result.index);
-          this.rebuildSyncEngine();
+          if (!context.isCompletionCurrent(ticket)) return result;
           new Notice(
             format(t.migrateCompleteNotice, {
               name: result.vaultName,

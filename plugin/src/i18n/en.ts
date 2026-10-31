@@ -87,6 +87,17 @@ export const en = {
   migrateStageUploadingBlobs: "Uploading blobs",
   migrateStagePushing: "Pushing files",
   migrateStageComplete: "Migration complete",
+  migrateStageCommitting: "Saving migration state. This step cannot be cancelled.",
+  migrateScopeChanged:
+    "Migration stopped because the connection or selected vault changed.",
+  migrateSaveFailed:
+    "Migration state could not be saved. The previous selection was restored.",
+  migrateRecoveryFailed:
+    "Migration state could not be restored. Sync is paused. Check storage and reload the plugin.",
+  migrateEngineFailed:
+    "Migration state was saved, but the sync engine could not be restarted.",
+  localStateRecoveryFailed:
+    "Local state could not be restored. Sync is paused. Check storage and reload the plugin.",
   migrateProgressSummary:
     "{processed}/{total} files - batch {batch}/{batches} - blobs {blobs}/{totalBlobs}",
   migrateCompleteSummary: "{count} files migrated - {skipped} skipped",

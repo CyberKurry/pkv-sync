@@ -88,6 +88,14 @@ export const zhHant = {
   migrateStageUploadingBlobs: "正在上傳二進位檔案",
   migrateStagePushing: "正在推送檔案",
   migrateStageComplete: "遷移完成",
+  migrateStageCommitting: "正在儲存遷移狀態，此步驟無法取消。",
+  migrateScopeChanged: "連線或所選 vault 已變更，遷移已停止。",
+  migrateSaveFailed: "遷移狀態儲存失敗，已還原原來的選擇。",
+  migrateRecoveryFailed:
+    "遷移狀態還原失敗，同步已暫停。請檢查儲存空間並重新載入外掛。",
+  migrateEngineFailed: "遷移狀態已儲存，但同步引擎未能恢復。",
+  localStateRecoveryFailed:
+    "本機狀態還原失敗，同步已暫停。請檢查儲存空間並重新載入外掛。",
   migrateProgressSummary:
     "{processed}/{total} 個檔案 - 批次 {batch}/{batches} - 二進位 {blobs}/{totalBlobs}",
   migrateCompleteSummary: "已遷移 {count} 個檔案 - 已略過 {skipped} 個",

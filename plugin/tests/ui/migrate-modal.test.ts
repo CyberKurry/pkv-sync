@@ -132,8 +132,7 @@ describe("MigrateModal", () => {
     expect(progress.setText).toHaveBeenLastCalledWith("2 files migrated - 1 skipped");
   });
 
-  it("cancels the completion path when the modal closes mid-migration (V5)", async () => {
-    let releaseMigration!: (value: MigrationResult) => void;
+  it("cancels the completion path when the modal closes mid-migration (V5)", async () => {    let releaseMigration!: (value: MigrationResult) => void;
     const migrationGate = new Promise<MigrationResult>((resolve) => {
       releaseMigration = resolve;
     });
@@ -172,5 +171,67 @@ describe("MigrateModal", () => {
       "2 files migrated - 1 skipped"
     );
     void cancelledFlag;
+  });
+
+  it("disables cancel and refuses to cancel once the commit stage starts", async () => {
+    let release!: (value: MigrationResult) => void;
+    const gate = new Promise<MigrationResult>((resolve) => {
+      release = resolve;
+    });
+    let seenCancelled: boolean | null = null;
+    const onStart = vi
+      .fn<
+        (
+          vaultName: string,
+          onProgress: (progress: MigrationProgress) => void,
+          isCancelled?: () => boolean
+        ) => Promise<MigrationResult>
+      >()
+      .mockImplementation(async (_vaultName, onProgress, isCancelled) => {
+        onProgress({
+          stage: "committing",
+          totalFiles: 2,
+          processedFiles: 2,
+          pushedFiles: 2,
+          skippedCount: 0,
+          totalBytes: 1536,
+          uploadedBlobs: 0,
+          totalBlobs: 0,
+          currentBatch: 1,
+          totalBatches: 1
+        });
+        const result = await gate;
+        seenCancelled = isCancelled ? isCancelled() : null;
+        return result;
+      });
+    const { modal, input, progress, inputListener, clickListener } =
+      openedModal(onStart);
+    const controls = modal as unknown as {
+      cancelButton: HTMLButtonElement | null;
+      committing: boolean;
+    };
+    const cancel = controls.cancelButton;
+    if (!cancel) throw new Error("cancel button was not captured");
+
+    input.value = "Migrated vault";
+    inputListener();
+    clickListener();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(controls.committing).toBe(true);
+    expect(cancel.disabled).toBe(true);
+
+    modal.close();
+    release(migrationResult());
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The write already started, so closing must not pretend to cancel it.
+    expect(seenCancelled).toBe(false);
+    expect(progress.setText).not.toHaveBeenCalledWith(
+      "2 files migrated - 0 skipped"
+    );
   });
 });

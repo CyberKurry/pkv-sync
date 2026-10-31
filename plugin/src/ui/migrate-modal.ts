@@ -32,6 +32,12 @@ export class MigrateModal extends Modal {
    * vault switch, index save, and "migrated" notice must not fire for a
    * migration the user walked away from. */
   private cancelled = false;
+  /**
+   * Once the local record is being written there is nothing left to
+   * cancel: closing only hides the modal, and the save phase keeps going.
+   */
+  private committing = false;
+  private dismissed = false;
 
   constructor(
     app: App,
@@ -48,8 +54,10 @@ export class MigrateModal extends Modal {
   onClose(): void {
     // V5: a close during a running migration marks it cancelled so the
     // completion path no-ops instead of switching the vault behind the
-    // user's back.
-    if (this.running) this.cancelled = true;
+    // user's back. After the commit has started the close is only a
+    // dismissal — the write is already in flight and cannot be undone.
+    this.dismissed = true;
+    if (this.running && !this.committing) this.cancelled = true;
     this.contentEl.empty();
   }
 
@@ -97,6 +105,7 @@ export class MigrateModal extends Modal {
       text: this.labels.migrateCancelButton
     });
     cancelButton.addEventListener("click", () => this.close());
+    this.cancelButton = cancelButton;
     this.startButton = actions.createEl("button", {
       cls: "pkv-sync-button is-primary",
       text: this.labels.migrateStartButton
@@ -113,6 +122,8 @@ export class MigrateModal extends Modal {
     }
     this.running = true;
     this.cancelled = false;
+    this.committing = false;
+    this.dismissed = false;
     this.updateStartState();
     try {
       const result = await this.options.onStart(
@@ -139,6 +150,11 @@ export class MigrateModal extends Modal {
   }
 
   private renderProgress(progress: MigrationProgress): void {
+    if (progress.stage === "committing") {
+      this.committing = true;
+      if (this.cancelButton) this.cancelButton.disabled = true;
+    }
+    if (this.dismissed || this.cancelled) return;
     if (!this.statusEl || !this.progressEl) return;
     this.statusEl.setText(this.stageLabel(progress.stage));
     this.progressEl.setText(
@@ -154,6 +170,7 @@ export class MigrateModal extends Modal {
   }
 
   private renderComplete(result: MigrationResult): void {
+    if (this.dismissed || this.cancelled) return;
     this.statusEl?.setText(this.labels.migrateStageComplete);
     this.progressEl?.setText(
       format(this.labels.migrateCompleteSummary, {
@@ -164,6 +181,7 @@ export class MigrateModal extends Modal {
   }
 
   private renderFailure(error: unknown): void {
+    if (this.dismissed || this.cancelled) return;
     this.statusEl?.setText(this.labels.migrateFailed);
     this.progressEl?.setText(errorToMessage(error));
   }
@@ -184,6 +202,8 @@ export class MigrateModal extends Modal {
         return this.labels.migrateStageUploadingBlobs;
       case "pushing":
         return this.labels.migrateStagePushing;
+      case "committing":
+        return this.labels.migrateStageCommitting;
       case "complete":
         return this.labels.migrateStageComplete;
     }

@@ -1,164 +1,102 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { en } from "../src/i18n/en";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { OperationStoppedError } from "../src/connection-context";
+import { notices } from "./mocks/obsidian";
+import { createMigrationHarness, OLD_INDEX, targetScopeKey } from "./helpers/migration-fixture";
 
 /**
  * V3: a failed migration must still rebuild the sync engine.
- * openMigrationModal invalidates the engine BEFORE migrateToPkv runs;
- * without an explicit rebuild on the failure path, the engine stayed null
- * for the rest of the session — the status bar kept saying "connected"
- * while every file change silently no-oped.
+ * V5: closing the modal mid-migration must not switch the vault.
+ *
+ * These invariants used to be asserted through the ORDER of saveSettings /
+ * saveSyncIndex calls, which proved nothing about what actually reached the
+ * disk. The assertions below read the persisted record instead.
  */
 
 interface CapturedOptions {
   onStart(
     vaultName: string,
-    onProgress: (p: unknown) => void,
+    onProgress: (progress: { stage: string }) => void,
     isCancelled?: () => boolean
   ): Promise<unknown>;
-  /** modal closes mid-migration (V5 simulation) */
-  simulateClose?(): void;
 }
 
 const captured: CapturedOptions[] = [];
 
 vi.mock("../src/ui/migrate-modal", () => ({
   MigrateModal: class {
-    constructor(
-      _app: unknown,
-      _labels: unknown,
-      options: CapturedOptions
-    ) {
+    constructor(_app: unknown, _labels: unknown, options: CapturedOptions) {
       captured.push(options);
     }
     open(): void {}
   }
 }));
-vi.mock("../src/sync/migrate-from-obsidian-sync", () => ({
-  scanVaultForMigration: () => ({
-    files: [],
-    skippedCount: 0,
-    totalBytes: 0
-  }),
-  detectObsidianSync: async () => ({
-    syncDirExists: false,
-    syncPluginEnabled: false,
-    likelyUsingSync: false
-  }),
-  migrateToPkv: vi.fn()
-}));
 
-import PKVSyncPlugin from "../src/main";
-import { migrateToPkv } from "../src/sync/migrate-from-obsidian-sync";
+beforeEach(() => {
+  captured.length = 0;
+  notices.length = 0;
+});
 
-type MigrationHarness = {
-  app: { vault: { getName?(): string } };
-  settings: Record<string, unknown>;
-  manifest: { version: string };
-  api(): unknown;
-  text(): Record<string, string>;
-  invalidateSyncEngine(): void;
-  rebuildSyncEngine(): void;
-  saveSettings(opts?: { rebuild?: boolean }): Promise<void>;
-  saveSyncIndex(index: unknown): Promise<void>;
-  openMigrationModal(): Promise<void>;
-};
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
-function makePlugin(): { plugin: MigrationHarness; calls: string[] } {
-  const calls: string[] = [];
-  const plugin = Object.create(PKVSyncPlugin.prototype) as MigrationHarness;
-  plugin.app = { vault: { getName: () => "My Vault" } };
-  plugin.settings = {
-    deviceName: "Laptop",
-    textExtensions: ["md"],
-    serverUrl: "https://sync.example.com",
-    deploymentKey: "k_x",
-    token: "tok"
-  };
-  plugin.manifest = { version: "1.7.0" };
-  plugin.api = vi.fn(() => ({}));
-  plugin.invalidateSyncEngine = () => calls.push("invalidate");
-  plugin.rebuildSyncEngine = () => calls.push("rebuild");
-  plugin.saveSettings = vi.fn(async () => {
-    calls.push("saveSettings");
-  });
-  plugin.saveSyncIndex = vi.fn(async () => {
-    calls.push("saveSyncIndex");
-  });
-  return { plugin, calls };
-}
-
-describe("PKVSyncPlugin migration failure (V3)", () => {
-  afterEach(() => {
-    captured.length = 0;
-    vi.mocked(migrateToPkv).mockReset();
-  });
-
-  it("rebuilds the engine when migrateToPkv throws", async () => {
-    vi.mocked(migrateToPkv).mockRejectedValue(
-      new Error("429 too many requests")
-    );
-    const { plugin, calls } = makePlugin();
-    plugin.text = () => en as unknown as Record<string, string>;
-
-    await plugin.openMigrationModal();
-    expect(captured).toHaveLength(1);
+describe("migration failure recovery", () => {
+  it("rebuilds the engine and keeps the old record when the migration fails", async () => {
+    const h = createMigrationHarness({ files: [{ path: "a.md", content: "a" }] });
+    h.failCreateVault(new Error("429 too many requests"));
+    await h.plugin.openMigrationModal();
 
     await expect(
-      captured[0].onStart("Migrated vault", () => undefined)
+      captured[0].onStart("Migrated vault", () => undefined, () => false)
     ).rejects.toThrow("429");
-    // The engine was invalidated before the migration; the failure path
-    // must rebuild it instead of leaving it null for the session.
-    expect(calls).toEqual(["invalidate", "rebuild"]);
-    // And it must NOT have switched vaults or claimed success.
-    expect(calls).not.toContain("saveSettings");
-    expect(calls).not.toContain("saveSyncIndex");
-    expect(plugin.settings.selectedVaultId).toBeUndefined();
+
+    expect(h.savedSettings().selectedVaultId).toBe("vault-old");
+    expect(h.savedSettings().lastSyncSuccessAt).toBeNull();
+    expect(h.savedIndex(h.oldScopeKey())).toEqual(OLD_INDEX);
+    expect(h.savedIndex(targetScopeKey(h.oldSettings(), "vault-new"))).toEqual({
+      lastSyncedCommit: null,
+      files: {}
+    });
+    expect(h.events).toEqual(["invalidate", "rebuild"]);
+    expect(notices).toEqual([]);
   });
 
-  it("keeps the success path unchanged: rebuild happens exactly once after completion", async () => {
-    vi.mocked(migrateToPkv).mockResolvedValue({
-      vaultId: "v1",
-      vaultName: "Migrated",
-      scannedFiles: 3,
-      pushedFiles: 3,
-      skippedCount: 0,
-      totalBytes: 100,
-      batches: 1,
-      lastCommit: "c1",
-      index: { lastSyncedCommit: "c1", files: {} }
-    });
-    const { plugin, calls } = makePlugin();
-    plugin.text = () => en as unknown as Record<string, string>;
+  it("does not switch vaults when the migration was cancelled mid-run", async () => {
+    const h = createMigrationHarness({ files: [{ path: "a.md", content: "a" }] });
+    await h.plugin.openMigrationModal();
 
-    await plugin.openMigrationModal();
-    await captured[0].onStart("Migrated vault", () => undefined);
+    const error = await captured[0]
+      .onStart("Migrated vault", () => undefined, () => true)
+      .catch((reason: unknown) => reason);
 
-    expect(calls).toEqual(["invalidate", "saveSettings", "saveSyncIndex", "rebuild"]);
+    expect(error).toBeInstanceOf(OperationStoppedError);
+    expect((error as OperationStoppedError).reason).toBe("cancelled");
+    expect(h.savedSettings().selectedVaultId).toBe("vault-old");
+    expect(h.savedIndex(h.oldScopeKey())).toEqual(OLD_INDEX);
+    expect(h.events).toEqual(["invalidate", "rebuild"]);
+    expect(notices).toEqual([]);
   });
 
-  it("does not switch vaults when the migration was cancelled mid-run (V5)", async () => {
-    vi.mocked(migrateToPkv).mockResolvedValue({
-      vaultId: "v1",
-      vaultName: "Migrated",
-      scannedFiles: 3,
-      pushedFiles: 3,
-      skippedCount: 0,
-      totalBytes: 100,
-      batches: 1,
-      lastCommit: "c1",
-      index: { lastSyncedCommit: "c1", files: {} }
-    });
-    const { plugin, calls } = makePlugin();
-    plugin.text = () => en as unknown as Record<string, string>;
+  it("reports the scope change in the user's language, not the machine reason", async () => {
+    const h = createMigrationHarness({ files: [{ path: "a.md", content: "a" }] });
+    await h.plugin.openMigrationModal();
+    let switched: Promise<unknown> | null = null;
+    const onProgress = (progress: { stage: string }) => {
+      if (progress.stage !== "pushing" || switched) return;
+      switched = h.plugin.setConnectionPatch({
+        serverUrl: "https://switched.example.test"
+      });
+    };
 
-    await plugin.openMigrationModal();
-    // The user closes the modal while the migration is still running;
-    // the onStart callback observes isCancelled() === true afterwards.
-    await captured[0].onStart("Migrated vault", () => undefined, () => true);
+    const error = await captured[0]
+      .onStart("Migrated vault", onProgress, () => false)
+      .catch((reason: unknown) => reason);
+    await switched;
 
-    // No vault switch, no index save, no success notice — the engine is
-    // still rebuilt so the session stays functional.
-    expect(calls).toEqual(["invalidate", "rebuild"]);
-    expect(plugin.settings.selectedVaultId).toBeUndefined();
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      h.plugin.text().migrateScopeChanged
+    );
+    expect(notices).toContain(h.plugin.text().migrateScopeChanged);
   });
 });

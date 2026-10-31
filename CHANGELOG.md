@@ -29,6 +29,22 @@ and this project adheres to semantic versioning starting at v1.0.0.
   missing, so older servers keep working. The OpenAPI contract documents the
   new field and the `413` response, including the caveat that a reverse proxy
   may enforce a smaller limit with a non-JSON body.
+- Migration from Obsidian Sync now stops at every async boundary once the modal
+  is cancelled or the connection/selected vault changes, instead of finishing
+  the remaining uploads and then asking whether it was cancelled. The final
+  step commits the new selection and the migrated index as ONE queued record;
+  a rejected write is rolled back and verified by reading the record back, and
+  a write whose outcome cannot be confirmed pauses sync behind a persistence
+  barrier instead of continuing on unknown disk state. The modal marks that
+  save phase as not cancellable and stops rendering after it is dismissed.
+- A delayed `GET /api/config` answer can no longer overwrite a newer server's
+  capabilities, debounce, text extensions or push limits: every answer is
+  checked against the connection it was requested for, so switching servers (or
+  rotating a token/deployment key) while a request is in flight drops the stale
+  result — including a stale failure, which must not clear the new scope's
+  last-known-good config. All connection, account and vault writes now go
+  through one gated entry (`setConnectionPatch` / `setSelectedVault`), so a
+  check-then-assign pair can no longer be interleaved by another change.
 
 ## [1.7.1] - 2026-10-31
 

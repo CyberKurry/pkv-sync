@@ -1,7 +1,12 @@
 import { TFile, TFolder } from "obsidian";
 import type { VaultSummary } from "../api/types";
+import { OperationStoppedError } from "../connection-context";
+import { strings } from "../i18n";
 import { sha256Bytes, sha256TextWithLength } from "./hash";
 import { guessMime } from "./mime";
+import { PushBatcher, type PushItem } from "./push-batches";
+import { PushBatchError, type PushLabels } from "./push-errors";
+import { normalizePushLimits, type PushLimits } from "./push-limits";
 import type { LocalFileSnapshot, LocalIndex, PushChange, PushResponse, StateResponse } from "./types";
 import { errorToMessage, isTextPath } from "../util";
 import { createExcludeMatcher, hardExcludeGlobs, isHiddenPath } from "./exclude";
@@ -60,6 +65,7 @@ export type MigrationStage =
   | "creating_vault"
   | "uploading_blobs"
   | "pushing"
+  | "committing"
   | "complete";
 
 export interface MigrationProgress {
@@ -83,6 +89,9 @@ export interface MigrationOptions {
   textExtensions: Set<string>;
   batchSize?: number;
   onProgress?: (progress: MigrationProgress) => void;
+  assertActive: () => void;
+  pushLimits?: PushLimits;
+  pushLabels?: PushLabels;
 }
 
 export interface MigrationResult {
@@ -146,8 +155,10 @@ export function scanVaultForMigration(
 }
 
 export async function migrateToPkv(options: MigrationOptions): Promise<MigrationResult> {
+  const assertActive = options.assertActive;
+  const limits = normalizePushLimits(options.pushLimits);
   const scan = scanVaultForMigration(options.vault);
-  const batchSize = normalizeBatchSize(options.batchSize);
+  const batchSize = Math.min(normalizeBatchSize(options.batchSize), limits.max_changes);
   const totalBatches = Math.ceil(scan.files.length / batchSize);
   // Blob classification is purely path-based, so the total blob count is
   // known before any content is read.
@@ -166,20 +177,29 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
     totalBatches
   };
 
-  options.onProgress?.({ stage: "scanning", ...progressBase });
-  options.onProgress?.({ stage: "creating_vault", ...progressBase });
-  const created = await options.api.createVault(options.vaultName.trim());
-  const initialState = await options.api.state(created.id, null);
+  emitProgress(options, { stage: "scanning", ...progressBase });
+  emitProgress(options, { stage: "creating_vault", ...progressBase });
+  const created = await checked(assertActive, () =>
+    options.api.createVault(options.vaultName.trim())
+  );
+  const initialState = await checked(assertActive, () =>
+    options.api.state(created.id, null)
+  );
   let head = initialState.current_head;
 
   const withBlobTotals = { ...progressBase, totalBlobs };
   if (totalBlobs === 0) {
-    options.onProgress?.({ stage: "uploading_blobs", ...withBlobTotals });
+    emitProgress(options, { stage: "uploading_blobs", ...withBlobTotals });
   }
+
+  const batcher = new PushBatcher(
+    (failure) => new PushBatchError(failure, options.pushLabels ?? strings())
+  );
+  const run = batcher.beginRun(limits, assertActive);
 
   // Snapshot, upload and push per batch, releasing each batch's payloads
   // before reading the next, so peak memory is one batch instead of the whole
-  // vault. The index needs only metadata, accumulated here.
+  // vault. The index needs only metadata, accumulated on acceptance.
   const indexMetadata: LocalFileSnapshot[] = [];
   let uploadedBlobs = 0;
   let pushedFiles = 0;
@@ -189,31 +209,27 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
     const batchFiles = scan.files.slice(offset, offset + batchSize);
     const batchSnapshots: LocalFileSnapshot[] = [];
     for (const file of batchFiles) {
-      const snapshot = await snapshotMigrationFile(
-        options.vault,
-        file.path,
-        options.textExtensions
+      const snapshot = await checked(assertActive, () =>
+        snapshotMigrationFile(options.vault, file.path, options.textExtensions)
       );
-      indexMetadata.push({
-        path: snapshot.path,
-        hash: snapshot.hash,
-        size: snapshot.size,
-        kind: snapshot.kind
-      });
       batchSnapshots.push(snapshot);
     }
 
     const batchBlobs = batchSnapshots.filter((file) => file.kind === "blob");
     if (batchBlobs.length > 0) {
       const hashes = batchBlobs.map((file) => file.hash);
-      const missing = await options.api.uploadCheck(created.id, hashes);
+      const missing = await checked(assertActive, () =>
+        options.api.uploadCheck(created.id, hashes)
+      );
       const missingSet = new Set(missing.missing);
       for (const file of batchBlobs) {
         if (!missingSet.has(file.hash)) continue;
         if (!file.bytes) throw new Error(`Missing bytes for blob ${file.path}`);
-        await options.api.uploadBlob(created.id, file.hash, file.bytes);
+        await checked(assertActive, () =>
+          options.api.uploadBlob(created.id, file.hash, file.bytes as ArrayBuffer)
+        );
         uploadedBlobs += 1;
-        options.onProgress?.({
+        emitProgress(options, {
           stage: "uploading_blobs",
           ...withBlobTotals,
           uploadedBlobs,
@@ -222,16 +238,47 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
       }
     }
 
-    const changes = batchSnapshots.map(snapshotToPushChange);
+    const prepared: Array<PushItem & { file: LocalFileSnapshot }> = batchSnapshots.map(
+      (file) => ({
+        file,
+        change: snapshotToPushChange(file),
+        fingerprint: JSON.stringify([file.kind, file.path, file.hash, file.size])
+      })
+    );
     try {
-      const response = await options.api.push(
-        created.id,
-        head,
-        changes,
-        options.deviceName
-      );
-      head = response.new_commit;
+      await run.send(prepared, {
+        deviceName: options.deviceName,
+        send: (items) =>
+          options.api.push(
+            created.id,
+            head,
+            items.map((item) => item.change),
+            options.deviceName
+          ),
+        onAccepted: async (items, response) => {
+          assertActive();
+          head = response.new_commit;
+          indexMetadata.push(
+            ...items.map((item) => ({
+              path: item.file.path,
+              hash: item.file.hash,
+              size: item.file.size,
+              kind: item.file.kind
+            }))
+          );
+          pushedFiles += items.length;
+          emitProgress(options, {
+            stage: "pushing",
+            ...withBlobTotals,
+            uploadedBlobs,
+            processedFiles: pushedFiles,
+            pushedFiles,
+            currentBatch: batchIndex
+          });
+        }
+      });
     } catch (error) {
+      if (error instanceof OperationStoppedError) throw error;
       throw new MigrationError(
         `Migration failed while pushing batch ${batchIndex} of ${totalBatches}: ${errorMessage(error)}`,
         batchIndex,
@@ -239,19 +286,11 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
         error
       );
     }
-    pushedFiles += batchSnapshots.length;
-    options.onProgress?.({
-      stage: "pushing",
-      ...withBlobTotals,
-      processedFiles: pushedFiles,
-      pushedFiles,
-      uploadedBlobs,
-      currentBatch: batchIndex
-    });
   }
 
+  assertActive();
   const index = buildMigrationIndex(indexMetadata, head);
-  const result: MigrationResult = {
+  return {
     vaultId: created.id,
     vaultName: created.name,
     scannedFiles: scan.files.length,
@@ -262,17 +301,19 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
     lastCommit: head,
     index
   };
+}
 
-  options.onProgress?.({
-    stage: "complete",
-    ...withBlobTotals,
-    processedFiles: pushedFiles,
-    pushedFiles,
-    uploadedBlobs,
-    currentBatch: totalBatches
-  });
-
+async function checked<T>(assertActive: () => void, work: () => Promise<T>): Promise<T> {
+  assertActive();
+  const result = await work();
+  assertActive();
   return result;
+}
+
+function emitProgress(options: MigrationOptions, progress: MigrationProgress): void {
+  options.assertActive();
+  options.onProgress?.(progress);
+  options.assertActive();
 }
 
 async function hasObsidianSyncCommunityPlugin(vault: MigrationVault): Promise<boolean> {

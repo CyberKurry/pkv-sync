@@ -97,6 +97,14 @@ export const ko = {
   migrateStageUploadingBlobs: "blob 업로드 중",
   migrateStagePushing: "파일 push 중",
   migrateStageComplete: "마이그레이션 완료",
+  migrateStageCommitting: "마이그레이션 상태를 저장하는 중입니다. 이 단계는 취소할 수 없습니다.",
+  migrateScopeChanged: "연결 또는 선택한 vault가 변경되어 마이그레이션을 중지했습니다.",
+  migrateSaveFailed: "마이그레이션 상태를 저장하지 못했습니다. 이전 선택을 복원했습니다.",
+  migrateRecoveryFailed:
+    "마이그레이션 상태를 복원하지 못했습니다. 동기화가 일시 중지되었습니다. 저장 공간을 확인하고 플러그인을 다시 로드하세요.",
+  migrateEngineFailed: "마이그레이션 상태는 저장되었지만 동기화 엔진을 다시 시작하지 못했습니다.",
+  localStateRecoveryFailed:
+    "로컬 상태를 복원하지 못했습니다. 동기화가 일시 중지되었습니다. 저장 공간을 확인하고 플러그인을 다시 로드하세요.",
   migrateProgressSummary:
     "{processed}/{total}개 파일 - 배치 {batch}/{batches} - blob {blobs}/{totalBlobs}",
   migrateCompleteSummary: "{count}개 파일 마이그레이션됨 - {skipped}개 건너뜀",

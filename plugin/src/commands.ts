@@ -24,10 +24,13 @@ export function registerCommands(plugin: PKVSyncPlugin, t: Strings): void {
     name: t.refreshAccountCommand,
     callback: async () => {
       try {
-        const me = await plugin.api().me();
-        plugin.settings.username = me.username;
-        plugin.settings.userId = me.user_id;
-        await plugin.saveSettings();
+        const stamp = await plugin.captureConnection();
+        const me = await plugin.apiForConnection(stamp).me();
+        const accepted = await plugin.setConnectionPatch(
+          { username: me.username, userId: me.user_id },
+          stamp
+        );
+        if (!accepted) return;
         new Notice(format(t.refreshedVaults, { count: me.vaults.length }));
       } catch (error) {
         new Notice(errorToMessage(error));

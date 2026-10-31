@@ -1,9 +1,11 @@
 import { TFile, TFolder } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
+import { OperationStoppedError } from "../../src/connection-context";
 import {
   detectObsidianSync,
   migrateToPkv,
-  scanVaultForMigration
+  scanVaultForMigration,
+  type MigrationOptions
 } from "../../src/sync/migrate-from-obsidian-sync";
 import type { PushChange, PushResponse, StateResponse } from "../../src/sync/types";
 import type { VaultSummary } from "../../src/api/types";
@@ -297,6 +299,138 @@ describe("scanVaultForMigration", () => {
   });
 });
 
+describe("migrateToPkv cancellation", () => {
+  const stages = [
+    "createVault",
+    "state",
+    "uploadCheck",
+    "uploadBlob",
+    "push"
+  ] as const;
+  type Stage = (typeof stages)[number];
+
+  function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>((yes) => {
+      resolve = yes;
+    });
+    return { promise, resolve };
+  }
+
+  function instrument(api: FakeMigrationApi, gated?: Stage) {
+    const calls: Stage[] = [];
+    const gate = deferred<void>();
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    for (const name of stages) {
+      const original = (api[name] as (...args: unknown[]) => Promise<unknown>).bind(
+        api
+      );
+      (api as unknown as Record<Stage, unknown>)[name] = async (
+        ...args: unknown[]
+      ) => {
+        calls.push(name);
+        if (name === gated) {
+          markStarted();
+          await gate.promise;
+        }
+        return original(...args);
+      };
+    }
+    return { calls, started, release: () => gate.resolve() };
+  }
+
+  function createMigrationFixtureWithTwoBlobFiles(): MigrationOptions {
+    const vault = new FakeVault();
+    vault.addBinaryFile("a.png", new Uint8Array([1, 2, 3]));
+    vault.addBinaryFile("b.png", new Uint8Array([4, 5, 6]));
+    return {
+      vault,
+      api: new FakeMigrationApi(),
+      vaultName: "Migrated",
+      deviceName: "Laptop",
+      textExtensions: new Set(["md"]),
+      assertActive: () => undefined
+    };
+  }
+
+  it.each(stages)(
+    "stops after an in-flight %s when cancellation arrives",
+    async (stage) => {
+      const vault = new FakeVault();
+      vault.addFile("a.md", 1, "a");
+      if (stage === "uploadCheck" || stage === "uploadBlob") {
+        vault.addBinaryFile("img.png", new Uint8Array([1]));
+      }
+      const api = new FakeMigrationApi();
+      const probe = instrument(api, stage);
+      let cancelled = false;
+      const onProgress = vi.fn();
+
+      const running = migrateToPkv({
+        vault,
+        api,
+        vaultName: "Cancelled vault",
+        deviceName: "Laptop",
+        textExtensions: new Set(["md"]),
+        onProgress,
+        assertActive: () => {
+          if (cancelled) throw new OperationStoppedError("cancelled");
+        }
+      });
+
+      await probe.started;
+      cancelled = true;
+      const before = probe.calls.length;
+      probe.release();
+      await expect(running).rejects.toMatchObject({ reason: "cancelled" });
+
+      expect(probe.calls.length).toBe(before);
+      expect(onProgress).not.toHaveBeenCalledWith(
+        expect.objectContaining({ stage: "complete" })
+      );
+    }
+  );
+
+  it("stops after an in-flight blob upload when cancellation arrives", async () => {
+    const gate = deferred<void>();
+    let cancelled = false;
+    const options = createMigrationFixtureWithTwoBlobFiles();
+    const push = vi.spyOn(options.api, "push");
+    options.assertActive = () => {
+      if (cancelled) throw new OperationStoppedError("cancelled");
+    };
+    vi.spyOn(options.api, "uploadBlob").mockImplementationOnce(() => gate.promise);
+
+    const running = migrateToPkv(options);
+    await vi.waitFor(() => expect(options.api.uploadBlob).toHaveBeenCalledTimes(1));
+    cancelled = true;
+    gate.resolve();
+
+    await expect(running).rejects.toMatchObject({ reason: "cancelled" });
+    expect(options.api.uploadBlob).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("does not let an OperationStoppedError be rewrapped as a MigrationError", async () => {
+    const vault = new FakeVault();
+    vault.addFile("a.md", 1, "a");
+    const api = new FakeMigrationApi();
+    api.nextPushError = new OperationStoppedError("cancelled");
+    const running = migrateToPkv({
+      vault,
+      api,
+      vaultName: "Stop vault",
+      deviceName: "Laptop",
+      textExtensions: new Set(["md"]),
+      assertActive: () => undefined
+    });
+    await expect(running).rejects.toBeInstanceOf(OperationStoppedError);
+  });
+});
+
 describe("migrateToPkv", () => {
   it("creates a new vault, scans eligible files, and reports skipped files", async () => {
     const vault = new FakeVault();
@@ -311,6 +445,7 @@ describe("migrateToPkv", () => {
       vaultName: "Migrated vault",
       deviceName: "Laptop",
       textExtensions: new Set(["md"]),
+      assertActive: () => undefined,
       onProgress
     });
 
@@ -345,6 +480,7 @@ describe("migrateToPkv", () => {
       vaultName: "Batch vault",
       deviceName: "Laptop",
       textExtensions: new Set(["md"]),
+      assertActive: () => undefined,
       batchSize: 2
     });
 
@@ -388,6 +524,7 @@ describe("migrateToPkv", () => {
       vaultName: "Streamed vault",
       deviceName: "Laptop",
       textExtensions: new Set(["md"]),
+      assertActive: () => undefined,
       batchSize: 2
     });
 
@@ -406,7 +543,8 @@ describe("migrateToPkv", () => {
       api,
       vaultName: "Blob vault",
       deviceName: "Laptop",
-      textExtensions: new Set(["md"])
+      textExtensions: new Set(["md"]),
+      assertActive: () => undefined
     });
 
     expect(api.checkedHashes).toEqual([[expect.any(String)]]);
@@ -435,6 +573,7 @@ describe("migrateToPkv", () => {
       vaultName: "Progress vault",
       deviceName: "Laptop",
       textExtensions: new Set(["md"]),
+      assertActive: () => undefined,
       batchSize: 1,
       onProgress
     });
@@ -452,7 +591,10 @@ describe("migrateToPkv", () => {
       })
     );
     expect(onProgress).toHaveBeenLastCalledWith(
-      expect.objectContaining({ stage: "complete", pushedFiles: 2 })
+      expect.objectContaining({ stage: "pushing", pushedFiles: 2 })
+    );
+    expect(onProgress).not.toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "complete" })
     );
   });
 
@@ -468,7 +610,8 @@ describe("migrateToPkv", () => {
         api,
         vaultName: "Failure vault",
         deviceName: "Laptop",
-        textExtensions: new Set(["md"])
+        textExtensions: new Set(["md"]),
+        assertActive: () => undefined
       })
     ).rejects.toMatchObject({
       message: "Migration failed while pushing batch 1 of 1: push failed",

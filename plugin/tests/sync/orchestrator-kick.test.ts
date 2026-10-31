@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LEGACY_PUSH_LIMITS } from "../../src/sync/push-limits";
 import type { LocalIndex } from "../../src/sync/types";
 
 /**
@@ -77,6 +78,7 @@ describe("SyncOrchestrator timer kicks (W4)", () => {
       fallbackTimer: null,
       engine: null,
       api: vi.fn(() => ({})),
+      currentPushLimits: () => LEGACY_PUSH_LIMITS,
       loadSyncIndex: async (): Promise<LocalIndex> => ({
         lastSyncedCommit: null,
         files: {}
@@ -199,6 +201,7 @@ describe("SyncOrchestrator timer kicks (W4)", () => {
       fallbackTimer: null,
       engine: null,
       api: vi.fn(() => ({})),
+      currentPushLimits: () => LEGACY_PUSH_LIMITS,
       loadSyncIndex: async (): Promise<LocalIndex> => ({
         lastSyncedCommit: null,
         files: {}

@@ -6,6 +6,7 @@ import {
   type SyncEngineOptions
 } from "../../src/sync/engine";
 import { sha256Text } from "../../src/sync/hash";
+import { LEGACY_PUSH_LIMITS } from "../../src/sync/push-limits";
 import type { LocalFileSnapshot, LocalIndex } from "../../src/sync/types";
 import { shouldSyncPath } from "../../src/sync/vault-adapter";
 import { notices } from "../mocks/obsidian";
@@ -317,6 +318,7 @@ describe("SyncEngine abort (M-10)", () => {
       fallbackTimer: null,
       engine: null,
       api: vi.fn(() => ({})),
+      currentPushLimits: () => LEGACY_PUSH_LIMITS,
       loadSyncIndex: async () => idx.idx,
       saveSyncIndex: async () => undefined,
       updateSyncIndex: async (updater: (i: LocalIndex) => LocalIndex) => {
@@ -472,6 +474,7 @@ describe("SyncEngine abort (M-10)", () => {
       fallbackTimer: null,
       engine: null,
       api: vi.fn(() => ({})),
+      currentPushLimits: () => LEGACY_PUSH_LIMITS,
       loadSyncIndex: async () => ({ lastSyncedCommit: null, files: {} }),
       saveSyncIndex: async () => undefined,
       updateSyncIndex: async () => undefined,

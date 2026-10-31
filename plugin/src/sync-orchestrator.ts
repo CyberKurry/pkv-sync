@@ -75,6 +75,7 @@ export class SyncOrchestrator {
           : undefined,
       labels: this.plugin.text(),
       pushLabels: this.plugin.text(),
+      getPushLimits: () => this.plugin.currentPushLimits(),
       onSyncSuccess: () => this.plugin.recordSyncSuccess(generation),
       deviceId: this.plugin.settings.deviceId,
       serverUrl: this.plugin.settings.serverUrl,

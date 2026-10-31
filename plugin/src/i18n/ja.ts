@@ -89,6 +89,14 @@ export const ja = {
   migrateStageUploadingBlobs: "blob をアップロード中",
   migrateStagePushing: "ファイルを push 中",
   migrateStageComplete: "移行完了",
+  migrateStageCommitting: "移行状態を保存しています。この手順はキャンセルできません。",
+  migrateScopeChanged: "接続または選択した Vault が変更されたため、移行を停止しました。",
+  migrateSaveFailed: "移行状態を保存できませんでした。以前の選択に戻しました。",
+  migrateRecoveryFailed:
+    "移行状態を復元できませんでした。同期は停止しています。ストレージを確認してプラグインを再読み込みしてください。",
+  migrateEngineFailed: "移行状態は保存されましたが、同期エンジンを再起動できませんでした。",
+  localStateRecoveryFailed:
+    "ローカル状態を復元できませんでした。同期は停止しています。ストレージを確認してプラグインを再読み込みしてください。",
   migrateProgressSummary:
     "{processed}/{total} ファイル - バッチ {batch}/{batches} - blob {blobs}/{totalBlobs}",
   migrateCompleteSummary: "{count} ファイルを移行 - {skipped} 件をスキップ",

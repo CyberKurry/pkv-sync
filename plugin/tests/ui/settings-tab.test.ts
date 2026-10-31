@@ -11,6 +11,7 @@ import type {
 import { ApiError } from "../../src/api/client";
 import { PKVSyncSettingTab } from "../../src/ui/settings-tab";
 import { DeleteVaultModal } from "../../src/ui/delete-vault-modal";
+import { format } from "../../src/i18n";
 import { en } from "../../src/i18n/en";
 import { ja } from "../../src/i18n/ja";
 import { ko } from "../../src/i18n/ko";
@@ -135,11 +136,14 @@ describe("PKVSyncSettingTab connection state", () => {
   });
 
   it("shows localized first-run setup guidance when connect receives setup_required", async () => {
-    const config = vi
+    const refreshServerCapabilities = vi
       .fn()
       .mockRejectedValue(
         new ApiError(403, "setup_required", "Initial setup required")
       );
+    const setConnectionPatch = vi
+      .fn()
+      .mockResolvedValue({ epoch: 1, connection: {} });
     const saveSettings = vi.fn().mockResolvedValue(undefined);
     const containerEl = new MockElement("div");
     const setupRequiredNotice =
@@ -159,7 +163,10 @@ describe("PKVSyncSettingTab connection state", () => {
         setupRequiredNotice
       }),
       saveSettings,
-      api: () => ({ config })
+      setConnectionPatch,
+      refreshServerCapabilities,
+      resumeSyncForCurrentScope: vi.fn(),
+      api: () => ({})
     };
     const tab = new PKVSyncSettingTab(
       { vault: { getFiles: () => [] } } as never,
@@ -171,17 +178,145 @@ describe("PKVSyncSettingTab connection state", () => {
     tab.display();
     await containerEl.clickButton("Connect");
 
-    expect(config).toHaveBeenCalledTimes(1);
+    expect(setConnectionPatch).toHaveBeenCalledWith({
+      serverUrl: "https://sync.example.com",
+      deploymentKey: "k_abc"
+    });
+    expect(refreshServerCapabilities).toHaveBeenCalledWith(false);
     expect(notices.at(-1)).toBe(setupRequiredNotice);
+  });
+
+  it("resumes sync once after an accepted connect config", async () => {
+    const stamp = { epoch: 1, connection: { serverUrl: "https://sync.example.com" } };
+    const setConnectionPatch = vi.fn().mockResolvedValue(stamp);
+    const resumeSyncForCurrentScope = vi.fn().mockResolvedValue(undefined);
+    const refreshServerCapabilities = vi.fn().mockResolvedValue({
+      server_name: "s",
+      version: "1.7.1",
+      registration: "open",
+      max_file_size: 1000,
+      supported_text_extensions: ["md"],
+      capabilities: { history: true, diff: true },
+      push_debounce_ms: 250,
+      push_limits: { max_json_bytes: 2_097_152, max_changes: 1000 }
+    });
+    const containerEl = new MockElement("div");
+    const plugin = {
+      settings: {
+        token: "",
+        serverUrl: "https://sync.example.com",
+        deploymentKey: "k_abc",
+        deviceName: "Laptop",
+        timezone: "Asia/Shanghai",
+        language: "auto",
+        themeMode: "auto"
+      },
+      text: () => en,
+      setConnectionPatch,
+      refreshServerCapabilities,
+      resumeSyncForCurrentScope,
+      saveSettings: vi.fn().mockResolvedValue(undefined),
+      api: () => ({})
+    };
+    const tab = new PKVSyncSettingTab(
+      { vault: { getFiles: () => [] } } as never,
+      plugin as never
+    );
+    tab.containerEl = containerEl as never;
+    notices.length = 0;
+
+    tab.display();
+    await containerEl.clickButton("Connect");
+
+    expect(refreshServerCapabilities).toHaveBeenCalledWith(false);
+    expect(resumeSyncForCurrentScope).toHaveBeenCalledTimes(1);
+    expect(notices.at(-1)).toBe(
+      format(en.connectedToServer, { serverName: "sync.example.com" })
+    );
+  });
+
+  it("stops the old connect flow when the config answer is not accepted", async () => {
+    const setConnectionPatch = vi
+      .fn()
+      .mockResolvedValue({ epoch: 1, connection: {} });
+    const resumeSyncForCurrentScope = vi.fn().mockResolvedValue(undefined);
+    const containerEl = new MockElement("div");
+    const plugin = {
+      settings: {
+        token: "",
+        serverUrl: "https://sync.example.com",
+        deploymentKey: "k_abc",
+        deviceName: "Laptop",
+        timezone: "Asia/Shanghai",
+        language: "auto",
+        themeMode: "auto"
+      },
+      text: () => en,
+      setConnectionPatch,
+      refreshServerCapabilities: vi.fn().mockResolvedValue(null),
+      resumeSyncForCurrentScope,
+      saveSettings: vi.fn().mockResolvedValue(undefined),
+      api: () => ({})
+    };
+    const tab = new PKVSyncSettingTab(
+      { vault: { getFiles: () => [] } } as never,
+      plugin as never
+    );
+    tab.containerEl = containerEl as never;
+    notices.length = 0;
+
+    tab.display();
+    await containerEl.clickButton("Connect");
+
+    expect(resumeSyncForCurrentScope).not.toHaveBeenCalled();
+    expect(notices).toEqual([]);
+  });
+
+  it("does not touch any UI when the connection was replaced before connect", async () => {
+    const containerEl = new MockElement("div");
+    const refreshServerCapabilities = vi.fn();
+    const plugin = {
+      settings: {
+        token: "",
+        serverUrl: "https://sync.example.com",
+        deploymentKey: "k_abc",
+        deviceName: "Laptop",
+        timezone: "Asia/Shanghai",
+        language: "auto",
+        themeMode: "auto"
+      },
+      text: () => en,
+      setConnectionPatch: vi.fn().mockResolvedValue(null),
+      refreshServerCapabilities,
+      resumeSyncForCurrentScope: vi.fn(),
+      saveSettings: vi.fn().mockResolvedValue(undefined),
+      api: () => ({})
+    };
+    const tab = new PKVSyncSettingTab(
+      { vault: { getFiles: () => [] } } as never,
+      plugin as never
+    );
+    tab.containerEl = containerEl as never;
+    notices.length = 0;
+
+    tab.display();
+    await containerEl.clickButton("Connect");
+
+    expect(refreshServerCapabilities).not.toHaveBeenCalled();
+    expect(notices).toEqual([]);
   });
 });
 
 describe("delete vault", () => {
   function buildTab(settingsOverride: Record<string, unknown> = {}) {
     const deleteVault = vi.fn().mockResolvedValue(undefined);
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const setSelectedVault = vi.fn(async (vaultId: string, vaultName: string) => {
+      settings.selectedVaultId = vaultId;
+      settings.selectedVaultName = vaultName;
+      return true;
+    });
     const invalidateSyncEngine = vi.fn();
-    const settings = {
+    const settings: Record<string, unknown> = {
       selectedVaultId: "vault-1",
       selectedVaultName: "Test Vault",
       ...settingsOverride
@@ -189,7 +324,7 @@ describe("delete vault", () => {
     const plugin = {
       settings,
       api: () => ({ deleteVault }),
-      saveSettings,
+      setSelectedVault,
       invalidateSyncEngine,
       text: () => ({ deletedVaultNotice: "Deleted {name}" })
     };
@@ -202,11 +337,11 @@ describe("delete vault", () => {
     tab.plugin = plugin;
     tab.display = vi.fn();
 
-    return { tab, plugin, deleteVault, saveSettings, invalidateSyncEngine, settings };
+    return { tab, plugin, deleteVault, setSelectedVault, invalidateSyncEngine, settings };
   }
 
   it("deleting selected vault calls API, clears settings, invalidates engine, refreshes display", async () => {
-    const { tab, deleteVault, saveSettings, invalidateSyncEngine, settings } =
+    const { tab, deleteVault, setSelectedVault, invalidateSyncEngine, settings } =
       buildTab();
     const vault = mockVault();
     notices.length = 0;
@@ -214,16 +349,16 @@ describe("delete vault", () => {
     await tab.deleteVaultAndRefresh(vault);
 
     expect(deleteVault).toHaveBeenCalledWith("vault-1");
+    expect(setSelectedVault).toHaveBeenCalledWith("", "");
     expect(settings.selectedVaultId).toBe("");
     expect(settings.selectedVaultName).toBe("");
     expect(invalidateSyncEngine).toHaveBeenCalledTimes(1);
-    expect(saveSettings).toHaveBeenCalledTimes(1);
     expect(tab.display).toHaveBeenCalledTimes(1);
     expect(notices.at(-1)).toBe("Deleted Test Vault");
   });
 
   it("deleting non-selected vault preserves selection and does not invalidate engine", async () => {
-    const { tab, deleteVault, saveSettings, invalidateSyncEngine, settings } =
+    const { tab, deleteVault, setSelectedVault, invalidateSyncEngine, settings } =
       buildTab({
         selectedVaultId: "vault-other",
         selectedVaultName: "Other Vault"
@@ -233,23 +368,23 @@ describe("delete vault", () => {
     await tab.deleteVaultAndRefresh(vault);
 
     expect(deleteVault).toHaveBeenCalledWith("vault-1");
+    expect(setSelectedVault).not.toHaveBeenCalled();
     expect(settings.selectedVaultId).toBe("vault-other");
     expect(settings.selectedVaultName).toBe("Other Vault");
     expect(invalidateSyncEngine).not.toHaveBeenCalled();
-    expect(saveSettings).toHaveBeenCalledTimes(1);
     expect(tab.display).toHaveBeenCalledTimes(1);
   });
 
   it("does not clear settings or refresh when API rejects", async () => {
-    const { tab, saveSettings, invalidateSyncEngine, settings } = buildTab();
+    const { tab, setSelectedVault, invalidateSyncEngine, settings } = buildTab();
     const failingApi = vi.fn().mockRejectedValue(new Error("boom"));
     tab.plugin.api = () => ({ deleteVault: failingApi });
     const vault = mockVault();
 
     await expect(tab.deleteVaultAndRefresh(vault)).rejects.toThrow("boom");
     expect(settings.selectedVaultId).toBe("vault-1");
+    expect(setSelectedVault).not.toHaveBeenCalled();
     expect(invalidateSyncEngine).not.toHaveBeenCalled();
-    expect(saveSettings).not.toHaveBeenCalled();
     expect(tab.display).not.toHaveBeenCalled();
   });
 
