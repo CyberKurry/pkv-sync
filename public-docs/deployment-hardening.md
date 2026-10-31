@@ -289,6 +289,32 @@ The repository includes a Traefik example at
 `deploy/traefik/docker-compose.traefik.yml`. Set `trusted_proxies` to the Docker
 network CIDR used by Traefik, and replace the example domain and ACME email.
 
+### Request body limits and `413` responses
+
+The application accepts at most `2 MiB` of JSON per push request and advertises
+that value as `push_limits.max_json_bytes` in `/api/config`. The limit is
+enforced by the router itself, so it applies even when the reverse proxy allows
+a larger body.
+
+An ingress can still be stricter than the application. Nginx's
+`client_max_body_size`, Caddy's `request_body` limits, or a cloud load balancer
+may reject a request before it reaches PKV Sync; such a rejection usually
+returns `413` with an HTML or plain-text body instead of this API's JSON error
+envelope, so do not parse `413` bodies as JSON. Keep the ingress limit at or
+above the application limit and check both layers when diagnosing a rejected
+push:
+
+- Ingress logs show the request with no matching application access-log entry,
+  and the response body is not the API error envelope.
+- Application logs show the request and a `413` from the body-limit extractor,
+  with the API's JSON error body.
+
+A `413` that carries `Retry-After` should be honoured by the client; the plugin
+defers the whole run rather than splitting into smaller requests. A single file
+whose own complete request is too large for the effective limit cannot be
+synced at all — raise the ingress limit or reduce the file, because the plugin
+reports the path and leaves it unsynced rather than silently skipping it.
+
 ## trusted_proxies
 
 Only trust `X-Forwarded-For` from your reverse proxy. If the proxy and app run

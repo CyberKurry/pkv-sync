@@ -235,6 +235,14 @@ failure budget.
 - Max file size (default `100 MiB`). Blob upload request bodies are always
   clamped to the hard storage cap (`512 MiB` in production), even if this
   runtime setting is raised higher.
+- Push body limits (read-only, advertised through `/api/config` as
+  `push_limits`): `max_json_bytes` is `2 MiB` and `max_changes` is `1000`.
+  This is a different limit from max file size — a large attachment travels as
+  a blob outside the push JSON, while a single push request carrying many text
+  edits must fit in 2 MiB. A `413` is not fixed by disabling these protections:
+  a reverse proxy may enforce a smaller body limit of its own, and plugin
+  versions released before byte-based batching do not get smaller requests
+  automatically.
 - Supported text extensions — files outside this list are treated as binary
   blobs. The list is shown read-only in the Admin WebUI; edit it via the
   `text_extensions` runtime config row (or by editing the SQLite `runtime_config`

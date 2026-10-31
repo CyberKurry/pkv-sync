@@ -249,6 +249,17 @@ server {
 
 저장소는 `deploy/traefik/docker-compose.traefik.yml`에 Traefik 예시를 제공합니다. `trusted_proxies`를 Traefik이 사용하는 Docker network CIDR로 설정하고 예시 도메인과 ACME email을 바꾸세요.
 
+### 요청 body 한도와 `413` 응답
+
+애플리케이션은 push 요청당 최대 `2 MiB`의 JSON을 허용하며, 이 값을 `/api/config`의 `push_limits.max_json_bytes`로 공개합니다. 이 한도는 라우터가 직접 적용하므로 리버스 프록시가 더 큰 body를 허용하더라도 그대로 유효합니다.
+
+Ingress가 애플리케이션보다 엄격할 수도 있습니다. Nginx의 `client_max_body_size`, Caddy의 요청 body 제한, 클라우드 로드 밸런서는 요청이 PKV Sync에 도달하기 전에 거부할 수 있습니다. 이런 거부는 보통 `413`을 반환하지만 응답 body가 HTML 또는 일반 텍스트이며 이 API의 JSON 오류 형식이 아닙니다. 따라서 `413` 응답 body를 JSON으로 파싱하지 마세요. Ingress 한도를 애플리케이션 한도 이상으로 유지하고, 거부된 push를 진단할 때 두 계층을 모두 확인하세요.
+
+- Ingress 로그에는 요청이 있지만 애플리케이션 access log에 대응 기록이 없고 응답 body가 API 오류 형식이 아니다.
+- 애플리케이션 로그에 요청이 있고 body limit 추출기가 반환한 `413`이 기록되며 응답 body가 API의 JSON 오류 형식이다.
+
+`Retry-After`가 있는 `413`은 클라이언트가 존중해야 합니다. 플러그인은 더 작은 요청으로 나누지 않고 실행 전체를 연기합니다. 단일 파일의 전체 요청이 실효 한도를 넘으면 그 파일은 동기화할 수 없습니다. Ingress 한도를 높이거나 파일을 줄이세요. 플러그인은 경로를 알리고 조용히 건너뛰지 않고 미동기화 상태로 남깁니다.
+
 ## trusted_proxies
 
 reverse proxy에서 온 `X-Forwarded-For`만 신뢰하세요. proxy와 app이 같은 호스트에서 실행되는 경우:

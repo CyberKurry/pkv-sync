@@ -162,6 +162,7 @@ Settings ページは SQLite に保存された値を編集します。変更は
 
 **Sync & Storage**
 - 最大ファイルサイズ（既定 `100 MiB`）。Blob upload request body は、この runtime 設定をより高くしても、常に hard storage cap（production では `512 MiB`）で制限されます
+- Push request body の上限（読み取り専用、`/api/config` の `push_limits` で通知）：`max_json_bytes` は `2 MiB`、`max_changes` は `1000` です。最大ファイルサイズとは別の制限です。大きな添付ファイルは push JSON の外側で blob として送信され、多数のテキスト変更を含む 1 回の push request は 2 MiB 以内に収まる必要があります。`413` はこれらの保護を無効にして解決するものではありません。リバースプロキシが独自のより小さい body 制限を持つ場合があり、バイト単位の分割より前のクライアントは自動的に小さい request を送りません
 - 対応テキスト拡張子 — 一覧外のファイルはバイナリ blob として扱われます。この一覧は Admin WebUI では読み取り専用で表示されます。変更が必要な場合は、`text_extensions` runtime config 行を編集するか、SQLite の `runtime_config` テーブルを直接編集してください。
 - 追加 exclude glob — 組み込みの `.obsidian/`、`.trash/`、`.conflict-*`、`.git/` 除外リストを補う管理者調整可能なパターン
 - 履歴 UI と diff エンドポイントの切替

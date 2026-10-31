@@ -247,6 +247,17 @@ server {
 
 倉庫在 `deploy/traefik/docker-compose.traefik.yml` 提供了 Traefik 範例。請將 `trusted_proxies` 設定為 Traefik 使用的 Docker 網路 CIDR，並替換範例網域和 ACME 電子郵件。
 
+### 請求 body 上限與 `413` 回應
+
+應用程式對每個推送請求最多接受 `2 MiB` 的 JSON，並透過 `/api/config` 的 `push_limits.max_json_bytes` 公布該值。此限制由路由層本身強制執行，因此即使反向代理允許更大的請求 body，它仍然生效。
+
+入口層仍可能比應用程式更嚴格。Nginx 的 `client_max_body_size`、Caddy 的請求 body 限制或雲端負載平衡器都可能在請求到達 PKV Sync 之前將其拒絕；這類拒絕通常回傳 `413`，但回應 body 是 HTML 或純文字，而不是本 API 的 JSON 錯誤結構，因此請勿把 `413` 的回應 body 當作 JSON 解析。請將入口限額保持在應用程式限額之上，並在排查被拒絕的推送時同時檢查兩層：
+
+- 入口日誌中出現該請求，但應用程式存取日誌中沒有對應記錄，且回應 body 不是 API 錯誤結構。
+- 應用程式日誌中出現該請求，並記錄了請求 body 限制提取器回傳的 `413`，回應 body 是 API 的 JSON 錯誤結構。
+
+帶 `Retry-After` 的 `413` 應由用戶端遵守；外掛會延後整輪推送，而不是拆成更小的請求。若單一檔案的完整請求超過生效限額，該檔案無法同步——請提高入口限額或縮小檔案，因為外掛會回報路徑並保留其未同步狀態，而不是靜默略過。
+
 ## trusted_proxies
 
 只信任來自反向代理的 `X-Forwarded-For`。如果代理和應用執行在同一台主機：

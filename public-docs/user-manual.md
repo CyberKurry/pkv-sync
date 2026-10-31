@@ -88,6 +88,14 @@ Keep Obsidian open while large attachments upload. The plugin reads the server
 configuration after connecting and uses the server-provided text extension list
 and maximum file size rules.
 
+Push requests are grouped by serialized JSON byte size and change count. The
+normal target is 1 MiB; the server's inline JSON limit remains 2 MiB. A single
+file may be sent separately above the target if its complete request fits the
+server limit, and a reverse proxy may impose a smaller limit than the server
+itself. If one complete file request still cannot be accepted, the plugin
+reports the path and leaves that file unsynced instead of claiming success — a
+manual sync retries it, but cannot exceed the server's hard limit.
+
 Version 1.2.1 reduced redundant plugin work during sync: pull and push phases
 reuse the same scan when possible, and changed-file snapshots are processed
 with bounded parallelism.

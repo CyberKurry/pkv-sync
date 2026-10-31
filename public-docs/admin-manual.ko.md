@@ -162,6 +162,7 @@ Settings 페이지는 SQLite에 저장된 값을 편집합니다. 변경 사항�
 
 **Sync & Storage**
 - 최대 파일 크기(기본값 `100 MiB`). Blob upload request body는 이 runtime 설정을 더 높여도 항상 hard storage cap(프로덕션 `512 MiB`)으로 제한됩니다
+- 푸시 요청 body 한도(읽기 전용, `/api/config`의 `push_limits`로 공개): `max_json_bytes`는 `2 MiB`, `max_changes`는 `1000`입니다. 최대 파일 크기와는 다른 한도입니다. 큰 첨부 파일은 푸시 JSON 밖에서 blob으로 전송되고, 많은 텍스트 변경을 담은 한 번의 푸시 요청은 2 MiB 이내여야 합니다. `413`은 이러한 보호를 끄는 방식으로 해결하지 마세요. 리버스 프록시가 자체적으로 더 작은 body 한도를 적용할 수 있고, 바이트 단위 분할 이전 버전의 클라이언트는 자동으로 더 작은 요청을 보내지 않습니다
 - 지원되는 텍스트 확장자 — 목록 밖의 파일은 바이너리 blob으로 처리됩니다. 이 목록은 Admin WebUI에서 읽기 전용으로 표시됩니다. 변경이 필요하면 `text_extensions` 런타임 설정 행(또는 SQLite `runtime_config` 테이블을 직접 편집)으로 수정하세요.
 - 추가 exclude glob — 내장 `.obsidian/`, `.trash/`, `.conflict-*`, `.git/` 제외 목록을 보완하는 관리자 조정 가능 패턴
 - 기록 UI와 diff 엔드포인트 토글

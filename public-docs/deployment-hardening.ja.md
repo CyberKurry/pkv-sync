@@ -249,6 +249,17 @@ server {
 
 リポジトリには `deploy/traefik/docker-compose.traefik.yml` に Traefik の例があります。`trusted_proxies` を Traefik が使う Docker network CIDR に設定し、例のドメインと ACME email を置き換えてください。
 
+### Request body の上限と `413` 応答
+
+アプリケーションは 1 回の push request につき最大 `2 MiB` の JSON を受け付け、その値を `/api/config` の `push_limits.max_json_bytes` として通知します。この上限は router 自身が適用するため、リバースプロキシがより大きな body を許可していても有効です。
+
+Ingress がアプリケーションより厳しい場合もあります。Nginx の `client_max_body_size`、Caddy の request body 制限、クラウド load balancer は、PKV Sync に届く前に request を拒否することがあります。その場合の `413` は HTML や plain text の body を返し、この API の JSON エラー形式ではありません。`413` の body を JSON として解析しないでください。Ingress の上限はアプリケーションの上限以上に保ち、拒否された push を調査するときは両方の層を確認してください。
+
+- Ingress log に request があるが、アプリケーションの access log に対応する記録がなく、response body が API のエラー形式ではない。
+- アプリケーション log に request があり、body limit extractor による `413` が記録され、response body が API の JSON エラー形式である。
+
+`Retry-After` を伴う `413` はクライアントが尊重する必要があります。プラグインはより小さな request に分割するのではなく、run 全体を延期します。単一ファイルの完全な request が実効上限を超える場合、そのファイルは同期できません。Ingress の上限を上げるかファイルを小さくしてください。プラグインはパスを報告し、黙って飛ばすのではなく未同期のまま残します。
+
 ## trusted_proxies
 
 `X-Forwarded-For` は reverse proxy からのものだけを信頼します。proxy と app が同じホストで動く場合:
