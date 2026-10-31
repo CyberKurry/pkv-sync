@@ -9,6 +9,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Explicit connections again show first-run setup, invalid deployment-key and
+  network errors. Background config refreshes keep the last valid config, and
+  responses from an old or superseded connection remain silent.
 - Migration no longer reports completion if engine recovery fails or another
   selection supersedes it. The modal shows the recovery or scope error while
   preserving any vault selection and index already committed successfully.

@@ -524,8 +524,8 @@ export default class PKVSyncPlugin extends Plugin {
    * The response is accepted only if the connection it was requested for is
    * still current — a delayed answer from server A must never be applied
    * after the user switched to server B. Returns null when the answer was
-   * dropped or the request failed, so callers do not announce a connection
-   * that was never adopted.
+   * dropped or a background request failed. Explicit connection attempts can
+   * opt into receiving current-scope failures; stale failures are still dropped.
    *
    * `allowRebuild` is false on the migration path: the migration sets the
    * new vault id, then calls saveSettings({rebuild:false}) BEFORE saving
@@ -534,7 +534,8 @@ export default class PKVSyncPlugin extends Plugin {
    * re-push the whole vault (W7).
    */
   async refreshServerCapabilities(
-    allowRebuild = true
+    allowRebuild = true,
+    options: { throwOnFailure?: boolean } = {}
   ): Promise<ServerConfigResponse | null> {
     if (
       !isFetchableServerUrl(this.settings.serverUrl) ||
@@ -553,13 +554,14 @@ export default class PKVSyncPlugin extends Plugin {
         await this.applyServerConfigLocked(ticket, cfg, allowRebuild);
         return cfg;
       });
-    } catch {
-      await this.connectionContext.runLocal(() => {
-        if (!this.connectionContext.isRefreshCurrent(ticket)) return;
+    } catch (error) {
+      return this.connectionContext.runLocal(() => {
+        if (!this.connectionContext.isRefreshCurrent(ticket)) return null;
         // Keep the current scope's last valid config; only a successful
         // answer may replace it.
+        if (options.throwOnFailure) throw error;
+        return null;
       });
-      return null;
     }
   }
 

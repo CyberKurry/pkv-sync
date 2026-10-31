@@ -8,6 +8,7 @@ import {
   type SettingDefinitionRender
 } from "obsidian";
 import { ApiError } from "../api/client";
+import type { ConnectionStamp } from "../connection-context";
 import type {
   MeResponse,
   ServerConfigResponse,
@@ -213,24 +214,27 @@ export class PKVSyncSettingTab extends PluginSettingTab {
 
     this.renderUpdates(panel);
     this.renderButton(panel, t.connect, "primary", async () => {
+      let stamp: ConnectionStamp | null = null;
       try {
         const parsed = parseServerUrl(serverUrl.value, deploymentKey.value);
-        const stamp = await this.plugin.setConnectionPatch({
+        stamp = await this.plugin.setConnectionPatch({
           serverUrl: parsed.serverUrl,
           deploymentKey: parsed.deploymentKey
         });
         if (!stamp) return;
         // allowRebuild=false: resumeSyncForCurrentScope owns the single
         // rebuild, so an accepted config does not start two engines.
-        const cfg = await this.plugin.refreshServerCapabilities(false);
-        if (!cfg) return;
+        const cfg = await this.plugin.refreshServerCapabilities(false, { throwOnFailure: true });
+        if (!cfg || !this.plugin.isConnectionCurrent(stamp)) return;
         this.cfg = cfg;
         await this.plugin.resumeSyncForCurrentScope();
+        if (!this.plugin.isConnectionCurrent(stamp)) return;
         new Notice(
           format(t.connectedToServer, { serverName: this.serverHost() })
         );
         this.refresh();
       } catch (error) {
+        if (stamp && !this.plugin.isConnectionCurrent(stamp)) return;
         if (error instanceof ApiError && error.code === "setup_required") {
           new Notice(t.setupRequiredNotice);
           return;

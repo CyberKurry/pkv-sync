@@ -165,6 +165,7 @@ describe("PKVSyncSettingTab connection state", () => {
       saveSettings,
       setConnectionPatch,
       refreshServerCapabilities,
+      isConnectionCurrent: () => true,
       resumeSyncForCurrentScope: vi.fn(),
       api: () => ({})
     };
@@ -182,7 +183,7 @@ describe("PKVSyncSettingTab connection state", () => {
       serverUrl: "https://sync.example.com",
       deploymentKey: "k_abc"
     });
-    expect(refreshServerCapabilities).toHaveBeenCalledWith(false);
+    expect(refreshServerCapabilities).toHaveBeenCalledWith(false, { throwOnFailure: true });
     expect(notices.at(-1)).toBe(setupRequiredNotice);
   });
 
@@ -214,6 +215,7 @@ describe("PKVSyncSettingTab connection state", () => {
       text: () => en,
       setConnectionPatch,
       refreshServerCapabilities,
+      isConnectionCurrent: () => true,
       resumeSyncForCurrentScope,
       saveSettings: vi.fn().mockResolvedValue(undefined),
       api: () => ({})
@@ -228,7 +230,7 @@ describe("PKVSyncSettingTab connection state", () => {
     tab.display();
     await containerEl.clickButton("Connect");
 
-    expect(refreshServerCapabilities).toHaveBeenCalledWith(false);
+    expect(refreshServerCapabilities).toHaveBeenCalledWith(false, { throwOnFailure: true });
     expect(resumeSyncForCurrentScope).toHaveBeenCalledTimes(1);
     expect(notices.at(-1)).toBe(
       format(en.connectedToServer, { serverName: "sync.example.com" })

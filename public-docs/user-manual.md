@@ -52,6 +52,10 @@ https://sync.example.com/k_xxx/
 Open **Settings -> PKV Sync**, paste the share URL, then click **Connect**. If
 the deployment key is embedded in the URL, the plugin fills it automatically.
 
+Unreleased: Connect reports setup, deployment-key and network errors for the
+current attempt. A setup-required response asks you to open the server URL in
+a browser first. Errors from superseded attempts are discarded.
+
 If you entered the wrong server or need to move to another self-hosted server,
 use **Change server** on the login screen to return to the server settings
 without reinstalling the plugin.
