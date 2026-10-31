@@ -9,6 +9,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Connection storage failures now show localized save, recovery or apply
+  messages with the original cause instead of internal `data_commit_*` codes.
+  Failures that pause sync emit one warning and preserve the recovery barrier.
 - Sync recovery from account refresh, connect or login now checks the accepted
   connection inside the publication queue. An older operation cannot start a
   new server's engine when a connection switch was queued during its save.

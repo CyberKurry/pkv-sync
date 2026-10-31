@@ -70,6 +70,7 @@ import { ConflictsListModal } from "./ui/conflicts-list-modal";
 import { ConflictResolveModal } from "./ui/conflict-resolve-modal";
 import { DeleteConflictsConfirmModal } from "./ui/delete-conflicts-confirm";
 import { MigrateModal } from "./ui/migrate-modal";
+import { localStateErrorMessage } from "./ui/local-state-error";
 import { SyncStatusBar } from "./ui/status-bar";
 import { formatRelativeUnixSeconds, formatUnixSeconds } from "./time";
 import { isFetchableServerUrl } from "./url";
@@ -627,7 +628,7 @@ export default class PKVSyncPlugin extends Plugin {
       if (error instanceof DataCommitError && error.state !== "restored") {
         this.persistenceRecoveryRequired = true;
         this.invalidateSyncEngine();
-        new Notice(this.text().localStateRecoveryFailed);
+        new Notice(localStateErrorMessage(error, this.text()));
       }
       throw error;
     }

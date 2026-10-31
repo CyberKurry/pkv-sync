@@ -103,8 +103,12 @@ export const ko = {
   migrateRecoveryFailed:
     "마이그레이션 상태를 복원하지 못했습니다. 동기화가 일시 중지되었습니다. 저장 공간을 확인하고 플러그인을 다시 로드하세요.",
   migrateEngineFailed: "마이그레이션 상태는 저장되었지만 동기화 엔진을 다시 시작하지 못했습니다.",
+  localStateSaveFailed:
+    "로컬 설정을 저장하지 못했습니다. 이전 상태를 복원했습니다. 원인: {reason}",
   localStateRecoveryFailed:
-    "로컬 상태를 복원하지 못했습니다. 동기화가 일시 중지되었습니다. 저장 공간을 확인하고 플러그인을 다시 로드하세요.",
+    "로컬 상태를 복원하지 못했습니다. 동기화가 일시 중지되었습니다. 저장 공간을 확인하고 플러그인을 다시 로드하세요. 원인: {reason}",
+  localStateApplyFailed:
+    "로컬 설정은 저장되었지만 적용하지 못했습니다. 동기화가 일시 중지되었습니다. 플러그인을 다시 로드하세요. 원인: {reason}",
   migrateProgressSummary:
     "{processed}/{total}개 파일 - 배치 {batch}/{batches} - blob {blobs}/{totalBlobs}",
   migrateCompleteSummary: "{count}개 파일 마이그레이션됨 - {skipped}개 건너뜀",

@@ -95,8 +95,12 @@ export const ja = {
   migrateRecoveryFailed:
     "移行状態を復元できませんでした。同期は停止しています。ストレージを確認してプラグインを再読み込みしてください。",
   migrateEngineFailed: "移行状態は保存されましたが、同期エンジンを再起動できませんでした。",
+  localStateSaveFailed:
+    "ローカル設定を保存できませんでした。以前の状態に戻しました。原因：{reason}",
   localStateRecoveryFailed:
-    "ローカル状態を復元できませんでした。同期は停止しています。ストレージを確認してプラグインを再読み込みしてください。",
+    "ローカル状態を復元できませんでした。同期は停止しています。ストレージを確認してプラグインを再読み込みしてください。原因：{reason}",
+  localStateApplyFailed:
+    "ローカル設定は保存されましたが、適用に失敗しました。同期は停止しています。プラグインを再読み込みしてください。原因：{reason}",
   migrateProgressSummary:
     "{processed}/{total} ファイル - バッチ {batch}/{batches} - blob {blobs}/{totalBlobs}",
   migrateCompleteSummary: "{count} ファイルを移行 - {skipped} 件をスキップ",

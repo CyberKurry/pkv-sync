@@ -60,6 +60,12 @@ If you entered the wrong server or need to move to another self-hosted server,
 use **Change server** on the login screen to return to the server settings
 without reinstalling the plugin.
 
+Unreleased: local settings failures include the storage cause and distinguish
+a verified restoration from an uncertain disk state or saved settings that
+could not be applied. The previous settings are kept after a verified
+restoration; the other two cases keep sync paused. Check storage and reload
+the plugin when prompted.
+
 ## Login or Register
 
 Registration behavior depends on the server runtime setting:

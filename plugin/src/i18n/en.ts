@@ -96,8 +96,12 @@ export const en = {
     "Migration state could not be restored. Sync is paused. Check storage and reload the plugin.",
   migrateEngineFailed:
     "Migration state was saved, but the sync engine could not be restarted.",
+  localStateSaveFailed:
+    "Could not save local settings. The previous state was restored. Reason: {reason}",
   localStateRecoveryFailed:
-    "Local state could not be restored. Sync is paused. Check storage and reload the plugin.",
+    "Local state could not be restored. Sync is paused. Check storage and reload the plugin. Reason: {reason}",
+  localStateApplyFailed:
+    "Local settings were saved, but applying them failed. Sync is paused. Reload the plugin. Reason: {reason}",
   migrateProgressSummary:
     "{processed}/{total} files - batch {batch}/{batches} - blobs {blobs}/{totalBlobs}",
   migrateCompleteSummary: "{count} files migrated - {skipped} skipped",

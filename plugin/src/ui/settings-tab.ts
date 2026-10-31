@@ -9,6 +9,7 @@ import {
 } from "obsidian";
 import { ApiError } from "../api/client";
 import type { ConnectionStamp } from "../connection-context";
+import { DataCommitError } from "../plugin-store";
 import type {
   MeResponse,
   ServerConfigResponse,
@@ -27,6 +28,7 @@ import {
 } from "../settings";
 import { listConflictFiles } from "../sync/conflict-files";
 import { DeleteVaultModal } from "./delete-vault-modal";
+import { localStateErrorMessage } from "./local-state-error";
 import {
   formatDetailedUnixSeconds,
   formatRelativeUnixSeconds,
@@ -235,6 +237,11 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         this.refresh();
       } catch (error) {
         if (stamp && !this.plugin.isConnectionCurrent(stamp)) return;
+        if (error instanceof DataCommitError) {
+          // Failures that pause sync are reported inside the publication gate.
+          if (error.state === "restored") new Notice(localStateErrorMessage(error, t));
+          return;
+        }
         if (error instanceof ApiError && error.code === "setup_required") {
           new Notice(t.setupRequiredNotice);
           return;

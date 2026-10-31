@@ -94,8 +94,11 @@ export const zh = {
   migrateRecoveryFailed:
     "迁移状态恢复失败，同步已暂停。请检查存储并重新加载插件。",
   migrateEngineFailed: "迁移状态已保存，但同步引擎未能恢复。",
+  localStateSaveFailed: "本地设置保存失败，已恢复原状态。原因：{reason}",
   localStateRecoveryFailed:
-    "本地状态恢复失败，同步已暂停。请检查存储并重新加载插件。",
+    "本地状态恢复失败，同步已暂停。请检查存储并重新加载插件。原因：{reason}",
+  localStateApplyFailed:
+    "本地设置已保存，但应用失败，同步已暂停。请重新加载插件。原因：{reason}",
   migrateProgressSummary:
     "{processed}/{total} 个文件 - 批次 {batch}/{batches} - 二进制 {blobs}/{totalBlobs}",
   migrateCompleteSummary: "已迁移 {count} 个文件 - 已跳过 {skipped} 个",
