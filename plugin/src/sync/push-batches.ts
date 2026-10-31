@@ -123,6 +123,7 @@ export class PushBatcher {
         items: readonly T[],
         callbacks: PushCallbacks<T>
       ): Promise<void> => {
+        const emptyBytes = pushBodyBytes([], callbacks.deviceName);
         const weights = new Map<T, number>();
         const weight = (item: T): number => {
           const cached = weights.get(item);
@@ -151,19 +152,19 @@ export class PushBatcher {
             if (chunk.length === 0 || bytes > limits.max_json_bytes) {
               throw new Error("invalid_push_partition");
             }
-            if (chunk.length === 1) {
-              const item = chunk[0];
+            for (const item of chunk) {
               const previous = this.rejected.get(item.change.path);
+              const singletonBytes = emptyBytes + weight(item);
               if (
                 previous &&
                 previous.until > this.now() &&
-                previous.bytes === bytes &&
+                previous.bytes === singletonBytes &&
                 previous.fingerprint === item.fingerprint
               ) {
                 throw this.makeError({
                   kind: "remote_singleton",
                   path: item.change.path,
-                  bytes
+                  bytes: singletonBytes
                 });
               }
             }
@@ -198,7 +199,6 @@ export class PushBatcher {
               if (failures >= MAX_413_FAILURES) {
                 throw this.makeError({ kind: "retry_budget", failures });
               }
-              const emptyBytes = pushBodyBytes([], callbacks.deviceName);
               this.target = Math.min(
                 this.target,
                 Math.max(emptyBytes + 1, Math.floor(bytes / 2))

@@ -66,3 +66,26 @@ it("keeps the old head after an all-clean auto-merge so the pull covers the merg
   expect(f.index.value.lastSyncedCommit).toBeNull();
   expect(Object.keys(f.index.value.files)).toHaveLength(3);
 });
+
+it("does not resend a cooling file when another file becomes pending", async () => {
+  const files = textSnapshots(1, 600_000);
+  const f = createPushFixture(files);
+  f.setBodyLimit(512_000);
+  await expect(f.engine.syncNow()).rejects.toMatchObject({
+    detail: { kind: "remote_singleton", path: "note-0000.md" }
+  });
+  const first = f.calls.filter((call) => call.path.endsWith("/push"));
+  expect(first).toHaveLength(1);
+  files.push({ ...textSnapshots(1, 1)[0], path: "new.md" });
+
+  await expect(f.engine.syncNow()).rejects.toMatchObject({
+    detail: { kind: "remote_singleton", path: "note-0000.md" }
+  });
+
+  expect(f.calls.filter((call) => call.path.endsWith("/push"))).toEqual(first);
+  expect(f.index.value).toEqual({ lastSyncedCommit: null, files: {} });
+
+  f.setBodyLimit(2_097_152);
+  await expect(f.engine.syncNow({ retryOversized: true })).resolves.toBeUndefined();
+  expect(Object.keys(f.index.value.files)).toHaveLength(2);
+});

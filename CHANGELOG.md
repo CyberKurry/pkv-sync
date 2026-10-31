@@ -9,6 +9,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- A file rejected with a single-file `413` stays out of mixed batches during
+  its five-minute cooldown, even if another file becomes pending. Manual
+  probing still retries it without bypassing the server's hard limit.
 - Explicit connections again show first-run setup, invalid deployment-key and
   network errors. Background config refreshes keep the last valid config, and
   responses from an old or superseded connection remain silent.

@@ -274,6 +274,29 @@ describe("PushBatcher 413 recovery", () => {
 });
 
 describe("PushBatcher singleton cooldown", () => {
+  it("keeps a rejected file out of mixed batches during its cooldown", async () => {
+    const b = batcher(() => 1_000_000);
+    const rejected = textItems(1, 600_000)[0];
+    const newcomer: PushItem = {
+      change: { kind: "text", path: "new.md", content: "b" }, fingerprint: "new"
+    };
+    const send = vi.fn(async (items: readonly PushItem[]) => {
+      if (bodyOf(items) > 512_000) throw rejection(413);
+      return RESPONSE;
+    });
+    const callbacks = { deviceName: "d", send, onAccepted: async () => undefined };
+    await expect(b.beginRun(LEGACY_PUSH_LIMITS, () => undefined).send([rejected], callbacks))
+      .rejects.toMatchObject({ detail: { kind: "remote_singleton" } });
+    send.mockClear();
+
+    await expect(b.beginRun(LEGACY_PUSH_LIMITS, () => undefined).send([rejected, newcomer], callbacks))
+      .rejects.toMatchObject({ detail: {
+        kind: "remote_singleton", path: rejected.change.path,
+        bytes: pushBodyBytes([rejected.change], "d")
+      } });
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("does not resend an unchanged rejected single file before the cooldown ends", async () => {
     let now = 1_000_000;
     const b = batcher(() => now);

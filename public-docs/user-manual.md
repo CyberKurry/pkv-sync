@@ -100,6 +100,11 @@ itself. If one complete file request still cannot be accepted, the plugin
 reports the path and leaves that file unsynced instead of claiming success — a
 manual sync retries it, but cannot exceed the server's hard limit.
 
+Unreleased: a single-file request rejected with `413` enters a five-minute
+cooldown. Automatic sync also keeps that unchanged file out of mixed batches
+when other files become pending. Manual sync may probe again; the server's
+hard limit still applies.
+
 Version 1.2.1 reduced redundant plugin work during sync: pull and push phases
 reuse the same scan when possible, and changed-file snapshots are processed
 with bounded parallelism.
