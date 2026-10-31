@@ -2,7 +2,7 @@
 
 [English](./deployment-hardening.md) | [简体中文](./deployment-hardening.zh-CN.md) | [繁體中文](./deployment-hardening.zh-Hant.md) | 日本語 | [한국어](./deployment-hardening.ko.md)
 
-ドキュメントバージョン: v1.7.1。
+ドキュメントバージョン: v1.7.2。
 
 この文書は機械翻訳による初版です。公開前にネイティブ話者によるレビューを推奨します。
 
@@ -372,4 +372,4 @@ PKV Sync 1.0 は単一の v1 SQLite baseline を使用します。この baselin
 
 ## Docker イメージのタグ
 
-v1.7.1 では、`ghcr.io/cyberkurry/pkv-sync:1.7.1` と `ghcr.io/cyberkurry/pkv-sync:v1.7.1` は同じリリースイメージを指します。Compose の例と MCP Registry の定義は、`v` のないタグを使用します。再現可能なデプロイにはバージョンタグを固定してください。`latest` は最新のリリースに追従します。
+v1.7.2 では、`ghcr.io/cyberkurry/pkv-sync:1.7.2` と `ghcr.io/cyberkurry/pkv-sync:v1.7.2` は同じリリースイメージを指します。Compose の例と MCP Registry の定義は、`v` のないタグを使用します。再現可能なデプロイにはバージョンタグを固定してください。`latest` は最新のリリースに追従します。

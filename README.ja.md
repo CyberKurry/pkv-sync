@@ -5,13 +5,13 @@ PKV Sync は、Obsidian の Vault をセルフホストで同期する Git ネ�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-ドキュメントのバージョン: v1.7.1。
+ドキュメントのバージョン: v1.7.2。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · 日本語 · [한국어](./README.ko.md)
 
 ## リリース状況
 
-PKV Sync 1.7.1 は現在の安定版パッチリリースです。複数端末の同期収束、競合内容の保持、SSE の復旧を改善し、公式 Docker イメージでの Git クローン／フェッチとアクティビティのテキストフィルターを修正しました。プラグインのビルド依存関係も更新しています。
+PKV Sync 1.7.2 は現在の安定版パッチリリースです。JSON の実際のバイト数で分割し、受理されたバッチを個別に確認することで、大規模な Vault が HTTP 413 を繰り返して同期できない問題を修正しました。移行のキャンセルと最終状態の保存を改善し、古い接続の応答や同期再開処理が新しい接続に影響することを防ぎます。接続とストレージのエラーも各言語で表示します。
 
 ## 機能
 

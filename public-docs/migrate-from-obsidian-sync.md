@@ -2,7 +2,7 @@
 
 English | [简体中文](./migrate-from-obsidian-sync.zh-CN.md) | [繁體中文](./migrate-from-obsidian-sync.zh-Hant.md) | [日本語](./migrate-from-obsidian-sync.ja.md) | [한국어](./migrate-from-obsidian-sync.ko.md)
 
-Document version: v1.7.1.
+Document version: v1.7.2.
 
 This guide explains how to import the current files from an Obsidian vault that
 already uses Obsidian Sync into a new PKV Sync vault.
@@ -20,14 +20,14 @@ manually in Obsidian.
 
 - Let Obsidian Sync finish syncing on the device you will migrate from.
 - Make a manual backup of the vault folder before migration.
-- Keep Obsidian closed during the import if possible, or avoid editing files
-  while the import runs.
+- Keep Obsidian open while the plugin imports, and avoid editing files until
+  it finishes.
 - Create or choose the destination PKV Sync server account first.
 
 ## What gets imported
 
-PKV Sync creates a new vault and commits the current import as the first PKV
-history entry.
+PKV Sync creates a new vault and imports the current files in one or more
+commits. Large imports are divided by serialized JSON byte size and change count.
 
 Regular Markdown files, attachments, and normal vault files are imported unless
 they match PKV Sync's hard exclusions.
@@ -63,6 +63,30 @@ plugin binaries and per-plugin configuration can be reinstalled locally.
 Selected `.obsidian` configuration files may be synced later through the
 per-vault `.obsidian` allowlist. See the `.obsidian` configuration sync guide
 for those rules.
+
+## Run and monitor the import
+
+After connecting and signing in, open Obsidian's command palette and run
+**PKV Sync: Import current vault to PKV Sync**. Review the scan, name the new
+remote vault, then start the migration. Keep Obsidian open until it finishes.
+
+The plugin uploads attachments and pushes files in bounded batches. A `413`
+response without `Retry-After` can trigger smaller batches; if even one complete
+file request cannot fit, the import stops and reports that path. Accepted batches
+remain in the destination vault, so a failed or cancelled import can leave a
+partial remote vault.
+
+Closing the window during upload cancels further work after an in-flight request
+settles. Changing the connection or selected vault also stops the old import.
+Cancellation does not undo remote writes that the server has already accepted.
+
+The final saving phase is marked as not cancellable: closing the window then
+only hides it. The new vault selection and index are saved together. A failed
+save that can be verified as restored keeps the previous selection; an unknown
+disk state pauses sync until storage is checked and the plugin is reloaded.
+Completion is shown only if the saved selection is still current and sync has
+restarted. If restarting fails after saving, the saved selection and index remain
+and the window reports the recovery failure.
 
 ## After migration
 

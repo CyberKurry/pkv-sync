@@ -2,7 +2,7 @@
 
 English | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
-Document version: v1.7.1.
+Document version: v1.7.2.
 
 This manual is for Obsidian users who connect to an existing PKV Sync server.
 Ask your server administrator for the server share URL and an account or invite
@@ -52,7 +52,7 @@ https://sync.example.com/k_xxx/
 Open **Settings -> PKV Sync**, paste the share URL, then click **Connect**. If
 the deployment key is embedded in the URL, the plugin fills it automatically.
 
-Unreleased: Connect reports setup, deployment-key and network errors for the
+In 1.7.2, Connect reports setup, deployment-key and network errors for the
 current attempt. A setup-required response asks you to open the server URL in
 a browser first. Errors from superseded attempts are discarded.
 
@@ -60,7 +60,7 @@ If you entered the wrong server or need to move to another self-hosted server,
 use **Change server** on the login screen to return to the server settings
 without reinstalling the plugin.
 
-Unreleased: local settings failures include the storage cause and distinguish
+In 1.7.2, local settings failures include the storage cause and distinguish
 a verified restoration from an uncertain disk state or saved settings that
 could not be applied. The previous settings are kept after a verified
 restoration; the other two cases keep sync paused. Check storage and reload
@@ -106,7 +106,7 @@ itself. If one complete file request still cannot be accepted, the plugin
 reports the path and leaves that file unsynced instead of claiming success — a
 manual sync retries it, but cannot exceed the server's hard limit.
 
-Unreleased: a single-file request rejected with `413` enters a five-minute
+In 1.7.2, a single-file request rejected with `413` enters a five-minute
 cooldown. Automatic sync also keeps that unchanged file out of mixed batches
 when other files become pending. Manual sync may probe again; the server's
 hard limit still applies.
@@ -309,11 +309,11 @@ history-preserving moves — guarded by optimistic concurrency. See
 
 PKV Sync adds these command palette actions:
 
-Unreleased: refreshing account info resumes sync after an identity change.
+In 1.7.2, refreshing account info resumes sync after an identity change.
 An active migration or unresolved storage recovery still keeps sync paused.
 Switching servers also discards recovery requested by an earlier connection.
 
-Unreleased: migration is complete only when its saved state is still current
+In 1.7.2, migration is complete only when its saved state is still current
 and sync has restarted. If restarting fails, the saved vault selection and
 index remain, and the modal reports recovery failure. A newer selection also
 prevents the old migration from displaying completion.

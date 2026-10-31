@@ -7,6 +7,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-11-01
+
+### Changed
+
+- All five migration guides now describe byte-sized batches, cancellation, final
+  local-state saving and recovery, including retained partial remote imports.
+
 ### Fixed
 
 - Connection storage failures now show localized save, recovery or apply
