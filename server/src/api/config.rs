@@ -16,6 +16,24 @@ pub struct ConfigResponse {
     /// Inline content cap for SSE event payload; clients use it to know whether
     /// to expect inline content vs ref-only for a given file size.
     pub inline_content_max_bytes: u32,
+    /// Server-side push body limits, advertised so clients can size their
+    /// batches instead of learning the limit from a 413.
+    pub push_limits: PushLimits,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PushLimits {
+    pub max_json_bytes: usize,
+    pub max_changes: usize,
+}
+
+impl Default for PushLimits {
+    fn default() -> Self {
+        Self {
+            max_json_bytes: crate::service::sync::limits::MAX_PUSH_JSON_BYTES,
+            max_changes: crate::service::sync::limits::MAX_PUSH_CHANGES,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -44,6 +62,7 @@ fn response(
         capabilities,
         push_debounce_ms,
         inline_content_max_bytes,
+        push_limits: PushLimits::default(),
     }
 }
 
@@ -121,6 +140,25 @@ mod tests {
         assert!(v["supported_text_extensions"].is_array());
         assert_eq!(v["capabilities"]["history"], true);
         assert_eq!(v["capabilities"]["diff"], true);
+    }
+
+    #[tokio::test]
+    async fn exposes_push_limits() {
+        let app = setup_app(RegistrationMode::Disabled).await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["push_limits"]["max_json_bytes"], 2_097_152);
+        assert_eq!(value["push_limits"]["max_changes"], 1000);
     }
 
     #[tokio::test]

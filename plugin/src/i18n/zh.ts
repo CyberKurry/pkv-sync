@@ -100,6 +100,13 @@ export const zh = {
   noticeNotConfigured: "PKV Sync 未配置。",
   noticeSyncNotReady: "PKV Sync 尚未就绪。请先选择一个笔记库。",
   noticeSyncComplete: "PKV Sync 同步完成",
+  pushInlineTooLarge:
+    "无法同步 {path}：序列化请求为 {bytes} 字节，超过服务端 {limit} 字节的内联上限。",
+  pushProxyTooLarge:
+    "无法同步 {path}：单文件请求（{bytes} 字节）仍被服务端或代理判定为过大。",
+  pushRetryLater: "服务端暂时拒绝本次推送，将在 {seconds} 秒后重试。",
+  pushSplitBudgetExceeded:
+    "已发生 {count} 次请求超限，推送已停止。请检查服务端或代理限制。",
   inlineApplyFailed: "无法应用 {path} 的实时更新：{reason}。将回退到完整同步。",
   conflictNotice: "PKV Sync 冲突：{path}",
   conflictCopyFailed: "无法为 {path} 写入冲突副本：{reason}",

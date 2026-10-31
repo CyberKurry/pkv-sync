@@ -101,6 +101,13 @@ export const ja = {
   noticeNotConfigured: "PKV Sync は未設定です。",
   noticeSyncNotReady: "PKV Sync は準備ができていません。先に Vault を選択してください。",
   noticeSyncComplete: "PKV Sync が完了しました",
+  pushInlineTooLarge:
+    "{path} を同期できません: シリアライズされたリクエストは {bytes} バイトで、サーバーのインライン上限 {limit} バイトを超えています。",
+  pushProxyTooLarge:
+    "{path} を同期できません: 単一ファイルのリクエスト（{bytes} バイト）もサーバーまたはプロキシによって大きすぎると判定されました。",
+  pushRetryLater: "サーバーがこのプッシュを一時的に拒否しました。{seconds} 秒後に再試行します。",
+  pushSplitBudgetExceeded:
+    "リクエスト超過が {count} 回発生したため、プッシュを停止しました。サーバーまたはプロキシの制限を確認してください。",
   inlineApplyFailed:
     "{path} のリアルタイム更新を適用できませんでした: {reason}。完全同期にフォールバックします。",
   conflictNotice: "PKV Sync の競合: {path}",

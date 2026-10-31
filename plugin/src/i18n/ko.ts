@@ -109,6 +109,13 @@ export const ko = {
   noticeNotConfigured: "PKV Sync가 설정되지 않았습니다.",
   noticeSyncNotReady: "PKV Sync 준비가 되지 않았습니다. 먼저 vault를 선택하세요.",
   noticeSyncComplete: "PKV Sync 완료",
+  pushInlineTooLarge:
+    "{path}을(를) 동기화할 수 없습니다: 직렬화된 요청이 {bytes}바이트로 서버의 인라인 한도 {limit}바이트를 초과합니다.",
+  pushProxyTooLarge:
+    "{path}을(를) 동기화할 수 없습니다: 단일 파일 요청({bytes}바이트)도 서버 또는 프록시에서 너무 크다고 거부되었습니다.",
+  pushRetryLater: "서버가 이 푸시를 일시적으로 거부했습니다. {seconds}초 후에 다시 시도합니다.",
+  pushSplitBudgetExceeded:
+    "요청 초과가 {count}회 발생하여 푸시를 중지했습니다. 서버 또는 프록시 한도를 확인하세요.",
   inlineApplyFailed:
     "{path}의 실시간 업데이트를 적용하지 못했습니다: {reason}. 전체 동기화로 전환합니다.",
   conflictNotice: "PKV Sync 충돌: {path}",

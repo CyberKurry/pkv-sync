@@ -17,7 +17,14 @@ import {
   markSynced
 } from "./index-store";
 import type { PushChange } from "./types";
-import type { LocalFileSnapshot, LocalIndex, PullFile, PullResponse } from "./types";
+import type { LocalFileSnapshot, LocalIndex, PullFile, PullResponse, PushResponse } from "./types";
+import {
+  PushBatcher,
+  type PushItem,
+  type PushRun
+} from "./push-batches";
+import { PushBatchError, type PushLabels } from "./push-errors";
+import { LEGACY_PUSH_LIMITS, type PushLimits } from "./push-limits";
 import { debugLog, errorToMessage } from "../util";
 import {
   shouldAcceptRemoteConflictPath,
@@ -100,7 +107,15 @@ export interface SyncEngineOptions {
   >;
   onSyncSuccess?(): void | Promise<void>;
   vaultSettingsReader?: (vaultId: string) => Promise<VaultSettings>;
+  getPushLimits?(): Readonly<PushLimits>;
+  pushLabels?: PushLabels;
 }
+
+type EnginePushItem = PushItem &
+  (
+    | { source: "file"; file: LocalFileSnapshot }
+    | { source: "delete"; deletedPath: string }
+  );
 
 export class SyncEngine {
   private unsubscribeEvents: (() => void) | null = null;
@@ -131,11 +146,35 @@ export class SyncEngine {
    */
   private activeSync: Promise<void> | null = null;
 
+  /**
+   * Learned push batching state (target size, rejected single files,
+   * Retry-After deadline) shared by every pass of this engine generation.
+   */
+  private pushBatcherInstance: PushBatcher | null = null;
+  private oversizedProbeRequested = false;
+
   constructor(private opts: SyncEngineOptions) {
     if (!opts.vaultId.trim()) throw new Error("SyncEngine requires a non-empty vaultId");
     if (!opts.deviceName.trim()) {
       throw new Error("SyncEngine requires a non-empty deviceName");
     }
+  }
+
+  private get pushBatcher(): PushBatcher {
+    this.pushBatcherInstance ??= new PushBatcher(
+      (failure) => new PushBatchError(failure, this.pushLabels())
+    );
+    return this.pushBatcherInstance;
+  }
+
+  private pushLabels(): PushLabels {
+    return this.opts.pushLabels ?? strings();
+  }
+
+  private consumeOversizedProbe(): boolean {
+    const requested = this.oversizedProbeRequested;
+    this.oversizedProbeRequested = false;
+    return requested;
   }
 
   /** Cancel any in-flight sync pass and future event handling (M-10). */
@@ -152,7 +191,8 @@ export class SyncEngine {
     if (this.aborted) throw new SyncAbortedError();
   }
 
-  async syncNow(): Promise<void> {
+  async syncNow(options: { retryOversized?: boolean } = {}): Promise<void> {
+    if (options.retryOversized) this.oversizedProbeRequested = true;
     if (this.activeSync) return this.activeSync;
     // M-12: the pass runs as a chain task, so it both (a) waits for any
     // event handler that is mid-apply — the chain-runner equivalent of
@@ -381,7 +421,12 @@ export class SyncEngine {
       this.throwIfAborted();
 
       // ② push-first: send pending changes before pulling
-      await this.pushPendingWithHeadMismatchRetry(scan);
+      const run = this.pushBatcher.beginRun(
+        this.opts.getPushLimits?.() ?? LEGACY_PUSH_LIMITS,
+        () => this.throwIfAborted(),
+        this.consumeOversizedProbe()
+      );
+      await this.pushPendingWithHeadMismatchRetry(scan, run);
       this.throwIfAborted();
 
       // ③ pull backflow: merged content arrives as a normal pull
@@ -442,7 +487,10 @@ export class SyncEngine {
     return this.applyPull(pull);
   }
 
-  private async pushPending(scan?: PendingScan | null): Promise<void> {
+  private async pushPending(
+    scan: PendingScan | null | undefined,
+    run: PushRun
+  ): Promise<void> {
     const { pending, deleted, index } = scan ?? await this.scanPending();
     if (pending.length === 0 && deleted.length === 0) return;
 
@@ -484,32 +532,49 @@ export class SyncEngine {
         blobFiles.filter((file) => missingSet.has(file.hash))
       );
 
-      const changes: PushChange[] = [
-        ...hydrated.map((file) => {
-          if (file.kind === "text") {
-            return {
-              kind: "text" as const,
-              path: file.path,
-              content: file.content ?? ""
-            };
-          }
-          return {
-            kind: "blob" as const,
-            path: file.path,
-            blob_hash: file.hash,
-            size: file.size,
-            mime: guessMime(file.path)
-          };
-        }),
-        ...batchDeleted.map((path) => ({ kind: "delete" as const, path }))
+      const prepared: EnginePushItem[] = [
+        ...hydrated.map((file) => ({
+          source: "file" as const,
+          file,
+          change: snapshotToPushChange(file),
+          fingerprint: JSON.stringify([file.kind, file.path, file.hash, file.size])
+        })),
+        ...batchDeleted.map((path) => ({
+          source: "delete" as const,
+          deletedPath: path,
+          change: { kind: "delete" as const, path },
+          fingerprint: JSON.stringify(["delete", path])
+        }))
       ];
-      const response = await this.opts.api.push(
-        this.opts.vaultId,
-        ifMatch,
-        changes,
-        this.opts.deviceName
-      );
 
+      await run.send(prepared, {
+        deviceName: this.opts.deviceName,
+        send: (accepted) =>
+          this.opts.api.push(
+            this.opts.vaultId,
+            ifMatch,
+            accepted.map((item) => item.change),
+            this.opts.deviceName
+          ),
+        onAccepted: async (accepted, response) => {
+          const files = accepted.flatMap((item) =>
+            item.source === "file" ? [item.file] : []
+          );
+          const paths = accepted.flatMap((item) =>
+            item.source === "delete" ? [item.deletedPath] : []
+          );
+          ifMatch = await this.applyPushedBatch(response, files, paths, ifMatch);
+        }
+      });
+    }
+  }
+
+  private async applyPushedBatch(
+    response: PushResponse,
+    files: LocalFileSnapshot[],
+    deleted: string[],
+    ifMatch: string | null
+  ): Promise<string | null> {
     // `merge_outcomes` is present ONLY when the server took the auto-merge
     // path, which by definition means the server head had already moved past
     // our base — commits we never pulled live in (base, new_commit]. The
@@ -523,45 +588,42 @@ export class SyncEngine {
     // skip_serializing_if, but a third-party implementation sending
     // `"merge_outcomes": null` would otherwise be treated as auto-merged —
     // holding the head back and forcing an extra pull round for nothing.
-      const merged = Array.isArray(response.merge_outcomes);
-
-      if (!merged) {
+    if (!Array.isArray(response.merge_outcomes)) {
       // Fast path (no auto-merge) — advance head immediately
-        await this.opts.index.updateIndex((current) => {
-          return markBatch(current, response.new_commit, hydrated, batchDeleted, true);
-        });
-        ifMatch = response.new_commit;
-      } else {
-      // Auto-merge (any outcome mix) — per-file hashes recorded, HEAD STAYS
-      // at the old base. The subsequent pull will bring both the merged
-      // content and the missed remote commits, then advance head. Use
-      // updateIndex to avoid regressing lastSyncedCommit if a concurrent
-      // SSE event advanced it between our scan and this write.
-      //
-      // Deletes are partitioned by per-path outcome (audit M-11): a delete
-      // the server applied cleanly removes the index entry, but a REJECTED
-      // delete (outcome "conflict" — the remote had modified the file)
-      // keeps its original entry. Dropping it would make the subsequent
-      // pull treat the path as brand new and silently write the remote
-      // content back, undoing the user's delete; the surviving entry keeps
-      // the path "locally deleted" from the pull's point of view, so the
-      // remote content arrives as a .conflict-* copy instead of a silent
-      // resurrection. Upserted files keep recording their pushed hash for
-      // every outcome: the pushed content has been handed to the server
-      // (merged into the result or parked in a server sidecar), so the
-      // pull must apply the authoritative result without a spurious
-      // conflict copy of content the server already holds.
-        const cleanPaths = new Set(
-          response.merge_outcomes
-            ?.filter((o) => o.outcome === "clean")
-            .map((o) => o.path) ?? []
-        );
-        const cleanDeleted = batchDeleted.filter((path) => cleanPaths.has(path));
-        await this.opts.index.updateIndex((current) => {
-          return markBatch(current, current.lastSyncedCommit, hydrated, cleanDeleted, false);
-        });
-      }
+      await this.opts.index.updateIndex((current) =>
+        markBatch(current, response.new_commit, files, deleted, true)
+      );
+      return response.new_commit;
     }
+    // Auto-merge (any outcome mix) — per-file hashes recorded, HEAD STAYS
+    // at the old base. The subsequent pull will bring both the merged
+    // content and the missed remote commits, then advance head. Use
+    // updateIndex to avoid regressing lastSyncedCommit if a concurrent
+    // SSE event advanced it between our scan and this write.
+    //
+    // Deletes are partitioned by per-path outcome (audit M-11): a delete
+    // the server applied cleanly removes the index entry, but a REJECTED
+    // delete (outcome "conflict" — the remote had modified the file)
+    // keeps its original entry. Dropping it would make the subsequent
+    // pull treat the path as brand new and silently write the remote
+    // content back, undoing the user's delete; the surviving entry keeps
+    // the path "locally deleted" from the pull's point of view, so the
+    // remote content arrives as a .conflict-* copy instead of a silent
+    // resurrection. Upserted files keep recording their pushed hash for
+    // every outcome: the pushed content has been handed to the server
+    // (merged into the result or parked in a server sidecar), so the
+    // pull must apply the authoritative result without a spurious
+    // conflict copy of content the server already holds.
+    const cleanPaths = new Set(
+      response.merge_outcomes
+        .filter((outcome) => outcome.outcome === "clean")
+        .map((outcome) => outcome.path)
+    );
+    const cleanDeleted = deleted.filter((path) => cleanPaths.has(path));
+    await this.opts.index.updateIndex((current) =>
+      markBatch(current, current.lastSyncedCommit, files, cleanDeleted, false)
+    );
+    return ifMatch;
   }
 
   private async hydratePendingFiles(
@@ -581,10 +643,11 @@ export class SyncEngine {
   }
 
   private async pushPendingWithHeadMismatchRetry(
-    scan: PendingScan | null
+    scan: PendingScan | null,
+    run: PushRun
   ): Promise<void> {
     try {
-      await this.pushPending(scan);
+      await this.pushPending(scan, run);
     } catch (error) {
       if (
         error instanceof ApiError &&
@@ -592,7 +655,7 @@ export class SyncEngine {
         error.code === "head_mismatch"
       ) {
         const retryScan = await this.pullIfChanged();
-        await this.pushPending(retryScan);
+        await this.pushPending(retryScan, run);
         return;
       }
       throw error;
@@ -1034,6 +1097,19 @@ function isLocalDeleted(
   lastSyncedHash: string | undefined
 ): boolean {
   return !local && !!lastSyncedHash;
+}
+
+function snapshotToPushChange(file: LocalFileSnapshot): PushChange {
+  if (file.kind === "text") {
+    return { kind: "text", path: file.path, content: file.content ?? "" };
+  }
+  return {
+    kind: "blob",
+    path: file.path,
+    blob_hash: file.hash,
+    size: file.size,
+    mime: guessMime(file.path)
+  };
 }
 
 function isLocalDirty(

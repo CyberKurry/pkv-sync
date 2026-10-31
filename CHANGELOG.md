@@ -7,6 +7,29 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Pushes are now batched by serialized JSON byte size as well as change count.
+  A sync with 722 text changes used to be sent as one ~2.4 MB request that the
+  server rejected with `413` on every attempt, so the vault never synced. The
+  plugin now targets 1 MiB per request, keeps the server's 2 MiB inline limit
+  as a hard ceiling, and splits a rejected batch in half (recursively, bounded
+  by a per-run failure budget) until each part is accepted. Successful
+  sub-batches are acknowledged individually — their index entries and the
+  advanced head are persisted before the next request starts — so a later
+  failure never re-sends an accepted prefix.
+- A file whose own request is still too large is reported by path and left
+  unsynced instead of silently skipping it and advancing the global pull
+  cursor. A server `Retry-After` on `413` defers the run instead of splitting,
+  and a rejected single file enters a five-minute cooldown that a manual sync
+  clears.
+- `GET /api/config` now advertises `push_limits` (`max_json_bytes`,
+  `max_changes`), and the push route declares its 2 MiB body limit explicitly.
+  Clients fall back to the legacy 2 MiB / 1,000-change values when the field is
+  missing, so older servers keep working. The OpenAPI contract documents the
+  new field and the `413` response, including the caveat that a reverse proxy
+  may enforce a smaller limit with a non-JSON body.
+
 ## [1.7.1] - 2026-10-31
 
 ### Fixed

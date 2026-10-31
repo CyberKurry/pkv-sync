@@ -99,6 +99,13 @@ export const en = {
   noticeNotConfigured: "PKV Sync is not configured.",
   noticeSyncNotReady: "PKV Sync is not ready. Select a vault first.",
   noticeSyncComplete: "PKV Sync complete",
+  pushInlineTooLarge:
+    "Cannot sync {path}: the serialized request is {bytes} bytes, above the server's {limit}-byte inline limit.",
+  pushProxyTooLarge:
+    "Cannot sync {path}: even its single-file request ({bytes} bytes) was rejected as too large by the server or proxy.",
+  pushRetryLater: "The server temporarily rejected this push. Retry in {seconds}s.",
+  pushSplitBudgetExceeded:
+    "Push stopped after {count} oversized-request failures. Check the server or proxy limit.",
   inlineApplyFailed:
     "Failed to apply realtime update for {path}: {reason}. Falling back to full sync.",
   conflictNotice: "PKV Sync conflict: {path}",

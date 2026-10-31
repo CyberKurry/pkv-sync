@@ -1,3 +1,5 @@
+import type { PushLimits } from "../sync/push-limits";
+
 export type RegistrationMode = "disabled" | "invite_only" | "open";
 
 export interface ServerConfigResponse {
@@ -9,6 +11,7 @@ export interface ServerConfigResponse {
   capabilities?: ServerCapabilities;
   push_debounce_ms?: number;
   inline_content_max_bytes?: number;
+  push_limits?: PushLimits;
 }
 
 export interface ServerCapabilities {

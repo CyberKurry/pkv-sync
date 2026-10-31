@@ -74,6 +74,7 @@ export class SyncOrchestrator {
             )
           : undefined,
       labels: this.plugin.text(),
+      pushLabels: this.plugin.text(),
       onSyncSuccess: () => this.plugin.recordSyncSuccess(generation),
       deviceId: this.plugin.settings.deviceId,
       serverUrl: this.plugin.settings.serverUrl,
@@ -139,7 +140,9 @@ export class SyncOrchestrator {
       return;
     }
     try {
-      await this.plugin.engine.syncNow();
+      // A manual sync is the user's explicit "try again": it clears the
+      // learned oversize cooldowns, but never bypasses the local hard limit.
+      await this.plugin.engine.syncNow({ retryOversized: true });
       new Notice(t.noticeSyncComplete);
     } catch (error) {
       new Notice(errorToMessage(error));

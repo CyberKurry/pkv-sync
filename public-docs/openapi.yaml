@@ -163,6 +163,7 @@ components:
         - capabilities
         - push_debounce_ms
         - inline_content_max_bytes
+        - push_limits
       properties:
         server_name:
           type: string
@@ -200,6 +201,21 @@ components:
             form caps this at 65536 bytes; the runtime config loader only
             floors it at 1, so a value written directly to the database is
             served unchanged.
+        push_limits:
+          $ref: '#/components/schemas/PushLimits'
+    PushLimits:
+      type: object
+      required: [max_json_bytes, max_changes]
+      properties:
+        max_json_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Maximum UTF-8 byte length of the complete serialized push JSON body.
+        max_changes:
+          type: integer
+          minimum: 1
+          maximum: 1000
     ServerCapabilities:
       type: object
       required: [history, diff, sse, git_smart_http]
@@ -1338,6 +1354,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PushResponse'
+        '413':
+          description: |
+            The serialized request body exceeded the server's inline JSON
+            limit (2 MiB by default, see `Config.push_limits`). A reverse
+            proxy in front of the application may enforce a smaller limit and
+            answer 413 itself, with an HTML or plain-text body rather than this
+            API's JSON error envelope — clients must not assume a common error
+            shape for 413.
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':

@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 
 use super::events::{text_event_with_budget, SseInlineBudget};
+use super::limits::MAX_PUSH_CHANGES;
 use super::merge_apply::try_auto_merge_push;
 use super::paths::{reject_filtered_push_path, sync_path_filter};
 use super::reconcile::ReconcileReport;
@@ -24,7 +25,6 @@ use super::{
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
 const MAX_IDEMPOTENCY_KEY_LEN: usize = 256;
-const MAX_PUSH_CHANGES: usize = 1000;
 const MAX_PUSH_DEVICE_NAME_BYTES: usize = 4096;
 const MAX_COMMIT_DEVICE_NAME_CHARS: usize = 128;
 const BLOB_REF_BINDS_PER_ROW: usize = 3;

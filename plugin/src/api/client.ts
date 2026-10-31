@@ -15,10 +15,25 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     public code: string,
-    message: string
+    message: string,
+    public retryAfterAt?: number
   ) {
     super(message);
   }
+}
+
+export function retryAfterAt(
+  headers: Record<string, string>,
+  now = Date.now()
+): number | undefined {
+  const value = Object.entries(headers)
+    .find(([key]) => key.toLowerCase() === "retry-after")?.[1]
+    .trim();
+  if (!value) return undefined;
+  const deadline = /^\d+$/.test(value)
+    ? now + Number(value) * 1000
+    : Date.parse(value);
+  return Number.isSafeInteger(deadline) && deadline > now ? deadline : undefined;
 }
 
 export interface ApiClientOptions {
@@ -189,7 +204,12 @@ export class ApiClient {
     const response = await requestUrl(params);
     if (response.status < 200 || response.status >= 300) {
       const parsed = tryParseError(response.text, response.status);
-      throw new ApiError(response.status, parsed.code, parsed.message);
+      throw new ApiError(
+        response.status,
+        parsed.code,
+        parsed.message,
+        retryAfterAt(response.headers ?? {})
+      );
     }
     return response;
   }

@@ -1,5 +1,6 @@
 import { ApiClient } from "./client";
 import { encodePathSegments } from "./history-client";
+import { makePushBody } from "./push-request";
 import type { RollbackResult, VaultSettings } from "./types";
 import type {
   PullResponse,
@@ -61,7 +62,7 @@ export class SyncApi {
     return this.api.request<PushResponse>(
       "POST",
       `/api/vaults/${vaultId}/push`,
-      { changes, device_name: deviceName },
+      makePushBody(changes, deviceName),
       true,
       headers
     );

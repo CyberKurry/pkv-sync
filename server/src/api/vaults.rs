@@ -7,7 +7,7 @@ use crate::service::vault::RollbackError;
 use crate::service::{vault as vault_service, AppState};
 use crate::storage::blob::BLOB_HARD_MAX_BYTES;
 use axum::body::Body;
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Extension, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -62,7 +62,10 @@ fn router_with_rate_limiter(limiter: rate_limit::RequestRateLimiter) -> Router<A
         .route("/api/vaults/:id/upload/check", post(upload_check))
         .route("/api/vaults/:id/upload/blob", post(upload_blob))
         .route("/api/vaults/:id/blobs/:hash", get(download_blob))
-        .route("/api/vaults/:id/push", post(push))
+        .route(
+            "/api/vaults/:id/push",
+            post(push).layer(DefaultBodyLimit::max(sync::limits::MAX_PUSH_JSON_BYTES)),
+        )
         .route("/api/vaults/:id/restore", post(restore))
         .route("/api/vaults/:id/state", get(state))
         .route("/api/vaults/:id/pull", get(pull))
@@ -1336,6 +1339,37 @@ mod tests {
             .unwrap();
 
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn push_body_limit_boundary() {
+        let (app, raw) = setup().await;
+        let id = create_vault(app.clone(), &raw, "body-boundary").await;
+        let empty = serde_json::json!({
+            "device_name": "test", "changes": [{"kind":"text","path":"boundary.md","content":""}]
+        })
+        .to_string();
+        let content = "a".repeat(2_097_152 - empty.len());
+        let exact = serde_json::json!({
+            "device_name": "test", "changes": [{"kind":"text","path":"boundary.md","content":content}]
+        })
+        .to_string();
+        assert_eq!(exact.len(), 2_097_152);
+        let request = |body: String| {
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/vaults/{id}/push"))
+                .header("authorization", format!("Bearer {raw}"))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        };
+        let accepted = app.clone().oneshot(request(exact.clone())).await.unwrap();
+        assert_eq!(accepted.status(), StatusCode::OK);
+        // Trailing whitespace keeps the oversized sample valid JSON, so the
+        // rejection can only come from the body limit.
+        let rejected = app.oneshot(request(format!("{exact} "))).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     #[tokio::test]
