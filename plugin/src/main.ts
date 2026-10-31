@@ -316,8 +316,9 @@ export default class PKVSyncPlugin extends Plugin {
     return accepted;
   }
 
-  async resumeSyncForCurrentScope(): Promise<void> {
+  async resumeSyncForCurrentScope(expected?: ConnectionStamp): Promise<void> {
     await this.connectionContext.runLocal(() => {
+      if (expected && !this.connectionContext.isConnectionCurrent(expected)) return;
       if (this.persistenceRecoveryRequired || this.connectionContext.migrationPaused) {
         return;
       }

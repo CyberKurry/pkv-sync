@@ -69,3 +69,34 @@ it("does not apply or resume an account response from an old connection", async 
   expect(h.events).toEqual(["invalidate"]);
   expect(notices).toEqual([]);
 });
+
+it("does not resume a new connection queued behind the account identity save", async () => {
+  const h = createMigrationHarness({ settings: { userId: "" } });
+  const refresh = registerAccountCommand(h, async () => ({
+    user_id: "user-old", username: "old", is_admin: false, vaults: []
+  }));
+  const held = h.holdNextSave();
+  const pending = refresh();
+  await vi.waitFor(() => expect(h.saveCalls()).toBe(1));
+  const switching = h.plugin.setConnectionPatch({ serverUrl: "https://new.example.test" });
+  held.release();
+  await Promise.all([pending, switching]);
+
+  expect(h.plugin.settings.serverUrl).toBe("https://new.example.test");
+  expect(h.events).toEqual(["invalidate", "invalidate"]);
+  expect(notices).toEqual([]);
+});
+
+it("checks a queued recovery's expected connection inside the publication gate", async () => {
+  const h = createMigrationHarness();
+  const stamp = await h.plugin.captureConnection();
+  const held = h.holdNextSave();
+  const holding = h.plugin.setSelectedVault("holding", "Holding");
+  await vi.waitFor(() => expect(h.saveCalls()).toBe(1));
+  const switching = h.plugin.setConnectionPatch({ serverUrl: "https://new.example.test" });
+  const resuming = h.plugin.resumeSyncForCurrentScope(stamp);
+  held.release();
+  await Promise.all([holding, switching, resuming]);
+
+  expect(h.events).toEqual(["invalidate"]);
+});

@@ -227,7 +227,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         const cfg = await this.plugin.refreshServerCapabilities(false, { throwOnFailure: true });
         if (!cfg || !this.plugin.isConnectionCurrent(stamp)) return;
         this.cfg = cfg;
-        await this.plugin.resumeSyncForCurrentScope();
+        await this.plugin.resumeSyncForCurrentScope(stamp);
         if (!this.plugin.isConnectionCurrent(stamp)) return;
         new Notice(
           format(t.connectedToServer, { serverName: this.serverHost() })
@@ -369,7 +369,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       );
       if (!accepted) return;
       new Notice(this.plugin.text().loggedIn);
-      await this.plugin.resumeSyncForCurrentScope();
+      await this.plugin.resumeSyncForCurrentScope(accepted);
       this.refresh();
     } catch (error) {
       new Notice(errorToMessage(error));
@@ -402,7 +402,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       );
       if (!accepted) return;
       new Notice(this.plugin.text().registeredAndLoggedIn);
-      await this.plugin.resumeSyncForCurrentScope();
+      await this.plugin.resumeSyncForCurrentScope(accepted);
       this.refresh();
     } catch (error) {
       new Notice(errorToMessage(error));

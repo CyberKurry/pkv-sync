@@ -232,6 +232,7 @@ describe("PKVSyncSettingTab connection state", () => {
 
     expect(refreshServerCapabilities).toHaveBeenCalledWith(false, { throwOnFailure: true });
     expect(resumeSyncForCurrentScope).toHaveBeenCalledTimes(1);
+    expect(resumeSyncForCurrentScope).toHaveBeenCalledWith(stamp);
     expect(notices.at(-1)).toBe(
       format(en.connectedToServer, { serverName: "sync.example.com" })
     );

@@ -9,6 +9,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Sync recovery from account refresh, connect or login now checks the accepted
+  connection inside the publication queue. An older operation cannot start a
+  new server's engine when a connection switch was queued during its save.
 - A file rejected with a single-file `413` stays out of mixed batches during
   its five-minute cooldown, even if another file becomes pending. Manual
   probing still retries it without bypassing the server's hard limit.
