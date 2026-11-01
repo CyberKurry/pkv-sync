@@ -290,6 +290,15 @@ jobs:
         with:
           path: dist
 
+      # The in-app updater (GitHub source) reads releases/latest and needs the
+      # three plugin files as individual assets plus their sha256 digests in
+      # the notes; the zip alone is not a self-update payload. Every release
+      # before this shipped only pkv-sync-plugin.zip, so GitHub-source checks
+      # silently reported "up to date" forever (see update-check.ts).
+      - name: Unpack plugin assets
+        shell: bash
+        run: unzip -q dist/pkv-sync-plugin/pkv-sync-plugin.zip -d dist/plugin-individual
+
       - name: Generate checksums
         shell: bash
         run: |
@@ -297,7 +306,19 @@ jobs:
           find . -type f ! -name SHA256SUMS -print0 \
             | sort -z \
             | xargs -0 sha256sum \
-            | sed -E 's#  \./(.*/)?#  #' > SHA256SUMS
+            | sed -E 's#  (\./)?(pkvsyncd-[^/]+/|pkv-sync-plugin/|plugin-individual/)?#  #' > SHA256SUMS
+
+      - name: Compose release body with plugin digests
+        shell: bash
+        run: |
+          cd dist
+          {
+            echo "Plugin file checksums:"
+            echo '```text'
+            sha256sum plugin-individual/main.js plugin-individual/manifest.json plugin-individual/styles.css \
+              | sed -E 's#plugin-individual/##'
+            echo '```'
+          } > "$RUNNER_TEMP/RELEASE_BODY.md"
 
       - name: Attest release assets
         uses: actions/attest-build-provenance@v4
@@ -307,12 +328,22 @@ jobs:
           subject-path: |
             dist/**/pkvsyncd-*
             dist/**/pkv-sync-plugin.zip
+            dist/plugin-individual/*
             dist/SHA256SUMS
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/**/*
+          files: |
+            dist/pkvsyncd-x86_64-unknown-linux-gnu/pkvsyncd-x86_64-unknown-linux-gnu
+            dist/pkvsyncd-aarch64-unknown-linux-gnu/pkvsyncd-aarch64-unknown-linux-gnu
+            dist/pkvsyncd-x86_64-pc-windows-msvc/pkvsyncd-x86_64-pc-windows-msvc.exe
+            dist/pkv-sync-plugin/pkv-sync-plugin.zip
+            dist/plugin-individual/main.js
+            dist/plugin-individual/manifest.json
+            dist/plugin-individual/styles.css
+            dist/SHA256SUMS
+          body_path: ${{ runner.temp }}/RELEASE_BODY.md
           generate_release_notes: true
 
   plugin-mirror:
@@ -418,6 +449,17 @@ jobs:
           else
             NOTES="PKV Sync plugin ${VERSION}. Changelog: https://github.com/CyberKurry/pkv-sync/blob/main/CHANGELOG.md"
           fi
+          # The in-app updater (GitHub source) points at this mirror and
+          # extracts the per-file sha256 digests for main.js / manifest.json /
+          # styles.css from the release notes; without this block every check
+          # reads as "up to date" (see update-check.ts).
+          NOTES="${NOTES}
+
+          Plugin file checksums:
+
+          \`\`\`text
+          $(cd mirror-repo && sha256sum main.js manifest.json styles.css)
+          \`\`\`"
           gh release create "$VERSION" \
             --repo "$MIRROR_REPO" \
             --title "$VERSION" \
