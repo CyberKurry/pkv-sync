@@ -165,11 +165,14 @@ fn compose_examples_avoid_latest_and_floating_proxy_tags() {
     assert!(root_compose.contains("caddy:2.10.2"));
 
     let updater = include_str!("../../deploy/updater/compose.updater.yml");
-    assert!(updater.contains("tecnativa/docker-socket-proxy:0.4.2"));
+    // v-prefixed: the socket-proxy repo only publishes v0.4.x tags, and the
+    // bare 0.4.2 never resolved (2026-11-01 updater audit, defect 5).
+    assert!(updater.contains("tecnativa/docker-socket-proxy:v0.4.2"));
+    assert!(!updater.contains("tecnativa/docker-socket-proxy:0.4.2"));
     assert!(updater.contains("docker:27.5.1-cli"));
 
     let traefik = include_str!("../../deploy/traefik/docker-compose.traefik.yml");
-    assert!(traefik.contains("tecnativa/docker-socket-proxy:0.4.2"));
+    assert!(traefik.contains("tecnativa/docker-socket-proxy:v0.4.2"));
     assert!(traefik.contains("traefik:v3.0.4"));
     assert!(traefik.contains(&release_image));
 }
@@ -187,6 +190,67 @@ fn high_audit_updater_systemd_unit_has_root_service_hardening() {
     ] {
         assert!(unit.contains(directive), "missing {directive}");
     }
+}
+
+#[test]
+fn updater_audit_2026_11_01_pins_deployment_coordinates() {
+    // 2026-11-01 updater audit: the updater rediscovered the deployment
+    // from inside its own container and provisioned a duplicate stack.
+    // These pins are the contract that keeps it operating on the running
+    // deployment; each one was reproduced broken before the fix.
+    let updater = include_str!("../../deploy/updater/compose.updater.yml");
+    let script = include_str!("../../deploy/updater/docker-updater.sh");
+    let base = include_str!("../../docker-compose.yml");
+
+    // §1 project name: without an explicit pin, compose derived "compose"
+    // from /compose and created compose-pkv-sync-1 instead of upgrading.
+    assert!(updater.contains("name: pkv-sync"));
+    assert!(updater.contains("COMPOSE_PROJECT_NAME:"));
+    assert!(script.contains("COMPOSE_PROJECT_NAME="));
+
+    // §2 host dir: binds must resolve against the deployment's absolute
+    // path, not this container's /compose view (the daemon created
+    // /compose/config.toml as an empty directory and the duplicate
+    // crash-looped with "Is a directory").
+    assert!(updater.contains("PKV_HOST_DIR:"));
+    assert!(updater.contains("${PKV_HOST_DIR}/data:/var/lib/pkv-sync"));
+    // The base compose anchors its relative binds the same way, defaulting
+    // to "." so plain `docker compose up -d` is unchanged.
+    assert!(base.contains("${PKV_HOST_DIR:-.}/data:/var/lib/pkv-sync"));
+
+    // §3 rollback target: the running image, captured before any change —
+    // never a "latest" fallback (a failed upgrade to X could roll "back"
+    // to latest == X). PREV_TAG_FILE and its PKV_SYNC_TAG fallback are gone.
+    assert!(script.contains("PREV_TAG=\"$CUR_TAG\""));
+    assert!(!script.contains("PREV_TAG_FILE"));
+
+    // §4 marker removal: the data mount is writable (was :ro, so rm failed
+    // on every path and the request re-fired forever) and DAC_OVERRIDE is
+    // granted (cap_drop ALL removed it; the marker is owned by the
+    // server's uid, not root).
+    assert!(updater.contains("${PKV_HOST_DIR}/data:/var/lib/pkv-sync"));
+    // No :ro on the live data mount (the comment may cite the old form).
+    let mount_line = updater
+        .lines()
+        .find(|l| l.trim_start().starts_with("- ${PKV_HOST_DIR}/data:"))
+        .expect("host-dir data mount exists");
+    assert!(
+        !mount_line.contains(":ro"),
+        "data mount must be writable: {mount_line}"
+    );
+    assert!(updater.contains("cap_add: [DAC_OVERRIDE]"));
+
+    // §4b image lookup: exact <project>-<service>-<n> match. The old
+    // `--filter name=pkv-sync | head -n1` is a substring match that
+    // returned the SOCKET PROXY's image and silently disabled the guard.
+    assert!(script.contains("-v re=\"^${proj}-${SERVICE}-[0-9]+$\""));
+    assert!(!script.contains("--filter \"name=$SERVICE\""));
+
+    // §6 (found in the end-to-end pass, not in the report): docker:*-cli
+    // ships busybox wget but no curl — curl exited 127 and the health
+    // check could NEVER pass, rolling back every successful upgrade.
+    assert!(script.contains("wget -q -T 3"));
+    assert!(!script.contains("curl -fsS"));
 }
 
 #[test]
