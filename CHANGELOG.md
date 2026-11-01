@@ -160,8 +160,6 @@ and this project adheres to semantic versioning starting at v1.0.0.
   last-known-good config. All connection, account and vault writes now go
   through one gated entry (`setConnectionPatch` / `setSelectedVault`), so a
   check-then-assign pair can no longer be interleaved by another change.
-### Fixed
-
 
 ## [1.7.1] - 2026-10-31
 
