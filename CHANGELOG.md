@@ -24,9 +24,6 @@ and this project adheres to semantic versioning starting at v1.0.0.
 - The "will retry in Ns" message on a rejected push was computed when the
   error was constructed, so by the time the user saw it the countdown could
   be stale or already expired. The message is now computed when read.
-
-### Fixed
-
 - The opt-in Docker self-updater profile never upgraded the deployment and
   instead created a broken duplicate stack: it invoked compose against its own
   container's view of the repo, so the project name resolved to `compose`
