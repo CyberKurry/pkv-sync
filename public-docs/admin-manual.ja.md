@@ -260,11 +260,12 @@ SHA-256 で検証し、差し替えて `pkv-sync` を再起動し、ヘルスチ
 受け取ることはありません:
 
 ```sh
-docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+PKV_HOST_DIR=$(pwd) docker compose -f docker-compose.yml \
+  -f deploy/updater/compose.updater.yml --profile updater up -d
 ```
 
-更新ツールは指定された `X.Y.Z` イメージを pull し、`pkv-sync` を再作成して
-ヘルスチェックし、失敗した場合は以前のタグに再ピンします。別案として
+`PKV_HOST_DIR` にはデプロイディレクトリ（`docker-compose.yml` を含むディレクトリ）の絶対パスを指定します。更新ツールは独自のコンテナ内から compose を実行するため、このパスを自己発見できません。更新ツールは指定された `X.Y.Z` イメージを pull し、`pkv-sync` を再作成して
+ヘルスチェックし、失敗した場合は実行中のタグに再ピンします。別案として
 [Watchtower](https://containrrr.dev/watchtower/) や compose-updater などの
 サードパーティ製ツールを `pkv-sync` コンテナに向ける方法もありますが、これらは
 ワンクリックで指定した固定バージョンに従うのではなく、スケジュールで `:latest` を

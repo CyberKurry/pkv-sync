@@ -232,10 +232,11 @@ root 的 `pkv-sync-updater.path` 单元监视该标记并运行一次性的 `pkv
 **Docker：** 启用随附的 updater profile。它只通过受限的 `docker-socket-proxy` 访问 Docker；`pkv-sync` 容器本身永远拿不到 socket：
 
 ```sh
-docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+PKV_HOST_DIR=$(pwd) docker compose -f docker-compose.yml \
+  -f deploy/updater/compose.updater.yml --profile updater up -d
 ```
 
-升级器会拉取所请求的 `X.Y.Z` 镜像、重建 `pkv-sync`、对其做健康检查，失败时重新固定回旧 tag。作为替代，你也可以让 [Watchtower](https://containrrr.dev/watchtower/) 或 compose-updater 等第三方工具盯住 `pkv-sync` 容器——但它们是按计划轮询 `:latest`，而非遵循一键固定的目标版本。
+`PKV_HOST_DIR` 必须是部署目录（即包含 `docker-compose.yml` 的目录）的绝对路径；升级器在自己的容器内运行 compose，无法自行发现该路径。升级器会拉取所请求的 `X.Y.Z` 镜像、重建 `pkv-sync`、对其做健康检查，失败时重新固定回原先运行的 tag。作为替代，你也可以让 [Watchtower](https://containrrr.dev/watchtower/) 或 compose-updater 等第三方工具盯住 `pkv-sync` 容器——但它们是按计划轮询 `:latest`，而非遵循一键固定的目标版本。
 
 升级期间会有短暂的重启中断；客户端会自动重连。
 

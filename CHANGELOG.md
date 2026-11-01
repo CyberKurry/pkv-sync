@@ -7,6 +7,43 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- The opt-in Docker self-updater profile never upgraded the deployment and
+  instead created a broken duplicate stack: it invoked compose against its own
+  container's view of the repo, so the project name resolved to `compose`
+  (creating `compose-pkv-sync-1` rather than reconfiguring the running
+  service) and every relative bind resolved under `/compose`, where the
+  daemon helpfully created `config.toml` as an empty directory the duplicate
+  then crash-looped on. The deployment's coordinates are now passed in: the
+  compose project is pinned, `PKV_HOST_DIR` (a required variable set to the
+  deployment directory's absolute path) anchors the binds, and the base
+  compose interpolates the same variable with a `.` default so plain
+  `docker compose up -d` is unchanged.
+- The updater's rollback re-pinned `latest` instead of the running version:
+  `PKV_SYNC_TAG` was never passed to the updater container, so a failed
+  upgrade to X could "roll back" to `latest` == X. The rollback target is
+  now the image the service is running, captured before anything changes
+  it; the image lookup also matches the exact `<project>-<service>-<n>`
+  container name — the old substring filter matched the socket proxy first
+  and silently disabled the downgrade guard (and `v`-prefixed tags now
+  parse too).
+- The upgrade request marker could never be cleared: the updater deleted it
+  from a read-only data mount (`rm: Read-only file system`), so the request
+  re-fired on every updater start — including after a successful upgrade.
+  The data mount is now writable and the updater carries `DAC_OVERRIDE`
+  (the marker is owned by the server's uid, not root).
+- The updater's health check used `curl`, which the `docker:*-cli` image
+  does not ship — every health check exited 127 and every upgrade was
+  rolled back, even when the new version was perfectly healthy. It now
+  uses the busybox `wget` that image does ship. (Found in the end-to-end
+  verification pass; earlier reports died at port binding before reaching
+  this line.)
+- `tecnativa/docker-socket-proxy` was pinned as `0.4.2`, a tag that does
+  not exist (the repository only publishes `v`-prefixed tags), so the
+  updater profile failed to start with `failed to resolve reference`. Both
+  the updater and Traefik overlays now pin `v0.4.2`.
+
 ## [1.7.2] - 2026-11-01
 
 ### Changed
@@ -70,6 +107,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
   last-known-good config. All connection, account and vault writes now go
   through one gated entry (`setConnectionPatch` / `setSelectedVault`), so a
   check-then-assign pair can no longer be interleaved by another change.
+### Fixed
+
 
 ## [1.7.1] - 2026-10-31
 

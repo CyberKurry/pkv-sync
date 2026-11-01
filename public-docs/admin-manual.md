@@ -390,11 +390,15 @@ scoped `docker-socket-proxy`; the `pkv-sync` container itself never receives the
 socket:
 
 ```sh
-docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+PKV_HOST_DIR=$(pwd) docker compose -f docker-compose.yml \
+  -f deploy/updater/compose.updater.yml --profile updater up -d
 ```
 
-The updater pulls the requested `X.Y.Z` image, recreates `pkv-sync`, health-checks
-it, and re-pins the previous tag on failure. As an alternative, point a
+`PKV_HOST_DIR` must be the absolute path of the deployment directory (the
+directory holding `docker-compose.yml`); the updater runs compose from inside
+its own container and cannot rediscover it. The updater pulls the requested
+`X.Y.Z` image, recreates `pkv-sync`, health-checks it, and re-pins the
+running tag on failure. As an alternative, point a
 third-party tool such as [Watchtower](https://containrrr.dev/watchtower/) or
 compose-updater at the `pkv-sync` container — note those poll `:latest` on a
 schedule rather than honoring the one-click pinned target.

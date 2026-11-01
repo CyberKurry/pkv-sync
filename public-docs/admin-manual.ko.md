@@ -256,11 +256,12 @@ SHA-256으로 검증한 뒤 교체하고 `pkv-sync`를 재시작하며, 헬스 �
 받지 않습니다:
 
 ```sh
-docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+PKV_HOST_DIR=$(pwd) docker compose -f docker-compose.yml \
+  -f deploy/updater/compose.updater.yml --profile updater up -d
 ```
 
-업데이터는 지정된 `X.Y.Z` 이미지를 풀하고 `pkv-sync`를 다시 만들고 헬스 체크하며,
-실패하면 이전 태그로 다시 고정합니다. 대안으로 [Watchtower](https://containrrr.dev/watchtower/)
+`PKV_HOST_DIR`에는 배포 디렉터리(`docker-compose.yml`이 있는 디렉터리)의 절대 경로를 지정합니다. 업데이터는 자체 컨테이너 안에서 compose를 실행하므로 이 경로를 스스로 찾을 수 없습니다. 업데이터는 지정된 `X.Y.Z` 이미지를 풀고 `pkv-sync`를 다시 만들고 헬스 체크하며,
+실패하면 실행 중이던 태그로 다시 고정합니다. 대안으로 [Watchtower](https://containrrr.dev/watchtower/)
 나 compose-updater 같은 서드파티 도구를 `pkv-sync` 컨테이너로 향하게 할 수도
 있지만, 이들은 클릭 한 번으로 지정한 고정 버전을 따르지 않고 일정에 따라
 `:latest`를 폴링한다는 점에 유의하세요.
