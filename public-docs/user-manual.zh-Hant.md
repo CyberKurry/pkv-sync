@@ -24,7 +24,7 @@
 
 ## 外掛更新
 
-PKV Sync 設定頁包含 **更新** 區塊。預設情況下，外掛會向已連接的 PKV Sync 伺服器查詢隨伺服器打包的外掛版本；對自架部署而言，這是首選來源，因為升級伺服器時也會一併發布相符的外掛資產。當伺服器設定了 `public_host` 時，外掛資產的 URL 會錨定到該外部主機。如有需要，你可以將更新來源切換為 GitHub Release。
+PKV Sync 設定頁包含 **更新** 區塊。預設情況下，外掛會向已連接的 PKV Sync 伺服器查詢隨伺服器打包的外掛版本；對自架部署而言，這是首選來源，因為升級伺服器時也會一併發布相符的外掛資產。當伺服器設定了 `public_host` 時，外掛資產的 URL 會錨定到該外部主機。如有需要，你可以將更新來源切換為 GitHub Release（[`cyberkurry/pkv-sync-plugin`](https://github.com/CyberKurry/pkv-sync-plugin) 鏡像倉庫）。
 
 當有可用更新時，**立即更新** 會下載 `main.js`、`manifest.json` 與（若存在）`styles.css`，驗證 SHA-256 雜湊，寫入外掛檔案，並提示你重新載入 Obsidian。指令面板中也提供 **PKV Sync：檢查 PKV Sync 外掛更新**。
 

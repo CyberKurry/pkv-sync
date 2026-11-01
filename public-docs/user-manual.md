@@ -34,7 +34,9 @@ plugin checks the connected PKV Sync server for the bundled plugin version; this
 is the preferred source for self-hosted deployments because upgrading the server
 also publishes the matching plugin assets. When the server is configured with
 `public_host`, the plugin asset URLs stay anchored to that external host. You
-can switch the update source to GitHub releases when needed.
+can switch the update source to GitHub releases (the
+[`cyberkurry/pkv-sync-plugin`](https://github.com/CyberKurry/pkv-sync-plugin)
+mirror) when needed.
 
 When an update is available, **Update now** downloads `main.js`,
 `manifest.json`, and `styles.css` when present, verifies SHA-256 hashes, writes

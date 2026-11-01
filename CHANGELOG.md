@@ -9,6 +9,18 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The plugin's built-in update check always reported "PKV Sync plugin is up
+  to date" when the update source was GitHub. The client queried the main
+  repository's latest release, whose assets are the plugin zip and server
+  binaries — never the individual `main.js`/`manifest.json` files the
+  self-updater requires, with no sha256 digests anywhere in the notes — so
+  every check silently collapsed to "no update". The GitHub source now
+  queries the plugin mirror repository (`cyberkurry/pkv-sync-plugin`), whose
+  releases carry the three individual assets; releases that are newer than
+  the running plugin but cannot serve a verified self-update (missing
+  assets or missing digests) now surface an error instead of "up to date",
+  and the server source falls back to GitHub only when the manifest
+  endpoint is genuinely absent (404/405/501) rather than on any failure.
 - Editing the server URL or deployment key in the settings tab applied the
   full connection switch on every keystroke: the sync engine was torn down,
   all timers cleared, and the half-typed value persisted to disk — leaving
@@ -58,6 +70,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
   not exist (the repository only publishes `v`-prefixed tags), so the
   updater profile failed to start with `failed to resolve reference`. Both
   the updater and Traefik overlays now pin `v0.4.2`.
+
+### Changed
+
+- Release publishing now attaches the individual plugin files
+  (`main.js`, `manifest.json`, `styles.css`) to the main repository's GitHub
+  release and embeds their sha256 digests in the release notes; the plugin
+  mirror release notes carry the same digest block. This is the shape the
+  in-app updater consumes, and `SHA256SUMS` now covers the individually
+  downloadable plugin files.
 
 ## [1.7.2] - 2026-11-01
 

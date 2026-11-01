@@ -24,7 +24,7 @@
 
 ## 插件更新
 
-PKV Sync 设置页面包含一个 **更新** 区域。默认情况下，插件会向已连接的 PKV Sync 服务器查询其内置的插件版本；对于自托管部署来说，这是首选的更新来源，因为升级服务器时会同步发布配套的插件资源。当服务器配置了 `public_host` 时，插件资源 URL 仍会指向该对外主机。如有需要，你可以将更新来源切换为 GitHub Releases。
+PKV Sync 设置页面包含一个 **更新** 区域。默认情况下，插件会向已连接的 PKV Sync 服务器查询其内置的插件版本；对于自托管部署来说，这是首选的更新来源，因为升级服务器时会同步发布配套的插件资源。当服务器配置了 `public_host` 时，插件资源 URL 仍会指向该对外主机。如有需要，你可以将更新来源切换为 GitHub Releases（[`cyberkurry/pkv-sync-plugin`](https://github.com/CyberKurry/pkv-sync-plugin) 镜像仓库）。
 
 当有可用更新时，**立即更新** 会下载 `main.js`、`manifest.json`，以及（若存在）`styles.css`，校验 SHA-256 哈希后写入插件文件，并提示你重新加载 Obsidian。命令面板中也提供 **PKV Sync：检查 PKV Sync 插件更新**。
 
