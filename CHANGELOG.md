@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-11-02
+
 ### Security
 
 - Resolved Dependabot alerts #35-38: `rustls` 0.23.45 → 0.23.46, the single

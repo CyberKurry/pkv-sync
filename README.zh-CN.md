@@ -5,13 +5,13 @@ PKV Sync 是一个自托管的、Git 原生的 Obsidian 笔记库同步服务端
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.7.2。
+文档版本：v1.7.3。
 
 [English](./README.md) · 简体中文 · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## 状态
 
-PKV Sync 1.7.2 是当前稳定补丁版本，通过按实际 JSON 字节分包并逐包确认，修复大笔记库反复收到 HTTP 413、无法完成同步的问题。本版还完善了迁移取消与最终状态保存，防止旧连接响应和同步恢复操作影响新连接，并提供本地化的连接及存储失败提示。
+PKV Sync 1.7.3 是当前稳定补丁版本，修复插件内置 GitHub 更新检查恒提示“已是最新版本”的问题（改为查询插件镜像仓库并如实报告发布形状错误）；修复可选 Docker 自升级配置（部署坐标、回滚目标、标记清理、健康检查、socket-proxy 标签）；将设置页调用限定在发起时的连接内；并更新 rustls 以解决 4 个 Dependabot 安全通告。发布流程现在会附带独立插件文件及其 sha256 摘要。
 
 ## 功能
 

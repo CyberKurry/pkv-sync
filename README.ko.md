@@ -5,13 +5,13 @@ PKV Sync는 Obsidian Vault를 자체 호스팅으로 동기화하는 Git 네이�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-문서 버전: v1.7.2.
+문서 버전: v1.7.3.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · 한국어
 
 ## 릴리스 상태
 
-PKV Sync 1.7.2는 현재 안정 패치 릴리스입니다. 실제 JSON 바이트 수에 따라 요청을 나누고 수락된 배치를 각각 확인하여 대규모 Vault가 HTTP 413 오류를 반복하며 동기화되지 않는 문제를 수정했습니다. 마이그레이션 취소와 최종 상태 저장을 개선하고, 이전 연결의 응답과 동기화 재개 작업이 새 연결에 영향을 주지 않도록 했습니다. 연결 및 저장소 오류도 각 언어로 표시합니다.
+PKV Sync 1.7.3는 현재 안정 패치 릴리스입니다. 플러그인 내장 GitHub 업데이트 확인이 항상 "최신 버전"으로 표시되던 문제를 수정하고(플러그인 미러 저장소를 조회하고 릴리스 형식 오류를 보고), 선택적 Docker 자체 업그레이드 프로필(배포 좌표, 롤백 대상, 마커 정리, 상태 검사, socket-proxy 태그)을 수정하며, 설정 화면 호출을 발행 시점의 연결로 제한하고, 4건의 Dependabot 보안 권고에 대응해 rustls를 업데이트했습니다. 릴리스 게시는 이제 개별 플러그인 파일과 sha256 다이제스트를 함께 첨부합니다.
 
 ## 기능
 

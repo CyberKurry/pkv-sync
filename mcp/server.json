@@ -8,11 +8,11 @@
     "url": "https://github.com/CyberKurry/pkv-sync",
     "source": "github"
   },
-  "version": "1.7.2",
+  "version": "1.7.3",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/cyberkurry/pkv-sync:1.7.2",
+      "identifier": "ghcr.io/cyberkurry/pkv-sync:1.7.3",
       "transport": {
         "type": "stdio"
       },

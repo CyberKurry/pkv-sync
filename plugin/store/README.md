@@ -12,11 +12,13 @@ Self-hosted, Git-backed synchronization for Obsidian.
 
 ## Current release
 
-PKV Sync 1.7.2 fixes repeated HTTP 413 failures during large-vault sync with
-byte-sized batches and individual acknowledgements. It also improves migration
-cancellation and state recovery, prevents stale connections from restarting sync,
-and shows localized connection and storage errors. Use the matching server
-release to receive advertised push limits.
+PKV Sync 1.7.3 fixes the built-in update check that always reported "up to
+date" when using the GitHub source: it now reads the plugin mirror releases
+and reports release-shape errors instead of hiding them. Settings-tab
+operations are fenced to the connection they were issued on, the retry
+countdown is computed when read, and four Dependabot rustls advisories are
+resolved. Releases now publish the individual plugin files with sha256
+digests, so in-app self-updates verify end to end.
 
 ## What it is
 
