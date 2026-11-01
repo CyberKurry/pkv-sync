@@ -4,6 +4,7 @@ import { OperationStoppedError } from "../connection-context";
 import { strings } from "../i18n";
 import { sha256Bytes, sha256TextWithLength } from "./hash";
 import { guessMime } from "./mime";
+import { pushItemFingerprint, snapshotToPushChange } from "./push-prepare";
 import { PushBatcher, type PushItem } from "./push-batches";
 import { PushBatchError, type PushLabels } from "./push-errors";
 import { normalizePushLimits, type PushLimits } from "./push-limits";
@@ -242,7 +243,7 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
       (file) => ({
         file,
         change: snapshotToPushChange(file),
-        fingerprint: JSON.stringify([file.kind, file.path, file.hash, file.size])
+        fingerprint: pushItemFingerprint(file)
       })
     );
     try {
@@ -401,19 +402,6 @@ async function snapshotMigrationFile(
     size: bytes.byteLength,
     kind: "blob",
     bytes
-  };
-}
-
-function snapshotToPushChange(file: LocalFileSnapshot): PushChange {
-  if (file.kind === "text") {
-    return { kind: "text", path: file.path, content: file.content ?? "" };
-  }
-  return {
-    kind: "blob",
-    path: file.path,
-    blob_hash: file.hash,
-    size: file.size,
-    mime: guessMime(file.path)
   };
 }
 

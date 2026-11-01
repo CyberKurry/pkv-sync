@@ -9,6 +9,7 @@ import { createPathMatcher } from "./exclude";
 import { conflictPath } from "./conflict";
 import { sha256Bytes, sha256Text, sha256TextWithLength } from "./hash";
 import { guessMime } from "./mime";
+import { pushItemFingerprint, snapshotToPushChange } from "./push-prepare";
 import {
   markBatch,
   markDeleted,
@@ -537,7 +538,7 @@ export class SyncEngine {
           source: "file" as const,
           file,
           change: snapshotToPushChange(file),
-          fingerprint: JSON.stringify([file.kind, file.path, file.hash, file.size])
+          fingerprint: pushItemFingerprint(file)
         })),
         ...batchDeleted.map((path) => ({
           source: "delete" as const,
@@ -1097,19 +1098,6 @@ function isLocalDeleted(
   lastSyncedHash: string | undefined
 ): boolean {
   return !local && !!lastSyncedHash;
-}
-
-function snapshotToPushChange(file: LocalFileSnapshot): PushChange {
-  if (file.kind === "text") {
-    return { kind: "text", path: file.path, content: file.content ?? "" };
-  }
-  return {
-    kind: "blob",
-    path: file.path,
-    blob_hash: file.hash,
-    size: file.size,
-    mime: guessMime(file.path)
-  };
 }
 
 function isLocalDirty(
