@@ -7,6 +7,23 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Security
+
+- Resolved Dependabot alerts #35-38: `rustls` 0.23.45 → 0.23.46, the single
+  patch release covering all four advisories — RUSTSEC-2026-0346 /
+  GHSA-c8m5-c952-6cm4 (moderate, session Debug formatting could expose TLS
+  master secrets/resumption PSKs; not reachable here — requires a custom
+  ClientSessionStore that debug-prints sessions, this repo uses reqwest
+  defaults), RUSTSEC-2026-0349 / GHSA-w44r-93j7-qv28 (low, ServerHello
+  poisons the per-name key-exchange record; nominally client-reachable via
+  reqwest but requires a MITM plus hybrid key-exchange context — hygiene
+  fix), RUSTSEC-2026-0348 / GHSA-h2v8-394m-p7vv (low, Brotli certificate
+  decompression could allocate up to 1 GiB pre-auth; not reachable — the
+  non-default `brotli` feature is off), and RUSTSEC-2026-0347 /
+  GHSA-vp88-798v-h67f (low, ECH rejection could expose buffered application
+  data; not reachable — `EchMode::Enable` is not used). Lockfile-only bump;
+  no other crates move.
+
 ### Fixed
 
 - The plugin's built-in update check always reported "PKV Sync plugin is up
