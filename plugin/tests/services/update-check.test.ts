@@ -151,7 +151,7 @@ describe("plugin update check", () => {
     );
   });
 
-  it("falls back to GitHub releases when server manifest is unavailable", async () => {
+  it("falls back to the plugin mirror releases when the server manifest endpoint is absent", async () => {
     const main = "console.log('0.8.1')";
     const manifest = '{"version":"0.8.1"}';
     requestUrlMock
@@ -164,19 +164,19 @@ describe("plugin update check", () => {
       })
       .mockResolvedValueOnce(
         responseJson({
-          tag_name: "v0.8.1",
-          html_url: "https://github.com/cyberkurry/pkv-sync/releases/tag/v0.8.1",
+          tag_name: "0.8.1",
+          html_url: "https://github.com/cyberkurry/pkv-sync-plugin/releases/tag/0.8.1",
           body: `${await sha256Text(main)}  main.js\n${await sha256Text(manifest)}  manifest.json`,
           assets: [
             {
               name: "main.js",
               browser_download_url:
-                "https://github.com/cyberkurry/pkv-sync/releases/download/v0.8.1/main.js"
+                "https://github.com/cyberkurry/pkv-sync-plugin/releases/download/0.8.1/main.js"
             },
             {
               name: "manifest.json",
               browser_download_url:
-                "https://github.com/cyberkurry/pkv-sync/releases/download/v0.8.1/manifest.json"
+                "https://github.com/cyberkurry/pkv-sync-plugin/releases/download/0.8.1/manifest.json"
             }
           ]
         })
@@ -184,12 +184,73 @@ describe("plugin update check", () => {
 
     const update = await service().checkOnce("server");
 
+    expect(requestUrlMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        url: "https://api.github.com/repos/cyberkurry/pkv-sync-plugin/releases/latest"
+      })
+    );
     expect(update).toMatchObject({
       version: "0.8.1",
       source: "github",
       releaseNotesUrl:
-        "https://github.com/cyberkurry/pkv-sync/releases/tag/v0.8.1"
+        "https://github.com/cyberkurry/pkv-sync-plugin/releases/tag/0.8.1"
     });
+  });
+
+  it("does not swallow server transport errors into a github fallback", async () => {
+    requestUrlMock.mockImplementationOnce(() => {
+      throw new Error("network unreachable");
+    });
+
+    await expect(service().checkOnce("server")).rejects.toThrow(
+      /network unreachable/
+    );
+    expect(requestUrlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a release-shape error for a main-repo release without individual plugin assets", async () => {
+    // Captured from the live v1.7.2 release of CyberKurry/pkv-sync
+    // (api.github.com/repos/cyberkurry/pkv-sync/releases/latest, 2026-11-01):
+    // every main-repo release ships pkv-sync-plugin.zip + binaries + SHA256SUMS
+    // and no sha256 digests anywhere in the notes. The old client folded this
+    // into null ("up to date"), so GitHub-source checks were always stale.
+    requestUrlMock.mockResolvedValueOnce(
+      responseJson({
+        tag_name: "v1.7.2",
+        html_url: "https://github.com/CyberKurry/pkv-sync/releases/tag/v1.7.2",
+        body: "PKV Sync v1.7.2 fixes large-vault sync failures reported in Issue #5.",
+        assets: [
+          { name: "pkv-sync-plugin.zip", browser_download_url: "https://github.com/CyberKurry/pkv-sync/releases/download/v1.7.2/pkv-sync-plugin.zip" },
+          { name: "pkvsyncd-aarch64-unknown-linux-gnu", browser_download_url: "https://github.com/CyberKurry/pkv-sync/releases/download/v1.7.2/pkvsyncd-aarch64-unknown-linux-gnu" },
+          { name: "SHA256SUMS", browser_download_url: "https://github.com/CyberKurry/pkv-sync/releases/download/v1.7.2/SHA256SUMS" }
+        ]
+      })
+    );
+
+    await expect(service().checkOnce("github")).rejects.toThrow(/main\.js/);
+  });
+
+  it("surfaces a release-shape error when mirror notes lack plugin sha256 digests", async () => {
+    // Captured from the live mirror release CyberKurry/pkv-sync-plugin
+    // (releases/latest = 1.7.2): assets main.js/manifest.json/styles.css are
+    // present, but the notes are a one-line changelog pointer with no sha256.
+    // The plugin now defaults to this repo, and the release workflow appends
+    // the sha256 block; until a release with digests exists this must be a
+    // loud error, never "up to date".
+    requestUrlMock.mockResolvedValueOnce(
+      responseJson({
+        tag_name: "1.7.2",
+        html_url: "https://github.com/CyberKurry/pkv-sync-plugin/releases/tag/1.7.2",
+        body: "PKV Sync plugin 1.7.2. Changelog: https://github.com/CyberKurry/pkv-sync/blob/main/CHANGELOG.md#172---2026-11-01",
+        assets: [
+          { name: "main.js", browser_download_url: "https://github.com/CyberKurry/pkv-sync-plugin/releases/download/1.7.2/main.js" },
+          { name: "manifest.json", browser_download_url: "https://github.com/CyberKurry/pkv-sync-plugin/releases/download/1.7.2/manifest.json" },
+          { name: "styles.css", browser_download_url: "https://github.com/CyberKurry/pkv-sync-plugin/releases/download/1.7.2/styles.css" }
+        ]
+      })
+    );
+
+    await expect(service().checkOnce("github")).rejects.toThrow(/sha256/);
   });
 
   it("rejects sha256 mismatches before writing plugin files", async () => {

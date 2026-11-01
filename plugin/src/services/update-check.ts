@@ -1,9 +1,24 @@
 import { requestUrl, type RequestUrlParam } from "obsidian";
-import { ApiClient } from "../api/client";
+import { ApiClient, ApiError } from "../api/client";
 import { sha256Text } from "../sync/hash";
 import { errorToMessage } from "../util";
 
 export type UpdateSource = "server" | "github";
+
+/**
+ * The connected server predates /api/plugin-manifest (or the endpoint is
+ * absent). Only this condition falls back to the GitHub source; transport
+ * failures and malformed manifests are surfaced, not converted.
+ */
+export class ServerManifestUnavailableError extends Error {}
+
+/**
+ * A GitHub release newer than the running plugin exists but cannot serve a
+ * verified self-update (missing individual plugin assets or missing sha256
+ * digests in the release notes). The release channel is mispublished; the
+ * user must hear about it instead of "up to date".
+ */
+export class IncompleteGithubReleaseError extends Error {}
 
 export interface PluginUpdateStatus {
   version: string;
@@ -63,7 +78,8 @@ interface GitHubRelease {
   assets?: GitHubAsset[];
 }
 
-const DEFAULT_GITHUB_REPO = "cyberkurry/pkv-sync";
+const MAIN_REPO = "cyberkurry/pkv-sync";
+const DEFAULT_GITHUB_REPO = "cyberkurry/pkv-sync-plugin";
 const UPDATE_REQUEST_TIMEOUT_MS = 30_000;
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/i;
 
@@ -86,10 +102,12 @@ export class UpdateCheckService {
     if (source === "github") return this.fetchGitHubManifest();
     try {
       const serverUpdate = await this.fetchServerManifest();
-      if (serverUpdate) return serverUpdate;
-      return null;
-    } catch {
-      return this.fetchGitHubManifest();
+      return serverUpdate;
+    } catch (error) {
+      if (error instanceof ServerManifestUnavailableError) {
+        return this.fetchGitHubManifest();
+      }
+      throw error;
     }
   }
 
@@ -124,12 +142,20 @@ export class UpdateCheckService {
   }
 
   private async fetchServerManifest(): Promise<PluginUpdateStatus | null> {
-    const manifest = await this.options.api.request<ServerPluginManifest>(
-      "GET",
-      "/api/plugin-manifest",
-      undefined,
-      true
-    );
+    let manifest: ServerPluginManifest;
+    try {
+      manifest = await this.options.api.request<ServerPluginManifest>(
+        "GET",
+        "/api/plugin-manifest",
+        undefined,
+        true
+      );
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 404 || error.status === 405 || error.status === 501)) {
+        throw new ServerManifestUnavailableError(error.message);
+      }
+      throw error;
+    }
     const version = normalizeStableVersion(manifest.version);
     if (!version || compareVersions(version, this.options.currentVersion) <= 0) {
       return null;
@@ -137,7 +163,7 @@ export class UpdateCheckService {
     const update: PluginUpdateStatus = {
       version,
       source: "server",
-      releaseNotesUrl: `https://github.com/${DEFAULT_GITHUB_REPO}/releases/tag/v${version}`,
+      releaseNotesUrl: `https://github.com/${MAIN_REPO}/releases/tag/v${version}`,
       mainJsUrl: manifest.main_js_url,
       mainJsSha256: manifest.main_js_sha256,
       manifestJsonUrl: manifest.manifest_json_url,
@@ -169,14 +195,25 @@ export class UpdateCheckService {
     const assets = release.assets ?? [];
     const main = findAsset(assets, "main.js");
     const manifest = findAsset(assets, "manifest.json");
-    if (!main || !manifest) return null;
+    if (!main || !manifest) {
+      // A release newer than the running plugin whose assets cannot serve a
+      // plugin self-update (e.g. only pkv-sync-plugin.zip is attached) is a
+      // publishable-shape regression, not "no update": returning null here
+      // made the GitHub source report "up to date" forever while a newer
+      // release existed. The caller must see the failure.
+      throw new IncompleteGithubReleaseError(
+        `release v${version} of ${this.githubRepo} has no main.js/manifest.json assets`
+      );
+    }
     const styles = findAsset(assets, "styles.css");
     const notes = release.body ?? "";
     const mainSha256 = extractSha256(notes, "main.js");
     const manifestSha256 = extractSha256(notes, "manifest.json");
     const stylesSha256 = styles ? extractSha256(notes, "styles.css") : null;
     if (!mainSha256 || !manifestSha256 || (styles && !stylesSha256)) {
-      return null;
+      throw new IncompleteGithubReleaseError(
+        `release v${version} of ${this.githubRepo} does not publish sha256 digests for its plugin assets`
+      );
     }
 
     return {
