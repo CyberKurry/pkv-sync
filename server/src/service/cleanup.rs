@@ -78,14 +78,28 @@ pub async fn run_scheduled_cleanup(state: &AppState) -> CleanupReport {
     }
 }
 
-async fn reconcile_all_vaults(state: &AppState) -> (usize, usize) {
+/// Run `work` for every vault id with a shared concurrency bound
+/// (`MAX_CONCURRENT_VAULT_RECONCILES`), returning (ok, failed).
+///
+/// Extracted from the reconcile/git-gc twins (R7-r3 Dup-5): both walked
+/// the same SELECT -> Semaphore -> JoinSet -> count skeleton and differed
+/// only in the per-vault closure. Join failures count as failures, same
+/// as the originals.
+async fn for_each_vault_bounded(
+    state: &AppState,
+    list_failure: &str,
+    work: impl Fn(AppState, String) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
+        + Clone
+        + Send
+        + 'static,
+) -> (usize, usize) {
     let rows: Vec<(String,)> = match sqlx::query_as("SELECT id FROM vaults")
         .fetch_all(&state.pool)
         .await
     {
         Ok(rows) => rows,
         Err(e) => {
-            tracing::warn!(error = %e, "vault metadata reconcile list failed");
+            tracing::warn!(error = %e, "{list_failure}");
             return (0, 0);
         }
     };
@@ -98,22 +112,13 @@ async fn reconcile_all_vaults(state: &AppState) -> (usize, usize) {
     for (vault_id,) in rows {
         let state = state.clone();
         let limit = Arc::clone(&limit);
+        let work = work.clone();
         tasks.spawn(async move {
             let _permit = limit
                 .acquire_owned()
                 .await
-                .expect("vault reconcile semaphore should remain open");
-            match crate::service::sync::reconcile_vault_metadata(&state, &vault_id).await {
-                Ok(_) => true,
-                Err(e) => {
-                    tracing::warn!(
-                        vault_id = %vault_id,
-                        error = %e.message,
-                        "vault metadata reconcile failed"
-                    );
-                    false
-                }
-            }
+                .expect("vault task semaphore should remain open");
+            work(state, vault_id).await
         });
     }
 
@@ -123,38 +128,39 @@ async fn reconcile_all_vaults(state: &AppState) -> (usize, usize) {
             Ok(false) => failed += 1,
             Err(e) => {
                 failed += 1;
-                tracing::warn!(error = %e, "vault metadata reconcile task failed");
+                tracing::warn!(error = %e, "vault task failed");
             }
         }
     }
     (ok, failed)
 }
 
+async fn reconcile_all_vaults(state: &AppState) -> (usize, usize) {
+    for_each_vault_bounded(
+        state,
+        "vault metadata reconcile list failed",
+        |state, vault_id| {
+            Box::pin(async move {
+                match crate::service::sync::reconcile_vault_metadata(&state, &vault_id).await {
+                    Ok(_) => true,
+                    Err(e) => {
+                        tracing::warn!(
+                            vault_id = %vault_id,
+                            error = %e.message,
+                            "vault metadata reconcile failed"
+                        );
+                        false
+                    }
+                }
+            })
+        },
+    )
+    .await
+}
+
 async fn git_gc_all_vaults(state: &AppState) -> (usize, usize) {
-    let rows: Vec<(String,)> = match sqlx::query_as("SELECT id FROM vaults")
-        .fetch_all(&state.pool)
-        .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!(error = %e, "vault git gc list failed");
-            return (0, 0);
-        }
-    };
-    let mut ok = 0;
-    let mut failed = 0;
-
-    let limit = Arc::new(Semaphore::new(MAX_CONCURRENT_VAULT_RECONCILES));
-    let mut tasks = JoinSet::new();
-
-    for (vault_id,) in rows {
-        let state = state.clone();
-        let limit = Arc::clone(&limit);
-        tasks.spawn(async move {
-            let _permit = limit
-                .acquire_owned()
-                .await
-                .expect("vault git gc semaphore should remain open");
+    for_each_vault_bounded(state, "vault git gc list failed", |state, vault_id| {
+        Box::pin(async move {
             let push_lock = state.vault_push_lock(&vault_id);
             let _push_guard = push_lock.lock().await;
             let _storage_guard = match crate::service::acquire_storage_mutation_guard(&state).await
@@ -180,20 +186,9 @@ async fn git_gc_all_vaults(state: &AppState) -> (usize, usize) {
                     false
                 }
             }
-        });
-    }
-
-    while let Some(result) = tasks.join_next().await {
-        match result {
-            Ok(true) => ok += 1,
-            Ok(false) => failed += 1,
-            Err(e) => {
-                failed += 1;
-                tracing::warn!(error = %e, "vault git gc task failed");
-            }
-        }
-    }
-    (ok, failed)
+        })
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -408,26 +403,34 @@ mod tests {
 
     #[test]
     fn reconcile_all_vaults_uses_bounded_concurrency() {
+        // R7-r3 Dup-5: the fan-out skeleton moved into
+        // for_each_vault_bounded (shared with git_gc_all_vaults); the
+        // invariant is asserted against BOTH the caller delegation and
+        // the helper that now owns the semaphore.
         let source = include_str!("cleanup.rs");
         let start = source
-            .find("async fn reconcile_all_vaults")
-            .expect("reconcile_all_vaults exists");
+            .find("async fn for_each_vault_bounded")
+            .expect("for_each_vault_bounded exists");
         let end = source[start..]
-            .find("\n#[cfg(test)]")
-            .expect("test module follows reconcile_all_vaults");
+            .find("\nasync fn reconcile_all_vaults")
+            .expect("reconcile_all_vaults follows the helper");
         let function = &source[start..start + end];
 
         assert!(
             function.contains("MAX_CONCURRENT_VAULT_RECONCILES"),
-            "reconcile_all_vaults should use a named concurrency limit"
+            "the shared fan-out helper should use a named concurrency limit"
         );
         assert!(
             function.contains("Semaphore") || function.contains("for_each_concurrent"),
             "reconcile_all_vaults should use a bounded concurrency primitive"
         );
         assert!(
-            !function.contains("reconcile_vault_metadata(state, &vault_id).await"),
-            "reconcile_all_vaults should not await vault reconciliation sequentially"
+            function.contains("JoinSet::new()"),
+            "the helper should use a bounded concurrency primitive"
+        );
+        assert!(
+            function.contains("tasks.spawn("),
+            "vault work should run as spawned tasks, not sequentially"
         );
     }
 
