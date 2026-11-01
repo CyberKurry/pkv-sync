@@ -1,3 +1,5 @@
+import { PromiseChain } from "./util/promise-chain";
+
 export interface CommitHooks {
   beforeSave(): undefined;
   publish(next: unknown): undefined;
@@ -32,7 +34,7 @@ function stableJson(value: unknown): string {
 }
 
 export class SerializedPluginDataStore {
-  private writeChain: Promise<void> = Promise.resolve();
+  private readonly writeChain = new PromiseChain();
 
   constructor(
     private load: () => Promise<unknown>,
@@ -40,12 +42,7 @@ export class SerializedPluginDataStore {
   ) {}
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
-    const run = this.writeChain.then(work);
-    this.writeChain = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
+    return this.writeChain.enqueue(work);
   }
 
   async update(updater: (data: unknown) => unknown): Promise<void> {
@@ -60,8 +57,10 @@ export class SerializedPluginDataStore {
   }
 
   async read<T>(reader: (data: unknown) => T | Promise<T>): Promise<T> {
-    await this.writeChain;
-    return reader(await this.load());
+    // Reading is also a chain task (not a bare tail-await): enqueueing
+    // guarantees the read observes every update already submitted, and
+    // any submitted after it queue behind.
+    return this.enqueue(async () => reader(await this.load()));
   }
 
   async commitWithRecovery(

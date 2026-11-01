@@ -1,4 +1,5 @@
 import { Notice } from "obsidian";
+import { PromiseChain } from "../util/promise-chain";
 import { ApiError } from "../api/client";
 import { SseAuthError, subscribeVaultEvents } from "../api/events-client";
 import type { SyncApi } from "../api/sync-client";
@@ -139,7 +140,7 @@ export class SyncEngine {
    * stale diff back over the newer content and regressed the head past
    * content that had already been delivered.
    */
-  private eventChain: Promise<void> = Promise.resolve();
+  private readonly eventChain = new PromiseChain();
   /**
    * The in-flight (or queued) syncNow pass. Present while a pass is on the
    * chain so additional syncNow calls coalesce onto it instead of queueing
@@ -241,12 +242,8 @@ export class SyncEngine {
    * or a sync pass) is mid-execution (M-12).
    */
   private runInsideChain(task: () => Promise<void>): Promise<void> {
-    const run = this.eventChain.then(async () => {
-      await task();
-    });
-    // Keep the chain clean even when the task fails.
-    this.eventChain = run.then(() => undefined, () => undefined);
-    return run;
+    // The chain absorbs rejections internally; the caller sees `run`.
+    return this.eventChain.enqueue(task);
   }
 
   async flushOnUnload(timeoutMs: number): Promise<void> {

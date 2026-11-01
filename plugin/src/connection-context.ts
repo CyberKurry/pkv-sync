@@ -1,3 +1,4 @@
+import { PromiseChain } from "./util/promise-chain";
 export interface ConnectionIdentity {
   serverUrl: string;
   deploymentKey: string;
@@ -79,7 +80,7 @@ function sameIdentity(a: ConnectionIdentity, b: ConnectionIdentity): boolean {
  * selection change.
  */
 export class ConnectionContext implements ConnectionContextContract {
-  private tail: Promise<void> = Promise.resolve();
+  private readonly chain = new PromiseChain();
   private epoch = 0;
   private request = 0;
   private selectionRevision = 0;
@@ -95,12 +96,7 @@ export class ConnectionContext implements ConnectionContextContract {
   }
 
   runLocal<T>(work: () => T | Promise<T>): Promise<T> {
-    const run = this.tail.then(work);
-    this.tail = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
+    return this.chain.enqueue(work);
   }
 
   snapshotLocked(): ConnectionStamp {
