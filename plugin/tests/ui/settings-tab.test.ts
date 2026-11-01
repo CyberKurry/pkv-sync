@@ -313,20 +313,28 @@ describe("PKVSyncSettingTab connection state", () => {
 describe("delete vault", () => {
   function buildTab(settingsOverride: Record<string, unknown> = {}) {
     const deleteVault = vi.fn().mockResolvedValue(undefined);
-    const setSelectedVault = vi.fn(async (vaultId: string, vaultName: string) => {
-      settings.selectedVaultId = vaultId;
-      settings.selectedVaultName = vaultName;
-      return true;
-    });
+    const setSelectedVault = vi.fn(
+      async (vaultId: string, vaultName: string, _stamp?: unknown) => {
+        settings.selectedVaultId = vaultId;
+        settings.selectedVaultName = vaultName;
+        return true;
+      }
+    );
     const invalidateSyncEngine = vi.fn();
     const settings: Record<string, unknown> = {
       selectedVaultId: "vault-1",
       selectedVaultName: "Test Vault",
       ...settingsOverride
     };
+    const stamp = { epoch: 1 };
     const plugin = {
       settings,
       api: () => ({ deleteVault }),
+      // R7R3-2 fencing: the tab now captures the connection before the
+      // request and verifies it after; the double accepts everything.
+      captureConnection: async () => stamp,
+      apiForConnection: () => ({ deleteVault }),
+      isConnectionCurrent: () => true,
       setSelectedVault,
       invalidateSyncEngine,
       text: () => ({ deletedVaultNotice: "Deleted {name}" })
@@ -352,7 +360,8 @@ describe("delete vault", () => {
     await tab.deleteVaultAndRefresh(vault);
 
     expect(deleteVault).toHaveBeenCalledWith("vault-1");
-    expect(setSelectedVault).toHaveBeenCalledWith("", "");
+    // R7R3-2: the reset is now fenced to the captured connection stamp.
+    expect(setSelectedVault).toHaveBeenCalledWith("", "", expect.anything());
     expect(settings.selectedVaultId).toBe("");
     expect(settings.selectedVaultName).toBe("");
     expect(invalidateSyncEngine).toHaveBeenCalledTimes(1);
@@ -381,7 +390,8 @@ describe("delete vault", () => {
   it("does not clear settings or refresh when API rejects", async () => {
     const { tab, setSelectedVault, invalidateSyncEngine, settings } = buildTab();
     const failingApi = vi.fn().mockRejectedValue(new Error("boom"));
-    tab.plugin.api = () => ({ deleteVault: failingApi });
+    // R7R3-2: the delete goes through apiForConnection(stamp) now.
+    tab.plugin.apiForConnection = () => ({ deleteVault: failingApi });
     const vault = mockVault();
 
     await expect(tab.deleteVaultAndRefresh(vault)).rejects.toThrow("boom");
@@ -423,12 +433,16 @@ describe("vault sync allowlist settings", () => {
       extra_sync_globs: [".obsidian/themes/**"]
     });
     const putVaultSettings = vi.fn().mockResolvedValue(undefined);
+    const stamp = { epoch: 1 };
     const plugin = {
       settings: {
         selectedVaultId: "vault-1",
         selectedVaultName: "Test Vault"
       },
       api: () => ({ getVaultSettings, putVaultSettings }),
+      captureConnection: async () => stamp,
+      apiForConnection: () => ({ getVaultSettings, putVaultSettings }),
+      isConnectionCurrent: () => true,
       text: () => ({
         vaultSyncAllowlist: "Dotfile sync allowlist",
         vaultSyncAllowlistHint: "One glob per line.",
@@ -549,7 +563,8 @@ describe("vault sync allowlist settings", () => {
     const getVaultSettings = vi.fn().mockReturnValue(loadPromise);
     const putVaultSettings = vi.fn().mockResolvedValue(undefined);
     const { tab } = buildAllowlistTab();
-    tab.plugin.api = () => ({
+    // R7R3-2: the save is fenced now; route the gated client too.
+    tab.plugin.apiForConnection = () => ({
       getVaultSettings,
       putVaultSettings
     }) as never;
@@ -785,7 +800,12 @@ describe("localized settings chrome", () => {
         loadingAccount: "loc-account-loading"
       }),
       saveSettings: vi.fn().mockResolvedValue(undefined),
-      api: () => ({ me: vi.fn(), tokens: vi.fn() })
+      api: () => ({ me: vi.fn(), tokens: vi.fn() }),
+      // R7R3-2: renderAccountDetails captures + fences; the double
+      // accepts the connection so the loading placeholder renders.
+      captureConnection: vi.fn(async () => ({ epoch: 1 })),
+      apiForConnection: () => ({ me: vi.fn(), tokens: vi.fn() }),
+      isConnectionCurrent: () => true
     };
     const tab = Object.create(PKVSyncSettingTab.prototype) as {
       plugin: typeof plugin;

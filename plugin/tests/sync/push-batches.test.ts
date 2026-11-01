@@ -46,7 +46,7 @@ function failure(promise: Promise<void>): Promise<PushBatchError> {
 
 function batcher(now?: () => number): PushBatcher {
   return new PushBatcher(
-    (detail) => new PushBatchError(detail, en, now ? now() : Date.now()),
+    (detail) => new PushBatchError(detail, en),
     now
   );
 }
@@ -401,7 +401,11 @@ describe("PushBatcher Retry-After", () => {
     );
     expect(send).toHaveBeenCalledTimes(1);
     expect(error.detail).toEqual({ kind: "retry_after", deadline: 1_030_000 });
-    expect(error.message).toBe("The server temporarily rejected this push. Retry in 30s.");
+    // R7R3-3: the countdown is computed at read time against the REAL
+    // clock (the batcher's `now` only drives protocol decisions), so the
+    // number is whatever remains when the assertion reads it — the test
+    // clock sits at 1s while real time has advanced past the deadline.
+    expect(error.message).toMatch(/Retry in \d+s\./);
 
     const next = vi.fn(async () => RESPONSE);
     expect(() => b.beginRun(LEGACY_PUSH_LIMITS, () => undefined)).toThrow(
@@ -435,10 +439,12 @@ describe("PushBatchError messages", () => {
         /Cannot sync b\.md: even its single-file request \(20 bytes\) was rejected/,
         /无法同步 b\.md：单文件请求（20 字节）仍被服务端或代理判定为过大。/
       ],
+      // R7R3-3: the countdown is computed when the message is read, so the
+      // deadline must be relative to the read. 9s from now (rounded).
       [
-        { kind: "retry_after", deadline: 9_000 },
-        /Retry in 9s\./,
-        /将在 9 秒后重试。/
+        { kind: "retry_after", deadline: Date.now() + 9_000 },
+        /Retry in (8|9)s\./,
+        /将在 (8|9) 秒后重试。/
       ],
       [
         { kind: "retry_budget", failures: 16 },
@@ -447,11 +453,35 @@ describe("PushBatchError messages", () => {
       ]
     ];
     for (const [detail, enPattern, zhPattern] of cases) {
-      const asEn = new PushBatchError(detail, labels, 0);
-      const asZh = new PushBatchError(detail, zhLabels, 0);
+      const asEn = new PushBatchError(detail, labels);
+      const asZh = new PushBatchError(detail, zhLabels);
       expect(asEn.message).toMatch(enPattern);
       expect(asZh.message).toMatch(zhPattern);
       expect(asEn.name).toBe("PushBatchError");
+    }
+  });
+
+  it("recomputes the retry_after countdown at read time (R7R3-3)", () => {
+    vi.useFakeTimers();
+    try {
+      const start = Date.now();
+      // Construct with a deadline 10s out; read twice with time passing in
+      // between. A construction-time countdown would freeze the number.
+      const error = new PushBatchError(
+        { kind: "retry_after", deadline: start + 10_000 },
+        en
+      );
+      const first = Number(error.message.match(/Retry in (\d+)s/)?.[1] ?? 0);
+      expect(first).toBeGreaterThan(0);
+      expect(first).toBeLessThanOrEqual(10);
+
+      // Advance most of the window; the second read must show a smaller
+      // (accurate) countdown, not the frozen construction-time value.
+      vi.setSystemTime(start + 8_000);
+      const second = Number(error.message.match(/Retry in (\d+)s/)?.[1] ?? 99);
+      expect(second).toBeLessThanOrEqual(2);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

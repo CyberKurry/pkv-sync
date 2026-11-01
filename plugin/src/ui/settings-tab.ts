@@ -180,9 +180,10 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       placeholder: "https://sync.example.com/k_xxx/",
       value: this.plugin.settings.serverUrl,
       onInput: (value) => {
-        void this.plugin
-          .setConnectionPatch({ serverUrl: value.trim() })
-          .catch((error: unknown) => new Notice(errorToMessage(error)));
+        // Draft only: per-keystroke commits tore down the engine and
+        // persisted half-typed values (R7R3-1). The change/blur event
+        // (onCommit below) and Connect perform the real commit.
+        this.plugin.stageConnectionDraft({ serverUrl: value.trim() });
       },
       onCommit: async () => this.plugin.saveSettings({ rebuild: false })
     });
@@ -190,9 +191,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       placeholder: "k_xxx",
       value: this.plugin.settings.deploymentKey,
       onInput: (value) => {
-        void this.plugin
-          .setConnectionPatch({ deploymentKey: value.trim() })
-          .catch((error: unknown) => new Notice(errorToMessage(error)));
+        this.plugin.stageConnectionDraft({ deploymentKey: value.trim() });
       },
       onCommit: async () => this.plugin.saveSettings({ rebuild: false })
     });
@@ -421,11 +420,18 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     renderId: number
   ): Promise<void> {
     try {
+      // R7R3-2: capture the connection BEFORE the requests and verify it
+      // after — a server switch while the responses were in flight used to
+      // render the OLD server's vaults and devices into the NEW
+      // connection's panel.
+      const stamp = await this.plugin.captureConnection();
+      const client = this.plugin.apiForConnection(stamp);
       const [me, tokens] = await Promise.all([
-        this.plugin.api().me(),
-        this.plugin.api().tokens()
+        client.me(),
+        client.tokens()
       ]);
       if (renderId !== this.renderId) return;
+      if (!this.plugin.isConnectionCurrent(stamp)) return;
       body.empty();
       this.renderUserCard(body, me);
       this.renderHistorySetting(body);
@@ -580,9 +586,12 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       }
       saveButton.disabled = true;
       try {
-        await this.plugin.api().putVaultSettings(vaultId, {
+        // R7R3-2: fence the write to the connection it was intended for.
+        const stamp = await this.plugin.captureConnection();
+        await this.plugin.apiForConnection(stamp).putVaultSettings(vaultId, {
           extra_sync_globs: this.parseGlobTextarea(textarea.value)
         });
+        if (!this.plugin.isConnectionCurrent(stamp)) return;
         new Notice(t.vaultSyncAllowlistSaved);
       } catch (error) {
         new Notice(`${t.vaultSyncAllowlistSaveFailed}: ${errorToMessage(error)}`);
@@ -712,9 +721,14 @@ export class PKVSyncSettingTab extends PluginSettingTab {
   }
 
   async deleteVaultAndRefresh(vault: VaultSummary): Promise<void> {
-    await this.plugin.api().deleteVault(vault.id);
+    // R7R3-2: fence the delete to the connection the user was looking at;
+    // a late click must not delete on a server the user already left.
+    const stamp = await this.plugin.captureConnection();
+    await this.plugin.apiForConnection(stamp).deleteVault(vault.id);
+    if (!this.plugin.isConnectionCurrent(stamp)) return;
     if (this.plugin.settings.selectedVaultId === vault.id) {
-      await this.plugin.setSelectedVault("", "");
+      const accepted = await this.plugin.setSelectedVault("", "", stamp);
+      if (!accepted) return;
       this.plugin.invalidateSyncEngine();
     }
     new Notice(
@@ -737,10 +751,18 @@ export class PKVSyncSettingTab extends PluginSettingTab {
         return;
       }
       try {
-        const vault = await this.plugin.api().createVault(vaultName);
+        // R7R3-2: fence the create to the connection it was issued on — a
+        // late create must not build a vault on the OLD server and select
+        // it on the new one.
+        const stamp = await this.plugin.captureConnection();
+        const vault = await this.plugin
+          .apiForConnection(stamp)
+          .createVault(vaultName);
+        if (!this.plugin.isConnectionCurrent(stamp)) return;
         const accepted = await this.plugin.setSelectedVault(
           vault.id,
-          vault.name
+          vault.name,
+          stamp
         );
         if (!accepted) return;
         new Notice(format(t.createdVaultNotice, { name: vault.name }));

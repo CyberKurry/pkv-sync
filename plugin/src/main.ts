@@ -261,6 +261,26 @@ export default class PKVSyncPlugin extends Plugin {
     });
   }
 
+  /**
+   * Draft-stage a connection field edit: update the in-memory settings only.
+   *
+   * The settings tab fires this on every keystroke. The full
+   * setConnectionPatch is a COMMIT: it replaces the connection identity
+   * (bumping the epoch, which fences in-flight work from the old
+   * connection), persists to disk and tears down the sync engine when the
+   * identity changed. Doing that per keystroke meant one deleted character
+   * left the vault with no engine, no timers, a persisted half-typed URL
+   * and no recovery path until the next explicit connect (R7R3-1).
+   *
+   * Drafts are memory-only and transient: the engine keeps running on the
+   * identity it was built with, and the value only becomes real through an
+   * explicit commit — the field's change/blur event or the Connect button,
+   * both of which call setConnectionPatch.
+   */
+  stageConnectionDraft(patch: Partial<ConnectionIdentity>): void {
+    Object.assign(this.settings, patch);
+  }
+
   async setConnectionPatch(
     patch: Partial<ConnectionIdentity>,
     expected?: ConnectionStamp

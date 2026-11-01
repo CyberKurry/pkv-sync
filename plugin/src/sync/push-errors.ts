@@ -15,34 +15,58 @@ export type PushLabels = Pick<
 >;
 
 export class PushBatchError extends Error {
+  /**
+   * R7R3-3: the retry_after countdown is computed when the message is
+   * READ, not when the error is constructed. The error is built the moment
+   * a 413+Retry-After lands, but the user sees it seconds later (engine
+   * catch -> status bar / Notice) — a construction-time "retries in Ns"
+   * could already be expired, or show a stale 1s. A getter keeps the
+   * message accurate at display time without changing the other kinds.
+   */
+  private static buildMessage(
+    detail: PushFailure,
+    labels: PushLabels
+  ): string {
+    if (detail.kind === "hard_limit") {
+      return format(labels.pushInlineTooLarge, {
+        path: detail.path,
+        bytes: detail.bytes,
+        limit: detail.limit
+      });
+    }
+    if (detail.kind === "remote_singleton") {
+      return format(labels.pushProxyTooLarge, {
+        path: detail.path,
+        bytes: detail.bytes
+      });
+    }
+    if (detail.kind === "retry_after") {
+      return format(labels.pushRetryLater, {
+        seconds: Math.max(1, Math.ceil((detail.deadline - Date.now()) / 1000))
+      });
+    }
+    return format(labels.pushSplitBudgetExceeded, {
+      count: detail.failures
+    });
+  }
+
   constructor(
     public readonly detail: PushFailure,
-    labels: PushLabels,
-    now = Date.now()
+    labels: PushLabels
   ) {
-    const message =
-      detail.kind === "hard_limit"
-        ? format(labels.pushInlineTooLarge, {
-            path: detail.path,
-            bytes: detail.bytes,
-            limit: detail.limit
-          })
-        : detail.kind === "remote_singleton"
-          ? format(labels.pushProxyTooLarge, {
-              path: detail.path,
-              bytes: detail.bytes
-            })
-          : detail.kind === "retry_after"
-            ? format(labels.pushRetryLater, {
-                seconds: Math.max(
-                  1,
-                  Math.ceil((detail.deadline - now) / 1000)
-                )
-              })
-            : format(labels.pushSplitBudgetExceeded, {
-                count: detail.failures
-              });
-    super(message);
+    // NOTE: Error's constructor installs `message` as an OWN property,
+    // which shadows any prototype getter — so super() must be called
+    // WITHOUT a message for the getter below to ever run. (Verified: a
+    // getter defined alongside super(msg) is dead code.)
+    super();
     this.name = "PushBatchError";
+    this.labels = labels;
+  }
+
+  private readonly labels: PushLabels;
+
+  /** Computed at read time so the retry_after countdown is accurate. */
+  override get message(): string {
+    return PushBatchError.buildMessage(this.detail, this.labels);
   }
 }

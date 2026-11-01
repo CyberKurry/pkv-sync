@@ -9,6 +9,24 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Editing the server URL or deployment key in the settings tab applied the
+  full connection switch on every keystroke: the sync engine was torn down,
+  all timers cleared, and the half-typed value persisted to disk — leaving
+  the vault silently unsynced with no recovery path unless the user clicked
+  Connect. Keystrokes now stage an in-memory draft only; the field's
+  change/blur event and the Connect button perform the real commit.
+- Five settings-tab API calls (account details, allowlist save, delete
+  vault, create vault) bypassed the connection fencing introduced for the
+  explicit connect flows: a response or late click arriving after a server
+  switch could render the old server's data into the new connection's panel
+  — or create a vault on the old server and select it. All five now capture
+  the connection before the request and verify it before applying results.
+- The "will retry in Ns" message on a rejected push was computed when the
+  error was constructed, so by the time the user saw it the countdown could
+  be stale or already expired. The message is now computed when read.
+
+### Fixed
+
 - The opt-in Docker self-updater profile never upgraded the deployment and
   instead created a broken duplicate stack: it invoked compose against its own
   container's view of the repo, so the project name resolved to `compose`
