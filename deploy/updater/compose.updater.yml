@@ -1,6 +1,6 @@
 # Opt-in Docker self-upgrade overlay for PKV Sync. Default-off: nothing here runs
 # unless you start the `updater` profile explicitly, e.g.
-#   docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
+#   PKV_HOST_DIR=/opt/pkv-sync docker compose -f docker-compose.yml -f deploy/updater/compose.updater.yml --profile updater up -d
 #
 # The pkv-sync server stays unprivileged and never gets the Docker socket. Only
 # the socket-proxy touches /var/run/docker.sock.
@@ -13,9 +13,28 @@
 # blast radius: the `updater` network is internal (unreachable from outside
 # and no egress) and only the updater container + proxy are attached to it.
 # MUST be re-validated on a Linux + Docker host when changing anything here.
+#
+# Defect fixes (audited 2026-11-01, all reproduced end-to-end on Debian 13 /
+# Docker 29.4.3): the updater used to rediscover the deployment from inside
+# its own container — compose project name from /compose's directory ("compose"),
+# relative bind sources resolving to /compose/... (the daemon then created
+# /compose/config.toml as an empty DIRECTORY and the duplicate crash-looped
+# on "Is a directory"), the rollback tag from an unset PKV_SYNC_TAG ("latest"),
+# and the marker rm failing against the :ro data mount. The deployment's
+# resolved coordinates are now passed in instead:
+#   - PKV_HOST_DIR must be the absolute host path of the deployment directory
+#     (the same value the base compose's binds resolve against), so the
+#     updater's compose files see the deployment's own data/config, and the
+#     data mount can be writable for marker removal.
+#   - COMPOSE_PROJECT_NAME is pinned so the updater operates on the running
+#     project instead of provisioning a second one from /compose.
+#   - The rollback tag comes from the RUNNING container's image (exact name
+#     match), never from a compose default of "latest".
+name: pkv-sync
+
 services:
   socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.4.2
+    image: tecnativa/docker-socket-proxy:v0.4.2
     restart: unless-stopped
     profiles: ["updater"]
     environment:
@@ -37,16 +56,39 @@ services:
     depends_on: [socket-proxy]
     entrypoint: ["/bin/sh", "/compose/deploy/updater/docker-updater.sh"]
     cap_drop: [ALL]
+    # DAC_OVERRIDE only: the marker file is owned by the server's UID
+    # (65532), which differs from this container's root, and the data dir
+    # is mounted writable so the request marker can be removed on both the
+    # success and the refusal paths. Without DAC_OVERRIDE, rm fails with
+    # EACCES and the request re-fires on every updater start.
+    cap_add: [DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     environment:
       DOCKER_HOST: tcp://socket-proxy:2375
       PKV_DATA_DIR: /var/lib/pkv-sync
-      PKV_HEALTH_URL: http://pkv-sync:6710/api/health
+      # Overridable for integration testing (point it at a dead port to
+      # exercise the rollback path deterministically).
+      PKV_HEALTH_URL: ${PKV_HEALTH_URL:-http://pkv-sync:6710/api/health}
       PKV_TARGET_SERVICE: pkv-sync
       PKV_COMPOSE_FILE: /compose/docker-compose.yml
       PKV_COMPOSE_UPDATER_FILE: /compose/deploy/updater/compose.updater.yml
+      # Absolute host path of the deployment directory. Interpolated by the
+      # HOST compose (from the profile command's working directory), not by
+      # this container: the updater's compose invocation runs against the
+      # Docker daemon, where relative paths resolve from the DAEMON's root,
+      # not from this container. Wrong value = the updater targets a
+      # different (likely nonexistent) data dir, so it is validated at
+      # script start.
+      PKV_HOST_DIR: ${PKV_HOST_DIR:?set PKV_HOST_DIR to the absolute deployment directory}
+      # Pin the project explicitly: compose would otherwise derive it from
+      # /compose's directory ("compose") and provision a duplicate stack.
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-pkv-sync}
     volumes:
-      - ./data:/var/lib/pkv-sync:ro
+      # Writable (marker removal) and pinned to the deployment's absolute
+      # host dir — the same directory the base compose's ./data resolves
+      # to. The previous ./data:/var/lib/pkv-sync:ro form resolved INSIDE
+      # this container, so rm hit a read-only mount.
+      - ${PKV_HOST_DIR}/data:/var/lib/pkv-sync
       - ./:/compose:ro
     networks: [updater, default]
 

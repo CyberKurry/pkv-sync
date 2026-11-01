@@ -1,12 +1,21 @@
+# PKV_HOST_DIR anchors every relative bind to the deployment's absolute host
+# path. Plain ./… works only when compose is invoked from this directory AND
+# with the same working root as the deployment; the self-updater profile
+# (deploy/updater/compose.updater.yml) runs compose from inside a container
+# whose view of this repo is /compose, so without this anchor it provisions a
+# duplicate stack whose binds resolve to /compose/… (empty dirs the daemon
+# creates). Set PKV_HOST_DIR to this directory's absolute path when enabling
+# the updater profile; the default keeps plain `docker compose up -d` working
+# unchanged from inside the directory.
 services:
   pkv-sync:
     build: .
     image: ghcr.io/cyberkurry/pkv-sync:${PKV_SYNC_TAG:-1.7.2}
     restart: unless-stopped
     volumes:
-      - ./data:/var/lib/pkv-sync
+      - ${PKV_HOST_DIR:-.}/data:/var/lib/pkv-sync
       # In Docker Compose, config.toml should use bind_addr = "0.0.0.0:6710".
-      - ./config.toml:/etc/pkv-sync/config.toml:ro
+      - ${PKV_HOST_DIR:-.}/config.toml:/etc/pkv-sync/config.toml:ro
     ports:
       - "127.0.0.1:6710:6710"
 
