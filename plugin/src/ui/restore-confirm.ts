@@ -1,5 +1,6 @@
 import { App, Modal } from "obsidian";
 import { format } from "../i18n";
+import { modalButton } from "./modal-buttons";
 
 export interface RestoreConfirmLabels {
   restoreConfirmTitle: string;
@@ -49,9 +50,9 @@ export class RestoreConfirmModal extends Modal {
     }
 
     const actions = this.contentEl.createDiv({ cls: "pkvsync-restore-actions" });
-    this.button(actions, labels.restoreCancel, () => this.close());
+    modalButton(actions, labels.restoreCancel, () => this.close());
     let confirm!: HTMLButtonElement;
-    confirm = this.button(actions, labels.restoreConfirm, async () => {
+    confirm = modalButton(actions, labels.restoreConfirm, async () => {
       confirm.disabled = true;
       try {
         await this.params.onConfirm();
@@ -67,16 +68,4 @@ export class RestoreConfirmModal extends Modal {
     this.contentEl.empty();
   }
 
-  private button(
-    parent: HTMLElement,
-    text: string,
-    onClick: () => void | Promise<void>
-  ): HTMLButtonElement {
-    const button = parent.createEl("button", {
-      cls: "pkvsync-button",
-      text
-    });
-    button.addEventListener("click", () => void onClick());
-    return button;
-  }
 }

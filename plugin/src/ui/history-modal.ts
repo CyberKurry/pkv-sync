@@ -3,6 +3,7 @@ import type { HistoryApi } from "../api/history-client";
 import type { CommitSummary } from "../api/types";
 import { formatUnixSeconds } from "../time";
 import { errorToMessage } from "../util";
+import { modalButton } from "./modal-buttons";
 
 export interface HistoryEntryView {
   commit: string;
@@ -179,7 +180,7 @@ export class HistoryModal extends Modal {
         (row.parent && this.options.onDiffPrevious) ||
         (!row.parent && this.options.onViewContent)
       ) {
-        this.button(actions, primaryLabel, primaryHandler);
+        modalButton(actions, primaryLabel, primaryHandler);
       }
 
       const moreBtn = actions.createEl("button", {
@@ -233,7 +234,7 @@ export class HistoryModal extends Modal {
     this.contentEl.empty();
     this.renderHeader();
     this.contentEl.createDiv({ cls: "pkvsync-history-error", text: message });
-    this.button(this.contentEl, this.options.labels.historyRetry, () => this.load());
+    modalButton(this.contentEl, this.options.labels.historyRetry, () => this.load());
   }
 
   private renderHeader(): void {
@@ -248,18 +249,6 @@ export class HistoryModal extends Modal {
     });
   }
 
-  private button(
-    parent: HTMLElement,
-    text: string,
-    onClick: () => void | Promise<void>
-  ): HTMLButtonElement {
-    const button = parent.createEl("button", {
-      cls: "pkvsync-button",
-      text
-    });
-    button.addEventListener("click", () => void onClick());
-    return button;
-  }
 }
 
 function firstMeaningfulMessageLine(message: string): string {

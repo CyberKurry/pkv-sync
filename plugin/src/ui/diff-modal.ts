@@ -9,6 +9,7 @@ import { DEFAULT_TIMEZONE, formatUnixSeconds } from "../time";
 import { errorToMessage } from "../util";
 import { fillDiffCell } from "./diff-cells";
 import { shortCommit } from "./history-modal";
+import { modalButton } from "./modal-buttons";
 
 export interface DiffModalLabels {
   diffTitle: string;
@@ -273,12 +274,12 @@ export class DiffModal extends Modal {
       allowRestoreRight: this.options.allowRestoreRight
     });
     if (targets.left) {
-      this.button(actions, this.options.labels.diffRestoreLeft, () =>
+      modalButton(actions, this.options.labels.diffRestoreLeft, () =>
         this.options.onRestore?.(targets.left!, diff.binary)
       );
     }
     if (targets.right) {
-      this.button(actions, this.options.labels.diffRestoreRight, () =>
+      modalButton(actions, this.options.labels.diffRestoreRight, () =>
         this.options.onRestore?.(targets.right!, diff.binary)
       ).addClass("is-danger");
     }
@@ -290,21 +291,9 @@ export class DiffModal extends Modal {
       text: diffTitle(this.options.path, this.options.from, this.options.to)
     });
     this.contentEl.createDiv({ cls: "pkvsync-diff-error", text: message });
-    this.button(this.contentEl, this.options.labels.historyRetry, () => this.load());
+    modalButton(this.contentEl, this.options.labels.historyRetry, () => this.load());
   }
 
-  private button(
-    parent: HTMLElement,
-    text: string,
-    onClick: () => void | Promise<void>
-  ): HTMLButtonElement {
-    const button = parent.createEl("button", {
-      cls: "pkvsync-button",
-      text
-    });
-    button.addEventListener("click", () => void onClick());
-    return button;
-  }
 }
 
 export function uniqueCommits(commits: Array<string | null | undefined>): string[] {
