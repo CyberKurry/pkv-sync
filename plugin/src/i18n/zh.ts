@@ -95,6 +95,7 @@ export const zh = {
     "迁移状态恢复失败，同步已暂停。请检查存储并重新加载插件。",
   migrateEngineFailed: "迁移状态已保存，但同步引擎未能恢复。",
   localStateSaveFailed: "本地设置保存失败，已恢复原状态。原因：{reason}",
+  settingsSaveFailed: "设置保存失败，本次更改未写入磁盘。原因：{reason}",
   localStateRecoveryFailed:
     "本地状态恢复失败，同步已暂停。请检查存储并重新加载插件。原因：{reason}",
   localStateApplyFailed:

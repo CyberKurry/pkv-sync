@@ -97,6 +97,7 @@ export const ja = {
   migrateEngineFailed: "移行状態は保存されましたが、同期エンジンを再起動できませんでした。",
   localStateSaveFailed:
     "ローカル設定を保存できませんでした。以前の状態に戻しました。原因：{reason}",
+  settingsSaveFailed: "設定の保存に失敗しました。この変更はディスクに書き込まれていません。理由：{reason}",
   localStateRecoveryFailed:
     "ローカル状態を復元できませんでした。同期は停止しています。ストレージを確認してプラグインを再読み込みしてください。原因：{reason}",
   localStateApplyFailed:

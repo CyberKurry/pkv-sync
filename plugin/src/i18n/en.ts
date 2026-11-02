@@ -98,6 +98,7 @@ export const en = {
     "Migration state was saved, but the sync engine could not be restarted.",
   localStateSaveFailed:
     "Could not save local settings. The previous state was restored. Reason: {reason}",
+  settingsSaveFailed: "Could not save settings. The change is not persisted. Reason: {reason}",
   localStateRecoveryFailed:
     "Local state could not be restored. Sync is paused. Check storage and reload the plugin. Reason: {reason}",
   localStateApplyFailed:

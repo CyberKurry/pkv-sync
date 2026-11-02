@@ -95,6 +95,7 @@ export const zhHant = {
     "遷移狀態還原失敗，同步已暫停。請檢查儲存空間並重新載入外掛。",
   migrateEngineFailed: "遷移狀態已儲存，但同步引擎未能恢復。",
   localStateSaveFailed: "本機設定儲存失敗，已還原原來的狀態。原因：{reason}",
+  settingsSaveFailed: "設定儲存失敗，本次變更未寫入磁碟。原因：{reason}",
   localStateRecoveryFailed:
     "本機狀態還原失敗，同步已暫停。請檢查儲存空間並重新載入外掛。原因：{reason}",
   localStateApplyFailed:
