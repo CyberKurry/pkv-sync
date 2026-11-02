@@ -1492,7 +1492,6 @@ describe("SyncEngine pull", () => {
     // local delete and re-send it (which the fast path would execute
     // unconditionally, destroying A's committed edit vault-wide).
     const cleanHash = await sha256Text("clean");
-    const remoteHash = await sha256Text("A's committed edit");
     const idx = new FakeIndex({
       lastSyncedCommit: "c0",
       files: {

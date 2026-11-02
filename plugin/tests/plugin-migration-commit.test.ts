@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "../src/api/client";
 import { OperationStoppedError } from "../src/connection-context";
-import { en } from "../src/i18n/en";
 import { DataCommitError } from "../src/plugin-store";
 import { notices } from "./mocks/obsidian";
 import {

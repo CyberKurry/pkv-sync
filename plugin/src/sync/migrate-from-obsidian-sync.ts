@@ -3,7 +3,6 @@ import type { VaultSummary } from "../api/types";
 import { OperationStoppedError } from "../connection-context";
 import { strings } from "../i18n";
 import { sha256Bytes, sha256TextWithLength } from "./hash";
-import { guessMime } from "./mime";
 import { pushItemFingerprint, snapshotToPushChange } from "./push-prepare";
 import { PushBatcher, type PushItem } from "./push-batches";
 import { PushBatchError, type PushLabels } from "./push-errors";

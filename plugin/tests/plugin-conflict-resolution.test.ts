@@ -54,6 +54,7 @@ type ConflictResolutionHarness = {
     };
   };
   pushDebouncer: { trigger(): void } | null;
+  settings: { textExtensions: string[] };
   text(): Strings;
   openConflictsList(pairsProvider?: () => unknown): void;
   openConflictResolutionFor(file: TFile): void;
@@ -81,6 +82,7 @@ describe("PKVSyncPlugin conflict resolution", () => {
       PKVSyncPlugin.prototype
     ) as ConflictResolutionHarness;
     plugin.pushDebouncer = { trigger };
+    plugin.settings = { textExtensions: ["md"] };
     plugin.text = () => en;
     plugin.app = {
       vault: {
@@ -104,6 +106,7 @@ describe("PKVSyncPlugin conflict resolution", () => {
       PKVSyncPlugin.prototype
     ) as ConflictResolutionHarness;
     plugin.pushDebouncer = { trigger };
+    plugin.settings = { textExtensions: ["md"] };
     plugin.text = () => en;
     plugin.app = {
       vault: {

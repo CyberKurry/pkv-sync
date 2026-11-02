@@ -21,7 +21,6 @@ import { formatBytes } from "../format";
 import { format, languageInReview } from "../i18n";
 import type PKVSyncPlugin from "../main";
 import {
-  normalizeTextExtensions,
   type PluginLanguage,
   type PluginThemeMode,
   type PluginUpdateSource
