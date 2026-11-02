@@ -374,7 +374,21 @@ pub async fn run_with_listener_and_state(
         interval.tick().await;
         loop {
             interval.tick().await;
-            let report = crate::service::cleanup::run_scheduled_cleanup(&cleanup_state).await;
+            // R8-7: run each tick in its own task. Inline execution meant
+            // one hung cleanup (a vault lock held by a stuck holder) froze
+            // the loop itself: every later tick was missed silently. A
+            // per-tick task keeps the timer alive; a stuck run shows up as
+            // an overlapping run instead of as a dead loop.
+            let tick_state = cleanup_state.clone();
+            let report = tokio::spawn(async move {
+                crate::service::cleanup::run_scheduled_cleanup(&tick_state).await
+            })
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!(error = %e, "periodic cleanup task panicked");
+                // fall through with a zeroed report; the loop logs it
+                Default::default()
+            });
             tracing::info!(
                 sessions = report.sessions_deleted,
                 tokens = report.tokens_deleted,

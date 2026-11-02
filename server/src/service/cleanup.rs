@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 
 const MAX_CONCURRENT_VAULT_RECONCILES: usize = 4;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct CleanupReport {
     pub sessions_deleted: u64,
     pub tokens_deleted: u64,
@@ -136,12 +136,22 @@ async fn for_each_vault_bounded(
 }
 
 async fn reconcile_all_vaults(state: &AppState) -> (usize, usize) {
+    // R8-7: tests drive a short timeout; production uses the 30s default.
+    let timeout = if cfg!(test) {
+        std::time::Duration::from_millis(50)
+    } else {
+        crate::service::sync::VAULT_PUSH_LOCK_TIMEOUT
+    };
     for_each_vault_bounded(
         state,
         "vault metadata reconcile list failed",
-        |state, vault_id| {
+        move |state, vault_id| {
             Box::pin(async move {
-                match crate::service::sync::reconcile_vault_metadata(&state, &vault_id).await {
+                match crate::service::sync::reconcile_vault_metadata_with_timeout(
+                    &state, &vault_id, timeout,
+                )
+                .await
+                {
                     Ok(_) => true,
                     Err(e) => {
                         tracing::warn!(
@@ -159,10 +169,27 @@ async fn reconcile_all_vaults(state: &AppState) -> (usize, usize) {
 }
 
 async fn git_gc_all_vaults(state: &AppState) -> (usize, usize) {
-    for_each_vault_bounded(state, "vault git gc list failed", |state, vault_id| {
+    // R8-7: tests drive a short timeout; production uses the 30s default.
+    let timeout = if cfg!(test) {
+        std::time::Duration::from_millis(50)
+    } else {
+        crate::service::sync::VAULT_PUSH_LOCK_TIMEOUT
+    };
+    for_each_vault_bounded(state, "vault git gc list failed", move |state, vault_id| {
         Box::pin(async move {
             let push_lock = state.vault_push_lock(&vault_id);
-            let _push_guard = push_lock.lock().await;
+            // R8-7: bounded acquire — see reconcile_vault_metadata.
+            let _push_guard = match tokio::time::timeout(timeout, push_lock.lock()).await {
+                Ok(guard) => guard,
+                Err(_) => {
+                    tracing::warn!(
+                        vault_id = %vault_id,
+                        "vault git gc skipped: push lock busy for over {:?}",
+                        timeout
+                    );
+                    return false;
+                }
+            };
             let _storage_guard = match crate::service::acquire_storage_mutation_guard(&state).await
             {
                 Ok(guard) => guard,
@@ -315,7 +342,7 @@ mod tests {
         let cleanup = tokio::spawn(async move { run_scheduled_cleanup(&state_for_task).await });
 
         assert!(
-            tokio::time::timeout(std::time::Duration::from_millis(50), async {
+            tokio::time::timeout(std::time::Duration::from_millis(10), async {
                 loop {
                     if cleanup.is_finished() {
                         break;
@@ -332,6 +359,39 @@ mod tests {
         let report = cleanup.await.unwrap();
         assert_eq!(report.vaults_reconciled, 1);
         assert_eq!(report.vault_reconcile_failed, 0);
+    }
+
+    #[tokio::test]
+    async fn stuck_vault_push_lock_skips_reconcile_instead_of_hanging_cleanup() {
+        // R8-7: a permanently held vault push lock must not freeze the
+        // whole scheduled cleanup. The reconcile for that vault times out
+        // (50ms under test) and is counted as failed; cleanup RETURNS.
+        let (state, _tmp) = state_for_cleanup().await;
+        let user = state
+            .users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let vault = crate::service::vault::create_vault(&state, &user.id, "main")
+            .await
+            .unwrap();
+        // Hold the lock for the entire test — the stuck holder.
+        let lock = state.vault_push_lock(&vault.id);
+        let _guard = lock.lock().await;
+
+        let report = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            run_scheduled_cleanup(&state),
+        )
+        .await
+        .expect("cleanup must return despite a stuck vault push lock (R8-7)");
+
+        assert_eq!(report.vaults_reconciled, 0);
+        assert_eq!(report.vault_reconcile_failed, 1);
     }
 
     #[tokio::test]

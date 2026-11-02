@@ -23,7 +23,10 @@ pub(crate) use paths::{ensure_path_visible_for_sync_api, path_visible_on_read, v
 pub use pull::{pull, pull_with_request_metadata, read_file, state};
 pub(crate) use push::reconcile_vault_metadata_unlocked;
 pub use push::{push, push_with_cas, push_with_request_metadata};
-pub use reconcile::{reconcile_vault_metadata, ReconcileReport};
+pub use reconcile::{
+    reconcile_vault_metadata, reconcile_vault_metadata_with_timeout, ReconcileReport,
+    VAULT_PUSH_LOCK_TIMEOUT,
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RequestMetadata<'a> {

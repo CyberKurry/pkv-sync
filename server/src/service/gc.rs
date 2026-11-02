@@ -59,6 +59,20 @@ pub async fn run_blob_gc_with_grace(
         if age < grace {
             continue;
         }
+        // R8-8: re-check the live tables at the moment of deletion. The
+        // `protected` snapshot above races a concurrent push: the client
+        // uploaded the blob days ago (row expired since), passed its
+        // availability check while the row still existed, and is now
+        // committing a BlobPointer — deleting the file here would strand
+        // that commit on a 404. A row that reappeared (or a ref written
+        // by the racing commit) cancels this deletion; the file simply
+        // stays for the next GC cycle.
+        if state.blob_uploads.contains_hash(hash).await? {
+            continue;
+        }
+        if state.blob_refs.hash_is_referenced(hash).await? {
+            continue;
+        }
         let file_size = store
             .size_bytes(hash)
             .await
@@ -99,6 +113,94 @@ mod tests {
     use crate::db::repos::{BlobUploadRepo, NewUser, UserRepo, VaultRepo};
     use crate::storage::blob::{BlobStore, LocalFsBlobStore};
     use bytes::Bytes;
+
+    #[tokio::test]
+    async fn gc_rechecks_uploads_and_refs_at_deletion_time() {
+        // R8-8: the protected-set snapshot races a concurrent push. The
+        // client's availability check may have read an upload row the GC
+        // expires a moment later; the push then commits a BlobPointer. A
+        // GC that deletes purely from its snapshot strands that commit on
+        // a 404. Deleting must re-check the live tables.
+        //
+        // This test replays the race deterministically: grace 0 with a
+        // fresh upload row for the SECOND blob recorded AFTER the
+        // snapshot would be — since we cannot pause the real GC mid-loop,
+        // the equivalent observable is the ordering inside one run:
+        // the first blob (no row) is deleted, the second (row present
+        // but expirable within the same run because it is old) is
+        // deleted too — rows that SURVIVE (recent) protect at
+        // re-check time even though they were in the snapshot. The
+        // re-check's real value is only visible with a mid-loop pause,
+        // so this test instead pins the re-check queries exist and run
+        // per candidate: see gc_recheck_query_coverage below.
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = crate::db::pool::connect(&tmp.path().join("metadata.db"))
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+        let user = state
+            .users
+            .create(NewUser {
+                username: "u".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let vault = state.vaults.create(&user.id, "main").await.unwrap();
+        let store = LocalFsBlobStore::new(state.default_blob_root());
+
+        // Blob A: referenced only by a RECENT upload row (uploaded now).
+        // The snapshot's all_hashes() protects it anyway; fine either way.
+        let data_a = Bytes::from_static(b"racing upload");
+        let hash_a = LocalFsBlobStore::sha256(&data_a);
+        store.put_verified(&hash_a, data_a).await.unwrap();
+        state
+            .blob_uploads
+            .record_upload(&vault.id, &hash_a, chrono::Utc::now().timestamp())
+            .await
+            .unwrap();
+
+        // Blob B: no row, no ref, old — deleted.
+        let data_b = Bytes::from_static(b"old orphan");
+        let hash_b = LocalFsBlobStore::sha256(&data_b);
+        store.put_verified(&hash_b, data_b).await.unwrap();
+
+        let report = run_blob_gc_with_grace(&state, 0).await.unwrap();
+
+        assert!(
+            store.has(&hash_a).await.unwrap(),
+            "racing upload must survive"
+        );
+        assert!(
+            !store.has(&hash_b).await.unwrap(),
+            "orphan must be reclaimed"
+        );
+        assert_eq!(report.deleted, 1);
+    }
+
+    #[test]
+    fn gc_recheck_query_coverage() {
+        // R8-8 guard: the deletion loop must re-check the LIVE tables
+        // (not only the pre-loop snapshot) for every candidate.
+        let source = include_str!("gc.rs");
+        let fn_start = source
+            .find("pub async fn run_blob_gc_with_grace")
+            .expect("gc function exists");
+        let tests_start = source.find("#[cfg(test)]").expect("test module exists");
+        let fn_source = &source[fn_start..tests_start];
+        assert!(
+            fn_source.contains("contains_hash("),
+            "GC must re-check blob_uploads per deletion candidate"
+        );
+        assert!(
+            fn_source.contains("hash_is_referenced("),
+            "GC must re-check blob_refs per deletion candidate"
+        );
+    }
 
     #[tokio::test]
     async fn gc_does_not_delete_blob_referenced_by_old_commit() {

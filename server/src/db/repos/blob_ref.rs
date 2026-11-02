@@ -16,6 +16,10 @@ pub trait BlobRefRepo: Send + Sync {
         hashes: &[String],
     ) -> Result<HashSet<String>, sqlx::Error>;
     async fn commit_hashes_for_vault(&self, vault_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    /// R8-8: vault-agnostic point lookup the blob GC re-checks right
+    /// before deleting a file (a racing push may have committed a ref
+    /// after the GC's protected-set snapshot was taken).
+    async fn hash_is_referenced(&self, hash: &str) -> Result<bool, sqlx::Error>;
 }
 
 pub struct SqliteBlobRefRepo {
@@ -118,6 +122,15 @@ impl BlobRefRepo for SqliteBlobRefRepo {
                 .fetch_all(&self.pool)
                 .await?;
         Ok(rows.into_iter().map(|t| t.0).collect())
+    }
+
+    async fn hash_is_referenced(&self, hash: &str) -> Result<bool, sqlx::Error> {
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT 1 FROM blob_refs WHERE blob_hash = ? LIMIT 1")
+                .bind(hash)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.is_some())
     }
 }
 

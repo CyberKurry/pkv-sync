@@ -20,6 +20,10 @@ pub trait BlobUploadRepo: Send + Sync {
     ) -> Result<HashSet<String>, sqlx::Error>;
     async fn all_hashes(&self) -> Result<HashSet<String>, sqlx::Error>;
     async fn delete_older_than(&self, cutoff: i64) -> Result<u64, sqlx::Error>;
+    /// R8-8: point lookup the blob GC re-checks right before deleting a
+    /// file, closing the window where a concurrent push recorded (or
+    /// re-recorded) the upload row after the GC's protected-set snapshot.
+    async fn contains_hash(&self, hash: &str) -> Result<bool, sqlx::Error>;
 }
 
 pub struct SqliteBlobUploadRepo {
@@ -96,6 +100,15 @@ impl BlobUploadRepo for SqliteBlobUploadRepo {
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected())
+    }
+
+    async fn contains_hash(&self, hash: &str) -> Result<bool, sqlx::Error> {
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT 1 FROM blob_uploads WHERE blob_hash = ? LIMIT 1")
+                .bind(hash)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.is_some())
     }
 }
 
