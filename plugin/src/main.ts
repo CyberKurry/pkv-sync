@@ -152,6 +152,22 @@ export default class PKVSyncPlugin extends Plugin {
     };
   }
 
+  /**
+   * The committed connection identity — what the auth store must persist.
+   *
+   * Drafts (stageConnectionDraft) mutate this.settings in place, so
+   * persisting auth straight from settings would write half-typed
+   * connection values into the auth store — the ONLY persistence layer
+   * for connection fields, and the source loadSettings() restores from on
+   * the next launch (R8-1). The committed identity lives in the
+   * connection context, which only setConnectionPatch replaces; every
+   * auth persist therefore reads it instead of the drafted settings.
+   */
+  private committedIdentity(): ConnectionIdentity {
+    const committed = this.connectionContextInstance?.snapshotLocked().connection;
+    return committed ?? this.currentIdentity();
+  }
+
   async onload(): Promise<void> {
     const t = this.text();
     await recoverPendingUpdate({
@@ -223,7 +239,19 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   async saveSettings(options: { rebuild?: boolean } = {}): Promise<void> {
-    await this.connectionContext.runLocal(() => this.persistSettingsLocked());
+    // R8-4: a settings-write failure (disk full, permissions) used to
+    // escape as an unhandled rejection from every `void saveSettings()`
+    // call site — memory settings already changed, disk not written, no
+    // notice. Surface it through the localized notice so the user knows
+    // the change did not persist.
+    try {
+      await this.connectionContext.runLocal(() => this.persistSettingsLocked());
+    } catch (error) {
+      new Notice(
+        format(this.text().settingsSaveFailed, { reason: errorToMessage(error) })
+      );
+      throw error;
+    }
     // W7: a rebuild-forbidden save (the migration path) must also forbid
     // the mirror's own rebuild.
     void this.refreshServerCapabilities(options.rebuild !== false);
@@ -272,10 +300,12 @@ export default class PKVSyncPlugin extends Plugin {
    * left the vault with no engine, no timers, a persisted half-typed URL
    * and no recovery path until the next explicit connect (R7R3-1).
    *
-   * Drafts are memory-only and transient: the engine keeps running on the
-   * identity it was built with, and the value only becomes real through an
-   * explicit commit — the field's change/blur event or the Connect button,
-   * both of which call setConnectionPatch.
+   * Drafts are memory-only for the persisted identity: the engine keeps
+   * running on the identity it was built with, and a drafted value only
+   * becomes real through an explicit commit — the Connect button, which
+   * calls setConnectionPatch (the single path that persists connection
+   * fields, via persistAuth's committedIdentity). The field's
+   * change/blur event persists non-connection settings only.
    */
   stageConnectionDraft(patch: Partial<ConnectionIdentity>): void {
     Object.assign(this.settings, patch);
@@ -348,7 +378,19 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   private persistAuth(): void {
-    this.authStore.save(authFromSettings(this.settings));
+    // R8-1: persist the COMMITTED identity, never the drafted settings —
+    // a half-typed deployment key must not permanently replace k_xxx in
+    // the store loadSettings() restores from.
+    const committed = this.committedIdentity();
+    this.authStore.save(
+      authFromSettings({
+        deviceId: this.settings.deviceId,
+        serverUrl: committed.serverUrl,
+        deploymentKey: committed.deploymentKey,
+        token: committed.token,
+        userId: committed.userId
+      })
+    );
   }
 
   private async saveSettingsPatch(
@@ -656,6 +698,9 @@ export default class PKVSyncPlugin extends Plugin {
 
   private rebuildSyncEngine(): void {
     if (this.persistenceRecoveryRequired) return;
+    // R8-3: a rebuild replaces the engine (and its generation guard);
+    // the remembered engine status belongs to the old engine.
+    this.statusEl?.clearEngineStatus();
     this.orchestrator.rebuild();
   }
 
@@ -705,7 +750,8 @@ export default class PKVSyncPlugin extends Plugin {
         this.app,
         this.text(),
         onResolved,
-        pairsProvider
+        pairsProvider,
+        this.settings.textExtensions
       ).open();
     };
     openList();
@@ -728,7 +774,8 @@ export default class PKVSyncPlugin extends Plugin {
             this.text(),
             () => {
               this.pushDebouncer?.trigger();
-            }
+            },
+            this.settings.textExtensions
           ).open();
           return;
         }
@@ -1234,6 +1281,8 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   invalidateSyncEngine(): void {
+    // R8-3: the engine's remembered status dies with the engine.
+    this.statusEl?.clearEngineStatus();
     this.orchestrator.invalidate();
   }
 
