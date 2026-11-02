@@ -185,7 +185,17 @@ export class UpdateCheckService {
         throw: false
       })
     );
-    if (response.status < 200 || response.status >= 300) return null;
+    if (response.status === 404) return null;
+    if (response.status < 200 || response.status >= 300) {
+      // R8-2: an HTTP failure is a failed check, not "no update". 403 is
+      // GitHub's unauthenticated rate limit (60 req/h per IP — realistic
+      // behind NAT); 5xx and repo-moved 404-shaped redirect failures are
+      // transient or configuration errors. Folding them into null made
+      // the check report "up to date" while a newer release may exist.
+      throw new Error(
+        `GitHub release check failed for ${this.githubRepo}: HTTP ${response.status}`
+      );
+    }
 
     const release = JSON.parse(response.text) as GitHubRelease;
     const version = normalizeStableVersion(release.tag_name);

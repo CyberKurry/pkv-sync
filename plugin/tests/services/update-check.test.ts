@@ -253,6 +253,39 @@ describe("plugin update check", () => {
     await expect(service().checkOnce("github")).rejects.toThrow(/sha256/);
   });
 
+  it("returns null for a 404 (repo has no releases) but throws on other HTTP failures", async () => {
+    // R8-2: 403 (unauthenticated rate limit — 60 req/h/IP, realistic behind
+    // NAT) and 5xx used to fold into null → "up to date" while a newer
+    // release may exist. 404 stays null: it means the repo genuinely has
+    // no release, which IS "no update".
+    requestUrlMock.mockResolvedValueOnce({
+      status: 404,
+      headers: {},
+      text: "not found",
+      arrayBuffer: new ArrayBuffer(0),
+      json: null
+    });
+    await expect(service().checkOnce("github")).resolves.toBeNull();
+
+    requestUrlMock.mockResolvedValueOnce({
+      status: 403,
+      headers: {},
+      text: "rate limited",
+      arrayBuffer: new ArrayBuffer(0),
+      json: null
+    });
+    await expect(service().checkOnce("github")).rejects.toThrow(/403/);
+
+    requestUrlMock.mockResolvedValueOnce({
+      status: 502,
+      headers: {},
+      text: "bad gateway",
+      arrayBuffer: new ArrayBuffer(0),
+      json: null
+    });
+    await expect(service().checkOnce("github")).rejects.toThrow(/502/);
+  });
+
   it("rejects sha256 mismatches before writing plugin files", async () => {
     const adapter = new MemoryAdapter();
     requestUrlMock.mockResolvedValueOnce(responseText("changed main"));
