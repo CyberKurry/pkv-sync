@@ -7,6 +7,64 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- A half-typed connection-field draft could permanently overwrite the
+  saved credentials: blurring the server URL or deployment key field ran
+  a settings save that persisted the drafted value into the auth store —
+  the only persistence layer for connection fields, and what the plugin
+  restores on the next launch. Selecting all in the deployment key box,
+  typing one character and clicking elsewhere replaced `k_xxx` with `k`
+  for good. Auth persistence now writes the committed connection
+  identity; a draft becomes real only through the Connect button.
+- The GitHub update-check source folded HTTP failures into "no update":
+  GitHub API 403 (the unauthenticated 60 req/h per-IP rate limit —
+  realistic behind NAT), 5xx responses and moved repositories all
+  reported "PKV Sync plugin is up to date" while a newer release could
+  exist. Only a 404 (the repository has no releases) still means "no
+  update"; every other HTTP failure is now surfaced as a check error.
+- A settings-write failure (disk full, permissions) escaped as an
+  unhandled rejection from every fire-and-forget settings save — the
+  language toggle, theme picker, timezone select and connection-field
+  blur left memory settings changed, disk unwritten and no notice.
+  Failed saves now show a localized message with the underlying reason
+  and still rethrow to awaited callers.
+- Any settings save could flip the status bar from error/offline back to
+  "connected": the bar's update path ignored the engine's last reported
+  state, so the 24h update check writing `lastUpdateCheckAt` masked a
+  sync failure until the next pass re-reported it. The engine's status
+  now owns the bar; update() only fills in before the engine speaks, and
+  engine teardown forgets it.
+- The manual-sync retry of oversize-cooled files could be silently
+  deferred: issuing it while a sync pass was already past its batch
+  setup coalesced onto that pass, whose cooldown state was fixed — the
+  notice said "PKV Sync complete" while the learned 413 cooldowns
+  stayed. A manual retry now also clears the cooldowns mid-flight, so
+  the coalesced pass itself retries the cooled files.
+- One permanently held vault push lock could freeze every scheduled
+  server cleanup forever, with no log line saying cleanup stopped: both
+  the metadata-reconcile and git-gc sweeps acquired the lock without a
+  bound and ran inline in the timer task. Both now skip that vault after
+  a bounded wait (warned), and each cleanup tick runs in its own task so
+  a hung run cannot kill the loop.
+- The blob GC could delete a file that a concurrently finishing push was
+  about to reference: it decided deletions from a protected-set snapshot
+  taken before scanning, so a push whose upload row had just expired
+  could commit a pointer to a blob the GC then reclaimed. The GC now
+  re-checks upload rows and blob references for each hash immediately
+  before deleting it.
+- Release publishing no longer silently skips unmatched artifact paths:
+  the publish step enables `fail_on_unmatched_files`, so a renamed
+  binary or plugin asset fails the release instead of shipping a release
+  whose checksums reference files that were never attached.
+
+### Changed
+
+- The conflict-resolution modal classifies files as text using the same
+  effective extension set as the sync engine (server-configured with the
+  default fallback) instead of a private hardcoded 17-extension list
+  that could disagree with the engine about the same file.
+
 ## [1.7.3] - 2026-11-02
 
 ### Security
