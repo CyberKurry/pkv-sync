@@ -912,20 +912,7 @@
   margin-top: 6px;
 }
 
-.pkv-sync-muted {
-  color: var(--pkv-muted);
-  font-size: 12px;
-}
 
-.pkv-sync-success {
-  padding: 8px 12px;
-  background: rgba(16, 185, 129, 0.1);
-  border-left: 3px solid var(--pkv-ok);
-  color: var(--pkv-ok);
-  font-size: 12px;
-  border-radius: 0 var(--pkv-radius-1) var(--pkv-radius-1) 0;
-  font-weight: 500;
-}
 
 /* =====================================================================
  * 14. Modals — History, Diff, Conflict Resolution, Migration
@@ -1276,10 +1263,6 @@ body.theme-dark .pkvsync-diff-del .pkvsync-diff-word-changed {
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.pkvsync-diff-hunk {
-  color: var(--text-muted);
-  font-style: italic;
-}
 
 .pkvsync-diff-meta,
 .pkvsync-diff-context {
