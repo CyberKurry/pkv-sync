@@ -9,7 +9,7 @@ import { format, strings, type Strings } from "../i18n";
 import { createPathMatcher } from "./exclude";
 import { conflictPath } from "./conflict";
 import { sha256Bytes, sha256Text, sha256TextWithLength } from "./hash";
-import { guessMime } from "./mime";
+
 import { pushItemFingerprint, snapshotToPushChange } from "./push-prepare";
 import {
   markBatch,
@@ -18,7 +18,6 @@ import {
   markFilesSynced,
   markSynced
 } from "./index-store";
-import type { PushChange } from "./types";
 import type { LocalFileSnapshot, LocalIndex, PullFile, PullResponse, PushResponse } from "./types";
 import {
   PushBatcher,
@@ -195,7 +194,15 @@ export class SyncEngine {
 
   async syncNow(options: { retryOversized?: boolean } = {}): Promise<void> {
     if (options.retryOversized) this.oversizedProbeRequested = true;
-    if (this.activeSync) return this.activeSync;
+    if (this.activeSync) {
+      // R8-5: the user's explicit "try again" must not be deferred behind
+      // a coalesced pass that already consumed the entry probe (it is
+      // past beginRun). Poke the batcher so the in-flight run retries the
+      // cooled files from its next chunk on; the deferredUntil gate is
+      // cleared too, matching what a fresh retry pass would do.
+      if (options.retryOversized) this.pushBatcher.requestMidRunRetry();
+      return this.activeSync;
+    }
     // M-12: the pass runs as a chain task, so it both (a) waits for any
     // event handler that is mid-apply — the chain-runner equivalent of
     // "chain busy": the pass cannot start until the running task's

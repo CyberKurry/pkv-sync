@@ -87,11 +87,22 @@ export class PushBatcher {
   private limitsKey = "";
   private deferredUntil = 0;
   private rejected = new Map<string, RejectedItem>();
+  // R8-5: a manual retry can arrive while a run is already mid-send (its
+  // beginRun consumed the entry probe). Consuming this flag per send
+  // clears the learned cooldowns from that point on, so the user's
+  // explicit "try again" takes effect in the pass it coalesced onto —
+  // not only in some later automatic pass.
+  private midRunRetryRequested = false;
 
   constructor(
     private readonly makeError: (failure: PushFailure) => Error,
     private readonly now: () => number = () => Date.now()
   ) {}
+
+  /** Arm a mid-run retry: the next send (even in the current run) retries cooled files. */
+  requestMidRunRetry(): void {
+    this.midRunRetryRequested = true;
+  }
 
   beginRun(
     input: PushLimits,
@@ -136,6 +147,14 @@ export class PushBatcher {
           let offset = 0;
           while (offset < remaining.length) {
             assertActive();
+            // R8-5: consume the mid-run retry here so a manual retry
+            // arriving after this run's beginRun still takes effect on
+            // the very next chunk this run sends.
+            if (this.midRunRetryRequested) {
+              this.midRunRetryRequested = false;
+              this.rejected.clear();
+              this.deferredUntil = 0;
+            }
             const chunk = takePrefix(
               remaining,
               offset,
