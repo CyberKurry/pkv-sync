@@ -334,6 +334,11 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          # R8-9: unmatched `files` globs are silently skipped by default
+          # — a renamed artifact would publish a release missing assets
+          # while SHA256SUMS/attestations still reference them. Fail the
+          # publish instead.
+          fail_on_unmatched_files: true
           files: |
             dist/pkvsyncd-x86_64-unknown-linux-gnu/pkvsyncd-x86_64-unknown-linux-gnu
             dist/pkvsyncd-aarch64-unknown-linux-gnu/pkvsyncd-aarch64-unknown-linux-gnu
