@@ -5,6 +5,7 @@ import {
 } from "../sync/conflict-files";
 import type { Strings } from "../i18n";
 import { errorToMessage } from "../util";
+import { DEFAULT_TEXT_EXTENSIONS } from "../settings";
 import { ConflictResolveModal } from "./conflict-resolve-modal";
 
 export class ConflictsListModal extends Modal {
@@ -16,7 +17,9 @@ export class ConflictsListModal extends Modal {
     app: App,
     private labels: Strings,
     private onResolved: () => void,
-    private pairsProvider?: () => ConflictPair[] | Promise<ConflictPair[]>
+    private pairsProvider?: () => ConflictPair[] | Promise<ConflictPair[]>,
+    /** Effective text-extension set, forwarded to the resolve modal. */
+    private textExtensions: readonly string[] = DEFAULT_TEXT_EXTENSIONS
   ) {
     super(app);
   }
@@ -80,7 +83,8 @@ export class ConflictsListModal extends Modal {
           this.labels,
           () => {
             this.onResolved();
-          }
+          },
+          this.textExtensions
         ).open();
       });
     }

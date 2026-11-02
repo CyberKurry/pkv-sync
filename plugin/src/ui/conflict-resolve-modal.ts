@@ -11,41 +11,15 @@ import {
 } from "../sync/unified-diff";
 import type { Strings } from "../i18n";
 import { format } from "../i18n";
-import { errorToMessage } from "../util";
+import { errorToMessage, isTextPath } from "../util";
+import { DEFAULT_TEXT_EXTENSIONS } from "../settings";
 import { fillDiffCell } from "./diff-cells";
-
-const TEXT_DETECT_EXTENSIONS = new Set([
-  "md",
-  "canvas",
-  "base",
-  "json",
-  "txt",
-  "css",
-  "html",
-  "xml",
-  "yaml",
-  "yml",
-  "toml",
-  "ini",
-  "csv",
-  "tsv",
-  "log",
-  "tex",
-  "rst"
-]);
 
 function mergeMarkerLineClass(line: string): string {
   if (line.startsWith("<<<<<<<")) return "pkvsync-merge-marker-local";
   if (line === "=======") return "pkvsync-merge-marker-separator";
   if (line.startsWith(">>>>>>>")) return "pkvsync-merge-marker-remote";
   return "pkvsync-merge-marker-content";
-}
-
-function isLikelyText(path: string): boolean {
-  const idx = path.lastIndexOf(".");
-  if (idx === -1) return false;
-  const ext = path.slice(idx + 1).toLowerCase();
-  return TEXT_DETECT_EXTENSIONS.has(ext);
 }
 
 function looksBinary(sample: string): boolean {
@@ -68,7 +42,9 @@ export class ConflictResolveModal extends Modal {
     app: App,
     private pair: ConflictPair,
     private labels: Strings,
-    private onResolved: () => void
+    private onResolved: () => void,
+    /** Effective text-extension set (server-configured, falling back to defaults). */
+    private textExtensions: readonly string[] = DEFAULT_TEXT_EXTENSIONS
   ) {
     super(app);
   }
@@ -115,9 +91,15 @@ export class ConflictResolveModal extends Modal {
       return;
     }
 
+    // R8-Dup-1: one producer for "is this a text path" — the same
+    // effective extension set the sync engine uses. The modal used to
+    // keep its own hardcoded 17-extension list, which drifted from the
+    // server-configured set and could disagree with the engine about
+    // the same file.
+    const extensions = new Set(this.textExtensions);
     const treatAsBinary =
-      !isLikelyText(this.pair.originalPath) &&
-      !isLikelyText(this.pair.conflictPath);
+      !isTextPath(this.pair.originalPath, extensions) &&
+      !isTextPath(this.pair.conflictPath, extensions);
 
     if (treatAsBinary) {
       if (!this.canRender(generation)) return;
