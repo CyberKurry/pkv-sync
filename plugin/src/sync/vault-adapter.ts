@@ -222,6 +222,7 @@ function requireSafeVaultPath(path: string): string {
 function normalizeVaultPath(path: string): string | null {
   const normalized = normalizeSeparators(path);
   if (!isSafePathShape(normalized)) return null;
+  if (hasEscapedPathSeparator(normalized)) return null;
   if (hasUnsafeDecodedShape(normalized)) return null;
   if (hasProtectedRoot(normalized)) return null;
   return normalized;
@@ -243,6 +244,22 @@ function isSafePathShape(path: string): boolean {
   return true;
 }
 
+/**
+ * R11-2 (twin of the server's R10-1 rule): escapes may encode CHARACTERS,
+ * never STRUCTURE. A local file literally named `a%2Fb.md` is one segment
+ * on disk, but its wire form decodes to the two-level `a/b.md` — a
+ * different tree than the vault contains, which the server rejects with
+ * WindowsUnsafe. The plugin must agree at scan time so the file is never
+ * pushed into a deterministic opaque failure. Re-encoded forms (`%252F`)
+ * resurface as `%2F` after one decode round, so every round re-checks —
+ * mirroring `introduces_escaped_separator` in server/src/storage/path.rs.
+ * Unicode escapes (`%E6%96%87`) encode characters only and stay
+ * acceptable.
+ */
+function hasEscapedPathSeparator(path: string): boolean {
+  return /%2f/i.test(path) || /%5c/i.test(path);
+}
+
 function hasUnsafeDecodedShape(path: string): boolean {
   let current = path;
   for (let i = 0; i < 4; i++) {
@@ -254,6 +271,7 @@ function hasUnsafeDecodedShape(path: string): boolean {
     }
     if (decoded === current) return false;
     current = normalizeSeparators(decoded);
+    if (hasEscapedPathSeparator(current)) return true;
     if (!isSafePathShape(current) || hasProtectedRoot(current) || startsWithDotRoot(current)) {
       return true;
     }

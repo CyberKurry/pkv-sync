@@ -391,8 +391,16 @@ export class SyncEngine {
         pending.push(file);
       }
     }
+    // R11-2: the deletion filter must consult the SAME rule the scan
+    // listing applies (shouldSyncPath). The scan already dropped
+    // escaped-separator paths (the server's R10-1 twin), so an index
+    // entry for one reads as "missing from the scan" here — classifying
+    // it as a local delete would emit a delete for a file the user
+    // still has (the data-loss direction R9-7's ruling forbids). A path
+    // the sync plan refuses on both sides is neither pending nor
+    // deleted; it simply stays out of the conversation.
     const deleted = Object.keys(index.files).filter(
-      (p) => !currentPaths.has(p) && pathAccepted(p)
+      (p) => !currentPaths.has(p) && pathAccepted(p) && shouldSyncPath(p)
     );
     return { pending, deleted, index };
   }

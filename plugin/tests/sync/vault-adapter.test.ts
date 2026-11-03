@@ -585,6 +585,31 @@ describe("shouldSyncPath", () => {
     expect(shouldSyncPath("%2eobsidian/plugins/evil/main.js")).toBe(false);
   });
 
+  it("excludes literal percent-escaped separators like the server does (R11-2)", () => {
+    // A local file literally named `a%2Fb.md` is one segment on disk;
+    // the server's R10-1 rule rejects any escape that would DECODE into
+    // a path separator, because the wire path it received names a
+    // different tree shape than the client's vault contains. The plugin
+    // twin must agree at scan time — the old check only rejected decoded
+    // SHAPES that were themselves unsafe, so `a%2Fb.md` (decodes to the
+    // perfectly safe `a/b.md`) was scanned and pushed, and every push
+    // then failed opaquely at the server.
+    expect(shouldSyncPath("a%2Fb.md")).toBe(false);
+    expect(shouldSyncPath("a%5Cb.md")).toBe(false);
+    expect(shouldSyncPath("dir/a%2Fb.md")).toBe(false);
+    // Re-encoded (%25-wrapped) separators resurface one round later.
+    expect(shouldSyncPath("a%252Fb.md")).toBe(false);
+    // Case-insensitive hex.
+    expect(shouldSyncPath("a%2fb.md")).toBe(false);
+    // Escapes that encode CHARACTERS (not structure) stay acceptable:
+    // a unicode filename arriving percent-encoded must keep syncing.
+    expect(shouldSyncPath("%E6%96%87%E5%AD%97.md")).toBe(true);
+    expect(shouldSyncPath("%E6%96%87/note.md")).toBe(true);
+    expect(shouldSyncPath("folder%20name/note.md")).toBe(true);
+    // A literal percent without any escape shape is an ordinary name.
+    expect(shouldSyncPath("100%.md")).toBe(true);
+  });
+
   it("excludes conflict files", () => {
     expect(
       shouldSyncPath("note.conflict-2026-04-29-143022-iphone.md")
