@@ -75,6 +75,15 @@ impl SqliteUserRepo {
     fn bump_auth_epoch(&self) {
         self.auth_epoch.fetch_add(1, Ordering::AcqRel);
     }
+
+    /// R9-2: epoch bump for the one password-change producer that runs
+    /// its own transaction (service::auth::change_password) instead of
+    /// going through [`update_password`](TokenRepo::update_password).
+    /// Called only after that transaction commits successfully; the
+    /// MCP token-validity cache keys on this epoch.
+    pub fn bump_auth_epoch_for_password_change(&self) {
+        self.bump_auth_epoch();
+    }
 }
 
 #[async_trait]

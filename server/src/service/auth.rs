@@ -282,12 +282,13 @@ pub async fn change_password(
     let new_hash = hash_auth_password(&req.new_password)?;
     let now = chrono::Utc::now().timestamp();
     let mut tx = state.pool.begin().await?;
-    sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+    let password_updated = sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
         .bind(&new_hash)
         .bind(user_id)
         .execute(&mut *tx)
-        .await?;
-    sqlx::query(
+        .await?
+        .rows_affected();
+    let tokens_revoked = sqlx::query(
         "UPDATE tokens SET revoked_at = ?
          WHERE user_id = ? AND id != ? AND revoked_at IS NULL",
     )
@@ -295,8 +296,23 @@ pub async fn change_password(
     .bind(user_id)
     .bind(current_token_id)
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
     tx.commit().await?;
+    // R9-2: the MCP token-validity cache keys on the token/user epochs.
+    // Committing the UPDATEs without bumping them left revoked device
+    // tokens reading Valid for up to the 5s cache TTL (and every future
+    // epoch-keyed cache would miss the password change too). The repo
+    // layer bumps these for every OTHER password/revocation path — this
+    // transaction is the one producer for "self-service password change",
+    // so it bumps on the same conditions (only when something actually
+    // changed, and only after commit succeeded).
+    if password_updated > 0 {
+        state.users.bump_auth_epoch_for_password_change();
+    }
+    if tokens_revoked > 0 {
+        state.tokens.bump_validity_epoch_after_commit();
+    }
     Ok(())
 }
 
@@ -808,6 +824,93 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.status, axum::http::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn change_password_invalidates_mcp_validity_cache_immediately() {
+        // R9-2: the MCP token-validity cache keys on the token and user
+        // validity epochs. change_password used to hand-write its UPDATEs,
+        // bypassing the repo layer that bumps those epochs — a revoked
+        // device token kept reading Valid for up to the 5s cache TTL.
+        let s = make_state(RegistrationMode::Open).await;
+        let r1 = register(
+            &s,
+            RegisterReq {
+                username: "userx".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "device-epoch-1".into(),
+                device_name: "d1".into(),
+                invite_code: None,
+            },
+        )
+        .await
+        .unwrap();
+        let r2 = login(
+            &s,
+            LoginReq {
+                username: "userx".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "device-epoch-2".into(),
+                device_name: "d2".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let toks = s.tokens.list_for_user(&r1.user_id).await.unwrap();
+        let current_id = toks
+            .iter()
+            .find(|t| t.device_id == "device-epoch-1")
+            .unwrap()
+            .id
+            .clone();
+        let revoked_row = toks
+            .iter()
+            .find(|t| t.device_id == "device-epoch-2")
+            .unwrap();
+        let revoked_hash = crate::auth::token::hash(&r2.token);
+
+        let user = crate::auth::AuthenticatedUser {
+            user_id: r1.user_id.clone(),
+            username: r1.username.clone(),
+            token_id: revoked_row.id.clone(),
+            device_id: revoked_row.device_id.clone(),
+            is_admin: false,
+        };
+        let mut cache = crate::mcp::auth::TokenValidityCache::default();
+        let primed = crate::mcp::auth::mcp_token_validity(
+            &s,
+            &revoked_hash,
+            &user,
+            &mut cache,
+        )
+        .await;
+        assert_eq!(primed, crate::mcp::auth::TokenValidity::Valid);
+
+        change_password(
+            &s,
+            &r1.user_id,
+            &current_id,
+            ChangePasswordReq {
+                current_password: "Passw0rdStrong".into(),
+                new_password: "Newpass1234Strong".into(),
+            },
+        )
+        .await
+        .unwrap();
+
+        // No TTL wait: the epoch bump must invalidate the cache NOW.
+        let after = crate::mcp::auth::mcp_token_validity(
+            &s,
+            &revoked_hash,
+            &user,
+            &mut cache,
+        )
+        .await;
+        assert_eq!(
+            after,
+            crate::mcp::auth::TokenValidity::Revoked,
+            "change_password must bump the validity/auth epochs so the MCP cache drops primed entries"
+        );
     }
 
     #[tokio::test]

@@ -89,6 +89,15 @@ impl SqliteTokenRepo {
         self.validity_epoch.fetch_add(1, Ordering::AcqRel);
     }
 
+    /// R9-2: epoch bump for the one revocation producer that runs its
+    /// own transaction (service::auth::change_password) instead of
+    /// [`revoke_all_for_user`](TokenRepo::revoke_all_for_user). Called
+    /// only after that transaction commits successfully; the MCP
+    /// token-validity cache keys on this epoch.
+    pub fn bump_validity_epoch_after_commit(&self) {
+        self.bump_validity_epoch();
+    }
+
     pub async fn create_replacing_device(&self, n: NewToken<'_>) -> Result<TokenRow, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let row = insert_token(&mut *tx, n).await?;
