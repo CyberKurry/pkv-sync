@@ -774,7 +774,11 @@ mod tests {
                 .await
         });
 
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        // Wait well inside the 50ms test lock timeout (vault_push_lock_
+        // timeout()): the rollback must still be WAITING here, and the
+        // delete+release below must let it proceed to the ownership
+        // re-check. (A 50ms sleep would race the 50ms timeout.)
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         assert!(
             !rollback.is_finished(),
             "rollback should be waiting for the vault push lock"

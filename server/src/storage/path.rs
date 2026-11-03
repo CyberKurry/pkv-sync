@@ -58,29 +58,64 @@ const MAX_DECODE_ROUNDS: usize = 4;
 /// rejected it — a file that could be written once but never read or
 /// updated again (ultrareview M-6). With a fixed point, both calls see
 /// the same fully decoded path, so writes and reads agree by construction.
-/// Returns `None` when decoding still changes the value after
-/// [`MAX_DECODE_ROUNDS`] rounds.
-fn decode_to_fixed_point(input: &str) -> Option<String> {
-    let mut current = percent_decode_str(input).decode_utf8_lossy().into_owned();
+/// the same fully decoded path, so writes and reads agree by construction.
+///
+/// R10-1: escapes may encode CHARACTERS but never STRUCTURE. The client
+/// percent-encodes each path SEGMENT (unicode filenames travel as %XX),
+/// and its own scan-side check refuses local literals whose decoded
+/// shape would differ. A wire path that would grow or shed a `/` or `\`
+/// when decoded (`a%2Fb.md` → `a/b.md`, `a%5Cb.md`, `a%252Fb.md`) is a
+/// disagreement about which file is meant, not a filename: accepting it
+/// made the server store `a/b.md` while the client's vault holds the
+/// single literal `a%2Fb.md`. The separator check runs before EVERY
+/// decode round (a raw-input scan alone misses `%25`-wrapped forms),
+/// and a refusal maps to [`PathError::WindowsUnsafe`] in [`normalize`].
+/// Why [`decode_to_fixed_point`] refused an input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DecodeFail {
+    /// A percent escape would decode into a path separator (R10-1).
+    EscapedSeparator,
+    /// The decode chain never stabilized within the round budget.
+    TooDeep,
+}
+
+fn decode_to_fixed_point(input: &str) -> Result<String, DecodeFail> {
+    let mut current = input.to_string();
     for _ in 0..MAX_DECODE_ROUNDS {
+        if introduces_escaped_separator(&current) {
+            return Err(DecodeFail::EscapedSeparator);
+        }
         let next = percent_decode_str(&current)
             .decode_utf8_lossy()
             .into_owned();
         if next == current {
-            return Some(current);
+            return Ok(current);
         }
         current = next;
     }
     // One final check keeps the round budget honest: a value that just
     // became stable is fine, anything still mutating is a chain.
+    if introduces_escaped_separator(&current) {
+        return Err(DecodeFail::EscapedSeparator);
+    }
     let next = percent_decode_str(&current)
         .decode_utf8_lossy()
         .into_owned();
     if next == current {
-        Some(current)
+        Ok(current)
     } else {
-        None
+        Err(DecodeFail::TooDeep)
     }
+}
+
+/// Whether any percent escape in `input` decodes (in any round) into a
+/// `/` or `\`. Covers `%2F`/`%5C` and their `%25`-wrapped re-encodings:
+/// checked before EVERY decode round, so a `%252F` that resurfaces as
+/// `%2F` after one round is caught by the next round's check — a single
+/// raw-input scan would miss it (`%252F` does not contain `%2F`).
+fn introduces_escaped_separator(input: &str) -> bool {
+    let upper = input.to_ascii_uppercase();
+    upper.contains("%2F") || upper.contains("%5C")
 }
 
 /// Normalize a vault-relative path for protocol/Git storage.
@@ -91,7 +126,14 @@ fn decode_to_fixed_point(input: &str) -> Option<String> {
 /// it back through `normalize` is the identity function: a path accepted
 /// by a write is always addressable by later reads.
 pub fn normalize(input: &str) -> Result<String, PathError> {
-    let decoded = decode_to_fixed_point(input).ok_or(PathError::PercentEncodingTooDeep)?;
+    let decoded = match decode_to_fixed_point(input) {
+        Ok(decoded) => decoded,
+        // R10-1: an escaped separator is a structure change — the caller
+        // must resubmit the real path. A chain that never stabilizes is
+        // pathological depth.
+        Err(DecodeFail::EscapedSeparator) => return Err(PathError::WindowsUnsafe),
+        Err(DecodeFail::TooDeep) => return Err(PathError::PercentEncodingTooDeep),
+    };
     let s = if decoded.contains('\\') {
         std::borrow::Cow::Owned(decoded.replace('\\', "/"))
     } else {
@@ -178,6 +220,32 @@ mod tests {
     }
 
     #[test]
+    fn rejects_escaped_path_separators() {
+        // R10-1: percent escapes may encode CHARACTERS (unicode filenames
+        // travel as %XX because the wire is a URL path segment), but never
+        // STRUCTURE. `a%2Fb.md` decodes to `a/b.md` — a DIFFERENT path
+        // shape than the literal single-segment filename the client's
+        // vault contains, so accepting it made the server store one file
+        // where the client sees another (unresolvable conflict noise, or
+        // path_conflict against the real directory). The client encodes
+        // per SEGMENT and its own hasUnsafeDecodedShape check exists
+        // precisely so a local literal `a%2Fb.md` is never pushed — the
+        // server must agree by rejecting any escape that would introduce
+        // or remove a path separator when decoded.
+        assert_eq!(normalize("a%2Fb.md").unwrap_err(), PathError::WindowsUnsafe);
+        assert_eq!(normalize("a%5Cb.md").unwrap_err(), PathError::WindowsUnsafe);
+        // Structure-preserving escapes still decode normally.
+        assert_eq!(normalize("%E6%96%87.md").unwrap(), "文.md");
+        assert_eq!(normalize("%E6%96%87/note.md").unwrap(), "文/note.md");
+        // A double-encoded separator (decodes to the literal string
+        // `%2F`, which itself decodes to a separator) is also structure.
+        assert_eq!(
+            normalize("a%252Fb.md").unwrap_err(),
+            PathError::WindowsUnsafe
+        );
+    }
+
+    #[test]
     fn rejects_percent_encoded_parent() {
         assert_eq!(
             normalize("a/%2E%2E/b").unwrap_err(),
@@ -203,9 +271,12 @@ mod tests {
 
     #[test]
     fn rejects_double_encoded_absolute_and_git_dir() {
+        // R10-1 tightened `%252F` to WindowsUnsafe (escaped separator)
+        // before it could decode far enough to become a leading `/`;
+        // the acceptance question (reject) is unchanged.
         assert_eq!(
             normalize("%252Fetc%252Fpasswd.md").unwrap_err(),
-            PathError::Absolute
+            PathError::WindowsUnsafe
         );
         assert_eq!(normalize("%252Egit/config").unwrap_err(), PathError::GitDir);
     }
@@ -231,13 +302,17 @@ mod tests {
 
     #[test]
     fn normalize_is_idempotent_on_accepted_paths() {
+        // `%2F` no longer appears here: R10-1 rejects escapes that would
+        // decode into a path separator, so the whole-path-encoded wire
+        // form of `文字/note.md` is now WindowsUnsafe. The underlying
+        // acceptance (a decoded unicode path round-trips) is pinned by
+        // decodes_single_encoded_unicode_filename below.
         for raw in [
             "note.md",
             "folder/note.md",
             "folder\\note.md",
             "a/./b.md",
             "folder%20name/note.md",
-            "%E6%96%87%E5%AD%97%2Fnote.md",
             "%2D%2Djust-dashes.md",
         ] {
             let once = normalize(raw)
