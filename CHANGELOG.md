@@ -9,6 +9,59 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Self-service password change did not invalidate the MCP token cache:
+  `change_password` hand-wrote its UPDATEs, bypassing the repository
+  methods that bump `users.auth_epoch` and `tokens.validity_epoch` — the
+  two keys the MCP validity cache checks. Other devices' tokens, already
+  revoked in the database, kept authenticating MCP sessions for up to 5s
+  after the change. The transaction now bumps both epochs on commit.
+- The periodic cleanup loop awaited its per-tick task, so one cleanup
+  run that never returned (a stuck git gc on pathological I/O) froze
+  every later tick with no signal — the exact failure the R8 rework
+  claimed to prevent. The tick is now detached; a still-running previous
+  run makes the next tick skip loudly instead of the loop dying. The
+  same batch bounds the vault push-lock waits in rollback and vault
+  deletion (previously unbounded, hanging those HTTP requests forever).
+- REST read endpoints (file read, commits, file history, diff) answered
+  path-visibility from the TARGET vault's configuration before checking
+  ownership: a request for another user's vault id revealed whether a
+  guessed path was inside that vault's allowlist ("file not found") or
+  not ("vault not found"), and a stranger's broken glob config surfaced
+  as `vault_settings_invalid`. Ownership is now checked inside the
+  shared visibility helper before any vault settings load — REST and MCP
+  use the same order.
+- A server update manifest that offered a NEWER version but could not
+  serve it verifiably (off-origin asset URLs, missing digests) made the
+  in-app check report "already up to date" forever — the server-side
+  twin of the GitHub-source defect fixed in 1.7.3. Broken manifests now
+  fail the check with the offending asset named; only "not newer"
+  answers "no update".
+- The second settings-write path (`lastSyncSuccessAt`,
+  `lastUpdateCheckAt`) had no failure handling: one failed timestamp
+  write turned a successful sync pass into an error status (the engine
+  awaits the bookkeeping call right after reporting success) or was
+  misreported as an update-check failure. It now has the same contract
+  as the main save (localized notice, connection-fenced) and
+  bookkeeping failures no longer fail the pass.
+- One permanently unreadable local file (exclusive lock, foreign 0600)
+  failed every scheduled sync with only a red status bar and no pointer
+  at the blocking file. Scheduled passes now count consecutive identical
+  failures and raise one localized notice on the second occurrence; a
+  different error re-arms the notice. The fail-the-pass semantics are
+  deliberately unchanged.
+- Server path normalization percent-decoded before splitting, so a
+  literal filename like `a%2Fb.md` was stored as the two-level path
+  `a/b.md` — a different tree than the client's vault, causing
+  permanent conflict noise or path conflicts. Escapes may encode
+  characters, never structure: percent-encoded separators (`%2F`,
+  `%5C`, and their re-encoded forms) are rejected on both sides of the
+  wire.
+- `write_files` (MCP) enforced per-file size limits but no batch budget:
+  a 100-file batch of near-limit writes was legal by the tool's own
+  rules and buffered whole before any content check ran. The batch's
+  total write bytes now get one `max_file_size` budget with a public
+  "split the batch" error.
+
 - A half-typed connection-field draft could permanently overwrite the
   saved credentials: blurring the server URL or deployment key field ran
   a settings save that persisted the drafted value into the auth store —
