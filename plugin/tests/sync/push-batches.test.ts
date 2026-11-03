@@ -51,7 +51,7 @@ function batcher(now?: () => number): PushBatcher {
   );
 }
 
-function rejection(status: number, headers: Record<string, string> = {}): ApiError {
+function rejection(status: number): ApiError {
   return new ApiError(status, `http_${status}`, `HTTP ${status}`, undefined);
 }
 

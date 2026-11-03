@@ -87,23 +87,35 @@ describe("PKVSyncPlugin history API cache", () => {
   });
 
   it("reuses update service until plugin file location changes", async () => {
-    requestUrlMock.mockResolvedValue({
-      status: 200,
-      headers: { "content-type": "application/json" },
-      arrayBuffer: new ArrayBuffer(0),
-      json: {
+    // The manifest must be same-origin per call (assertTrustedServerUpdate
+    // rejects off-origin asset urls), and this test rotates the plugin's
+    // serverUrl between calls — derive the origin from the request URL.
+    requestUrlMock.mockImplementation(((req: { url: string }) => {
+      const origin = new URL(req.url).origin;
+      const body = JSON.stringify({
         version: "1.0.5",
-        main_js_url: "https://sync.example.com/main.js",
+        main_js_url: `${origin}/main.js`,
         main_js_sha256: "0".repeat(64),
-        manifest_json_url: "https://sync.example.com/manifest.json"
-      },
-      text: JSON.stringify({
-        version: "1.0.5",
-        main_js_url: "https://sync.example.com/main.js",
-        main_js_sha256: "0".repeat(64),
-        manifest_json_url: "https://sync.example.com/manifest.json"
-      })
-    });
+        manifest_json_url: `${origin}/manifest.json`,
+        manifest_json_sha256: "1".repeat(64)
+      });
+      const response = {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        arrayBuffer: new ArrayBuffer(0),
+        json: JSON.parse(body),
+        text: body
+      };
+      const promise = Promise.resolve(response) as Promise<typeof response> & {
+        arrayBuffer: () => Promise<ArrayBuffer>;
+        json: () => Promise<typeof response.json>;
+        text: () => Promise<string>;
+      };
+      promise.arrayBuffer = () => Promise.resolve(new ArrayBuffer(0));
+      promise.json = () => Promise.resolve(response.json);
+      promise.text = () => Promise.resolve(body);
+      return promise;
+    }) as unknown as typeof requestUrlMock);
     const adapter = {
       read: async (_path: string) => "",
       write: async (_path: string, _data: string) => undefined,

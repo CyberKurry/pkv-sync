@@ -475,15 +475,6 @@ export default class PKVSyncPlugin extends Plugin {
     return this.dataStore.read((data) => readSyncIndex(data, scopeKey));
   }
 
-  async saveSyncIndex(
-    index: LocalIndex,
-    scopeKey = syncScopeKey(this.settings)
-  ): Promise<void> {
-    await this.dataStore.update((data) =>
-      writePluginSettingsWithoutAuth(writeSyncIndex(data, scopeKey, index), this.settings)
-    );
-  }
-
   /**
    * Atomic read-modify-write of the sync index. The updater runs inside the
    * SerializedPluginDataStore.update transaction, so concurrent callers
