@@ -374,6 +374,32 @@ type CleanupRun = Box<
         > + Send,
 >;
 
+/// RAII latch reset (R11-1): a panicking cleanup run used to leave
+/// `cleanup_running` set forever — every later tick took the skip branch
+/// and cleanup stopped SILENTLY, strictly worse than the pre-R9-1 loop
+/// (which at least logged the panic via its awaited JoinHandle). The
+/// guard releases the latch in Drop on every exit path; on the unwind
+/// path it also logs the specific "cleanup panicked" line the old
+/// implementation produced, so the failure stays observable without an
+/// awaited handle. (No catch_unwind: futures-util is a dev-dependency,
+/// and Drop-on-unwind already gives both the reset and the marker.)
+struct CleanupLatchGuard {
+    state: AppState,
+}
+
+impl Drop for CleanupLatchGuard {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            tracing::error!(
+                "periodic cleanup task panicked; latch released, the next tick will run"
+            );
+        }
+        self.state
+            .cleanup_running
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
 fn spawn_cleanup_tick(state: AppState, run: CleanupRun) {
     if state
         .cleanup_running
@@ -387,7 +413,10 @@ fn spawn_cleanup_tick(state: AppState, run: CleanupRun) {
         return;
     }
     tokio::spawn(async move {
-        let report = run(state.clone()).await;
+        let _latch = CleanupLatchGuard {
+            state: state.clone(),
+        };
+        let report = run(state).await;
         tracing::info!(
             sessions = report.sessions_deleted,
             tokens = report.tokens_deleted,
@@ -398,9 +427,8 @@ fn spawn_cleanup_tick(state: AppState, run: CleanupRun) {
             git_gc_failed = report.git_gc_failed,
             "periodic cleanup completed"
         );
-        state
-            .cleanup_running
-            .store(false, std::sync::atomic::Ordering::Release);
+        // Latch release (and panic logging, if unwinding) happens in
+        // _latch's Drop on every exit path (R11-1).
     });
 }
 
@@ -704,6 +732,64 @@ mod tests {
         assert_eq!(r.auth_failure, 1);
         assert_eq!(r.mcp_auth, 1);
         assert_eq!(r.mcp_write, 1);
+    }
+
+    #[tokio::test]
+    async fn cleanup_tick_releases_the_latch_when_the_run_panics() {
+        // R11-1: a panicking run must not wedge cleanup forever. The old
+        // fire-and-forget tick never reached its latch store(false) on the
+        // unwind path, so every later tick took the skip branch — cleanup
+        // stopped silently, strictly worse than the pre-R9-1 loop that at
+        // least logged the panic. The latch is RAII now; the panic is
+        // observed (logged) and the NEXT tick must actually run.
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+
+        let panicking_state = state.clone();
+        let panicked = std::sync::Arc::new(tokio::sync::Notify::new());
+        let panicked_tx = panicked.clone();
+        let boom: CleanupRun = Box::new(move |_state: AppState| {
+            let panicked_tx = panicked_tx.clone();
+            Box::pin(async move {
+                panicked_tx.notify_one();
+                panic!("cleanup exploded");
+            })
+        });
+        spawn_cleanup_tick(panicking_state, boom);
+        panicked.notified().await;
+        // Let the spawned task unwind and its Drop run.
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        assert!(
+            !state
+                .cleanup_running
+                .load(std::sync::atomic::Ordering::Acquire),
+            "a panicked run must release the latch (R11-1)"
+        );
+
+        // The next tick must RUN (not skip): observable side effect.
+        let next_state = state.clone();
+        let ran = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let ran_tx = ran.clone();
+        let tick2: CleanupRun = Box::new(move |_state: AppState| {
+            let ran_tx = ran_tx.clone();
+            Box::pin(async move {
+                ran_tx.store(1, std::sync::atomic::Ordering::Release);
+                crate::service::cleanup::CleanupReport::default()
+            })
+        });
+        spawn_cleanup_tick(next_state, tick2);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(
+            ran.load(std::sync::atomic::Ordering::Acquire),
+            1,
+            "the tick after a panicked run must run instead of skipping forever"
+        );
     }
 
     #[tokio::test]
