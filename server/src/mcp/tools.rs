@@ -1602,6 +1602,18 @@ pub async fn write_files(
         changes.push(PushChange::Delete { path });
     }
 
+    // R10-2: per-file limits alone let a 100-file batch of near-limit
+    // writes drive a request-body-sized allocation before any content
+    // check ran. The batch's TOTAL byte budget is one max_file_size —
+    // the same knob the admin owns for single writes — so a smaller
+    // setting constrains MCP write traffic proportionally.
+    if total_bytes as u64 > max_file_size {
+        bail!(
+            "batch_bytes_exceed_budget: {total} files totalling {total_bytes} bytes \
+             exceeds max_file_size of {max_file_size} bytes; split the batch"
+        );
+    }
+
     let would_write = would_write_from_changes(&changes);
     apply_write_batch(
         state,

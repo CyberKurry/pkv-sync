@@ -832,6 +832,7 @@ pub(crate) fn mcp_tool_error_public_message(error: &anyhow::Error) -> Cow<'_, st
 
 fn is_public_mcp_tool_error(message: &str) -> bool {
     const PREFIXES: &[&str] = &[
+        "batch_bytes_exceed_budget:",
         "batch_too_large:",
         "conflicting_path:",
         "content_diverged:",

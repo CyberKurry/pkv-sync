@@ -540,6 +540,69 @@ async fn write_files_rejects_empty_and_oversized() {
 }
 
 #[tokio::test]
+async fn write_files_rejects_batch_total_bytes_over_max_file_size() {
+    // R10-2: each write individually passing max_file_size is not enough -
+    // a 100-file batch of near-limit files could drive a request-body-sized
+    // allocation. The batch's TOTAL byte budget is one max_file_size, the
+    // same knob the admin already owns for single writes.
+    let (state, _tmp) = test_state().await;
+    state
+        .runtime_cfg_repo
+        .set_max_file_size(2048, None)
+        .await
+        .unwrap();
+    let cfg = state.runtime_cfg_repo.load().await.unwrap();
+    state.runtime_cfg.replace(cfg).await;
+    let (user, raw) = create_user_with_token(&state, "mcp-write-files-total").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "seed.md", "seed").await;
+
+    let one_k = "x".repeat(1024);
+    let writes = vec![
+        json!({ "path": "bulk/a.md", "content": one_k }),
+        json!({ "path": "bulk/b.md", "content": one_k }),
+        json!({ "path": "bulk/c.md", "content": "x" }),
+    ];
+    let over = post_tool(
+        state.clone(),
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "writes": writes
+        }),
+    )
+    .await;
+    assert_eq!(over["error"]["code"], -32000);
+    assert!(
+        over["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("batch_bytes"),
+        "expected a batch-total-bytes rejection, got: {over}"
+    );
+
+    // One file under the same budget is fine (single-file semantics keep
+    // working at the minimum).
+    let ok = post_tool(
+        state,
+        &raw,
+        "write_files",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "writes": [ { "path": "bulk/a.md", "content": one_k } ]
+        }),
+    )
+    .await;
+    assert!(
+        ok.get("result").is_some(),
+        "single 1KiB write under a 2KiB budget must pass: {ok}"
+    );
+}
+
+#[tokio::test]
 async fn write_files_counts_one_rate_limit_record() {
     let (state, _tmp) = test_state().await;
     state
