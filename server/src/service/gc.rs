@@ -25,8 +25,20 @@ pub async fn run_blob_gc_with_grace(
     state: &AppState,
     grace_seconds: u64,
 ) -> Result<GcReport, ApiError> {
+    run_blob_gc_with_grace_at(state, grace_seconds, SystemTime::now()).await
+}
+
+/// Same GC with an injected clock. The 0-grace tests need it: a row
+/// recorded at `now()` is only snapshot-protected while the GC's own
+/// `now()` reads the SAME second — a second-boundary crossing between
+/// the upload and the GC expired the row mid-test (Windows CI flake),
+/// because at 0 grace "recorded just now" is legitimately expirable.
+pub async fn run_blob_gc_with_grace_at(
+    state: &AppState,
+    grace_seconds: u64,
+    now: SystemTime,
+) -> Result<GcReport, ApiError> {
     let _storage_guard = crate::service::acquire_storage_mutation_guard(state).await?;
-    let now = SystemTime::now();
     let grace = Duration::from_secs(grace_seconds);
     // Upload bookkeeping is only meant to cover the upload->push window; a
     // record that was never followed by a push must not protect its blob
@@ -155,21 +167,29 @@ mod tests {
 
         // Blob A: referenced only by a RECENT upload row (uploaded now).
         // The snapshot's all_hashes() protects it anyway; fine either way.
+        // The GC `now` is pinned to the SAME instant the row records:
+        // `delete_older_than` uses strict `<`, so an equal-second row
+        // survives — while letting the GC read its own clock could cross
+        // a second boundary between the two `now()` calls and expire the
+        // row mid-test (CI flake).
         let data_a = Bytes::from_static(b"racing upload");
         let hash_a = LocalFsBlobStore::sha256(&data_a);
         store.put_verified(&hash_a, data_a).await.unwrap();
+        let uploaded_at = chrono::Utc::now().timestamp();
         state
             .blob_uploads
-            .record_upload(&vault.id, &hash_a, chrono::Utc::now().timestamp())
+            .record_upload(&vault.id, &hash_a, uploaded_at)
             .await
             .unwrap();
+        let gc_now =
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(uploaded_at.max(0) as u64);
 
         // Blob B: no row, no ref, old — deleted.
         let data_b = Bytes::from_static(b"old orphan");
         let hash_b = LocalFsBlobStore::sha256(&data_b);
         store.put_verified(&hash_b, data_b).await.unwrap();
 
-        let report = run_blob_gc_with_grace(&state, 0).await.unwrap();
+        let report = run_blob_gc_with_grace_at(&state, 0, gc_now).await.unwrap();
 
         assert!(
             store.has(&hash_a).await.unwrap(),
