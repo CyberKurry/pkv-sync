@@ -395,10 +395,31 @@ export default class PKVSyncPlugin extends Plugin {
 
   private async saveSettingsPatch(
     patch: Partial<PKVSyncSettings>,
-    options: { rebuild?: boolean } = {}
+    options: { rebuild?: boolean; notice?: boolean } = {}
   ): Promise<void> {
     Object.assign(this.settings, patch);
-    await this.dataStore.update((data) => writePluginSettingsPatch(data, patch));
+    // R9-5: this is the second settings-write producer (lastSyncSuccessAt,
+    // lastUpdateCheckAt). It used to call dataStore.update directly: a
+    // disk write failure escaped into whichever caller happened to await
+    // it - recordSyncSuccess turned a SUCCESSFUL sync pass into an error
+    // status, checkForPluginUpdates reported "update check failed" - and
+    // no notice ever named the real problem. Same contract as saveSettings
+    // (R8-4): localized notice + rethrow, fenced by the connection lock.
+    try {
+      await this.connectionContext.runLocal(() =>
+        this.dataStore.update((data) => writePluginSettingsPatch(data, patch))
+      );
+    } catch (error) {
+      new Notice(
+        format(this.text().settingsSaveFailed, { reason: errorToMessage(error) })
+      );
+      if (options.notice === false) {
+        // Non-critical bookkeeping (timestamp remembers): report but do
+        // not fail the caller's outcome - the sync pass itself succeeded.
+        return;
+      }
+      throw error;
+    }
     this.updateStatus();
     if (options.rebuild !== false) this.rebuildSyncEngine();
   }
@@ -513,9 +534,12 @@ export default class PKVSyncPlugin extends Plugin {
 
   async recordSyncSuccess(generation: number): Promise<void> {
     if (generation !== this.syncGeneration) return;
+    // R9-5: bookkeeping write — a failure must not rewrite a successful
+    // pass into an error status (engine awaits this right after setting
+    // "connected"). The notice still fires; the pass result stands.
     await this.saveSettingsPatch(
       { lastSyncSuccessAt: Math.floor(Date.now() / 1000) },
-      { rebuild: false }
+      { rebuild: false, notice: false }
     );
   }
 
