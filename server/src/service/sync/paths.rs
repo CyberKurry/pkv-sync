@@ -77,11 +77,24 @@ pub(crate) async fn vault_path_filter(
     sync_path_filter(state, vault_id, &rc.extra_exclude_globs).await
 }
 
+/// Normalize `path` and enforce, in order: vault ownership, then read
+/// visibility under the vault's sync filter.
+///
+/// R9-3: the ownership check lives HERE, not at each caller. The REST
+/// handlers used to run the visibility check first, so a request for
+/// another user's vault id answered from that vault's configuration — a
+/// cross-tenant oracle distinguishing "excluded by their allowlist"
+/// (file not found) from "not yours / not present" (vault not found), and
+/// surfacing `vault_settings_invalid` for a stranger's broken config.
+/// Order is ownership first; the answer for someone else's vault is
+/// always `vault not found`.
 pub(crate) async fn ensure_path_visible_for_sync_api(
     state: &AppState,
+    user_id: &str,
     vault_id: &str,
     path: &str,
 ) -> Result<String, ApiError> {
+    crate::service::vault::ensure_user_vault(state, user_id, vault_id).await?;
     let normalized =
         path::normalize(path).map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
     let rc = state.runtime_cfg.snapshot().await;
@@ -143,6 +156,7 @@ pub(super) fn ensure_generated_push_path(path: &str) -> Result<(), ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::repos::UserRepo;
 
     #[test]
     fn generated_push_path_rejects_backslash_parts() {
@@ -162,5 +176,87 @@ mod tests {
 
         assert!(implementation.contains("cached_vault_path_filter"));
         assert!(implementation.contains("cache_vault_path_filter"));
+    }
+
+    #[tokio::test]
+    async fn visibility_check_answers_vault_not_found_for_a_foreign_vault() {
+        // R9-3: the REST handlers answered from the TARGET vault's sync
+        // filter before checking ownership, so a cross-tenant probe could
+        // distinguish "path inside their allowlist" (file not found) from
+        // "vault not yours" (vault not found). Ownership must run FIRST;
+        // the intruder gets the same answer whether the path would be
+        // excluded or accepted, and the vault owner's configuration is
+        // never consulted for a stranger.
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = crate::db::pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state =
+            crate::service::AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+                .await
+                .unwrap();
+        let owner = state
+            .users
+            .create(crate::db::repos::NewUser {
+                username: "r9-owner".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let intruder = state
+            .users
+            .create(crate::db::repos::NewUser {
+                username: "r9-intruder".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let vault = crate::service::vault::create_vault(&state, &owner.id, "main")
+            .await
+            .unwrap();
+
+        for path in [".hidden/secret.md", "secret.md"] {
+            let err = ensure_path_visible_for_sync_api(&state, &intruder.id, &vault.id, path)
+                .await
+                .unwrap_err();
+            assert_eq!(
+                err.message, "vault not found",
+                "foreign-vault probe of {path:?} must answer vault not found, got: {} ({})",
+                err.message, err.code
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn visibility_check_still_applies_for_the_owner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = crate::db::pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let state =
+            crate::service::AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+                .await
+                .unwrap();
+        let owner = state
+            .users
+            .create(crate::db::repos::NewUser {
+                username: "r9b-owner".into(),
+                password_hash: "h".into(),
+                is_admin: false,
+            })
+            .await
+            .unwrap();
+        let vault = crate::service::vault::create_vault(&state, &owner.id, "main")
+            .await
+            .unwrap();
+
+        let ok = ensure_path_visible_for_sync_api(&state, &owner.id, &vault.id, "note.md")
+            .await
+            .unwrap();
+        assert_eq!(ok, "note.md");
+        let hidden = ensure_path_visible_for_sync_api(&state, &owner.id, &vault.id, ".hidden/n.md")
+            .await
+            .unwrap_err();
+        assert_eq!(hidden.message, "file not found");
     }
 }

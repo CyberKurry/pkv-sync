@@ -540,7 +540,7 @@ pub async fn read_file(
     input: ReadFileInput,
 ) -> Result<ReadFileOutput> {
     ensure_owned_vault(state, user_id, &input.vault_id).await?;
-    let path = sync::ensure_path_visible_for_sync_api(state, &input.vault_id, &input.path)
+    let path = sync::ensure_path_visible_for_sync_api(state, user_id, &input.vault_id, &input.path)
         .await
         .map_err(api_error_to_anyhow)?;
     read_file_inner(state, user_id, input.vault_id, path, None).await
@@ -552,7 +552,7 @@ pub async fn read_file_at_commit(
     input: ReadFileAtCommitInput,
 ) -> Result<ReadFileOutput> {
     ensure_owned_vault(state, user_id, &input.vault_id).await?;
-    let path = sync::ensure_path_visible_for_sync_api(state, &input.vault_id, &input.path)
+    let path = sync::ensure_path_visible_for_sync_api(state, user_id, &input.vault_id, &input.path)
         .await
         .map_err(api_error_to_anyhow)?;
     read_file_inner(state, user_id, input.vault_id, path, Some(input.commit)).await

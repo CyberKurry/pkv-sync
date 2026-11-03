@@ -368,7 +368,7 @@ async fn read_file(
     Path((id, path)): Path<(String, String)>,
     Query(q): Query<ReadFileQuery>,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
-    let path = sync::ensure_path_visible_for_sync_api(&state, &id, &path).await?;
+    let path = sync::ensure_path_visible_for_sync_api(&state, &user.user_id, &id, &path).await?;
     let f = sync::read_file(&state, &user.user_id, &id, &path, q.at.as_deref())
         .await?
         .ok_or_else(|| ApiError::not_found("file"))?;
@@ -401,7 +401,9 @@ async fn commits(
         return Err(ApiError::not_found("history disabled"));
     }
     let path = match q.path.as_deref() {
-        Some(path) => Some(sync::ensure_path_visible_for_sync_api(&state, &id, path).await?),
+        Some(path) => {
+            Some(sync::ensure_path_visible_for_sync_api(&state, &user.user_id, &id, path).await?)
+        }
         None => None,
     };
     let limit = q
@@ -458,7 +460,7 @@ async fn file_history(
         .path
         .as_deref()
         .ok_or_else(|| ApiError::bad_request("missing_path", "path required"))?;
-    let path = sync::ensure_path_visible_for_sync_api(&state, &id, path).await?;
+    let path = sync::ensure_path_visible_for_sync_api(&state, &user.user_id, &id, path).await?;
     let limit = q
         .limit
         .as_deref()
@@ -498,7 +500,7 @@ async fn diff(
         .path
         .as_deref()
         .ok_or_else(|| ApiError::bad_request("missing_path", "path required"))?;
-    let path = sync::ensure_path_visible_for_sync_api(&state, &id, path).await?;
+    let path = sync::ensure_path_visible_for_sync_api(&state, &user.user_id, &id, path).await?;
     let to =
         q.to.as_deref()
             .ok_or_else(|| ApiError::bad_request("missing_to", "to required"))?;

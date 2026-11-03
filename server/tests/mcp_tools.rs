@@ -140,6 +140,60 @@ async fn read_file_returns_text_and_expands_text_blob_pointer() {
 }
 
 #[tokio::test]
+async fn read_file_answers_vault_not_found_before_consulting_a_foreign_vaults_filter() {
+    // R9-3: ownership is checked BEFORE the path-visibility lookup. The
+    // REST handlers used to answer from the TARGET vault's sync filter,
+    // so a cross-tenant probe could distinguish "that path is inside
+    // their allowlist" (file not found) from "vault is not yours"
+    // (vault not found) - a configuration oracle over someone else's
+    // vault. The answer for a foreign vault must always be the same
+    // "vault not found", whether or not the path is excluded.
+    let (state, _tmp) = test_state().await;
+    let owner = create_user(&state, "r9-owner").await;
+    let intruder = create_user(&state, "r9-intruder").await;
+    let vault = state.vaults.create(&owner, "main").await.unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    git.commit_changes(
+        &vault.id,
+        None,
+        &[FileChange::Upsert {
+            path: "secret.md".into(),
+            file: StoredFile::Text {
+                bytes: b"secret".to_vec(),
+            },
+        }],
+        "seed",
+    )
+    .await
+    .unwrap();
+
+    // A path the vault's filter would reject (hidden, not allowlisted)
+    // and one it would accept — both must answer identically for an
+    // intruder: vault not found.
+    for path in [".hidden/secret.md", "secret.md"] {
+        let err = read_file(
+            &state,
+            &intruder,
+            ReadFileInput {
+                vault_id: vault.id.clone(),
+                path: path.into(),
+            },
+        )
+        .await
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("vault not found"),
+            "foreign-vault read of {path:?} must answer vault not found, got: {msg}"
+        );
+        assert!(
+            !msg.contains("file not found"),
+            "the foreign vault's filter must never shape the answer (R9-3), got: {msg}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn read_file_normalizes_mcp_paths_before_git_lookup() {
     let (state, _tmp) = test_state().await;
     let user_id = create_user(&state, "mcp-path-reader").await;
