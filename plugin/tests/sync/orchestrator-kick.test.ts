@@ -357,6 +357,11 @@ describe("SyncOrchestrator timer kicks (W4)", () => {
       const realEngine = plugin.engine as unknown as {
         syncNow: () => Promise<void>;
       };
+      // Let rebuild()'s own in-flight kickSync pass settle BEFORE spying:
+      // with R11-3 a success clears the failure streak, so the initial
+      // (successful, empty-vault) pass finishing mid-test would reset the
+      // streak the poll passes below are building up.
+      await new Promise((resolve) => setTimeout(resolve, 50));
       const stuck = new Error("File not found: blocked.md");
       const syncSpy = vi
         .spyOn(realEngine, "syncNow")
@@ -384,6 +389,132 @@ describe("SyncOrchestrator timer kicks (W4)", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(notices.length).toBe(2);
       expect(notices[1]).toContain("HTTP 500");
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      orchestrator.invalidate();
+      syncApiSpy.mockRestore();
+      adapterSpy.mockRestore();
+    }
+  });
+
+  it("resets the failure streak on success (R11-3)", async () => {
+    // fail → succeed → same fail again must NOT re-notify: "keeps
+    // failing" means consecutive failures.
+    const intervals: Array<() => void> = [];
+    vi.stubGlobal("window", {
+      setInterval: (cb: () => void) => {
+        intervals.push(cb);
+        return intervals.length;
+      },
+      clearInterval: vi.fn(),
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+      process: { env: { NODE_ENV: "test" } }
+    });
+
+    const syncClientModule = await import("../../src/api/sync-client");
+    const vaultAdapterModule = await import("../../src/sync/vault-adapter");
+    const syncApiSpy = vi
+      .spyOn(syncClientModule, "SyncApi")
+      .mockImplementation(function MockSyncApi(this: Record<string, unknown>) {
+        this.pull = async () => ({
+          from: null,
+          to: null,
+          added: [],
+          modified: [],
+          deleted: []
+        });
+        this.state = vi.fn();
+        this.uploadCheck = vi.fn().mockResolvedValue({ missing: [] });
+        this.uploadBlob = vi.fn();
+        this.push = vi.fn();
+        this.downloadBlob = vi.fn();
+        this.downloadTextFile = vi.fn();
+        this.getVaultSettings = vi.fn();
+      } as unknown as typeof syncClientModule.SyncApi);
+    const adapterSpy = vi
+      .spyOn(vaultAdapterModule, "ObsidianVaultAdapter")
+      .mockImplementation(function MockAdapter(this: Record<string, unknown>) {
+        this.scan = async () => [];
+        this.exists = () => false;
+        this.readText = async () => "";
+        this.writeText = async () => undefined;
+        this.writeBinary = async () => undefined;
+        this.trash = async () => undefined;
+        this.listFiles = () => [];
+        this.snapshot = async () => {
+          throw new Error("not needed");
+        };
+      } as unknown as typeof vaultAdapterModule.ObsidianVaultAdapter);
+
+    const plugin = {
+      syncGeneration: 0,
+      pushDebouncer: null,
+      pollTimer: null,
+      fallbackTimer: null,
+      engine: null,
+      api: vi.fn(() => ({})),
+      currentPushLimits: () => LEGACY_PUSH_LIMITS,
+      loadSyncIndex: async (): Promise<LocalIndex> => ({
+        lastSyncedCommit: null,
+        files: {}
+      }),
+      updateSyncIndex: async () => undefined,
+      statusEl: null,
+      text: () => ({
+        statusConnected: "connected",
+        statusSyncing: "syncing",
+        statusOffline: "offline",
+        statusError: "error",
+        statusNotConfigured: "not configured",
+        syncRepeatedlyFailing:
+          "Sync keeps failing on the same error. Reason: {reason}"
+      }),
+      recordSyncSuccess: vi.fn(),
+      settings: {
+        serverUrl: "https://sync.example.com",
+        deploymentKey: "k",
+        token: "t",
+        userId: "u",
+        selectedVaultId: "v1",
+        deviceName: "d",
+        textExtensions: ["md"],
+        extraExcludeGlobs: [],
+        debounceMs: 250,
+        pollIntervalSeconds: 30,
+        deviceId: "dev"
+      },
+      manifest: { version: "1.7.0" },
+      app: { vault: {} }
+    };
+
+    const { SyncOrchestrator } = await import("../../src/sync-orchestrator");
+    const orchestrator = new SyncOrchestrator(plugin as never);
+    notices.length = 0;
+    const onUnhandled = (): void => undefined;
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      orchestrator.rebuild();
+      const realEngine = plugin.engine as unknown as {
+        syncNow: () => Promise<void>;
+      };
+      const stuck = new Error("transient blip");
+      const syncSpy = vi
+        .spyOn(realEngine, "syncNow")
+        .mockRejectedValueOnce(stuck)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("transient blip"));
+      const poll = intervals[0];
+
+      poll();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      poll(); // succeeds
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      poll(); // same message as the FIRST failure
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(syncSpy).toHaveBeenCalledTimes(3);
+      expect(notices).toEqual([]);
     } finally {
       process.off("unhandledRejection", onUnhandled);
       orchestrator.invalidate();

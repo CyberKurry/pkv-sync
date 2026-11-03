@@ -123,26 +123,41 @@ export class SyncOrchestrator {
    * at the blocking file.
    */
   private kickSync(): void {
-    void this.plugin.engine?.syncNow().catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message === this.lastSyncErrorMessage) {
-        this.repeatedSyncErrorCount += 1;
-      } else {
-        this.lastSyncErrorMessage = message;
-        this.repeatedSyncErrorCount = 1;
+    void this.plugin.engine?.syncNow().then(
+      () => {
+        // R11-3: "keeps failing" must mean CONSECUTIVE failures. A success
+        // in between clears the streak, so fail→succeed→fail with the
+        // same message is not "repeatedly failing" and gets no notice.
+        this.lastSyncErrorMessage = null;
+        this.repeatedSyncErrorCount = 0;
+      },
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message === this.lastSyncErrorMessage) {
+          this.repeatedSyncErrorCount += 1;
+        } else {
+          this.lastSyncErrorMessage = message;
+          this.repeatedSyncErrorCount = 1;
+        }
+        if (this.repeatedSyncErrorCount === 2) {
+          new Notice(
+            format(this.plugin.text().syncRepeatedlyFailing, {
+              reason: message
+            })
+          );
+        }
       }
-      if (this.repeatedSyncErrorCount === 2) {
-        new Notice(
-          format(this.plugin.text().syncRepeatedlyFailing, {
-            reason: message
-          })
-        );
-      }
-    });
+    );
   }
 
   private lastSyncErrorMessage: string | null = null;
   private repeatedSyncErrorCount = 0;
+
+  /** R11-3: a manual sync shares the streak state — success clears it. */
+  private clearSyncErrorStreak(): void {
+    this.lastSyncErrorMessage = null;
+    this.repeatedSyncErrorCount = 0;
+  }
 
   invalidate(): void {
     this.teardownEngine();
@@ -169,6 +184,9 @@ export class SyncOrchestrator {
       // A manual sync is the user's explicit "try again": it clears the
       // learned oversize cooldowns, but never bypasses the local hard limit.
       await this.plugin.engine.syncNow({ retryOversized: true });
+      // R11-3: the streak counter spans both pass sources (timer and
+      // manual); a manual success clears it like a timer success does.
+      this.clearSyncErrorStreak();
       new Notice(t.noticeSyncComplete);
     } catch (error) {
       new Notice(errorToMessage(error));
