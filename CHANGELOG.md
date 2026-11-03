@@ -9,6 +9,30 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- A panicking periodic-cleanup run permanently wedged the cleanup latch:
+  the fire-and-forget tick never reached its reset on the unwind path,
+  so every later tick skipped and cleanup stopped silently — worse than
+  the pre-fix loop, which at least logged the panic. The latch reset is
+  RAII now (released on every exit path, including panics), and the
+  unwind path logs a specific marker so a panicking cleanup stays
+  observable.
+- A local file whose name contains a percent-escaped path separator
+  (`a%2Fb.md`) was scanned and pushed by the plugin even though the
+  server rejects that wire shape (it decodes to a different tree,
+  `a/b.md`) — the user saw an opaque sync failure with no pointer at
+  the file. The plugin now refuses such paths at scan time with the
+  same rule as the server (each decode round re-checked, so
+  `%252F`-style re-encodings are caught too; unicode escapes are
+  unaffected), and the deletion classifier consults the same rule so an
+  index entry written by an older version is never misread as a local
+  delete — the file simply stays out of the sync conversation instead
+  of a delete being emitted for a file the user still has.
+- The "sync keeps failing on the same error" notice fired even when a
+  success sat between the failures: the streak counter never reset, so
+  fail → succeed → same-fail still notified, and a manual sync neither
+  counted toward nor cleared the streak. Success (timer or manual) now
+  resets the streak; the notice means consecutive failures.
+
 - Self-service password change did not invalidate the MCP token cache:
   `change_password` hand-wrote its UPDATEs, bypassing the repository
   methods that bump `users.auth_epoch` and `tokens.validity_epoch` — the
