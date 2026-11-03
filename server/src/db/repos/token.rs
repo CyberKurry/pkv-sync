@@ -93,7 +93,12 @@ impl SqliteTokenRepo {
     /// own transaction (service::auth::change_password) instead of
     /// [`revoke_all_for_user`](TokenRepo::revoke_all_for_user). Called
     /// only after that transaction commits successfully; the MCP
-    /// token-validity cache keys on this epoch.
+    /// token-validity cache keys on this epoch. R11-5 boundary: the
+    /// commit and the in-memory bump are not atomic — a process crash in
+    /// the microseconds between them leaves the revoked token cached as
+    /// Valid for at most `TOKEN_VALIDITY_CACHE_TTL` (5s), because the
+    /// restart loses the cache anyway. A window that small needs no
+    /// durability machinery.
     pub fn bump_validity_epoch_after_commit(&self) {
         self.bump_validity_epoch();
     }
