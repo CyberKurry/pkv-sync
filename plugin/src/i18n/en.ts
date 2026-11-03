@@ -99,6 +99,7 @@ export const en = {
   localStateSaveFailed:
     "Could not save local settings. The previous state was restored. Reason: {reason}",
   settingsSaveFailed: "Could not save settings. The change is not persisted. Reason: {reason}",
+  syncRepeatedlyFailing: "Sync keeps failing on the same error. Fix it to resume syncing. Reason: {reason}",
   localStateRecoveryFailed:
     "Local state could not be restored. Sync is paused. Check storage and reload the plugin. Reason: {reason}",
   localStateApplyFailed:

@@ -106,6 +106,7 @@ export const ko = {
   localStateSaveFailed:
     "로컬 설정을 저장하지 못했습니다. 이전 상태를 복원했습니다. 원인: {reason}",
   settingsSaveFailed: "설정 저장에 실패했습니다. 이 변경 사항은 디스크에 기록되지 않았습니다. 이유: {reason}",
+  syncRepeatedlyFailing: "동기화가 같은 오류로 반복해서 실패하고 있습니다. 수정해야 동기화가 재개됩니다. 이유: {reason}",
   localStateRecoveryFailed:
     "로컬 상태를 복원하지 못했습니다. 동기화가 일시 중지되었습니다. 저장 공간을 확인하고 플러그인을 다시 로드하세요. 원인: {reason}",
   localStateApplyFailed:

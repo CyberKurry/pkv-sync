@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { notices } from "../../tests/mocks/obsidian";
 import { LEGACY_PUSH_LIMITS } from "../../src/sync/push-limits";
 import type { LocalIndex } from "../../src/sync/types";
 
@@ -251,6 +252,140 @@ describe("SyncOrchestrator timer kicks (W4)", () => {
       poll();
       expect(refreshServerCapabilities).toHaveBeenCalledTimes(1);
     } finally {
+      orchestrator.invalidate();
+      syncApiSpy.mockRestore();
+      adapterSpy.mockRestore();
+    }
+  });
+
+  it("notices once when consecutive timer passes fail on the same error (R9-7)", async () => {
+    const intervals: Array<() => void> = [];
+    vi.stubGlobal("window", {
+      setInterval: (cb: () => void) => {
+        intervals.push(cb);
+        return intervals.length;
+      },
+      clearInterval: vi.fn(),
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+      process: { env: { NODE_ENV: "test" } }
+    });
+
+    const syncClientModule = await import("../../src/api/sync-client");
+    const vaultAdapterModule = await import("../../src/sync/vault-adapter");
+    const syncApiSpy = vi
+      .spyOn(syncClientModule, "SyncApi")
+      .mockImplementation(function MockSyncApi(this: Record<string, unknown>) {
+        this.pull = async () => ({
+          from: null,
+          to: null,
+          added: [],
+          modified: [],
+          deleted: []
+        });
+        this.state = vi.fn();
+        this.uploadCheck = vi.fn().mockResolvedValue({ missing: [] });
+        this.uploadBlob = vi.fn();
+        this.push = vi.fn();
+        this.downloadBlob = vi.fn();
+        this.downloadTextFile = vi.fn();
+        this.getVaultSettings = vi.fn();
+      } as unknown as typeof syncClientModule.SyncApi);
+    const adapterSpy = vi
+      .spyOn(vaultAdapterModule, "ObsidianVaultAdapter")
+      .mockImplementation(function MockAdapter(this: Record<string, unknown>) {
+        this.scan = async () => [];
+        this.exists = () => false;
+        this.readText = async () => "";
+        this.writeText = async () => undefined;
+        this.writeBinary = async () => undefined;
+        this.trash = async () => undefined;
+        this.listFiles = () => [];
+        this.snapshot = async () => {
+          throw new Error("not needed");
+        };
+      } as unknown as typeof vaultAdapterModule.ObsidianVaultAdapter);
+
+    const plugin = {
+      syncGeneration: 0,
+      pushDebouncer: null,
+      pollTimer: null,
+      fallbackTimer: null,
+      engine: null,
+      api: vi.fn(() => ({})),
+      currentPushLimits: () => LEGACY_PUSH_LIMITS,
+      loadSyncIndex: async (): Promise<LocalIndex> => ({
+        lastSyncedCommit: null,
+        files: {}
+      }),
+      updateSyncIndex: async () => undefined,
+      statusEl: null,
+      text: () => ({
+        statusConnected: "connected",
+        statusSyncing: "syncing",
+        statusOffline: "offline",
+        statusError: "error",
+        statusNotConfigured: "not configured",
+        syncRepeatedlyFailing:
+          "Sync keeps failing on the same error. Reason: {reason}"
+      }),
+      recordSyncSuccess: vi.fn(),
+      settings: {
+        serverUrl: "https://sync.example.com",
+        deploymentKey: "k",
+        token: "t",
+        userId: "u",
+        selectedVaultId: "v1",
+        deviceName: "d",
+        textExtensions: ["md"],
+        extraExcludeGlobs: [],
+        debounceMs: 250,
+        pollIntervalSeconds: 30,
+        deviceId: "dev"
+      },
+      manifest: { version: "1.7.0" },
+      app: { vault: {} }
+    };
+
+    const { SyncOrchestrator } = await import("../../src/sync-orchestrator");
+    const orchestrator = new SyncOrchestrator(plugin as never);
+    notices.length = 0;
+    const onUnhandled = (): void => undefined;
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      orchestrator.rebuild();
+      const realEngine = plugin.engine as unknown as {
+        syncNow: () => Promise<void>;
+      };
+      const stuck = new Error("File not found: blocked.md");
+      const syncSpy = vi
+        .spyOn(realEngine, "syncNow")
+        .mockRejectedValue(stuck);
+      const poll = intervals[0];
+      // Pass 1: consumed silently (status bar shows it).
+      poll();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(notices).toEqual([]);
+      // Pass 2: same error again → exactly one notice.
+      poll();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(notices).toEqual([
+        "Sync keeps failing on the same error. Reason: File not found: blocked.md"
+      ]);
+      // Pass 3+: still the same error → no repetition.
+      poll();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(notices.length).toBe(1);
+      // A DIFFERENT error re-arms the dedup.
+      syncSpy.mockRejectedValue(new Error("HTTP 500"));
+      poll();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      poll();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(notices.length).toBe(2);
+      expect(notices[1]).toContain("HTTP 500");
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
       orchestrator.invalidate();
       syncApiSpy.mockRestore();
       adapterSpy.mockRestore();
