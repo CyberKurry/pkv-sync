@@ -18,17 +18,22 @@ pub struct ReconcileReport {
 /// before skipping that vault (warned) instead of hanging forever.
 pub const VAULT_PUSH_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[cfg(test)]
-#[allow(dead_code)]
-pub(crate) fn test_lock_timeout() -> Duration {
-    Duration::from_millis(50)
+/// The single timeout producer for push-lock acquisition (R9-1): push,
+/// reconcile, cleanup, rollback and delete all bound their lock waits
+/// with this. Tests drive a short value; production uses 30s.
+pub fn vault_push_lock_timeout() -> Duration {
+    if cfg!(test) {
+        Duration::from_millis(50)
+    } else {
+        VAULT_PUSH_LOCK_TIMEOUT
+    }
 }
 
 pub async fn reconcile_vault_metadata(
     state: &AppState,
     vault_id: &str,
 ) -> Result<ReconcileReport, ApiError> {
-    reconcile_vault_metadata_with_timeout(state, vault_id, VAULT_PUSH_LOCK_TIMEOUT).await
+    reconcile_vault_metadata_with_timeout(state, vault_id, vault_push_lock_timeout()).await
 }
 
 pub async fn reconcile_vault_metadata_with_timeout(

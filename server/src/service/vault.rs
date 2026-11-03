@@ -67,8 +67,19 @@ pub async fn rollback_to_commit_as(
         return Err(RollbackError::Forbidden);
     }
 
+    // R9-1 (rollback half): this lock acquire is bounded like every other
+    // push-lock consumer. An unbounded `.lock().await` meant one stuck
+    // holder froze the rollback HTTP request forever.
+    let lock_timeout = crate::service::sync::vault_push_lock_timeout();
     let push_lock = state.vault_push_lock(vault_id);
-    let _push_guard = push_lock.lock().await;
+    let _push_guard = match tokio::time::timeout(lock_timeout, push_lock.lock()).await {
+        Ok(guard) => guard,
+        Err(_) => {
+            return Err(RollbackError::Internal(format!(
+                "vault {vault_id}: push lock busy for over {lock_timeout:?}, rollback skipped"
+            )))
+        }
+    };
     let vault = state
         .vaults
         .find_by_id(vault_id)
@@ -255,8 +266,20 @@ pub async fn delete_vault_for_user(
     {
         return Ok(false);
     }
+    let lock_timeout = crate::service::sync::vault_push_lock_timeout();
     let push_lock = state.vault_push_lock(vault_id);
-    let push_guard = push_lock.lock().await;
+    // R9-1 (delete half): bounded like every other push-lock consumer —
+    // an unbounded `.lock().await` meant one stuck holder froze the vault
+    // deletion HTTP request forever. The lock-map entry stays: the stuck
+    // holder still owns a guard into it, and a later retry reuses it.
+    let push_guard = match tokio::time::timeout(lock_timeout, push_lock.lock()).await {
+        Ok(guard) => guard,
+        Err(_) => {
+            return Err(ApiError::internal(format!(
+                "vault {vault_id}: push lock busy for over {lock_timeout:?}, deletion skipped"
+            )));
+        }
+    };
     let storage_guard = crate::service::acquire_storage_mutation_guard(state).await?;
     let deleted = state.vaults.delete_for_user(user_id, vault_id).await?;
     if !deleted {
@@ -644,6 +667,61 @@ mod tests {
         drop(lock);
         s.remove_vault_push_lock(&v.id);
         assert_eq!(s.vault_push_lock_count_for_tests(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rollback_skips_after_push_lock_timeout_instead_of_hanging() {
+        // R9-1: a permanently held push lock must bound the rollback
+        // request, not hang the HTTP call forever (50ms under test via
+        // vault_push_lock_timeout).
+        let (s, uid, _tmp) = state_and_user().await;
+        let v = create_vault(&s, &uid, "main").await.unwrap();
+        let lock = s.vault_push_lock(&v.id);
+        let _guard = lock.lock().await;
+
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            rollback_to_commit_as(
+                &s,
+                RollbackActor {
+                    user_id: &uid,
+                    is_admin: false,
+                    token_id: None,
+                    device_id: "stuck-lock-test",
+                },
+                &v.id,
+                "0000000000000000000000000000000000000000",
+            ),
+        )
+        .await
+        .expect("rollback must return despite a stuck push lock (R9-1)")
+        .expect_err("a stuck lock must fail the rollback, not succeed");
+
+        assert!(
+            matches!(err, RollbackError::Internal(_)),
+            "expected Internal busy error, got {err:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn delete_vault_skips_after_push_lock_timeout_instead_of_hanging() {
+        // R9-1: same bound for vault deletion.
+        let (s, uid, _tmp) = state_and_user().await;
+        let v = create_vault(&s, &uid, "main").await.unwrap();
+        let lock = s.vault_push_lock(&v.id);
+        let _guard = lock.lock().await;
+
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            delete_vault_for_user(&s, &uid, &v.id),
+        )
+        .await
+        .expect("deletion must return despite a stuck push lock (R9-1)")
+        .unwrap_err();
+
+        assert_eq!(err.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        // The vault row must survive a skipped deletion.
+        assert!(s.vaults.find_by_id(&v.id).await.unwrap().is_some());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -136,12 +136,7 @@ async fn for_each_vault_bounded(
 }
 
 async fn reconcile_all_vaults(state: &AppState) -> (usize, usize) {
-    // R8-7: tests drive a short timeout; production uses the 30s default.
-    let timeout = if cfg!(test) {
-        std::time::Duration::from_millis(50)
-    } else {
-        crate::service::sync::VAULT_PUSH_LOCK_TIMEOUT
-    };
+    let timeout = crate::service::sync::vault_push_lock_timeout();
     for_each_vault_bounded(
         state,
         "vault metadata reconcile list failed",
@@ -169,12 +164,7 @@ async fn reconcile_all_vaults(state: &AppState) -> (usize, usize) {
 }
 
 async fn git_gc_all_vaults(state: &AppState) -> (usize, usize) {
-    // R8-7: tests drive a short timeout; production uses the 30s default.
-    let timeout = if cfg!(test) {
-        std::time::Duration::from_millis(50)
-    } else {
-        crate::service::sync::VAULT_PUSH_LOCK_TIMEOUT
-    };
+    let timeout = crate::service::sync::vault_push_lock_timeout();
     for_each_vault_bounded(state, "vault git gc list failed", move |state, vault_id| {
         Box::pin(async move {
             let push_lock = state.vault_push_lock(&vault_id);

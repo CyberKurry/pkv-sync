@@ -12,7 +12,7 @@ use crate::storage::git::Git2VaultStore;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{watch, Mutex, Notify, RwLock};
@@ -154,6 +154,10 @@ pub struct AppState {
     vault_path_filter_cache: VaultPathFilterCache,
     blob_in_flight_bytes: Arc<AtomicU64>,
     blob_in_flight_cap: Arc<AtomicU64>,
+    /// R9-1: re-entrancy latch for the detached periodic-cleanup tick.
+    /// Set while a cleanup run is in flight so the interval loop can skip
+    /// (loudly) instead of piling overlapping runs onto a stuck one.
+    pub cleanup_running: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -231,6 +235,7 @@ impl AppState {
             vault_path_filter_cache: Arc::new(DashMap::new()),
             blob_in_flight_bytes: Arc::new(AtomicU64::new(0)),
             blob_in_flight_cap: Arc::new(AtomicU64::new(DEFAULT_BLOB_IN_FLIGHT_CAP_BYTES)),
+            cleanup_running: Arc::new(AtomicBool::new(false)),
         };
         Ok(state)
     }

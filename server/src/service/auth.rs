@@ -877,13 +877,8 @@ mod tests {
             is_admin: false,
         };
         let mut cache = crate::mcp::auth::TokenValidityCache::default();
-        let primed = crate::mcp::auth::mcp_token_validity(
-            &s,
-            &revoked_hash,
-            &user,
-            &mut cache,
-        )
-        .await;
+        let primed =
+            crate::mcp::auth::mcp_token_validity(&s, &revoked_hash, &user, &mut cache).await;
         assert_eq!(primed, crate::mcp::auth::TokenValidity::Valid);
 
         change_password(
@@ -899,13 +894,8 @@ mod tests {
         .unwrap();
 
         // No TTL wait: the epoch bump must invalidate the cache NOW.
-        let after = crate::mcp::auth::mcp_token_validity(
-            &s,
-            &revoked_hash,
-            &user,
-            &mut cache,
-        )
-        .await;
+        let after =
+            crate::mcp::auth::mcp_token_validity(&s, &revoked_hash, &user, &mut cache).await;
         assert_eq!(
             after,
             crate::mcp::auth::TokenValidity::Revoked,

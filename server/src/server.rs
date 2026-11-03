@@ -358,6 +358,60 @@ pub async fn run_with_listener(
     run_with_listener_and_state(cfg, listener, state, limiter).await
 }
 
+/// One periodic-cleanup tick, detached (R8-7 as documented, R9-1 as built).
+///
+/// The tick runs in its own spawned task and the interval loop does NOT
+/// await it: a cleanup run that never returns (a `spawn_blocking` git gc
+/// stuck on pathological I/O — the push-lock timeouts do not bound that
+/// half) must not stop the timer from reaching the next tick. Instead the
+/// previous run's `running` flag stays set and the next tick skips with a
+/// loud log, so "cleanup is stuck" is observable instead of silent.
+type CleanupRun = Box<
+    dyn FnOnce(
+            AppState,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = crate::service::cleanup::CleanupReport> + Send>,
+        > + Send,
+>;
+
+fn spawn_cleanup_tick(state: AppState, run: CleanupRun) {
+    if state
+        .cleanup_running
+        .swap(true, std::sync::atomic::Ordering::AcqRel)
+    {
+        tracing::error!(
+            "periodic cleanup skipped: the previous run is still in flight \
+             (a stuck vault/git operation is holding it; investigate before \
+             unbounded garbage accumulates)"
+        );
+        return;
+    }
+    tokio::spawn(async move {
+        let report = run(state.clone()).await;
+        tracing::info!(
+            sessions = report.sessions_deleted,
+            tokens = report.tokens_deleted,
+            activity = report.activity_deleted,
+            idempotency = report.idempotency_deleted,
+            blobs = report.blobs_deleted,
+            git_gc = report.git_gc_pruned,
+            git_gc_failed = report.git_gc_failed,
+            "periodic cleanup completed"
+        );
+        state
+            .cleanup_running
+            .store(false, std::sync::atomic::Ordering::Release);
+    });
+}
+
+fn run_scheduled_cleanup_once(
+    state: AppState,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = crate::service::cleanup::CleanupReport> + Send>,
+> {
+    Box::pin(async move { crate::service::cleanup::run_scheduled_cleanup(&state).await })
+}
+
 pub async fn run_with_listener_and_state(
     cfg: Arc<Config>,
     listener: tokio::net::TcpListener,
@@ -374,31 +428,7 @@ pub async fn run_with_listener_and_state(
         interval.tick().await;
         loop {
             interval.tick().await;
-            // R8-7: run each tick in its own task. Inline execution meant
-            // one hung cleanup (a vault lock held by a stuck holder) froze
-            // the loop itself: every later tick was missed silently. A
-            // per-tick task keeps the timer alive; a stuck run shows up as
-            // an overlapping run instead of as a dead loop.
-            let tick_state = cleanup_state.clone();
-            let report = tokio::spawn(async move {
-                crate::service::cleanup::run_scheduled_cleanup(&tick_state).await
-            })
-            .await
-            .unwrap_or_else(|e| {
-                tracing::error!(error = %e, "periodic cleanup task panicked");
-                // fall through with a zeroed report; the loop logs it
-                Default::default()
-            });
-            tracing::info!(
-                sessions = report.sessions_deleted,
-                tokens = report.tokens_deleted,
-                activity = report.activity_deleted,
-                idempotency = report.idempotency_deleted,
-                blobs = report.blobs_deleted,
-                git_gc = report.git_gc_pruned,
-                git_gc_failed = report.git_gc_failed,
-                "periodic cleanup completed"
-            );
+            spawn_cleanup_tick(cleanup_state.clone(), Box::new(run_scheduled_cleanup_once));
         }
     });
     let cleanup_limiter = limiter.clone();
@@ -674,6 +704,70 @@ mod tests {
         assert_eq!(r.auth_failure, 1);
         assert_eq!(r.mcp_auth, 1);
         assert_eq!(r.mcp_write, 1);
+    }
+
+    #[tokio::test]
+    async fn cleanup_tick_does_not_block_the_next_tick_when_the_run_hangs() {
+        // R9-1: the interval loop must NOT await the per-tick cleanup task.
+        // The old `tokio::spawn(run).await` was serial: one cleanup run
+        // that never returned (a `spawn_blocking` git gc stuck on
+        // pathological I/O — the push-lock timeouts do not bound that
+        // half) meant `interval.tick()` was never reached again and
+        // cleanup stopped forever with no signal. The tick is detached;
+        // a hung run keeps `cleanup_running` set and the NEXT tick
+        // observes it (loud skip) instead of the loop freezing.
+        let pool = pool::connect_memory().await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(pool, tmp.path().to_path_buf(), "test".into(), true)
+            .await
+            .unwrap();
+
+        let hanging_state = state.clone();
+        let started = std::sync::Arc::new(tokio::sync::Notify::new());
+        let started_tx = started.clone();
+        let hang: CleanupRun = Box::new(move |_state: AppState| {
+            let started_tx = started_tx.clone();
+            Box::pin(async move {
+                started_tx.notify_one();
+                std::future::pending::<()>().await;
+                #[allow(unreachable_code)]
+                crate::service::cleanup::CleanupReport::default()
+            })
+        });
+        // Tick 1: the run hangs forever.
+        spawn_cleanup_tick(hanging_state, hang);
+        started.notified().await;
+
+        // Tick 2 must return promptly (it skips loudly, it does not wait).
+        let skipped_state = state.clone();
+        let observed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed_tx = observed.clone();
+        let tick2: CleanupRun = Box::new(move |_state: AppState| {
+            let observed_tx = observed_tx.clone();
+            Box::pin(async move {
+                observed_tx.store(1, std::sync::atomic::Ordering::Release);
+                crate::service::cleanup::CleanupReport::default()
+            })
+        });
+        let t2 = tokio::time::timeout(Duration::from_secs(2), async {
+            spawn_cleanup_tick(skipped_state, tick2);
+            // The skip decision is synchronous; give the runtime a beat.
+            tokio::task::yield_now().await;
+        })
+        .await;
+        assert!(t2.is_ok(), "the second tick must not wait on the hung run");
+        assert_eq!(
+            observed.load(std::sync::atomic::Ordering::Acquire),
+            0,
+            "the second tick must be SKIPPED while the first run is in flight"
+        );
+        assert!(
+            state
+                .cleanup_running
+                .load(std::sync::atomic::Ordering::Acquire),
+            "the hung run keeps the latch set — cleanup is observably stuck, not silently dead"
+        );
     }
 
     #[tokio::test]
