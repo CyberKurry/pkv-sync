@@ -34,7 +34,9 @@ import {
 } from "./vault-adapter";
 
 const BLOB_UPLOAD_CONCURRENCY = 4;
-const MAX_PUSH_CHANGES = 1000;
+// R9-Dup-6: derive from LEGACY_PUSH_LIMITS — the server's own 1000
+// (service/sync/limits.rs) is the wire contract and stays independent.
+const MAX_PUSH_CHANGES = LEGACY_PUSH_LIMITS.max_changes;
 
 interface PendingScan {
   pending: LocalFileSnapshot[];
