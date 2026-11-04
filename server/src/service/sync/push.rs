@@ -27,7 +27,9 @@ const MAX_IDEMPOTENCY_KEY_LEN: usize = 256;
 const MAX_PUSH_DEVICE_NAME_BYTES: usize = 4096;
 const MAX_COMMIT_DEVICE_NAME_CHARS: usize = 128;
 const BLOB_REF_BINDS_PER_ROW: usize = 3;
-const BLOB_UPLOAD_DELETE_SHARED_BINDS: usize = 1;
+/// One shared bind (vault_id) across every chunked `IN (…)` DELETE —
+/// both blob_refs (by commit) and blob_uploads (by hash).
+const VAULT_ID_SHARED_BINDS: usize = 1;
 
 /// Test-only probe for the M-8 ordering invariant: `record_push_metadata`
 /// (which commits the `blob_refs` rows `download_blob` authorizes against)
@@ -961,11 +963,10 @@ async fn delete_blob_refs_by_commits_in_tx(
     vault_id: &str,
     commits: &[String],
 ) -> Result<(), sqlx::Error> {
-    const SHARED_BINDS: usize = 1;
     if commits.is_empty() {
         return Ok(());
     }
-    let chunk_size = SQLITE_SAFE_BIND_LIMIT - SHARED_BINDS;
+    let chunk_size = SQLITE_SAFE_BIND_LIMIT - VAULT_ID_SHARED_BINDS;
     for chunk in commits.chunks(chunk_size) {
         let mut query = QueryBuilder::<Sqlite>::new("DELETE FROM blob_refs WHERE vault_id = ");
         query.push_bind(vault_id);
@@ -988,7 +989,7 @@ async fn delete_blob_uploads_in_tx(
     if hashes.is_empty() {
         return Ok(());
     }
-    let chunk_size = SQLITE_SAFE_BIND_LIMIT - BLOB_UPLOAD_DELETE_SHARED_BINDS;
+    let chunk_size = SQLITE_SAFE_BIND_LIMIT - VAULT_ID_SHARED_BINDS;
     for chunk in hashes.chunks(chunk_size) {
         let mut query = QueryBuilder::<Sqlite>::new("DELETE FROM blob_uploads WHERE vault_id = ");
         query.push_bind(vault_id);
