@@ -5,20 +5,26 @@ PKV Sync is a self-hosted, Git-native sync server for Obsidian vaults.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.7.3.
+Document version: v1.7.4.
 
 English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## Status
 
-PKV Sync 1.7.3 is the current stable patch release. It fixes the plugin's
-built-in GitHub update check, which always reported "up to date", by pointing
-at the plugin mirror releases and surfacing release-shape errors; repairs the
-opt-in Docker self-updater profile (deployment coordinates, rollback target,
-marker cleanup, health check, socket-proxy tag); fences settings-tab calls to
-the connection they were issued on; and bumps rustls for four Dependabot
-security advisories. Release publishing now attaches the individual plugin
-files and their sha256 digests.
+PKV Sync 1.7.4 is the current stable patch release. It hardens the sync
+pipeline end to end: a password change now invalidates cached MCP
+sessions immediately; the periodic cleanup loop survives panics and
+stuck locks instead of dying silently; REST reads check vault ownership
+before consulting the target vault's configuration; and percent-escaped
+path separators (`a%2Fb.md`) are refused on both client and server
+instead of silently storing a different tree. Plugin-side, a failed
+settings write no longer turns a successful sync into an error, a
+permanently unreadable file now produces a pointed notice instead of a
+silent red bar, and the sync-now button's icon no longer depends on the
+locale's label text. Internal redundancy (four token-liveness
+implementations, five lock preambles, ~190 duplicated fixture
+spellings) was consolidated with no behavior change.
+
 
 ## Features
 

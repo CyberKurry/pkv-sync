@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.7.4] - 2026-11-04
+
 ### Fixed
 
 - The sync-now button's refresh icon was keyed off a display-text

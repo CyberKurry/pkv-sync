@@ -5,13 +5,14 @@ PKV Sync 是一个自托管的、Git 原生的 Obsidian 笔记库同步服务端
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.7.3。
+文档版本：v1.7.4。
 
 [English](./README.md) · 简体中文 · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## 状态
 
-PKV Sync 1.7.3 是当前稳定补丁版本，修复插件内置 GitHub 更新检查恒提示“已是最新版本”的问题（改为查询插件镜像仓库并如实报告发布形状错误）；修复可选 Docker 自升级配置（部署坐标、回滚目标、标记清理、健康检查、socket-proxy 标签）；将设置页调用限定在发起时的连接内；并更新 rustls 以解决 4 个 Dependabot 安全通告。发布流程现在会附带独立插件文件及其 sha256 摘要。
+PKV Sync 1.7.4 是当前稳定补丁版本。它对同步管线做了端到端加固：修改密码后 MCP 缓存会话立即失效；定时清理循环在 panic 与卡死锁下存活而不再静默停摆；REST 读取先校验 vault 归属再读取目标配置；百分号转义的路径分隔符（`a%2Fb.md`）在客户端与服务端两侧一致拒绝，不再静默存储成不同的目录树。插件侧：设置写入失败不再把一次成功的同步改判为错误；永久不可读的文件现在会弹出指明文件的提示而非只有红色状态条；立即同步按钮的图标不再依赖当前语言的文案。内部冗余（四份令牌有效性实现、五处锁获取序言、约 190 处重复的测试夹具拼写）在行为不变的前提下完成合并。
+
 
 ## 功能
 
