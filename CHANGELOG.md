@@ -9,6 +9,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- The sync-now button's refresh icon was keyed off a display-text
+  comparison against the current locale's label — any wording change
+  (or a second button sharing the label) silently dropped the icon.
+  The icon is now an explicit render-time parameter.
 - A panicking periodic-cleanup run permanently wedged the cleanup latch:
   the fire-and-forget tick never reached its reset on the unwind path,
   so every later tick skipped and cleanup stopped silently — worse than
@@ -141,6 +145,17 @@ and this project adheres to semantic versioning starting at v1.0.0.
   effective extension set as the sync engine (server-configured with the
   default fallback) instead of a private hardcoded 17-extension list
   that could disagree with the engine about the same file.
+- Internal redundancy cleanup (behavior-preserving, no other
+  user-visible change): one token-liveness producer replaces four
+  implementations and four dead repository methods were removed; one
+  bounded push-lock acquisition replaces five hand-rolled preambles
+  (and a duplicated test/production timeout constant); the
+  chunked-delete shared-bind constant, the plugin's text-path
+  predicate, its push-changes constant and the connection-field
+  enumeration each collapsed to a single definition (intentional
+  field subsets now documented); test-fixture constructors
+  (FileChange::upsert_text) replaced ~190 literal spellings across the
+  server tree.
 
 ## [1.7.3] - 2026-11-02
 

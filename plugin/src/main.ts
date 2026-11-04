@@ -82,7 +82,7 @@ import {
   type PluginFileAdapter,
   type PluginUpdateStatus
 } from "./services/update-check";
-import { errorToMessage, extensionOf, isTextPath } from "./util";
+import { errorToMessage, isTextPath } from "./util";
 
 type CompletionState = "old_safe" | "new_committed" | "disk_uncertain";
 
