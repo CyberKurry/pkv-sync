@@ -164,22 +164,19 @@ async fn reconcile_all_vaults(state: &AppState) -> (usize, usize) {
 }
 
 async fn git_gc_all_vaults(state: &AppState) -> (usize, usize) {
-    let timeout = crate::service::sync::vault_push_lock_timeout();
     for_each_vault_bounded(state, "vault git gc list failed", move |state, vault_id| {
         Box::pin(async move {
-            let push_lock = state.vault_push_lock(&vault_id);
             // R8-7: bounded acquire — see reconcile_vault_metadata.
-            let _push_guard = match tokio::time::timeout(timeout, push_lock.lock()).await {
-                Ok(guard) => guard,
-                Err(_) => {
-                    tracing::warn!(
-                        vault_id = %vault_id,
-                        "vault git gc skipped: push lock busy for over {:?}",
-                        timeout
-                    );
-                    return false;
-                }
-            };
+            let _push_guard =
+                match crate::service::sync::acquire_vault_push_lock(&state, &vault_id, "git gc")
+                    .await
+                {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        tracing::warn!(vault_id = %vault_id, "{}", e.message);
+                        return false;
+                    }
+                };
             let _storage_guard = match crate::service::acquire_storage_mutation_guard(&state).await
             {
                 Ok(guard) => guard,

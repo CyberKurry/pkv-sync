@@ -10,7 +10,6 @@ use crate::storage::path;
 use sha2::{Digest, Sha256};
 use sqlx::{QueryBuilder, Sqlite};
 use std::collections::{BTreeMap, HashSet};
-use std::time::Duration;
 
 use super::events::{text_event_with_budget, SseInlineBudget};
 use super::limits::MAX_PUSH_CHANGES;
@@ -29,10 +28,6 @@ const MAX_PUSH_DEVICE_NAME_BYTES: usize = 4096;
 const MAX_COMMIT_DEVICE_NAME_CHARS: usize = 128;
 const BLOB_REF_BINDS_PER_ROW: usize = 3;
 const BLOB_UPLOAD_DELETE_SHARED_BINDS: usize = 1;
-#[cfg(test)]
-const VAULT_PUSH_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
-#[cfg(not(test))]
-const VAULT_PUSH_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Test-only probe for the M-8 ordering invariant: `record_push_metadata`
 /// (which commits the `blob_refs` rows `download_blob` authorizes against)
@@ -1105,8 +1100,9 @@ async fn acquire_vault_push_lock(
     state: &AppState,
     vault_id: &str,
 ) -> Result<tokio::sync::OwnedMutexGuard<()>, ApiError> {
-    let lock = state.vault_push_lock(vault_id);
-    tokio::time::timeout(VAULT_PUSH_LOCK_TIMEOUT, lock.lock_owned())
+    // E-1: single bounded acquisition; the 503 mapping is push-specific
+    // and stays here.
+    super::lock::acquire_vault_push_lock_bounded(state, vault_id, "push")
         .await
         .map_err(|_| {
             ApiError::new(

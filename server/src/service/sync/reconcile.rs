@@ -41,21 +41,20 @@ pub async fn reconcile_vault_metadata_with_timeout(
     vault_id: &str,
     timeout: Duration,
 ) -> Result<ReconcileReport, ApiError> {
-    let push_lock = state.vault_push_lock(vault_id);
     // R8-7: an unbounded lock acquire here meant one vault whose lock
     // holder is permanently stuck (pathological I/O inside a git commit,
     // an NFS stall) froze the whole scheduled cleanup forever — with no
     // log line saying cleanup stopped. A stuck holder keeps its vault
     // unreconciled (returned as an error, warned by the caller); every
     // other vault and every other cleanup duty keeps running.
-    let _push_guard = match tokio::time::timeout(timeout, push_lock.lock()).await {
-        Ok(guard) => guard,
-        Err(_) => {
-            return Err(ApiError::internal(format!(
-                "vault {vault_id}: push lock busy for over {timeout:?}, skipping reconcile"
-            )));
-        }
-    };
+    let _push_guard =
+        match super::lock::acquire_vault_push_lock_bounded(state, vault_id, "reconcile").await {
+            Ok(guard) => guard,
+            Err(e) => {
+                debug_assert_eq!(e.timeout, timeout, "caller-injected timeout must match");
+                return Err(ApiError::internal(e.message));
+            }
+        };
     let _storage_guard = crate::service::acquire_storage_mutation_guard(state).await?;
     reconcile_vault_metadata_unlocked(state, vault_id).await
 }

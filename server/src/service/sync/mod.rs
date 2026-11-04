@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 mod blobs;
 mod events;
 pub(crate) mod limits;
+mod lock;
 mod merge_apply;
 mod paths;
 mod pull;
@@ -18,6 +19,8 @@ mod push;
 mod reconcile;
 
 pub use blobs::{download_blob, upload_blob, upload_check};
+/// E-1: the single bounded push-lock acquisition (see sync/lock.rs).
+pub(crate) use lock::acquire_vault_push_lock_bounded as acquire_vault_push_lock;
 pub(crate) use merge_apply::is_generated_conflict_sidecar;
 pub(crate) use paths::{ensure_path_visible_for_sync_api, path_visible_on_read, vault_path_filter};
 pub use pull::{pull, pull_with_request_metadata, read_file, state};

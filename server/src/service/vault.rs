@@ -70,16 +70,11 @@ pub async fn rollback_to_commit_as(
     // R9-1 (rollback half): this lock acquire is bounded like every other
     // push-lock consumer. An unbounded `.lock().await` meant one stuck
     // holder froze the rollback HTTP request forever.
-    let lock_timeout = crate::service::sync::vault_push_lock_timeout();
-    let push_lock = state.vault_push_lock(vault_id);
-    let _push_guard = match tokio::time::timeout(lock_timeout, push_lock.lock()).await {
-        Ok(guard) => guard,
-        Err(_) => {
-            return Err(RollbackError::Internal(format!(
-                "vault {vault_id}: push lock busy for over {lock_timeout:?}, rollback skipped"
-            )))
-        }
-    };
+    let _push_guard =
+        match crate::service::sync::acquire_vault_push_lock(state, vault_id, "rollback").await {
+            Ok(guard) => guard,
+            Err(e) => return Err(RollbackError::Internal(e.message)),
+        };
     let vault = state
         .vaults
         .find_by_id(vault_id)
@@ -266,20 +261,19 @@ pub async fn delete_vault_for_user(
     {
         return Ok(false);
     }
-    let lock_timeout = crate::service::sync::vault_push_lock_timeout();
-    let push_lock = state.vault_push_lock(vault_id);
     // R9-1 (delete half): bounded like every other push-lock consumer —
     // an unbounded `.lock().await` meant one stuck holder froze the vault
     // deletion HTTP request forever. The lock-map entry stays: the stuck
     // holder still owns a guard into it, and a later retry reuses it.
-    let push_guard = match tokio::time::timeout(lock_timeout, push_lock.lock()).await {
-        Ok(guard) => guard,
-        Err(_) => {
-            return Err(ApiError::internal(format!(
-                "vault {vault_id}: push lock busy for over {lock_timeout:?}, deletion skipped"
-            )));
-        }
-    };
+    let push_lock = state.vault_push_lock(vault_id);
+    let push_guard =
+        match crate::service::sync::acquire_vault_push_lock(state, vault_id, "deletion").await {
+            Ok(guard) => guard,
+            Err(e) => {
+                drop(push_lock);
+                return Err(ApiError::internal(e.message));
+            }
+        };
     let storage_guard = crate::service::acquire_storage_mutation_guard(state).await?;
     let deleted = state.vaults.delete_for_user(user_id, vault_id).await?;
     if !deleted {
