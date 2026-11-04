@@ -725,27 +725,25 @@ async fn run_vault_sse_stream<S>(
 }
 
 async fn sse_token_still_valid(state: &AppState, user: &AuthenticatedUser) -> bool {
-    let now = chrono::Utc::now().timestamp();
-    let active: Result<Option<i64>, sqlx::Error> = sqlx::query_scalar(
-        "SELECT 1
-         FROM tokens tok
-         JOIN users u ON u.id = tok.user_id
-         WHERE tok.id = ?
-           AND tok.user_id = ?
-           AND tok.revoked_at IS NULL
-           AND tok.expires_at > ?
-           AND tok.created_at + ? > ?
-           AND u.is_active = 1
-         LIMIT 1",
-    )
-    .bind(&user.token_id)
-    .bind(&user.user_id)
-    .bind(now)
-    .bind(crate::auth::token::TOKEN_ABSOLUTE_LIFETIME_SECONDS)
-    .bind(now)
-    .fetch_optional(&state.pool)
-    .await;
-    matches!(active, Ok(Some(_)))
+    // E-3: the single producer — always a live DB query; the SSE loop's
+    // per-frame revalidation is a deliberate revocation-delay bound.
+    crate::service::auth::token_is_live(state, &user.token_id, &user.user_id).await
+}
+
+#[cfg(test)]
+mod sse_token_validity_tests {
+    #[test]
+    fn sse_token_validity_uses_the_single_producer() {
+        let source = include_str!("vaults.rs");
+        let start = source
+            .find("async fn sse_token_still_valid")
+            .expect("sse_token_still_valid exists");
+        let body = &source[start..start + 400];
+        assert!(
+            body.contains("token_is_live"),
+            "sse_token_still_valid must delegate to service::auth::token_is_live (E-3)"
+        );
+    }
 }
 
 #[cfg(debug_assertions)]

@@ -23,7 +23,6 @@ pub trait InviteRepo: Send + Sync {
     async fn find(&self, code: &str) -> Result<Option<Invite>, sqlx::Error>;
     async fn list_active(&self, now_ts: i64) -> Result<Vec<Invite>, sqlx::Error>;
     async fn count_used(&self) -> Result<usize, sqlx::Error>;
-    async fn mark_used(&self, code: &str, used_by: &str, ts: i64) -> Result<bool, sqlx::Error>;
     async fn delete(&self, code: &str) -> Result<(), sqlx::Error>;
 }
 
@@ -134,21 +133,6 @@ impl InviteRepo for SqliteInviteRepo {
         Ok(count as usize)
     }
 
-    /// Atomic claim. Returns true if claim succeeded; false if already used or expired.
-    async fn mark_used(&self, code: &str, used_by: &str, ts: i64) -> Result<bool, sqlx::Error> {
-        let r = sqlx::query(
-            "UPDATE invites SET used_at = ?, used_by = ?
-             WHERE code = ? AND used_at IS NULL AND (expires_at IS NULL OR expires_at > ?)",
-        )
-        .bind(ts)
-        .bind(used_by)
-        .bind(code)
-        .bind(ts)
-        .execute(&self.pool)
-        .await?;
-        Ok(r.rows_affected() == 1)
-    }
-
     async fn delete(&self, code: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM invites WHERE code = ?")
             .bind(code)
@@ -162,9 +146,16 @@ impl InviteRepo for SqliteInviteRepo {
 mod tests {
     use super::*;
     use crate::db::pool;
-    use crate::db::repos::{NewUser, SqliteUserRepo, UserRepo};
+    use crate::db::repos::{
+        NewUser, RegistrationMode, RuntimeConfigRepo, SqliteUserRepo, UserRepo,
+    };
 
-    async fn setup() -> (SqliteInviteRepo, SqliteUserRepo, String) {
+    async fn setup() -> (
+        SqliteInviteRepo,
+        SqliteUserRepo,
+        String,
+        crate::service::AppState,
+    ) {
         let p = pool::connect_memory().await.unwrap();
         sqlx::migrate!("./migrations").run(&p).await.unwrap();
         let users = SqliteUserRepo::new(p.clone());
@@ -176,12 +167,28 @@ mod tests {
             })
             .await
             .unwrap();
-        (SqliteInviteRepo::new(p), users, admin.id)
+        let tmp = tempfile::tempdir().unwrap();
+        let state = crate::service::AppState::new(p, tmp.path().to_path_buf(), "t".into(), true)
+            .await
+            .unwrap();
+        state
+            .runtime_cfg_repo
+            .set_registration_mode(RegistrationMode::InviteOnly, None)
+            .await
+            .unwrap();
+        let cfg = state.runtime_cfg_repo.load().await.unwrap();
+        state.runtime_cfg.replace(cfg).await;
+        (
+            SqliteInviteRepo::new(state.pool.clone()),
+            users,
+            admin.id,
+            state,
+        )
     }
 
     #[tokio::test]
     async fn create_then_find() {
-        let (repo, _users, admin) = setup().await;
+        let (repo, _users, admin, _state) = setup().await;
         let inv = repo.create(&admin, Some(9999999999)).await.unwrap();
         assert!(inv.code.starts_with("inv_"));
         let found = repo.find(&inv.code).await.unwrap().unwrap();
@@ -189,51 +196,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mark_used_first_succeeds_second_fails() {
-        let (repo, _users, admin) = setup().await;
-        let inv = repo.create(&admin, None).await.unwrap();
-        assert!(repo.mark_used(&inv.code, &admin, 100).await.unwrap());
-        assert!(!repo.mark_used(&inv.code, &admin, 200).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn list_active_excludes_used() {
-        let (repo, _users, admin) = setup().await;
-        let i1 = repo.create(&admin, None).await.unwrap();
-        let _i2 = repo.create(&admin, None).await.unwrap();
-        repo.mark_used(&i1.code, &admin, 1).await.unwrap();
-        let active = repo.list_active(0).await.unwrap();
-        assert_eq!(active.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn list_active_excludes_expired() {
-        let (repo, _users, admin) = setup().await;
-        let _i = repo.create(&admin, Some(50)).await.unwrap();
-        let active = repo.list_active(100).await.unwrap();
-        assert_eq!(active.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn cannot_use_expired() {
-        let (repo, _users, admin) = setup().await;
-        let inv = repo.create(&admin, Some(50)).await.unwrap();
-        assert!(!repo.mark_used(&inv.code, &admin, 100).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn count_used_includes_used_invites_excluded_from_active_list() {
-        let (repo, _users, admin) = setup().await;
-        let inv = repo.create(&admin, None).await.unwrap();
-        repo.mark_used(&inv.code, &admin, 100).await.unwrap();
-
-        assert_eq!(repo.list_active(100).await.unwrap().len(), 0);
-        assert_eq!(repo.count_used().await.unwrap(), 1);
-    }
-
-    #[tokio::test]
     async fn deleting_invite_creator_cascades_to_invite() {
-        let (repo, users, admin) = setup().await;
+        let (repo, users, admin, _state) = setup().await;
         let inv = repo.create(&admin, None).await.unwrap();
 
         users.delete(&admin).await.unwrap();
@@ -243,22 +207,104 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_invite_user_nulls_used_by() {
-        let (repo, users, admin) = setup().await;
-        let user = users
-            .create(NewUser {
-                username: "u".into(),
-                password_hash: "h".into(),
-                is_admin: false,
-            })
-            .await
-            .unwrap();
+        let (repo, users, admin, state) = setup().await;
         let inv = repo.create(&admin, None).await.unwrap();
-        assert!(repo.mark_used(&inv.code, &user.id, 100).await.unwrap());
+        // Claim via the production register path (the only claim producer).
+        let invitee = crate::service::auth::register(
+            &state,
+            crate::service::auth::RegisterReq {
+                username: "invitee".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "d-inv".into(),
+                device_name: "d".into(),
+                invite_code: Some(inv.code.clone()),
+            },
+        )
+        .await
+        .unwrap();
+        let claimed_at = repo
+            .find(&inv.code)
+            .await
+            .unwrap()
+            .unwrap()
+            .used_at
+            .expect("register claims the invite");
 
-        users.delete(&user.id).await.unwrap();
+        users.delete(&invitee.user_id).await.unwrap();
 
         let found = repo.find(&inv.code).await.unwrap().unwrap();
-        assert_eq!(found.used_at, Some(100));
+        assert_eq!(found.used_at, Some(claimed_at));
         assert!(found.used_by.is_none());
+    }
+
+    #[tokio::test]
+    async fn register_claims_each_invite_once() {
+        // Was mark_used_first_succeeds_second_fails: used_at idempotency is
+        // a DB guarantee the register transaction relies on — pinned here
+        // through the production claim path.
+        let (repo, _users, admin, state) = setup().await;
+        let inv = repo.create(&admin, None).await.unwrap();
+        let req = |name: String| crate::service::auth::RegisterReq {
+            username: name,
+            password: "Passw0rdStrong".into(),
+            device_id: "d-claim".into(),
+            device_name: "d".into(),
+            invite_code: Some(inv.code.clone()),
+        };
+        crate::service::auth::register(&state, req("first".into()))
+            .await
+            .unwrap();
+        let second = crate::service::auth::register(&state, req("second".into())).await;
+        let err = second.unwrap_err();
+        assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(err.code, "invalid_invite");
+    }
+
+    #[tokio::test]
+    async fn register_rejects_expired_invites() {
+        // Was cannot_use_expired: the claim's expiry predicate.
+        let (repo, _users, admin, state) = setup().await;
+        let inv = repo.create(&admin, Some(50)).await.unwrap();
+        let err = crate::service::auth::register(
+            &state,
+            crate::service::auth::RegisterReq {
+                username: "late".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "d-exp".into(),
+                device_name: "d".into(),
+                invite_code: Some(inv.code),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.code, "invalid_invite");
+    }
+
+    #[tokio::test]
+    async fn count_used_sees_only_claims() {
+        // Was count_used_includes_used_invites_excluded_from_active_list.
+        let (repo, _users, admin, state) = setup().await;
+        let inv = repo.create(&admin, None).await.unwrap();
+        crate::service::auth::register(
+            &state,
+            crate::service::auth::RegisterReq {
+                username: "claimed".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "d-cnt".into(),
+                device_name: "d".into(),
+                invite_code: Some(inv.code),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            repo.list_active(chrono::Utc::now().timestamp())
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(repo.count_used().await.unwrap(), 1);
     }
 }

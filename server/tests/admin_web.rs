@@ -398,9 +398,15 @@ async fn user_detail_shows_real_vault_count_and_last_sync() {
     let session_cookie = login_cookie(&app).await;
     let user_id = first_admin_user_id(&app, &session_cookie).await;
     let vault = state.vaults.create(&user_id, "notes").await.unwrap();
-    state
-        .vaults
-        .update_stats(&vault.id, 123, 4, 1_700_000_000)
+    // Seed stats with the same UPDATE the production reconcile path runs
+    // (VaultRepo::update_stats was deleted dead — its production
+    // replacement is push/reconcile's inline UPDATE).
+    sqlx::query("UPDATE vaults SET size_bytes = ?, file_count = ?, last_sync_at = ? WHERE id = ?")
+        .bind(123i64)
+        .bind(4i64)
+        .bind(1_700_000_000i64)
+        .bind(&vault.id)
+        .execute(&state.pool)
         .await
         .unwrap();
 

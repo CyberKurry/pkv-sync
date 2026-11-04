@@ -23,13 +23,6 @@ pub trait VaultRepo: Send + Sync {
     async fn find_for_user(&self, user_id: &str, id: &str) -> Result<Option<Vault>, sqlx::Error>;
     async fn list_for_user(&self, user_id: &str) -> Result<Vec<Vault>, sqlx::Error>;
     async fn delete_for_user(&self, user_id: &str, id: &str) -> Result<bool, sqlx::Error>;
-    async fn update_stats(
-        &self,
-        id: &str,
-        size_bytes: i64,
-        file_count: i64,
-        ts: i64,
-    ) -> Result<(), sqlx::Error>;
 }
 
 pub struct SqliteVaultRepo {
@@ -118,25 +111,6 @@ impl VaultRepo for SqliteVaultRepo {
             .await?;
         Ok(r.rows_affected() == 1)
     }
-
-    async fn update_stats(
-        &self,
-        id: &str,
-        size_bytes: i64,
-        file_count: i64,
-        ts: i64,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE vaults SET size_bytes = ?, file_count = ?, last_sync_at = ? WHERE id = ?",
-        )
-        .bind(size_bytes)
-        .bind(file_count)
-        .bind(ts)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
 }
 
 async fn query_one(pool: &SqlitePool, sql: &str, id: &str) -> Result<Option<Vault>, sqlx::Error> {
@@ -193,17 +167,6 @@ mod tests {
         repo.create(&uid, "main").await.unwrap();
         let err = repo.create(&uid, "main").await.unwrap_err();
         assert!(err.to_string().to_lowercase().contains("unique"));
-    }
-
-    #[tokio::test]
-    async fn update_stats() {
-        let (repo, uid) = setup().await;
-        let v = repo.create(&uid, "main").await.unwrap();
-        repo.update_stats(&v.id, 123, 4, 99).await.unwrap();
-        let got = repo.find_by_id(&v.id).await.unwrap().unwrap();
-        assert_eq!(got.size_bytes, 123);
-        assert_eq!(got.file_count, 4);
-        assert_eq!(got.last_sync_at, Some(99));
     }
 
     #[tokio::test]

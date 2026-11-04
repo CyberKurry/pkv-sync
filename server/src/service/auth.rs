@@ -377,11 +377,76 @@ fn validate_device_fields<'a>(
     Ok((device_id, device_name))
 }
 
+/// One producer for "is this token id still a live credential for this
+/// user, asked of the database NOW" (E-3 / R9-Dup-3). Four
+/// implementations existed (extractor split-query, repo method without
+/// is_active, SSE raw SQL, MCP cache path); the SSE one hand-rolled the
+/// SQL precisely because no shared producer existed — the same drift
+/// shape as R9-2. Callers with caching needs (MCP) keep their cache
+/// OUTSIDE this function: the SSE loop's per-frame DB revalidation is a
+/// deliberate revocation-delay bound and must not gain a cache.
+pub async fn token_is_live(state: &AppState, token_id: &str, user_id: &str) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    let live: Result<Option<i64>, sqlx::Error> = sqlx::query_scalar(
+        "SELECT 1
+         FROM tokens tok
+         JOIN users u ON u.id = tok.user_id
+         WHERE tok.id = ?
+           AND tok.user_id = ?
+           AND tok.revoked_at IS NULL
+           AND tok.expires_at > ?
+           AND tok.created_at + ? > ?
+           AND u.is_active = 1
+         LIMIT 1",
+    )
+    .bind(token_id)
+    .bind(user_id)
+    .bind(now)
+    .bind(crate::auth::token::TOKEN_ABSOLUTE_LIFETIME_SECONDS)
+    .bind(now)
+    .fetch_optional(&state.pool)
+    .await;
+    matches!(live, Ok(Some(_)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db::pool;
     use crate::db::repos::{RegistrationMode, RuntimeConfigRepo, TokenRepo};
+
+    #[tokio::test]
+    async fn token_is_live_distinguishes_live_revoked_and_foreign() {
+        let s = make_state(RegistrationMode::Open).await;
+        let r = register(
+            &s,
+            RegisterReq {
+                username: "til".into(),
+                password: "Passw0rdStrong".into(),
+                device_id: "d-til".into(),
+                device_name: "d1".into(),
+                invite_code: None,
+            },
+        )
+        .await
+        .unwrap();
+        let row = s
+            .tokens
+            .list_for_user(&r.user_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        assert!(token_is_live(&s, &row.id, &r.user_id).await);
+        // Wrong user: not live for them.
+        assert!(!token_is_live(&s, &row.id, "someone-else").await);
+        s.tokens
+            .revoke(&row.id, chrono::Utc::now().timestamp())
+            .await
+            .unwrap();
+        assert!(!token_is_live(&s, &row.id, &r.user_id).await);
+    }
 
     async fn make_state(mode: RegistrationMode) -> AppState {
         let tmp = tempfile::tempdir().unwrap();

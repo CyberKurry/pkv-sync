@@ -42,7 +42,6 @@ pub trait TokenRepo: Send + Sync {
     async fn create(&self, n: NewToken<'_>) -> Result<TokenRow, sqlx::Error>;
     /// Look up an unrevoked token by its hash.
     async fn find_by_hash(&self, hash: &str) -> Result<Option<(TokenRow, String)>, sqlx::Error>;
-    async fn is_active_for_user(&self, id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
     async fn find_by_id_for_user(
         &self,
         id: &str,
@@ -57,13 +56,6 @@ pub trait TokenRepo: Send + Sync {
         user_id: &str,
         ts: i64,
         except: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
-    async fn revoke_other_active_for_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        ts: i64,
-        except: &str,
     ) -> Result<(), sqlx::Error>;
     async fn delete_revoked_older_than(&self, before_ts: i64) -> Result<u64, sqlx::Error>;
 }
@@ -219,27 +211,6 @@ impl TokenRepo for SqliteTokenRepo {
         }))
     }
 
-    async fn is_active_for_user(&self, id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp();
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*)
-             FROM tokens
-             WHERE id = ?
-               AND user_id = ?
-               AND revoked_at IS NULL
-               AND expires_at > ?
-               AND created_at + ? > ?",
-        )
-        .bind(id)
-        .bind(user_id)
-        .bind(now)
-        .bind(token::TOKEN_ABSOLUTE_LIFETIME_SECONDS)
-        .bind(now)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(count > 0)
-    }
-
     async fn find_by_id_for_user(
         &self,
         id: &str,
@@ -346,30 +317,6 @@ impl TokenRepo for SqliteTokenRepo {
             .await?
             .rows_affected(),
         };
-        if revoked > 0 {
-            self.bump_validity_epoch();
-        }
-        Ok(())
-    }
-
-    async fn revoke_other_active_for_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        ts: i64,
-        except: &str,
-    ) -> Result<(), sqlx::Error> {
-        let revoked = sqlx::query(
-            "UPDATE tokens SET revoked_at = ?
-             WHERE user_id = ? AND device_id = ? AND id != ? AND revoked_at IS NULL",
-        )
-        .bind(ts)
-        .bind(user_id)
-        .bind(device_id)
-        .bind(except)
-        .execute(&self.pool)
-        .await?
-        .rows_affected();
         if revoked > 0 {
             self.bump_validity_epoch();
         }
@@ -539,7 +486,6 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-        assert!(!tokens.is_active_for_user(&row.id, &uid).await.unwrap());
         assert!(tokens.list_active_for_user(&uid).await.unwrap().is_empty());
     }
 
@@ -585,61 +531,6 @@ mod tests {
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, active.id);
-    }
-
-    #[tokio::test]
-    async fn is_active_for_user_rejects_revoked_expired_and_wrong_user_tokens() {
-        let (users, tokens, uid) = setup().await;
-        let other = users
-            .create(NewUser {
-                username: "other".into(),
-                password_hash: "h".into(),
-                is_admin: false,
-            })
-            .await
-            .unwrap();
-        let active = tokens
-            .create(NewToken {
-                user_id: &uid,
-                token_hash: "active-check",
-                device_id: "device-active-check",
-                device_name: "active",
-            })
-            .await
-            .unwrap();
-        let revoked = tokens
-            .create(NewToken {
-                user_id: &uid,
-                token_hash: "revoked-check",
-                device_id: "device-revoked-check",
-                device_name: "revoked",
-            })
-            .await
-            .unwrap();
-        tokens.revoke(&revoked.id, 10).await.unwrap();
-        let expired = tokens
-            .create(NewToken {
-                user_id: &uid,
-                token_hash: "expired-check",
-                device_id: "device-expired-check",
-                device_name: "expired",
-            })
-            .await
-            .unwrap();
-        sqlx::query("UPDATE tokens SET expires_at = ? WHERE id = ?")
-            .bind(chrono::Utc::now().timestamp() - 1)
-            .bind(&expired.id)
-            .execute(&tokens.pool)
-            .await
-            .unwrap();
-
-        assert!(tokens.is_active_for_user(&active.id, &uid).await.unwrap());
-        assert!(!tokens
-            .is_active_for_user(&active.id, &other.id)
-            .await
-            .unwrap());
-        assert!(!tokens.is_active_for_user(&revoked.id, &uid).await.unwrap());
-        assert!(!tokens.is_active_for_user(&expired.id, &uid).await.unwrap());
     }
 
     #[tokio::test]
@@ -721,51 +612,6 @@ mod tests {
             .collect();
         assert_eq!(live.len(), 1);
         assert_eq!(live[0].id, a.id);
-    }
-
-    #[tokio::test]
-    async fn revoke_other_active_for_device_keeps_only_current_device_token() {
-        let (_users, tokens, uid) = setup().await;
-        let old = tokens
-            .create(NewToken {
-                user_id: &uid,
-                token_hash: "old",
-                device_id: "device-a",
-                device_name: "Laptop",
-            })
-            .await
-            .unwrap();
-        let current = tokens
-            .create(NewToken {
-                user_id: &uid,
-                token_hash: "current",
-                device_id: "device-a",
-                device_name: "Laptop",
-            })
-            .await
-            .unwrap();
-        let other = tokens
-            .create(NewToken {
-                user_id: &uid,
-                token_hash: "other",
-                device_id: "device-b",
-                device_name: "Phone",
-            })
-            .await
-            .unwrap();
-
-        tokens
-            .revoke_other_active_for_device(&uid, "device-a", 999, &current.id)
-            .await
-            .unwrap();
-
-        let rows = tokens.list_for_user(&uid).await.unwrap();
-        let old = rows.iter().find(|t| t.id == old.id).unwrap();
-        let current = rows.iter().find(|t| t.id == current.id).unwrap();
-        let other = rows.iter().find(|t| t.id == other.id).unwrap();
-        assert_eq!(old.revoked_at, Some(999));
-        assert!(current.revoked_at.is_none());
-        assert!(other.revoked_at.is_none());
     }
 
     #[tokio::test]
