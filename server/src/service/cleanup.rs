@@ -210,7 +210,7 @@ mod tests {
     use super::*;
     use crate::db::pool;
     use crate::db::repos::{NewActivity, NewUser, UserRepo};
-    use crate::storage::git::{FileChange, GitVaultStore, StoredFile};
+    use crate::storage::git::{FileChange, GitVaultStore};
     use git2::{Oid, Repository};
 
     async fn state_for_cleanup() -> (AppState, tempfile::TempDir) {
@@ -401,12 +401,7 @@ mod tests {
             .commit_changes(
                 &vault.id,
                 None,
-                &[FileChange::Upsert {
-                    path: "note.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"base".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("note.md", b"base".to_vec())],
                 "base",
             )
             .await
@@ -415,12 +410,7 @@ mod tests {
             .commit_changes(
                 &vault.id,
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "note.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"orphaned".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("note.md", b"orphaned".to_vec())],
                 "orphan",
             )
             .await

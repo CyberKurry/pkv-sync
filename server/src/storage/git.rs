@@ -100,6 +100,19 @@ pub enum FileChange {
     Delete { path: String },
 }
 
+impl FileChange {
+    /// E-4: constructor for the dominant test/seed shape. Exactly
+    /// `FileChange::Upsert { path, file: StoredFile::Text { bytes } }`.
+    pub fn upsert_text(path: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
+        FileChange::Upsert {
+            path: path.into(),
+            file: StoredFile::Text {
+                bytes: bytes.into(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TreeEntry {
     pub path: String,
@@ -1361,6 +1374,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fixture_constructors_match_literal_shapes() {
+        // E-4: the constructors ARE the literal shapes — pinned so the
+        // ~200 migrated call sites are provably behavior-identical.
+        assert_eq!(
+            FileChange::upsert_text("a.md", b"x".to_vec()),
+            FileChange::upsert_text("a.md", b"x".to_vec())
+        );
+        assert_eq!(
+            FileChange::upsert_text(String::from("b.md"), "s".as_bytes().to_vec()),
+            FileChange::upsert_text("b.md", b"s".to_vec())
+        );
+    }
+
+    #[test]
     fn tree_diff_caches_pointer_checks_per_blob_oid() {
         let source = include_str!("git.rs");
         let tree_diff_start = source.find("pub async fn tree_diff").unwrap();
@@ -1480,12 +1507,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "note.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"hello".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("note.md", b"hello".to_vec())],
                 "initial",
             )
             .await
@@ -1513,12 +1535,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "a//b.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"bad path".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("a//b.md", b"bad path".to_vec())],
                 "bad path",
             )
             .await
@@ -1538,12 +1555,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "a.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"a".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("a.md", b"a".to_vec())],
                 "c1",
             )
             .await
@@ -1571,18 +1583,8 @@ mod tests {
                 "v1",
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "keep/a.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"keep".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "touch/b.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"old".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("keep/a.md", b"keep".to_vec()),
+                    FileChange::upsert_text("touch/b.md", b"old".to_vec()),
                 ],
                 "base",
             )
@@ -1597,12 +1599,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "touch/b.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"new".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("touch/b.md", b"new".to_vec())],
                 "touch one subtree",
             )
             .await
@@ -1631,12 +1628,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "note.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"hello".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("note.md", b"hello".to_vec())],
                 "base",
             )
             .await
@@ -1666,12 +1658,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "dir/a.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"nested".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("dir/a.md", b"nested".to_vec())],
                 "base",
             )
             .await
@@ -1708,12 +1695,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "base.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"base".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("base.md", b"base".to_vec())],
                 "base",
             )
             .await
@@ -1723,12 +1705,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "next.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"next".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("next.md", b"next".to_vec())],
                 "next",
             )
             .await
@@ -1763,12 +1740,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "note.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"hello".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("note.md", b"hello".to_vec())],
                 "seed",
             )
             .await
@@ -1787,12 +1759,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "note-0.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"0".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("note-0.md", b"0".to_vec())],
                 "c0",
             )
             .await
@@ -1803,12 +1770,10 @@ mod tests {
                 .commit_changes(
                     "v1",
                     Some(&parent),
-                    &[FileChange::Upsert {
-                        path: format!("note-{idx}.md"),
-                        file: StoredFile::Text {
-                            bytes: idx.to_string().into_bytes(),
-                        },
-                    }],
+                    &[FileChange::upsert_text(
+                        format!("note-{idx}.md"),
+                        idx.to_string().into_bytes(),
+                    )],
                     &format!("c{idx}"),
                 )
                 .await
@@ -1837,24 +1802,9 @@ mod tests {
                 "v1",
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "a.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"old".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "b.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"delete me".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "old-name.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"same content".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("a.md", b"old".to_vec()),
+                    FileChange::upsert_text("b.md", b"delete me".to_vec()),
+                    FileChange::upsert_text("old-name.md", b"same content".to_vec()),
                 ],
                 "base",
             )
@@ -1865,30 +1815,15 @@ mod tests {
                 "v1",
                 Some(&base),
                 &[
-                    FileChange::Upsert {
-                        path: "a.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"new".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("a.md", b"new".to_vec()),
                     FileChange::Delete {
                         path: "b.md".into(),
                     },
-                    FileChange::Upsert {
-                        path: "c.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"added".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("c.md", b"added".to_vec()),
                     FileChange::Delete {
                         path: "old-name.md".into(),
                     },
-                    FileChange::Upsert {
-                        path: "new-name.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"same content".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("new-name.md", b"same content".to_vec()),
                 ],
                 "head",
             )
@@ -1931,12 +1866,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "a.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"a".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("a.md", b"a".to_vec())],
                 "base",
             )
             .await
@@ -1945,12 +1875,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "b.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"b".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("b.md", b"b".to_vec())],
                 "head",
             )
             .await
@@ -1978,22 +1903,14 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "seed.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"seed".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("seed.md", b"seed".to_vec())],
                 "base",
             )
             .await
             .unwrap();
         let changes: Vec<_> = (0..9)
-            .map(|idx| FileChange::Upsert {
-                path: format!("note-{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: idx.to_string().into_bytes(),
-                },
+            .map(|idx| {
+                FileChange::upsert_text(format!("note-{idx}.md"), idx.to_string().into_bytes())
             })
             .collect();
         let head = store
@@ -2020,12 +1937,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "seed.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"seed".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("seed.md", b"seed".to_vec())],
                 "base",
             )
             .await
@@ -2034,12 +1946,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "one.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"one".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("one.md", b"one".to_vec())],
                 "head",
             )
             .await
@@ -2060,12 +1967,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "a.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"a".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("a.md", b"a".to_vec())],
                 "base",
             )
             .await
@@ -2074,12 +1976,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "b.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"b".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("b.md", b"b".to_vec())],
                 "head",
             )
             .await
@@ -2092,12 +1989,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "c.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"c".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("c.md", b"c".to_vec())],
                 "unrelated",
             )
             .await
@@ -2148,18 +2040,8 @@ mod tests {
                 "v1",
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "a.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"alpha".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "dir/b.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"beta".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("a.md", b"alpha".to_vec()),
+                    FileChange::upsert_text("dir/b.md", b"beta".to_vec()),
                     FileChange::Upsert {
                         path: "img.png".into(),
                         file: StoredFile::BlobPointer {
@@ -2199,12 +2081,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "data.json".into(),
-                    file: StoredFile::Text {
-                        bytes: content.clone(),
-                    },
-                }],
+                &[FileChange::upsert_text("data.json", content.clone())],
                 "json text",
             )
             .await
@@ -2257,12 +2134,7 @@ mod tests {
                 "v1",
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "note.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"hello".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("note.md", b"hello".to_vec()),
                     FileChange::Upsert {
                         path: "img.png".into(),
                         file: StoredFile::BlobPointer {
@@ -2271,12 +2143,7 @@ mod tests {
                             mime: Some("image/png".into()),
                         },
                     },
-                    FileChange::Upsert {
-                        path: "dir/a.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"nested".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("dir/a.md", b"nested".to_vec()),
                 ],
                 "seed",
             )
@@ -2305,18 +2172,8 @@ mod tests {
                 "v1",
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "folder/note.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"nested".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "folder/sub/other.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"deep".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("folder/note.md", b"nested".to_vec()),
+                    FileChange::upsert_text("folder/sub/other.md", b"deep".to_vec()),
                 ],
                 "nested",
             )
@@ -2353,12 +2210,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: deep_path,
-                    file: StoredFile::Text {
-                        bytes: b"deep".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text(deep_path, b"deep".to_vec())],
                 "deep",
             )
             .await
@@ -2379,18 +2231,8 @@ mod tests {
                 "v1",
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "notes".into(),
-                        file: StoredFile::Text {
-                            bytes: b"file".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "notes/todo.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"nested".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("notes", b"file".to_vec()),
+                    FileChange::upsert_text("notes/todo.md", b"nested".to_vec()),
                 ],
                 "conflict",
             )
@@ -2407,12 +2249,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "notes/todo.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"nested".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("notes/todo.md", b"nested".to_vec())],
                 "nested",
             )
             .await
@@ -2422,12 +2259,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&c1),
-                &[FileChange::Upsert {
-                    path: "notes".into(),
-                    file: StoredFile::Text {
-                        bytes: b"file".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("notes", b"file".to_vec())],
                 "conflict",
             )
             .await;
@@ -2443,12 +2275,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "notes/todo.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"nested".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("notes/todo.md", b"nested".to_vec())],
                 "nested",
             )
             .await
@@ -2462,12 +2289,7 @@ mod tests {
                     FileChange::Delete {
                         path: "notes/todo.md".into(),
                     },
-                    FileChange::Upsert {
-                        path: "notes".into(),
-                        file: StoredFile::Text {
-                            bytes: b"file".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("notes", b"file".to_vec()),
                 ],
                 "replace subtree with file",
             )
@@ -2495,12 +2317,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "notes/todo.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"nested".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("notes/todo.md", b"nested".to_vec())],
                 "nested",
             )
             .await
@@ -2510,12 +2327,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "notes".into(),
-                    file: StoredFile::Text {
-                        bytes: b"file".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("notes", b"file".to_vec())],
                 "conflict",
             )
             .await;
@@ -2531,12 +2343,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "a.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"a".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("a.md", b"a".to_vec())],
                 "c",
             )
             .await
@@ -2558,12 +2365,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "Todo.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"a".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("Todo.md", b"a".to_vec())],
                 "c",
             )
             .await
@@ -2573,12 +2375,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "todo.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"b".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("todo.md", b"b".to_vec())],
                 "case conflict",
             )
             .await;
@@ -2596,18 +2393,8 @@ mod tests {
                 "v1",
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "Readme.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"a".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "README.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"b".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("Readme.md", b"a".to_vec()),
+                    FileChange::upsert_text("README.md", b"b".to_vec()),
                 ],
                 "batch case conflict",
             )
@@ -2677,12 +2464,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "\u{1E9E}.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"sharp s".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("\u{1E9E}.md", b"sharp s".to_vec())],
                 "sharp s",
             )
             .await
@@ -2692,12 +2474,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "ss.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"ascii ss".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("ss.md", b"ascii ss".to_vec())],
                 "ascii ss",
             )
             .await;
@@ -2757,12 +2534,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: nfc.into(),
-                    file: StoredFile::Text {
-                        bytes: b"nfc".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text(nfc, b"nfc".to_vec())],
                 "nfc",
             )
             .await
@@ -2772,12 +2544,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: nfd.into(),
-                    file: StoredFile::Text {
-                        bytes: b"nfd".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text(nfd, b"nfd".to_vec())],
                 "nfd",
             )
             .await;
@@ -2799,12 +2566,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "Todo.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"a".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("Todo.md", b"a".to_vec())],
                 "c",
             )
             .await
@@ -2814,12 +2576,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "Todo.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"updated".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("Todo.md", b"updated".to_vec())],
                 "same spelling",
             )
             .await;

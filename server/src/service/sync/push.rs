@@ -358,12 +358,7 @@ async fn push_with_request_metadata_internal(
                 // list only decides which paths the CLIENT offers as text,
                 // and stale lists must not wedge the whole batch on 400.
                 event_changes.push(text_event_with_budget(&p, &content, &mut inline_budget));
-                git_changes.push(FileChange::Upsert {
-                    path: p,
-                    file: StoredFile::Text {
-                        bytes: content.into_bytes(),
-                    },
-                });
+                git_changes.push(FileChange::upsert_text(p, content.into_bytes()));
             }
             PushChange::Blob {
                 path,
@@ -427,7 +422,7 @@ async fn push_with_request_metadata_internal(
                         return Err(ApiError::bad_request(
                             "missing_blob",
                             format!("blob {blob_hash} not uploaded"),
-                        ))
+                        ));
                     }
                 };
                 if actual_size != size {
@@ -2103,12 +2098,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "note.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"hi".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("note.md", b"hi".to_vec())],
                 "initial",
             )
             .await

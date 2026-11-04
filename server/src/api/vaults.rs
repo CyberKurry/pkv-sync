@@ -810,7 +810,7 @@ mod tests {
     };
     use crate::service::AppState;
     use crate::storage::blob::LocalFsBlobStore;
-    use crate::storage::git::{FileChange, GitVaultStore, StoredFile};
+    use crate::storage::git::{FileChange, GitVaultStore};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use axum::Router;
@@ -1735,12 +1735,10 @@ mod tests {
             .commit_changes(
                 &id,
                 None,
-                &[FileChange::Upsert {
-                    path: "scratch/secret.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"secret".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text(
+                    "scratch/secret.md",
+                    b"secret".to_vec(),
+                )],
                 "seed excluded file",
             )
             .await

@@ -69,12 +69,10 @@ pub(super) async fn try_auto_merge_push(
                             &content,
                             &mut inline_budget,
                         ));
-                        git_changes.push(FileChange::Upsert {
-                            path: normalized.clone(),
-                            file: StoredFile::Text {
-                                bytes: content.into_bytes(),
-                            },
-                        });
+                        git_changes.push(FileChange::upsert_text(
+                            normalized.clone(),
+                            content.into_bytes(),
+                        ));
                         merge_outcomes.push(MergeOutcomeEntry {
                             path: normalized,
                             outcome: MergeOutcomeKind::Clean,
@@ -117,12 +115,10 @@ pub(super) async fn try_auto_merge_push(
                                     &merged,
                                     &mut inline_budget,
                                 ));
-                                git_changes.push(FileChange::Upsert {
-                                    path: normalized.clone(),
-                                    file: StoredFile::Text {
-                                        bytes: merged.into_bytes(),
-                                    },
-                                });
+                                git_changes.push(FileChange::upsert_text(
+                                    normalized.clone(),
+                                    merged.into_bytes(),
+                                ));
                                 merge_outcomes.push(MergeOutcomeEntry {
                                     path: normalized,
                                     outcome: MergeOutcomeKind::Merged,
@@ -138,12 +134,8 @@ pub(super) async fn try_auto_merge_push(
                                     &marked,
                                     &mut inline_budget,
                                 ));
-                                git_changes.push(FileChange::Upsert {
-                                    path: cp.clone(),
-                                    file: StoredFile::Text {
-                                        bytes: marked.into_bytes(),
-                                    },
-                                });
+                                git_changes
+                                    .push(FileChange::upsert_text(cp.clone(), marked.into_bytes()));
                                 merge_outcomes.push(MergeOutcomeEntry {
                                     path: normalized,
                                     outcome: MergeOutcomeKind::Conflict,
@@ -508,12 +500,7 @@ fn write_text_conflict_sidecar(
     let cp = conflict_path_for(normalized, conflict_device_name);
     ensure_generated_push_path(&cp)?;
     event_changes.push(text_event_with_budget(&cp, &content, inline_budget));
-    git_changes.push(FileChange::Upsert {
-        path: cp.clone(),
-        file: StoredFile::Text {
-            bytes: content.into_bytes(),
-        },
-    });
+    git_changes.push(FileChange::upsert_text(cp.clone(), content.into_bytes()));
     merge_outcomes.push(MergeOutcomeEntry {
         path: normalized.to_string(),
         outcome: MergeOutcomeKind::Conflict,

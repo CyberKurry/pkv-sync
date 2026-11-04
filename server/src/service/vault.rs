@@ -360,7 +360,7 @@ mod tests {
     use crate::db::pool;
     use crate::db::repos::{NewUser, UserRepo};
     use crate::service::vault_settings;
-    use crate::storage::git::{FileChange, StoredFile};
+    use crate::storage::git::FileChange;
     use std::sync::{Arc, Mutex};
 
     fn expected_starter_extra_sync_globs() -> Vec<String> {
@@ -727,12 +727,7 @@ mod tests {
             .commit_changes(
                 &v.id,
                 None,
-                &[FileChange::Upsert {
-                    path: "note.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"first".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("note.md", b"first".to_vec())],
                 "first",
             )
             .await
@@ -740,12 +735,7 @@ mod tests {
         git.commit_changes(
             &v.id,
             Some(&first),
-            &[FileChange::Upsert {
-                path: "note.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"second".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("note.md", b"second".to_vec())],
             "second",
         )
         .await

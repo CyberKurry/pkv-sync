@@ -457,11 +457,11 @@ mod tests {
         let (state, user, vid, _tmp) = state_user_vault().await;
         let git = state.git_store();
         let changes = (0..4)
-            .map(|idx| crate::storage::git::FileChange::Upsert {
-                path: format!("note-{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: idx.to_string().into_bytes(),
-                },
+            .map(|idx| {
+                crate::storage::git::FileChange::upsert_text(
+                    format!("note-{idx}.md"),
+                    idx.to_string().into_bytes(),
+                )
             })
             .collect::<Vec<_>>();
         git.commit_changes(&vid, None, &changes, "seed")
@@ -494,18 +494,16 @@ mod tests {
         let (state, user, vid, _tmp) = state_user_vault().await;
         let git = state.git_store();
         let changes = (0..4)
-            .map(|idx| crate::storage::git::FileChange::Upsert {
-                path: format!(".hidden/note-{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: idx.to_string().into_bytes(),
-                },
+            .map(|idx| {
+                crate::storage::git::FileChange::upsert_text(
+                    format!(".hidden/note-{idx}.md"),
+                    idx.to_string().into_bytes(),
+                )
             })
-            .chain([crate::storage::git::FileChange::Upsert {
-                path: "visible.md".to_string(),
-                file: StoredFile::Text {
-                    bytes: b"v".to_vec(),
-                },
-            }])
+            .chain([crate::storage::git::FileChange::upsert_text(
+                "visible.md".to_string(),
+                b"v".to_vec(),
+            )])
             .collect::<Vec<_>>();
         git.commit_changes(&vid, None, &changes, "seed")
             .await
@@ -539,12 +537,10 @@ mod tests {
         // return the full tree.
         let (state, user, vid, _tmp) = state_user_vault().await;
         let git = state.git_store();
-        let changes = [crate::storage::git::FileChange::Upsert {
-            path: "note.md".to_string(),
-            file: StoredFile::Text {
-                bytes: b"one".to_vec(),
-            },
-        }];
+        let changes = [crate::storage::git::FileChange::upsert_text(
+            "note.md".to_string(),
+            b"one".to_vec(),
+        )];
         git.commit_changes(&vid, None, &changes, "seed")
             .await
             .unwrap();
@@ -570,12 +566,10 @@ mod tests {
     async fn pull_with_malformed_since_falls_back_to_full_pull_not_500() {
         let (state, user, vid, _tmp) = state_user_vault().await;
         let git = state.git_store();
-        let changes = [crate::storage::git::FileChange::Upsert {
-            path: "note.md".to_string(),
-            file: StoredFile::Text {
-                bytes: b"one".to_vec(),
-            },
-        }];
+        let changes = [crate::storage::git::FileChange::upsert_text(
+            "note.md".to_string(),
+            b"one".to_vec(),
+        )];
         git.commit_changes(&vid, None, &changes, "seed")
             .await
             .unwrap();
@@ -601,11 +595,11 @@ mod tests {
         let (state, user, vid, _tmp) = state_user_vault().await;
         let git = state.git_store();
         let changes = (0..3)
-            .map(|idx| crate::storage::git::FileChange::Upsert {
-                path: format!("note-{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: vec![b'x'; 32 * 1024],
-                },
+            .map(|idx| {
+                crate::storage::git::FileChange::upsert_text(
+                    format!("note-{idx}.md"),
+                    vec![b'x'; 32 * 1024],
+                )
             })
             .collect::<Vec<_>>();
         git.commit_changes(&vid, None, &changes, "seed")
@@ -831,19 +825,12 @@ mod tests {
 
         let mut changes = Vec::new();
         for i in 0..100 {
-            changes.push(FileChange::Upsert {
-                path: format!("excluded/{i}.md"),
-                file: StoredFile::Text {
-                    bytes: vec![b'x'; 256 * 1024],
-                },
-            });
+            changes.push(FileChange::upsert_text(
+                format!("excluded/{i}.md"),
+                vec![b'x'; 256 * 1024],
+            ));
         }
-        changes.push(FileChange::Upsert {
-            path: "included.md".into(),
-            file: StoredFile::Text {
-                bytes: b"keep".to_vec(),
-            },
-        });
+        changes.push(FileChange::upsert_text("included.md", b"keep".to_vec()));
 
         let git = Git2VaultStore::new(state.default_vault_root());
         let commit = git

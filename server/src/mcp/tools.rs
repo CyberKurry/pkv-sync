@@ -2468,18 +2468,8 @@ mod tests {
             vault_id,
             None,
             &[
-                FileChange::Upsert {
-                    path: first_path.into(),
-                    file: StoredFile::Text {
-                        bytes: b"visible needle".to_vec(),
-                    },
-                },
-                FileChange::Upsert {
-                    path: second_path.into(),
-                    file: StoredFile::Text {
-                        bytes: b"secret needle".to_vec(),
-                    },
-                },
+                FileChange::upsert_text(first_path, b"visible needle".to_vec()),
+                FileChange::upsert_text(second_path, b"secret needle".to_vec()),
             ],
             "seed files",
         )
@@ -2515,12 +2505,7 @@ mod tests {
         let git = Git2VaultStore::new(state.default_vault_root());
         let changes = files
             .iter()
-            .map(|(path, content)| FileChange::Upsert {
-                path: (*path).into(),
-                file: StoredFile::Text {
-                    bytes: content.as_bytes().to_vec(),
-                },
-            })
+            .map(|(path, content)| FileChange::upsert_text(*path, content.as_bytes().to_vec()))
             .collect::<Vec<_>>();
         git.commit_changes(vault_id, None, &changes, "seed text files")
             .await
@@ -2531,12 +2516,7 @@ mod tests {
         let git = Git2VaultStore::new(state.default_vault_root());
         let changes = files
             .iter()
-            .map(|(path, bytes)| FileChange::Upsert {
-                path: (*path).into(),
-                file: StoredFile::Text {
-                    bytes: bytes.clone(),
-                },
-            })
+            .map(|(path, bytes)| FileChange::upsert_text(*path, bytes.clone()))
             .collect::<Vec<_>>();
         git.commit_changes(vault_id, None, &changes, "seed raw files")
             .await
@@ -2684,19 +2664,15 @@ mod tests {
         let git = Git2VaultStore::new(state.default_vault_root());
         let mut changes = Vec::with_capacity(SEARCH_MAX_TREE_FILES + 1);
         for idx in 0..SEARCH_MAX_TREE_FILES {
-            changes.push(FileChange::Upsert {
-                path: format!("hidden/{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: b"hidden needle".to_vec(),
-                },
-            });
+            changes.push(FileChange::upsert_text(
+                format!("hidden/{idx}.md"),
+                b"hidden needle".to_vec(),
+            ));
         }
-        changes.push(FileChange::Upsert {
-            path: "note.md".into(),
-            file: StoredFile::Text {
-                bytes: b"visible needle".to_vec(),
-            },
-        });
+        changes.push(FileChange::upsert_text(
+            "note.md",
+            b"visible needle".to_vec(),
+        ));
         git.commit_changes(&vault_id, None, &changes, "seed many hidden files")
             .await
             .unwrap();
@@ -2899,19 +2875,12 @@ mod tests {
         let git = Git2VaultStore::new(state.default_vault_root());
         let mut changes = Vec::with_capacity(SEARCH_MAX_TREE_FILES + 1);
         for idx in 0..SEARCH_MAX_TREE_FILES {
-            changes.push(FileChange::Upsert {
-                path: format!("bulk/{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: b"bulk filler".to_vec(),
-                },
-            });
+            changes.push(FileChange::upsert_text(
+                format!("bulk/{idx}.md"),
+                b"bulk filler".to_vec(),
+            ));
         }
-        changes.push(FileChange::Upsert {
-            path: "wiki/one.md".into(),
-            file: StoredFile::Text {
-                bytes: b"needle".to_vec(),
-            },
-        });
+        changes.push(FileChange::upsert_text("wiki/one.md", b"needle".to_vec()));
         git.commit_changes(&vault_id, None, &changes, "seed bulk vault")
             .await
             .unwrap();
@@ -3012,12 +2981,7 @@ mod tests {
                     },
                 },
                 // The only text file lives outside the prefix used below.
-                FileChange::Upsert {
-                    path: "sub/notes.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"needle".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("sub/notes.md", b"needle".to_vec()),
             ],
             "seed",
         )
@@ -3586,18 +3550,11 @@ mod tests {
                 &vault_id,
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "sources/s1.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"first".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "wiki/a.md".into(),
-                        file: StoredFile::Text {
-                            bytes: wiki_page(&["sources/s1.md"], "PLACEHOLDER").into_bytes(),
-                        },
-                    },
+                    FileChange::upsert_text("sources/s1.md", b"first".to_vec()),
+                    FileChange::upsert_text(
+                        "wiki/a.md",
+                        wiki_page(&["sources/s1.md"], "PLACEHOLDER").into_bytes(),
+                    ),
                 ],
                 "base",
             )
@@ -3607,12 +3564,10 @@ mod tests {
         git.commit_changes(
             &vault_id,
             Some(&base),
-            &[FileChange::Upsert {
-                path: "wiki/a.md".into(),
-                file: StoredFile::Text {
-                    bytes: wiki_page(&["sources/s1.md"], &base).into_bytes(),
-                },
-            }],
+            &[FileChange::upsert_text(
+                "wiki/a.md",
+                wiki_page(&["sources/s1.md"], &base).into_bytes(),
+            )],
             "anchor the page",
         )
         .await
@@ -3620,12 +3575,7 @@ mod tests {
         git.commit_changes(
             &vault_id,
             None,
-            &[FileChange::Upsert {
-                path: "sources/s1.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"second".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("sources/s1.md", b"second".to_vec())],
             "source moved on",
         )
         .await
@@ -3662,18 +3612,8 @@ mod tests {
                 &vault_id,
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "sources/gone.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"gone".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "sources/moved.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"moved".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("sources/gone.md", b"gone".to_vec()),
+                    FileChange::upsert_text("sources/moved.md", b"moved".to_vec()),
                 ],
                 "sources",
             )
@@ -3683,13 +3623,11 @@ mod tests {
             .commit_changes(
                 &vault_id,
                 Some(&sources_commit),
-                &[FileChange::Upsert {
-                    path: "wiki/a.md".into(),
-                    file: StoredFile::Text {
-                        bytes: wiki_page(&["sources/gone.md", "sources/moved.md"], &sources_commit)
-                            .into_bytes(),
-                    },
-                }],
+                &[FileChange::upsert_text(
+                    "wiki/a.md",
+                    wiki_page(&["sources/gone.md", "sources/moved.md"], &sources_commit)
+                        .into_bytes(),
+                )],
                 "page anchored at the sources",
             )
             .await
@@ -3706,12 +3644,7 @@ mod tests {
                 FileChange::Delete {
                     path: "sources/moved.md".into(),
                 },
-                FileChange::Upsert {
-                    path: "sources/renamed.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"moved".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("sources/renamed.md", b"moved".to_vec()),
             ],
             "delete one, move another",
         )
@@ -3753,25 +3686,15 @@ mod tests {
                 &vault_id,
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "sources/s1.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"one".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "wiki/unanchored.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"---\nkind: wiki\nsources:\n  - sources/s1.md\n---\nbody"
-                                .to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "wiki/bogus.md".into(),
-                        file: StoredFile::Text {
-                            bytes: wiki_page(&["sources/s1.md"], &"0".repeat(40)).into_bytes(),
-                        },
-                    },
+                    FileChange::upsert_text("sources/s1.md", b"one".to_vec()),
+                    FileChange::upsert_text(
+                        "wiki/unanchored.md",
+                        b"---\nkind: wiki\nsources:\n  - sources/s1.md\n---\nbody".to_vec(),
+                    ),
+                    FileChange::upsert_text(
+                        "wiki/bogus.md",
+                        wiki_page(&["sources/s1.md"], &"0".repeat(40)).into_bytes(),
+                    ),
                 ],
                 "base",
             )
@@ -3783,12 +3706,10 @@ mod tests {
             &[
                 // Anchored at a commit that is *later* than the `at` we will
                 // ask about, i.e. not an ancestor of it.
-                FileChange::Upsert {
-                    path: "wiki/late.md".into(),
-                    file: StoredFile::Text {
-                        bytes: wiki_page(&["sources/s1.md"], &base).into_bytes(),
-                    },
-                },
+                FileChange::upsert_text(
+                    "wiki/late.md",
+                    wiki_page(&["sources/s1.md"], &base).into_bytes(),
+                ),
             ],
             "later",
         )
@@ -3823,12 +3744,7 @@ mod tests {
             .commit_changes(
                 &vault_id,
                 None,
-                &[FileChange::Upsert {
-                    path: "sources/s1.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"one".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("sources/s1.md", b"one".to_vec())],
                 "sources",
             )
             .await
@@ -3881,24 +3797,17 @@ mod tests {
             .commit_changes(
                 &vault_id,
                 None,
-                &[FileChange::Upsert {
-                    path: "sources/s1.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"one".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("sources/s1.md", b"one".to_vec())],
                 "sources",
             )
             .await
             .unwrap();
         let mut changes = Vec::new();
         for idx in 0..2 {
-            changes.push(FileChange::Upsert {
-                path: format!("wiki/p{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: wiki_page(&["sources/s1.md"], &sources_commit).into_bytes(),
-                },
-            });
+            changes.push(FileChange::upsert_text(
+                format!("wiki/p{idx}.md"),
+                wiki_page(&["sources/s1.md"], &sources_commit).into_bytes(),
+            ));
         }
         git.commit_changes(&vault_id, Some(&sources_commit), &changes, "pages")
             .await
@@ -3935,12 +3844,10 @@ mod tests {
 
         let mut seed = Vec::new();
         for idx in 0..200 {
-            seed.push(FileChange::Upsert {
-                path: format!("sources/s{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: format!("source {idx}").into_bytes(),
-                },
-            });
+            seed.push(FileChange::upsert_text(
+                format!("sources/s{idx}.md"),
+                format!("source {idx}").into_bytes(),
+            ));
         }
         let sources_commit = git
             .commit_changes(&vault_id, None, &seed, "sources")
@@ -3948,13 +3855,10 @@ mod tests {
             .unwrap();
         let mut pages = Vec::new();
         for idx in 0..200 {
-            pages.push(FileChange::Upsert {
-                path: format!("wiki/p{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: wiki_page(&[&format!("sources/s{idx}.md")], &sources_commit)
-                        .into_bytes(),
-                },
-            });
+            pages.push(FileChange::upsert_text(
+                format!("wiki/p{idx}.md"),
+                wiki_page(&[&format!("sources/s{idx}.md")], &sources_commit).into_bytes(),
+            ));
         }
         let mut head = git
             .commit_changes(&vault_id, Some(&sources_commit), &pages, "pages")
@@ -3967,12 +3871,10 @@ mod tests {
                 .commit_changes(
                     &vault_id,
                     Some(&head),
-                    &[FileChange::Upsert {
-                        path: format!("sources/s{source}.md"),
-                        file: StoredFile::Text {
-                            bytes: format!("source {source} rev {idx}").into_bytes(),
-                        },
-                    }],
+                    &[FileChange::upsert_text(
+                        format!("sources/s{source}.md"),
+                        format!("source {source} rev {idx}").into_bytes(),
+                    )],
                     "touch",
                 )
                 .await
@@ -4016,12 +3918,10 @@ mod tests {
         let git = Git2VaultStore::new(state.default_vault_root());
         let mut seed = Vec::new();
         for idx in 0..10 {
-            seed.push(FileChange::Upsert {
-                path: format!("sources/s{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: format!("source {idx}").into_bytes(),
-                },
-            });
+            seed.push(FileChange::upsert_text(
+                format!("sources/s{idx}.md"),
+                format!("source {idx}").into_bytes(),
+            ));
         }
         let sources_commit = git
             .commit_changes(&vault_id, None, &seed, "sources")
@@ -4029,13 +3929,10 @@ mod tests {
             .unwrap();
         let mut pages = Vec::new();
         for idx in 0..10 {
-            pages.push(FileChange::Upsert {
-                path: format!("wiki/p{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: wiki_page(&[&format!("sources/s{idx}.md")], &sources_commit)
-                        .into_bytes(),
-                },
-            });
+            pages.push(FileChange::upsert_text(
+                format!("wiki/p{idx}.md"),
+                wiki_page(&[&format!("sources/s{idx}.md")], &sources_commit).into_bytes(),
+            ));
         }
         git.commit_changes(&vault_id, Some(&sources_commit), &pages, "pages")
             .await
@@ -4043,12 +3940,10 @@ mod tests {
         // One commit touching every source: the resulting listing is clipped.
         let mut touch = Vec::new();
         for idx in 0..10 {
-            touch.push(FileChange::Upsert {
-                path: format!("sources/s{idx}.md"),
-                file: StoredFile::Text {
-                    bytes: format!("source {idx} rewritten").into_bytes(),
-                },
-            });
+            touch.push(FileChange::upsert_text(
+                format!("sources/s{idx}.md"),
+                format!("source {idx} rewritten").into_bytes(),
+            ));
         }
         git.commit_changes(&vault_id, None, &touch, "touch everything")
             .await
@@ -4092,25 +3987,15 @@ mod tests {
                 &vault_id,
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "plain.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"no frontmatter".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "nested.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"---\nkind: wiki\nmeta:\n  sources:\n    - x.md\n---\nbody"
-                                .to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "empty.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"---\nkind: wiki\nsources:\n---\nbody".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("plain.md", b"no frontmatter".to_vec()),
+                    FileChange::upsert_text(
+                        "nested.md",
+                        b"---\nkind: wiki\nmeta:\n  sources:\n    - x.md\n---\nbody".to_vec(),
+                    ),
+                    FileChange::upsert_text(
+                        "empty.md",
+                        b"---\nkind: wiki\nsources:\n---\nbody".to_vec(),
+                    ),
                 ],
                 "base",
             )
@@ -4142,18 +4027,11 @@ mod tests {
                 &vault_id,
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "sources/s1.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"stable".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "wiki/a.md".into(),
-                        file: StoredFile::Text {
-                            bytes: wiki_page(&["sources/s1.md"], "SELF").into_bytes(),
-                        },
-                    },
+                    FileChange::upsert_text("sources/s1.md", b"stable".to_vec()),
+                    FileChange::upsert_text(
+                        "wiki/a.md",
+                        wiki_page(&["sources/s1.md"], "SELF").into_bytes(),
+                    ),
                 ],
                 "base",
             )
@@ -4163,12 +4041,10 @@ mod tests {
             .commit_changes(
                 &vault_id,
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "wiki/a.md".into(),
-                    file: StoredFile::Text {
-                        bytes: wiki_page(&["sources/s1.md"], &base).into_bytes(),
-                    },
-                }],
+                &[FileChange::upsert_text(
+                    "wiki/a.md",
+                    wiki_page(&["sources/s1.md"], &base).into_bytes(),
+                )],
                 "anchor",
             )
             .await
@@ -4780,30 +4656,10 @@ mod tests {
                 &vault_id,
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "notes/a.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"old".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "notes/delete.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"delete".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "old-name.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"same".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "secret.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"secret".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("notes/a.md", b"old".to_vec()),
+                    FileChange::upsert_text("notes/delete.md", b"delete".to_vec()),
+                    FileChange::upsert_text("old-name.md", b"same".to_vec()),
+                    FileChange::upsert_text("secret.md", b"secret".to_vec()),
                 ],
                 "base",
             )
@@ -4814,36 +4670,16 @@ mod tests {
                 &vault_id,
                 Some(&base),
                 &[
-                    FileChange::Upsert {
-                        path: "notes/a.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"new".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("notes/a.md", b"new".to_vec()),
                     FileChange::Delete {
                         path: "notes/delete.md".into(),
                     },
-                    FileChange::Upsert {
-                        path: "notes/c.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"added".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("notes/c.md", b"added".to_vec()),
                     FileChange::Delete {
                         path: "old-name.md".into(),
                     },
-                    FileChange::Upsert {
-                        path: "notes/new-name.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"same".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "secret.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"new secret".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("notes/new-name.md", b"same".to_vec()),
+                    FileChange::upsert_text("secret.md", b"new secret".to_vec()),
                 ],
                 "head",
             )
@@ -4898,12 +4734,7 @@ mod tests {
             .commit_changes(
                 &vault_id,
                 None,
-                &[FileChange::Upsert {
-                    path: "secret.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"same".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("secret.md", b"same".to_vec())],
                 "base",
             )
             .await
@@ -4915,12 +4746,7 @@ mod tests {
                 FileChange::Delete {
                     path: "secret.md".into(),
                 },
-                FileChange::Upsert {
-                    path: "public.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"same".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("public.md", b"same".to_vec()),
             ],
             "rename secret",
         )
@@ -4956,12 +4782,7 @@ mod tests {
             .commit_changes(
                 &vault_id,
                 None,
-                &[FileChange::Upsert {
-                    path: "seed.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"seed".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("seed.md", b"seed".to_vec())],
                 "base",
             )
             .await
@@ -4971,24 +4792,9 @@ mod tests {
                 &vault_id,
                 Some(&base),
                 &[
-                    FileChange::Upsert {
-                        path: "notes/a.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"a".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "notes/b.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"b".to_vec(),
-                        },
-                    },
-                    FileChange::Upsert {
-                        path: "other/c.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"c".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("notes/a.md", b"a".to_vec()),
+                    FileChange::upsert_text("notes/b.md", b"b".to_vec()),
+                    FileChange::upsert_text("other/c.md", b"c".to_vec()),
                 ],
                 "head",
             )
@@ -5023,12 +4829,7 @@ mod tests {
             .commit_changes(
                 &vault_id,
                 None,
-                &[FileChange::Upsert {
-                    path: "base.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"base".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("base.md", b"base".to_vec())],
                 "base",
             )
             .await
@@ -5037,12 +4838,7 @@ mod tests {
             .commit_changes(
                 &vault_id,
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "head.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"head".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("head.md", b"head".to_vec())],
                 "head",
             )
             .await
@@ -5054,12 +4850,7 @@ mod tests {
             .commit_changes(
                 &vault_id,
                 Some(&base),
-                &[FileChange::Upsert {
-                    path: "sibling.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"sibling".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("sibling.md", b"sibling".to_vec())],
                 "sibling",
             )
             .await
@@ -5102,12 +4893,7 @@ mod tests {
         git.commit_changes(
             &vault_id,
             None,
-            &[FileChange::Upsert {
-                path: "notes.md".into(),
-                file: StoredFile::Text {
-                    bytes: content.into_bytes(),
-                },
-            }],
+            &[FileChange::upsert_text("notes.md", content.into_bytes())],
             "seed",
         )
         .await
@@ -5139,12 +4925,10 @@ mod tests {
         git.commit_changes(
             &vault_id,
             None,
-            &[FileChange::Upsert {
-                path: "large.md".into(),
-                file: StoredFile::Text {
-                    bytes: vec![b'a'; SEARCH_MAX_TOTAL_BYTES + 1],
-                },
-            }],
+            &[FileChange::upsert_text(
+                "large.md",
+                vec![b'a'; SEARCH_MAX_TOTAL_BYTES + 1],
+            )],
             "seed",
         )
         .await
@@ -5186,24 +4970,9 @@ mod tests {
             &vault_id,
             None,
             &[
-                FileChange::Upsert {
-                    path: "a.md".into(),
-                    file: StoredFile::Text {
-                        bytes: vec![b'a'; 32 * 1024],
-                    },
-                },
-                FileChange::Upsert {
-                    path: "b.md".into(),
-                    file: StoredFile::Text {
-                        bytes: vec![b'b'; 32 * 1024],
-                    },
-                },
-                FileChange::Upsert {
-                    path: "c.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"needle at the end".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("a.md", vec![b'a'; 32 * 1024]),
+                FileChange::upsert_text("b.md", vec![b'b'; 32 * 1024]),
+                FileChange::upsert_text("c.md", b"needle at the end".to_vec()),
             ],
             "seed",
         )
@@ -5249,18 +5018,8 @@ mod tests {
             &vault_id,
             None,
             &[
-                FileChange::Upsert {
-                    path: "small.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"needle".to_vec(),
-                    },
-                },
-                FileChange::Upsert {
-                    path: "zz-oversized.md".into(),
-                    file: StoredFile::Text {
-                        bytes: vec![b'x'; SEARCH_MAX_TOTAL_BYTES + 1],
-                    },
-                },
+                FileChange::upsert_text("small.md", b"needle".to_vec()),
+                FileChange::upsert_text("zz-oversized.md", vec![b'x'; SEARCH_MAX_TOTAL_BYTES + 1]),
             ],
             "seed",
         )
@@ -5303,12 +5062,7 @@ mod tests {
         git.commit_changes(
             &control_vault.id,
             None,
-            &[FileChange::Upsert {
-                path: "control.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"needle".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("control.md", b"needle".to_vec())],
             "seed",
         )
         .await
@@ -5348,18 +5102,11 @@ mod tests {
             &vault_id,
             None,
             &[
-                FileChange::Upsert {
-                    path: "index.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"[[a]]".to_vec(),
-                    },
-                },
-                FileChange::Upsert {
-                    path: "zz-oversized.md".into(),
-                    file: StoredFile::Text {
-                        bytes: vec![b'x'; LINK_GRAPH_MAX_TOTAL_BYTES + 1],
-                    },
-                },
+                FileChange::upsert_text("index.md", b"[[a]]".to_vec()),
+                FileChange::upsert_text(
+                    "zz-oversized.md",
+                    vec![b'x'; LINK_GRAPH_MAX_TOTAL_BYTES + 1],
+                ),
             ],
             "seed",
         )
@@ -5400,12 +5147,10 @@ mod tests {
         git.commit_changes(
             &control_vault.id,
             None,
-            &[FileChange::Upsert {
-                path: "control.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"[[control]]".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text(
+                "control.md",
+                b"[[control]]".to_vec(),
+            )],
             "seed",
         )
         .await
@@ -5537,12 +5282,7 @@ mod tests {
             .commit_changes(
                 &first_vault_id,
                 None,
-                &[FileChange::Upsert {
-                    path: "first.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"first".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("first.md", b"first".to_vec())],
                 "seed first",
             )
             .await
@@ -5551,12 +5291,7 @@ mod tests {
             .commit_changes(
                 &second_vault.id,
                 None,
-                &[FileChange::Upsert {
-                    path: "second.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"second".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("second.md", b"second".to_vec())],
                 "seed second",
             )
             .await

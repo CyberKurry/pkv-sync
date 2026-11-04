@@ -1238,12 +1238,7 @@ mod integration_tests {
                 &vid,
                 None,
                 &[
-                    FileChange::Upsert {
-                        path: "note.md".into(),
-                        file: StoredFile::Text {
-                            bytes: b"hello".to_vec(),
-                        },
-                    },
+                    FileChange::upsert_text("note.md", b"hello".to_vec()),
                     FileChange::Upsert {
                         path: "img.png".into(),
                         file: StoredFile::BlobPointer {

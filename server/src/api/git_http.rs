@@ -434,7 +434,7 @@ mod tests {
     use super::*;
     use crate::db::pool;
     use crate::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
-    use crate::storage::git::{FileChange, GitVaultStore, StoredFile};
+    use crate::storage::git::{FileChange, GitVaultStore};
     use base64::Engine;
     use git2::Oid;
     use std::net::{IpAddr, Ipv4Addr};
@@ -593,12 +593,7 @@ mod tests {
             .commit_changes(
                 &vault.id,
                 None,
-                &[FileChange::Upsert {
-                    path: "note.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"hello".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("note.md", b"hello".to_vec())],
                 "seed",
             )
             .await

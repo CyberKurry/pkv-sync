@@ -372,7 +372,7 @@ fn replay_source_device(message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
+    use crate::storage::git::{FileChange, Git2VaultStore, GitVaultStore};
 
     #[test]
     fn replay_events_after_uses_storage_vault_path_guard() {
@@ -479,12 +479,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 None,
-                &[FileChange::Upsert {
-                    path: "a.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"one".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("a.md", b"one".to_vec())],
                 "sync: first-device",
             )
             .await
@@ -493,12 +488,7 @@ mod tests {
             .commit_changes(
                 "v1",
                 Some(&first),
-                &[FileChange::Upsert {
-                    path: "b.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"two".to_vec(),
-                    },
-                }],
+                &[FileChange::upsert_text("b.md", b"two".to_vec())],
                 "sync: second-device",
             )
             .await
