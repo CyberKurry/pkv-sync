@@ -13,6 +13,10 @@ export function readPluginSettings(raw: unknown): PKVSyncSettings {
   return normalizeSettings(data?.settings ?? (data as Partial<PKVSyncSettings>));
 }
 
+// E-6: this is a scope KEY, not an identity (intentional subset of
+// CONNECTION_FIELDS): serverUrl + userId||username + the selected vault —
+// a vault switch must re-key the sync index, so vaultId belongs here and
+// deploymentKey/token must NOT.
 export function syncScopeKey(settings: PKVSyncSettings): string {
   return [
     "v2",
@@ -28,6 +32,11 @@ export function readSyncIndex(raw: unknown, scopeKey: string): LocalIndex {
   return normalizeIndex(asPluginData(raw)?.syncIndexes?.[scopeKey]);
 }
 
+// E-6 intentional subset of CONNECTION_FIELDS (connection-context):
+// exactly the four auth-store fields. `username` is NOT here — it is not
+// a secret and MUST persist to data.json (the auth store's counterpart
+// comment explains its side). Adding a connection field: extend
+// CONNECTION_FIELDS first, then re-read this list and authFromSettings.
 const AUTH_KEYS_FOR_WRITE = ["deviceId", "token", "serverUrl", "deploymentKey", "userId"] as const;
 
 export function writePluginSettingsWithoutAuth(

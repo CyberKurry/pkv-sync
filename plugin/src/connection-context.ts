@@ -7,6 +7,27 @@ export interface ConnectionIdentity {
   username: string;
 }
 
+/** E-6: the single ordered list of connection-identity fields. Every
+ * per-site enumeration elsewhere is an INTENTIONAL SUBSET — the anchor
+ * comments at each site say why:
+ * - copyIdentity/sameIdentity (this file): all five — identity is whole.
+ * - authFromSettings (auth-store): four, no `username` — the auth store
+ *   persists login credentials, not the display name; R8-1 made this the
+ *   committed-identity path.
+ * - AUTH_KEYS_FOR_WRITE (plugin-data): the four auth-store fields —
+ *   these must never reach data.json; `username` is NOT auth and DOES
+ *   persist.
+ * - syncScopeKey: serverUrl + userId||username + vaultId — a scope KEY,
+ *   not an identity; vault switch must re-key the index. */
+export const CONNECTION_FIELDS = [
+  "serverUrl",
+  "deploymentKey",
+  "token",
+  "userId",
+  "username"
+] as const;
+export type ConnectionField = (typeof CONNECTION_FIELDS)[number];
+
 export interface ConnectionStamp {
   epoch: number;
   connection: Readonly<ConnectionIdentity>;
@@ -50,23 +71,16 @@ export interface ConnectionContextContract {
 }
 
 function copyIdentity(value: ConnectionIdentity): Readonly<ConnectionIdentity> {
-  return Object.freeze({
-    serverUrl: value.serverUrl,
-    deploymentKey: value.deploymentKey,
-    token: value.token,
-    userId: value.userId,
-    username: value.username
-  });
+  // E-6: driven by CONNECTION_FIELDS — all five (see its doc comment).
+  const copy = Object.fromEntries(
+    CONNECTION_FIELDS.map((field) => [field, value[field]])
+  ) as unknown as ConnectionIdentity;
+  return Object.freeze(copy);
 }
 
 function sameIdentity(a: ConnectionIdentity, b: ConnectionIdentity): boolean {
-  return (
-    a.serverUrl === b.serverUrl &&
-    a.deploymentKey === b.deploymentKey &&
-    a.token === b.token &&
-    a.userId === b.userId &&
-    a.username === b.username
-  );
+  // E-6: driven by CONNECTION_FIELDS — all five (see its doc comment).
+  return CONNECTION_FIELDS.every((field) => a[field] === b[field]);
 }
 
 /**

@@ -196,6 +196,9 @@ function stripAuthFields(data: Record<string, unknown>): Record<string, unknown>
   return { ...stripped, settings };
 }
 
+// E-6 intentional subset of CONNECTION_FIELDS (connection-context): four
+// fields, no `username` — the auth store persists login credentials, not
+// the display name; R8-1 made this the committed-identity path.
 export function authFromSettings(settings: {
   deviceId: string;
   token: string;
