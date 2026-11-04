@@ -26,7 +26,6 @@ export const CONNECTION_FIELDS = [
   "userId",
   "username"
 ] as const;
-export type ConnectionField = (typeof CONNECTION_FIELDS)[number];
 
 export interface ConnectionStamp {
   epoch: number;
