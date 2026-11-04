@@ -524,8 +524,12 @@ export class PKVSyncSettingTab extends PluginSettingTab {
 
     void this.renderVaultSyncAllowlist(body);
     this.renderCreateVault(body);
-    this.renderButton(body, t.syncNowButton, "primary", () =>
-      this.plugin.syncNowManual()
+    this.renderButton(
+      body,
+      t.syncNowButton,
+      "primary",
+      () => this.plugin.syncNowManual(),
+      "refresh-cw"
     ).addClass("pkv-sync-sync-now");
   }
 
@@ -979,16 +983,17 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     parent: HTMLElement,
     text: string,
     variant: ButtonVariant,
-    onClick: () => void | Promise<void>
+    onClick: () => void | Promise<void>,
+    icon?: string
   ): HTMLButtonElement {
     const button = parent.createEl("button", {
       cls: `pkv-sync-button is-${variant}`,
       text
     });
-    if (text === this.plugin.text().syncNowButton) {
+    if (icon) {
       button.empty();
-      const icon = button.createSpan({ cls: "pkv-sync-button-icon" });
-      setIcon(icon, "refresh-cw");
+      const iconEl = button.createSpan({ cls: "pkv-sync-button-icon" });
+      setIcon(iconEl, icon);
       button.createSpan({ text });
     }
     button.addEventListener("click", () => void onClick());
