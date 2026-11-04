@@ -47,12 +47,7 @@ async fn list_files_enforces_vault_ownership() {
     git.commit_changes(
         &vault.id,
         None,
-        &[FileChange::Upsert {
-            path: "note.md".into(),
-            file: StoredFile::Text {
-                bytes: b"secret".to_vec(),
-            },
-        }],
+        &[FileChange::upsert_text("note.md", b"secret".to_vec())],
         "seed",
     )
     .await
@@ -88,12 +83,7 @@ async fn read_file_returns_text_and_expands_text_blob_pointer() {
             &vault.id,
             None,
             &[
-                FileChange::Upsert {
-                    path: "plain.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"hello utf8".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("plain.md", b"hello utf8".to_vec()),
                 FileChange::Upsert {
                     path: "blob.txt".into(),
                     file: StoredFile::BlobPointer {
@@ -156,12 +146,7 @@ async fn read_file_answers_vault_not_found_before_consulting_a_foreign_vaults_fi
     git.commit_changes(
         &vault.id,
         None,
-        &[FileChange::Upsert {
-            path: "secret.md".into(),
-            file: StoredFile::Text {
-                bytes: b"secret".to_vec(),
-            },
-        }],
+        &[FileChange::upsert_text("secret.md", b"secret".to_vec())],
         "seed",
     )
     .await
@@ -202,12 +187,10 @@ async fn read_file_normalizes_mcp_paths_before_git_lookup() {
     git.commit_changes(
         &vault.id,
         None,
-        &[FileChange::Upsert {
-            path: "folder/note.md".into(),
-            file: StoredFile::Text {
-                bytes: b"normalized".to_vec(),
-            },
-        }],
+        &[FileChange::upsert_text(
+            "folder/note.md",
+            b"normalized".to_vec(),
+        )],
         "seed",
     )
     .await
@@ -263,18 +246,11 @@ async fn search_finds_case_insensitive_text_matches_and_skips_binary_and_blob_co
         &vault.id,
         None,
         &[
-            FileChange::Upsert {
-                path: "notes/a.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"first line\nFind the NEEDLE here\nlast line".to_vec(),
-                },
-            },
-            FileChange::Upsert {
-                path: "raw.bin".into(),
-                file: StoredFile::Text {
-                    bytes: b"needle in binary extension".to_vec(),
-                },
-            },
+            FileChange::upsert_text(
+                "notes/a.md",
+                b"first line\nFind the NEEDLE here\nlast line".to_vec(),
+            ),
+            FileChange::upsert_text("raw.bin", b"needle in binary extension".to_vec()),
             FileChange::Upsert {
                 path: "attachment.txt".into(),
                 file: StoredFile::BlobPointer {
@@ -323,12 +299,7 @@ async fn search_rejects_trees_over_safe_file_limit() {
     let vault = state.vaults.create(&user_id, "main").await.unwrap();
     let git = Git2VaultStore::new(state.default_vault_root());
     let changes = (0..=5000)
-        .map(|i| FileChange::Upsert {
-            path: format!("notes/{i}.md"),
-            file: StoredFile::Text {
-                bytes: b"needle".to_vec(),
-            },
-        })
+        .map(|i| FileChange::upsert_text(format!("notes/{i}.md"), b"needle".to_vec()))
         .collect::<Vec<_>>();
     git.commit_changes(&vault.id, None, &changes, "large")
         .await

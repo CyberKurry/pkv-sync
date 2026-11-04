@@ -13,7 +13,7 @@ use pkv_sync_server::db::repos::{
 };
 use pkv_sync_server::server;
 use pkv_sync_server::service::AppState;
-use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
+use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore};
 use std::net::SocketAddr;
 use std::time::Duration;
 use tower::ServiceExt;
@@ -667,12 +667,7 @@ async fn admin_can_browse_vault_files_history_and_diff_read_only() {
         .commit_changes(
             &vault.id,
             None,
-            &[FileChange::Upsert {
-                path: "note.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"hello\n".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("note.md", b"hello\n".to_vec())],
             "sync: laptop",
         )
         .await
@@ -681,12 +676,10 @@ async fn admin_can_browse_vault_files_history_and_diff_read_only() {
         .commit_changes(
             &vault.id,
             Some(&c1),
-            &[FileChange::Upsert {
-                path: "note.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"hello\nworld\n".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text(
+                "note.md",
+                b"hello\nworld\n".to_vec(),
+            )],
             "sync: laptop",
         )
         .await
@@ -695,12 +688,10 @@ async fn admin_can_browse_vault_files_history_and_diff_read_only() {
         .commit_changes(
             &vault.id,
             Some(&c2),
-            &[FileChange::Upsert {
-                path: "logs/history".into(),
-                file: StoredFile::Text {
-                    bytes: b"edge history content\n".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text(
+                "logs/history",
+                b"edge history content\n".to_vec(),
+            )],
             "sync: laptop",
         )
         .await
@@ -820,12 +811,7 @@ async fn admin_vault_file_bad_commit_hides_git_error() {
         .commit_changes(
             &vault.id,
             None,
-            &[FileChange::Upsert {
-                path: "note.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"hello\n".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("note.md", b"hello\n".to_vec())],
             "sync: laptop",
         )
         .await
@@ -866,12 +852,7 @@ async fn admin_history_and_diff_routes_follow_runtime_flags() {
         .commit_changes(
             &vault.id,
             None,
-            &[FileChange::Upsert {
-                path: "note.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"hello\n".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("note.md", b"hello\n".to_vec())],
             "sync: laptop",
         )
         .await

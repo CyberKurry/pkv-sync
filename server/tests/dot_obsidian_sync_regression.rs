@@ -3,7 +3,7 @@ use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewToken, NewUser, RuntimeConfigRepo, TokenRepo, UserRepo};
 use pkv_sync_server::service::sync::{pull, push, PushChange, PushReq};
 use pkv_sync_server::service::{vault, vault_settings, AppState};
-use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
+use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore};
 
 async fn setup() -> (
     AppState,
@@ -265,24 +265,9 @@ async fn pull_silently_skips_filtered_added_modified_and_deleted_paths() {
             &vault_id,
             None,
             &[
-                FileChange::Upsert {
-                    path: "notes/keep.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"keep".to_vec(),
-                    },
-                },
-                FileChange::Upsert {
-                    path: ".obsidian/workspace.json".into(),
-                    file: StoredFile::Text {
-                        bytes: b"{}".to_vec(),
-                    },
-                },
-                FileChange::Upsert {
-                    path: "scratch/tmp.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"tmp".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("notes/keep.md", b"keep".to_vec()),
+                FileChange::upsert_text(".obsidian/workspace.json", b"{}".to_vec()),
+                FileChange::upsert_text("scratch/tmp.md", b"tmp".to_vec()),
             ],
             "seed filtered paths",
         )
@@ -304,18 +289,8 @@ async fn pull_silently_skips_filtered_added_modified_and_deleted_paths() {
             &vault_id,
             Some(&first),
             &[
-                FileChange::Upsert {
-                    path: "notes/keep.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"keep v2".to_vec(),
-                    },
-                },
-                FileChange::Upsert {
-                    path: ".obsidian/workspace.json".into(),
-                    file: StoredFile::Text {
-                        bytes: b"{\"open\":true}".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("notes/keep.md", b"keep v2".to_vec()),
+                FileChange::upsert_text(".obsidian/workspace.json", b"{\"open\":true}".to_vec()),
                 FileChange::Delete {
                     path: "scratch/tmp.md".into(),
                 },

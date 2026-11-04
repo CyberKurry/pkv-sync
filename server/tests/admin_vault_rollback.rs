@@ -1,3 +1,5 @@
+mod common;
+
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{header, Method, Request, Response, StatusCode};
@@ -8,7 +10,7 @@ use pkv_sync_server::config::{Config, LoggingConfig, NetworkConfig, ServerConfig
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
 use pkv_sync_server::server;
-use pkv_sync_server::service::sync::{push, PushChange, PushReq};
+use pkv_sync_server::service::sync::{push, PushChange};
 use pkv_sync_server::service::{vault, AppState};
 use pkv_sync_server::storage::git::{Git2VaultStore, GitVaultStore, StoredFile};
 use std::net::SocketAddr;
@@ -183,13 +185,10 @@ async fn push_text(
         vault_id,
         parent,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Text {
-                path: "note.md".into(),
-                content: content.into(),
-            }],
-        },
+        common::push_req(vec![PushChange::Text {
+            path: "note.md".into(),
+            content: content.into(),
+        }]),
     )
     .await
     .unwrap()

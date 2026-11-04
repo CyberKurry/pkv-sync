@@ -735,18 +735,8 @@ async fn move_file_target_exists_check_does_not_leak_excluded_paths() {
             &vault.id,
             None,
             &[
-                FileChange::Upsert {
-                    path: "visible.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"visible".to_vec(),
-                    },
-                },
-                FileChange::Upsert {
-                    path: ".obsidian/plugins/secret/data.json".into(),
-                    file: StoredFile::Text {
-                        bytes: b"secret".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("visible.md", b"visible".to_vec()),
+                FileChange::upsert_text(".obsidian/plugins/secret/data.json", b"secret".to_vec()),
             ],
             "seed hidden target",
         )
@@ -786,18 +776,8 @@ async fn move_file_rejects_existing_target() {
             &vault.id,
             None,
             &[
-                FileChange::Upsert {
-                    path: "a.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"source".to_vec(),
-                    },
-                },
-                FileChange::Upsert {
-                    path: "b.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"target".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("a.md", b"source".to_vec()),
+                FileChange::upsert_text("b.md", b"target".to_vec()),
             ],
             "seed move target",
         )
@@ -1161,12 +1141,7 @@ async fn move_file_invalid_source_does_not_burn_rate_limit() {
         .commit_changes(
             &vault.id,
             None,
-            &[FileChange::Upsert {
-                path: "source.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"source".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("source.md", b"source".to_vec())],
             "seed move invalid source rate",
         )
         .await
@@ -1236,12 +1211,7 @@ async fn move_file_binary_source_consumes_write_rate_limit() {
                         mime: Some("application/octet-stream".into()),
                     },
                 },
-                FileChange::Upsert {
-                    path: "source.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"source".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("source.md", b"source".to_vec()),
             ],
             "seed move binary rate",
         )
@@ -1313,18 +1283,8 @@ async fn move_file_checks_ownership_before_tree_or_content_probe() {
             &vault.id,
             None,
             &[
-                FileChange::Upsert {
-                    path: "source.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"source".to_vec(),
-                    },
-                },
-                FileChange::Upsert {
-                    path: "target.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"target".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("source.md", b"source".to_vec()),
+                FileChange::upsert_text("target.md", b"target".to_vec()),
             ],
             "seed move preflight owner",
         )
@@ -1572,18 +1532,8 @@ async fn read_file_on_directory_path_reports_public_not_found() {
         &vault.id,
         None,
         &[
-            FileChange::Upsert {
-                path: "notes/a.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"a".to_vec(),
-                },
-            },
-            FileChange::Upsert {
-                path: "top.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"t".to_vec(),
-                },
-            },
+            FileChange::upsert_text("notes/a.md", b"a".to_vec()),
+            FileChange::upsert_text("top.md", b"t".to_vec()),
         ],
         "seed dir",
     )
@@ -1621,12 +1571,7 @@ async fn read_file_at_commit_with_bogus_commit_reports_public_invalid_commit() {
     git.commit_changes(
         &vault.id,
         None,
-        &[FileChange::Upsert {
-            path: "top.md".into(),
-            file: StoredFile::Text {
-                bytes: b"t".to_vec(),
-            },
-        }],
+        &[FileChange::upsert_text("top.md", b"t".to_vec())],
         "seed",
     )
     .await

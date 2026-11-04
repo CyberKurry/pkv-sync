@@ -10,7 +10,7 @@ use pkv_sync_server::mcp::transport_http;
 use pkv_sync_server::service::events::MAX_SSE_REPLAY_COMMITS;
 use pkv_sync_server::service::sync::{self, PushChange, PushReq};
 use pkv_sync_server::service::{vault, AppState};
-use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
+use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -296,12 +296,7 @@ async fn http_mcp_calls_read_only_tool_with_authenticated_user() {
     git.commit_changes(
         &vault.id,
         None,
-        &[FileChange::Upsert {
-            path: "note.md".into(),
-            file: StoredFile::Text {
-                bytes: b"hello mcp".to_vec(),
-            },
-        }],
+        &[FileChange::upsert_text("note.md", b"hello mcp".to_vec())],
         "seed",
     )
     .await
@@ -349,12 +344,7 @@ async fn http_mcp_write_file_allows_body_above_one_mib_within_max_file_size() {
         .commit_changes(
             &vault.id,
             None,
-            &[FileChange::Upsert {
-                path: "seed.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"seed".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("seed.md", b"seed".to_vec())],
             "seed",
         )
         .await
@@ -402,12 +392,7 @@ async fn http_mcp_write_file_allows_escaped_json_body_within_max_file_size() {
         .commit_changes(
             &vault.id,
             None,
-            &[FileChange::Upsert {
-                path: "seed.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"seed".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("seed.md", b"seed".to_vec())],
             "seed",
         )
         .await
@@ -475,12 +460,7 @@ async fn http_mcp_write_file_reports_tool_error_above_max_file_size() {
         .commit_changes(
             &vault.id,
             None,
-            &[FileChange::Upsert {
-                path: "seed.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"seed".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("seed.md", b"seed".to_vec())],
             "seed",
         )
         .await
@@ -534,12 +514,7 @@ async fn http_mcp_write_files_oversized_file_reports_public_max_file_size_error(
         .commit_changes(
             &vault.id,
             None,
-            &[FileChange::Upsert {
-                path: "seed.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"seed".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("seed.md", b"seed".to_vec())],
             "seed",
         )
         .await
@@ -588,12 +563,7 @@ async fn http_mcp_read_file_at_commit_with_bogus_commit_reports_public_invalid_c
     git.commit_changes(
         &vault.id,
         None,
-        &[FileChange::Upsert {
-            path: "top.md".into(),
-            file: StoredFile::Text {
-                bytes: b"t".to_vec(),
-            },
-        }],
+        &[FileChange::upsert_text("top.md", b"t".to_vec())],
         "seed",
     )
     .await

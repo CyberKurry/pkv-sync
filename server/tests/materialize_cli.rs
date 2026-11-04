@@ -73,12 +73,10 @@ async fn materialize_text_file() {
         .commit_changes(
             "v1",
             None,
-            &[FileChange::Upsert {
-                path: "notes/hello.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"hello world".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text(
+                "notes/hello.md",
+                b"hello world".to_vec(),
+            )],
             "initial",
         )
         .await
@@ -159,12 +157,7 @@ async fn materialize_mixed_text_and_blob() {
             "v3",
             None,
             &[
-                FileChange::Upsert {
-                    path: "readme.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"# My Vault".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("readme.md", b"# My Vault".to_vec()),
                 FileChange::Upsert {
                     path: "assets/logo.png".into(),
                     file: StoredFile::BlobPointer {
@@ -205,12 +198,7 @@ async fn materialize_at_specific_commit() {
         .commit_changes(
             "v4",
             None,
-            &[FileChange::Upsert {
-                path: "doc.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"version 1".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("doc.md", b"version 1".to_vec())],
             "c1",
         )
         .await
@@ -221,12 +209,7 @@ async fn materialize_at_specific_commit() {
         .commit_changes(
             "v4",
             Some(&c1),
-            &[FileChange::Upsert {
-                path: "doc.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"version 2".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("doc.md", b"version 2".to_vec())],
             "c2",
         )
         .await
@@ -252,12 +235,7 @@ async fn materialize_rejects_non_empty_output_dir() {
         .commit_changes(
             "v5",
             None,
-            &[FileChange::Upsert {
-                path: "a.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"a".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("a.md", b"a".to_vec())],
             "c1",
         )
         .await
@@ -302,12 +280,7 @@ async fn materialize_rejects_vault_id_path_traversal() {
         .commit_changes(
             "escaped",
             None,
-            &[FileChange::Upsert {
-                path: "escaped.md".into(),
-                file: StoredFile::Text {
-                    bytes: b"escaped".to_vec(),
-                },
-            }],
+            &[FileChange::upsert_text("escaped.md", b"escaped".to_vec())],
             "escaped",
         )
         .await
@@ -375,12 +348,7 @@ async fn materialize_removes_output_after_mid_walk_error() {
             "v7",
             None,
             &[
-                FileChange::Upsert {
-                    path: "00-written-first.md".into(),
-                    file: StoredFile::Text {
-                        bytes: b"partial output".to_vec(),
-                    },
-                },
+                FileChange::upsert_text("00-written-first.md", b"partial output".to_vec()),
                 FileChange::Upsert {
                     path: "missing.png".into(),
                     file: StoredFile::BlobPointer {

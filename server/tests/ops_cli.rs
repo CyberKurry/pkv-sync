@@ -375,12 +375,7 @@ async fn backup_writes_manifest_and_copies_components_without_config_by_default(
     git.commit_changes(
         "vault1",
         None,
-        &[FileChange::Upsert {
-            path: "note.md".into(),
-            file: StoredFile::Text {
-                bytes: b"hello".to_vec(),
-            },
-        }],
+        &[FileChange::upsert_text("note.md", b"hello".to_vec())],
         "initial",
     )
     .await

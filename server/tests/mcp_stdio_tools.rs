@@ -6,7 +6,7 @@ use pkv_sync_server::db::repos::{TokenRepo, VaultRepo};
 use pkv_sync_server::mcp::transport_stdio::StdioSession;
 use pkv_sync_server::service::events::{EventKind, VaultEvent};
 use pkv_sync_server::service::AppState;
-use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore, StoredFile};
+use pkv_sync_server::storage::git::{FileChange, Git2VaultStore, GitVaultStore};
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -89,12 +89,10 @@ async fn commit_and_broadcast(
         .commit_changes(
             vault_id,
             None,
-            &[FileChange::Upsert {
-                path: format!("{tag}.md"),
-                file: StoredFile::Text {
-                    bytes: format!("{tag}-body").into_bytes(),
-                },
-            }],
+            &[FileChange::upsert_text(
+                format!("{tag}.md"),
+                format!("{tag}-body").into_bytes(),
+            )],
             "stdio-listen-test",
         )
         .await
@@ -177,12 +175,7 @@ async fn stdio_session_rejects_cross_vault_tool_arguments_without_panicking() {
     git.commit_changes(
         &denied.id,
         None,
-        &[FileChange::Upsert {
-            path: "secret.md".into(),
-            file: StoredFile::Text {
-                bytes: b"secret".to_vec(),
-            },
-        }],
+        &[FileChange::upsert_text("secret.md", b"secret".to_vec())],
         "seed",
     )
     .await

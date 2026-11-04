@@ -1,3 +1,5 @@
+mod common;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use pkv_sync_server::api;
@@ -102,13 +104,10 @@ async fn push_text(
         vault_id,
         parent,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Text {
-                path: "note.md".into(),
-                content: content.into(),
-            }],
-        },
+        common::push_req(vec![PushChange::Text {
+            path: "note.md".into(),
+            content: content.into(),
+        }]),
     )
     .await
     .unwrap()
@@ -220,15 +219,12 @@ async fn rollback_refreshes_vault_stats_and_current_blob_refs() {
         &ctx.vault_id,
         None,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Blob {
-                path: "old.png".into(),
-                blob_hash: old_hash.clone(),
-                size: 3,
-                mime: Some("image/png".into()),
-            }],
-        },
+        common::push_req(vec![PushChange::Blob {
+            path: "old.png".into(),
+            blob_hash: old_hash.clone(),
+            size: 3,
+            mime: Some("image/png".into()),
+        }]),
     )
     .await
     .unwrap()
@@ -250,15 +246,12 @@ async fn rollback_refreshes_vault_stats_and_current_blob_refs() {
         &ctx.vault_id,
         Some(&first),
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Blob {
-                path: "new.png".into(),
-                blob_hash: new_hash.clone(),
-                size: 8,
-                mime: Some("image/png".into()),
-            }],
-        },
+        common::push_req(vec![PushChange::Blob {
+            path: "new.png".into(),
+            blob_hash: new_hash.clone(),
+            size: 8,
+            mime: Some("image/png".into()),
+        }]),
     )
     .await
     .unwrap()

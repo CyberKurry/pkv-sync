@@ -1,3 +1,5 @@
+mod common;
+
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
@@ -62,13 +64,10 @@ async fn push_small_text_emits_text_inline() {
         &vid,
         None,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Text {
-                path: "note.md".into(),
-                content: "hello".into(),
-            }],
-        },
+        common::push_req(vec![PushChange::Text {
+            path: "note.md".into(),
+            content: "hello".into(),
+        }]),
     )
     .await
     .unwrap();
@@ -97,13 +96,10 @@ async fn push_large_text_emits_text_ref() {
         &vid,
         None,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Text {
-                path: "big.md".into(),
-                content: large_content.clone(),
-            }],
-        },
+        common::push_req(vec![PushChange::Text {
+            path: "big.md".into(),
+            content: large_content.clone(),
+        }]),
     )
     .await
     .unwrap();
@@ -223,15 +219,12 @@ async fn blob_refs_are_durable_before_commit_event_is_broadcast() {
         &vid,
         None,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Blob {
-                path: "img.png".into(),
-                blob_hash: hash,
-                size: 5,
-                mime: None,
-            }],
-        },
+        common::push_req(vec![PushChange::Blob {
+            path: "img.png".into(),
+            blob_hash: hash,
+            size: 5,
+            mime: None,
+        }]),
     )
     .await
     .unwrap();
@@ -294,15 +287,12 @@ async fn blob_download_succeeds_as_soon_as_commit_event_is_received() {
         &vid,
         None,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Blob {
-                path: "img.png".into(),
-                blob_hash: hash,
-                size: 5,
-                mime: None,
-            }],
-        },
+        common::push_req(vec![PushChange::Blob {
+            path: "img.png".into(),
+            blob_hash: hash,
+            size: 5,
+            mime: None,
+        }]),
     )
     .await
     .unwrap();
@@ -328,15 +318,12 @@ async fn push_blob_emits_blob_event() {
         &vid,
         None,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Blob {
-                path: "img.png".into(),
-                blob_hash: hash.clone(),
-                size: 5,
-                mime: None,
-            }],
-        },
+        common::push_req(vec![PushChange::Blob {
+            path: "img.png".into(),
+            blob_hash: hash.clone(),
+            size: 5,
+            mime: None,
+        }]),
     )
     .await
     .unwrap();
@@ -380,13 +367,10 @@ async fn push_event_carries_token_device_id_not_token_row_id() {
         &vid,
         None,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Text {
-                path: "note.md".into(),
-                content: "hi".into(),
-            }],
-        },
+        common::push_req(vec![PushChange::Text {
+            path: "note.md".into(),
+            content: "hi".into(),
+        }]),
     )
     .await
     .unwrap();
@@ -466,13 +450,10 @@ async fn push_delete_emits_delete_event() {
         &vid,
         None,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Text {
-                path: "note.md".into(),
-                content: "hello".into(),
-            }],
-        },
+        common::push_req(vec![PushChange::Text {
+            path: "note.md".into(),
+            content: "hello".into(),
+        }]),
     )
     .await
     .unwrap();
@@ -490,12 +471,9 @@ async fn push_delete_emits_delete_event() {
         &vid,
         Some(&head),
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Delete {
-                path: "note.md".into(),
-            }],
-        },
+        common::push_req(vec![PushChange::Delete {
+            path: "note.md".into(),
+        }]),
     )
     .await
     .unwrap();
@@ -522,13 +500,10 @@ async fn two_receivers_both_get_event() {
         &vid,
         None,
         None,
-        PushReq {
-            device_name: None,
-            changes: vec![PushChange::Text {
-                path: "note.md".into(),
-                content: "hello".into(),
-            }],
-        },
+        common::push_req(vec![PushChange::Text {
+            path: "note.md".into(),
+            content: "hello".into(),
+        }]),
     )
     .await
     .unwrap();

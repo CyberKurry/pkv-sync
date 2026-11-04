@@ -2,6 +2,7 @@
 //! AppState, a user with a bearer token, and an AuthenticatedUser handle.
 //! Kept as a plain module next to the tests so each binary picks what it
 //! needs with `mod common;`; not every binary uses every helper.
+#![allow(dead_code)]
 use pkv_sync_server::auth::{password, token, AuthenticatedUser};
 use pkv_sync_server::db::pool;
 use pkv_sync_server::db::repos::{NewToken, NewUser, TokenRepo, UserRepo};
@@ -25,7 +26,6 @@ pub async fn test_state() -> (AppState, tempfile::TempDir) {
 /// Create a user plus a fresh bearer token; returns (user_id, raw token).
 // Used by some of the `mcp_*` binaries only (each test binary compiles this
 // module independently, so unused-in-this-binary would fire dead_code).
-#[allow(dead_code)]
 pub async fn create_user_with_token(state: &AppState, username: &str) -> (String, String) {
     let user = state
         .users
@@ -54,7 +54,6 @@ pub async fn create_user_with_token(state: &AppState, username: &str) -> (String
 /// authenticate as (user + token row looked up from the database).
 // Used by some of the `mcp_*` binaries only (each test binary compiles this
 // module independently, so unused-in-this-binary would fire dead_code).
-#[allow(dead_code)]
 pub async fn auth_for(state: &AppState, raw: &str, username: &str) -> AuthenticatedUser {
     let user = state
         .users
@@ -74,5 +73,16 @@ pub async fn auth_for(state: &AppState, raw: &str, username: &str) -> Authentica
         is_admin: user.is_admin,
         token_id: token_row.id,
         device_id: token_row.device_id,
+    }
+}
+
+/// E-4: PushReq fixture for the dominant test shape (changes + no device
+/// name). Sites needing a device_name keep the literal.
+pub fn push_req(
+    changes: Vec<pkv_sync_server::service::sync::PushChange>,
+) -> pkv_sync_server::service::sync::PushReq {
+    pkv_sync_server::service::sync::PushReq {
+        changes,
+        device_name: None,
     }
 }
