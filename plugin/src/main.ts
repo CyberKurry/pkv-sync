@@ -82,7 +82,7 @@ import {
   type PluginFileAdapter,
   type PluginUpdateStatus
 } from "./services/update-check";
-import { errorToMessage, extensionOf } from "./util";
+import { errorToMessage, extensionOf, isTextPath } from "./util";
 
 type CompletionState = "old_safe" | "new_committed" | "disk_uncertain";
 
@@ -1084,8 +1084,7 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   private isBinaryPath(path: string): boolean {
-    const ext = extensionOf(path);
-    return !ext || !this.settings.textExtensions.includes(ext);
+    return !isTextPath(path, new Set(this.settings.textExtensions));
   }
 
   private commitLine(entry: CommitSummary): string {
