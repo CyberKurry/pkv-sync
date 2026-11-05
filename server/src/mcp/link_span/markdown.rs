@@ -12,6 +12,7 @@
 //! 3. Ranges are validated with `str::get` before use; all pushes happen
 //!    on char boundaries.
 
+use super::math;
 use super::{DocumentScan, Host, LinkToken, ScanReason, Syntax};
 
 pub(super) fn scan(source: &str, max_links: usize) -> DocumentScan {
@@ -215,6 +216,35 @@ impl<'a> Scanner<'a> {
                 continue;
             }
             match self.bytes[i] {
+                b'$' => {
+                    // Math host (MEL-R2-02): $…$ / $$…$$ own their content.
+                    if !escaped_at(self.bytes, i) {
+                        match math::math_host_end(self.source, i) {
+                            Some(end) => {
+                                self.excluded.push(i..end);
+                                i = end;
+                            }
+                            None => {
+                                let run = self.bytes[i..]
+                                    .iter()
+                                    .take_while(|&&b| b == b'$')
+                                    .count();
+                                if run >= 2 {
+                                    // Unclosed block math: the host boundary
+                                    // is unprovable — document not complete.
+                                    self.reasons.push(ScanReason::UnsupportedHost);
+                                    self.excluded.push(i..self.bytes.len());
+                                    i = self.bytes.len();
+                                } else {
+                                    // Unpaired single $: back to the body.
+                                    i += 1;
+                                }
+                            }
+                        }
+                    } else {
+                        i += 1;
+                    }
+                }
                 b'`' => {
                     let run = backtick_run(self.bytes, i);
                     if let Some(end) = find_backtick_close(self.bytes, i + run, run) {
@@ -465,6 +495,18 @@ fn fence_marker(line: &str) -> Option<(u8, usize)> {
 
 fn backtick_run(bytes: &[u8], at: usize) -> usize {
     bytes[at..].iter().take_while(|&&b| b == b'`').count()
+}
+
+/// True when the byte at `at` is preceded by an odd number of backslashes
+/// (i.e. it is itself escaped).
+fn escaped_at(source: &[u8], at: usize) -> bool {
+    source[..at]
+        .iter()
+        .rev()
+        .take_while(|&&b| b == b'\\')
+        .count()
+        % 2
+        == 1
 }
 
 fn find_backtick_close(bytes: &[u8], from: usize, len: usize) -> Option<usize> {

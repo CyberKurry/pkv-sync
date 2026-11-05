@@ -9,6 +9,7 @@
 use std::ops::Range;
 
 pub(crate) mod markdown;
+pub(crate) mod math;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Syntax {
@@ -90,6 +91,22 @@ mod tests {
             .iter()
             .map(|t| &source[t.path.clone()])
             .collect()
+    }
+
+    #[test]
+    fn mel_scan_math_owns_its_content() {
+        for source in [
+            "$\\text{[[Old]]}$ [[Live]]",
+            "$$\n\\text{[[Old]]}\n$$\n[[Live]]",
+            "$$x ^id$$ [[Live]]",
+        ] {
+            let scan = scan_document(source, 100);
+            assert!(scan.reasons.is_empty(), "{source:?}");
+            let paths = paths_of(&scan, source);
+            assert_eq!(paths, ["Live"], "{source:?}");
+        }
+        let incomplete = scan_document("$$\n[[Old]]\n", 100);
+        assert!(incomplete.reasons.contains(&ScanReason::UnsupportedHost));
     }
 
     #[test]
