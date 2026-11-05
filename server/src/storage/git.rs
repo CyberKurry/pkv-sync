@@ -912,7 +912,11 @@ fn write_tree_with_edits(
 /// folding would additionally stop catching real pairs such as Ä/ä. What
 /// WAS missing is the NFD step, which is the actual data-loss hazard this
 /// guard exists for.
-fn case_fold_key(name: &str) -> String {
+/// Same folding as `case_fold_key`, exposed crate-wide (MEL-01) so the MCP
+/// link resolver answers target identity with the storage comparison key
+/// instead of a second algorithm. Do not "simplify" this to ASCII folding:
+/// see the R6/K2 note above for why each step exists.
+pub(crate) fn case_fold_key(name: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
     name.nfd().flat_map(|c| c.to_lowercase()).collect()
 }
