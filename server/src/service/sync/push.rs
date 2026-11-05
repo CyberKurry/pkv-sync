@@ -98,6 +98,13 @@ fn git_write_error(e: GitStoreError) -> ApiError {
         | GitStoreError::InvalidVaultId
         | GitStoreError::GitCommand { .. } => ApiError::internal("storage operation failed"),
         GitStoreError::Panic => ApiError::internal("storage worker failed"),
+        // A bounded READ refusal can never reach the write path; mapping
+        // it to a bad request keeps the match total without inventing a
+        // write-side meaning for a read-side guard (MEL-15).
+        GitStoreError::ReadTooLarge { limit, .. } => ApiError::bad_request(
+            "read_too_large",
+            format!("read exceeds the {limit}-byte limit"),
+        ),
     }
 }
 

@@ -47,6 +47,13 @@ const MAX_BROKEN_LINKS: usize = 20_000;
 const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64;
 #[cfg(not(test))]
 const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
+/// Concise reads materialize the WHOLE blob once for the digest; the cap
+/// mirrors the full-read binary ceiling (tests stay small so a single
+/// const works without an injection seam).
+#[cfg(test)]
+const MCP_CONCISE_SOURCE_CAP: u64 = 256 * 1024;
+#[cfg(not(test))]
+const MCP_CONCISE_SOURCE_CAP: u64 = 64 * 1024 * 1024;
 const DEFAULT_SEARCH_LIMIT: usize = 100;
 const SEARCH_MAX_LIMIT: usize = 500;
 const LIST_VAULTS_HEAD_CONCURRENCY: usize = 16;
@@ -72,28 +79,76 @@ pub struct VaultSummary {
 pub struct ListFilesInput {
     pub vault_id: String,
     pub at: Option<String>,
+    /// Optional cap (1..=5000); absent = unlimited legacy behavior. The
+    /// response then reports `truncated` and (with a limit) exact totals.
+    #[serde(default, deserialize_with = "present_value")]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ListFilesOutput {
     pub paths: Vec<String>,
+    /// New in 1.8.0: false unless a `limit` clipped the listing.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shown: Option<usize>,
+}
+
+/// Pure post-filter helper: sort, count the full set, then clip to the
+/// requested limit (MEL-15.5). Callers pass every visible path.
+pub(crate) fn finish_listing(paths: Vec<String>, limit: Option<usize>) -> Result<ListFilesOutput> {
+    if let Some(limit) = limit {
+        anyhow::ensure!(
+            (1..=5000).contains(&limit),
+            "invalid_path: limit must be 1..=5000"
+        );
+    }
+    let mut paths = paths;
+    paths.sort();
+    let total = paths.len();
+    let truncated = limit.is_some_and(|l| total > l);
+    if let Some(l) = limit {
+        paths.truncate(l);
+    }
+    let shown = limit.map(|_| paths.len());
+    Ok(ListFilesOutput {
+        paths,
+        truncated,
+        total: limit.map(|_| total),
+        shown,
+    })
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ReadFileInput {
     pub vault_id: String,
     pub path: String,
+    /// `full` (default) returns the whole file; `concise` returns
+    /// sha256 + sizes + an 8 KiB head — enough to base an edit_file or
+    /// expected_hashes call on without paying the whole body (MEL-15).
+    #[serde(default, deserialize_with = "present_value")]
+    pub detail: Option<ReadDetail>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ReadFileAtCommitInput {
-    pub vault_id: String,
-    pub path: String,
-    pub commit: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadDetail {
+    Full,
+    Concise,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ReadFileOutput {
+#[serde(untagged)]
+pub enum ReadFileOutput {
+    Full(ReadFullOutput),
+    Concise(ReadConciseOutput),
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReadFullOutput {
     pub path: String,
     pub is_binary: bool,
     pub content: String,
@@ -103,6 +158,26 @@ pub struct ReadFileOutput {
     /// write tools' `expected_hashes` asks for, so a caller can base an edit
     /// on what it actually read instead of re-encoding the payload.
     pub sha256: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReadConciseOutput {
+    pub path: String,
+    pub sha256: String,
+    pub total_bytes: usize,
+    pub shown_bytes: usize,
+    pub truncated: bool,
+    pub encoding: &'static str,
+    /// UTF-8 head for text (char-boundary cut); base64 of the first bytes
+    /// for binary. The digest still covers the WHOLE source.
+    pub head: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReadFileAtCommitInput {
+    pub vault_id: String,
+    pub path: String,
+    pub commit: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -601,7 +676,7 @@ pub async fn list_files(
         .await
         .map_err(api_error_to_anyhow)?;
     let git = state.git_store();
-    let mut paths = git
+    let paths = git
         .list_tree(&input.vault_id, input.at.as_deref())
         .await
         .map_err(|err| {
@@ -615,8 +690,7 @@ pub async fn list_files(
         .map(|entry| entry.path)
         .filter(|path| sync::path_visible_on_read(&filter, path))
         .collect::<Vec<_>>();
-    paths.sort();
-    Ok(ListFilesOutput { paths })
+    finish_listing(paths, input.limit)
 }
 
 pub async fn read_file(
@@ -628,7 +702,68 @@ pub async fn read_file(
     let path = sync::ensure_path_visible_for_sync_api(state, user_id, &input.vault_id, &input.path)
         .await
         .map_err(api_error_to_anyhow)?;
+    if input.detail == Some(ReadDetail::Concise) {
+        return read_concise_inner(state, user_id, input.vault_id, path, None).await;
+    }
     read_file_inner(state, user_id, input.vault_id, path, None).await
+}
+
+/// Concise read over the FIXED commit `at` (None = HEAD at capture): one
+/// bounded store read, digest over the whole blob, head as a prefix.
+async fn read_concise_inner(
+    state: &AppState,
+    user_id: &str,
+    vault_id: String,
+    path: String,
+    at: Option<String>,
+) -> Result<ReadFileOutput> {
+    ensure_owned_vault(state, user_id, &vault_id).await?;
+    let git = state.git_store();
+    // Pin the commit first so None never re-resolves HEAD mid-call.
+    let at = match at {
+        Some(at) => at,
+        None => match git.head(&vault_id).await.map_err(git_error_to_anyhow)? {
+            Some(head) => head,
+            None => bail!("not_found: {path}"),
+        },
+    };
+    let file = git
+        .read_file_bounded(&vault_id, &path, &at, MCP_CONCISE_SOURCE_CAP)
+        .await
+        .map_err(|err| match err {
+            crate::storage::git::GitStoreError::ReadTooLarge { .. } => {
+                anyhow!("file exceeds MCP response limit")
+            }
+            other => public_git_read_error(other, &at, true),
+        })?
+        .ok_or_else(|| anyhow!("not_found: {path}"))?;
+    let bytes = match file {
+        StoredFile::Text { bytes } => bytes,
+        StoredFile::BlobPointer { hash, .. } => {
+            // Binary concise: authorize, bound-check actual size, fetch.
+            if !state
+                .blob_refs
+                .is_referenced_by_vault(&vault_id, &hash)
+                .await?
+            {
+                bail!("blob not referenced by vault");
+            }
+            let blob_store = state.blob_store();
+            let size = blob_store
+                .size_bytes(&hash)
+                .await?
+                .ok_or_else(|| anyhow!("blob not found: {hash}"))?;
+            if size > MCP_CONCISE_SOURCE_CAP {
+                bail!("file exceeds MCP response limit");
+            }
+            blob_store
+                .get(&hash)
+                .await?
+                .ok_or_else(|| anyhow!("blob not found: {hash}"))?
+                .to_vec()
+        }
+    };
+    concise_output(path, bytes)
 }
 
 pub async fn read_file_at_commit(
@@ -2798,14 +2933,14 @@ fn render_bytes(path: String, bytes: Vec<u8>, mime: Option<String>) -> Result<Re
     if is_text {
         match String::from_utf8(bytes) {
             Ok(content) => {
-                return Ok(ReadFileOutput {
+                return Ok(ReadFileOutput::Full(ReadFullOutput {
                     path,
                     is_binary: false,
                     sha256: sha256_hex(content.as_bytes()),
                     content,
                     mime,
                     encoding: Some("utf-8".into()),
-                });
+                }));
             }
             Err(err) => {
                 let bytes = err.into_bytes();
@@ -2828,14 +2963,48 @@ fn binary_output(path: String, bytes: Vec<u8>, mime: Option<String>) -> Result<R
         );
     }
     let sha256 = sha256_hex(&bytes);
-    Ok(ReadFileOutput {
+    Ok(ReadFileOutput::Full(ReadFullOutput {
         path,
         is_binary: true,
         content: base64::engine::general_purpose::STANDARD.encode(bytes),
         mime,
         encoding: Some("base64".into()),
         sha256,
-    })
+    }))
+}
+
+/// Concise projection over already-materialized bytes (MEL-15.4): digest
+/// covers the WHOLE source; head is a bounded prefix (8 KiB text at a
+/// char boundary, 6 KiB base64 for binary).
+fn concise_output(path: String, bytes: Vec<u8>) -> Result<ReadFileOutput> {
+    let sha256 = sha256_hex(&bytes);
+    let total = bytes.len();
+    let is_text = TextClassifier::default_ref().is_text_path(&path);
+    if is_text {
+        if let Ok(text) = std::str::from_utf8(&bytes) {
+            let head = crate::mcp::response_budget::prefix_bytes(text, 8192);
+            return Ok(ReadFileOutput::Concise(ReadConciseOutput {
+                path,
+                sha256,
+                total_bytes: total,
+                shown_bytes: head.len(),
+                truncated: head.len() < total,
+                encoding: "utf-8",
+                head: head.to_string(),
+            }));
+        }
+    }
+    let shown = bytes.len().min(6144).min(bytes.len());
+    let head = base64::engine::general_purpose::STANDARD.encode(&bytes[..shown]);
+    Ok(ReadFileOutput::Concise(ReadConciseOutput {
+        path,
+        sha256,
+        total_bytes: total,
+        shown_bytes: shown,
+        truncated: shown < total,
+        encoding: "base64",
+        head,
+    }))
 }
 
 fn mime_is_text(mime: Option<&str>) -> bool {
@@ -3045,9 +3214,17 @@ mod tests {
         seed_two_files(&state, &vault_id, "note.md", "secret.md").await;
         set_user_excludes(&state, vec!["secret.md".into()]).await;
 
-        let out = list_files(&state, &user_id, ListFilesInput { vault_id, at: None })
-            .await
-            .unwrap();
+        let out = list_files(
+            &state,
+            &user_id,
+            ListFilesInput {
+                vault_id,
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
 
         assert!(out.paths.contains(&"note.md".to_string()));
         assert!(
@@ -3068,9 +3245,17 @@ mod tests {
             .collect::<Vec<_>>();
         set_vault_allowlist(&state, &vault_id, too_many).await;
 
-        let err = list_files(&state, &user_id, ListFilesInput { vault_id, at: None })
-            .await
-            .unwrap_err();
+        let err = list_files(
+            &state,
+            &user_id,
+            ListFilesInput {
+                vault_id,
+                at: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap_err();
         assert!(
             err.to_string().contains("extra_sync_globs"),
             "must surface the vault allowlist compile failure, got: {err}"
@@ -3089,6 +3274,7 @@ mod tests {
             ReadFileInput {
                 vault_id,
                 path: "secret.md".into(),
+                detail: None,
             },
         )
         .await
@@ -3664,11 +3850,12 @@ mod tests {
             ReadFileInput {
                 vault_id,
                 path: "a.md".into(),
+                detail: None,
             },
         )
         .await
         .unwrap();
-        assert_eq!(current.content, "one");
+        assert!(matches!(&current, ReadFileOutput::Full(f) if f.content == "one"));
     }
 
     #[tokio::test]
@@ -3755,13 +3942,20 @@ mod tests {
             ReadFileInput {
                 vault_id: vault_id.clone(),
                 path: "a.md".into(),
+                detail: None,
             },
         )
         .await
         .unwrap();
-        assert_eq!(current.sha256, sha256_hex(b"one"));
+        assert!(matches!(&current, ReadFileOutput::Full(f) if f.sha256 == sha256_hex(b"one")));
         let mut right = std::collections::HashMap::new();
-        right.insert("a.md".to_string(), current.sha256);
+        let sha = matches!(&current, ReadFileOutput::Full(f) if true)
+            .then(|| match &current {
+                ReadFileOutput::Full(f) => f.sha256.clone(),
+                _ => unreachable!(),
+            })
+            .unwrap();
+        right.insert("a.md".to_string(), sha);
         let ok = write_file(
             &state,
             &auth,
@@ -5096,6 +5290,7 @@ mod tests {
             ReadFileInput {
                 vault_id,
                 path: "big.md".into(),
+                detail: None,
             },
         )
         .await
@@ -5755,6 +5950,7 @@ mod tests {
             ReadFileInput {
                 vault_id,
                 path: "large.bin".into(),
+                detail: None,
             },
         )
         .await
@@ -5837,6 +6033,7 @@ mod tests {
             ReadFileInput {
                 vault_id: vault_id.clone(),
                 path: "img.png".into(),
+                detail: None,
             },
         )
         .await
@@ -5854,13 +6051,16 @@ mod tests {
             ReadFileInput {
                 vault_id,
                 path: "img.png".into(),
+                detail: None,
             },
         )
         .await
         .unwrap();
 
-        assert!(output.is_binary);
-        assert_eq!(output.encoding.as_deref(), Some("base64"));
+        assert!(matches!(&output, ReadFileOutput::Full(f) if f.is_binary));
+        assert!(
+            matches!(&output, ReadFileOutput::Full(f) if f.encoding.as_deref() == Some("base64"))
+        );
     }
 
     // ---- edit_file (MEL-13) -------------------------------------------------
@@ -6304,5 +6504,134 @@ mod tests {
             .unwrap();
         assert_eq!(out.total, Some(0));
         let _ = head;
+    }
+
+    // ---- read/list budgets (MEL-15) ------------------------------------------
+
+    #[tokio::test]
+    async fn mel_read_concise_head_digest_and_flags() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let body = "x".repeat(100 * 1024);
+        let head = seed_text_files(&state, &vid, &[("big.md", body.as_str())]).await;
+        let auth_input: ReadFileInput = serde_json::from_value(serde_json::json!({
+            "vault_id": vid, "path": "big.md", "detail": "concise"
+        }))
+        .unwrap();
+        let concise = read_file(&state, &uid, auth_input).await.unwrap();
+        match concise {
+            ReadFileOutput::Concise(c) => {
+                assert_eq!(c.total_bytes, body.len());
+                assert_eq!(c.shown_bytes, 8192);
+                assert!(c.truncated);
+                assert_eq!(c.head.len(), 8192);
+                // Digest matches the full read's digest.
+                let full = read_file(
+                    &state,
+                    &uid,
+                    serde_json::from_value::<ReadFileInput>(serde_json::json!({
+                        "vault_id": vid, "path": "big.md"
+                    }))
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+                assert!(matches!(full, ReadFileOutput::Full(f) if f.sha256 == c.sha256));
+            }
+            other => panic!("expected concise, got {other:?}"),
+        }
+        let _ = head;
+    }
+
+    #[tokio::test]
+    async fn mel_read_concise_emoji_boundary() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let body = format!("{}{}", "😀".repeat(3000), "tail");
+        seed_text_files(&state, &vid, &[("e.md", body.as_str())]).await;
+        let input: ReadFileInput = serde_json::from_value(serde_json::json!({
+            "vault_id": vid, "path": "e.md", "detail": "concise"
+        }))
+        .unwrap();
+        match read_file(&state, &uid, input).await.unwrap() {
+            ReadFileOutput::Concise(c) => {
+                // Head cut at a char boundary strictly below 8192.
+                assert!(c.head.len() <= 8192);
+                assert_eq!(c.head.len() % 4, 0, "all emoji intact");
+            }
+            other => panic!("expected concise, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn mel_read_concise_null_detail_rejected() {
+        let bad: Result<ReadFileInput, _> = serde_json::from_value(serde_json::json!({
+            "vault_id": "v", "path": "p.md", "detail": null
+        }));
+        assert!(bad.is_err());
+    }
+
+    #[tokio::test]
+    async fn mel_list_limit_reports_totals() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let owned: Vec<(String, &str)> = (0..5).map(|i| (format!("f{i}.md"), "x")).collect();
+        let files: Vec<(&str, &str)> = owned.iter().map(|(p, c)| (p.as_str(), *c)).collect();
+        seed_text_files(&state, &vid, &files).await;
+        let input: ListFilesInput = serde_json::from_value(serde_json::json!({
+            "vault_id": vid, "limit": 3
+        }))
+        .unwrap();
+        let out = list_files(&state, &uid, input).await.unwrap();
+        assert_eq!(out.paths.len(), 3);
+        assert!(out.truncated);
+        assert_eq!(out.total, Some(5));
+        assert_eq!(out.shown, Some(3));
+        // No limit -> legacy shape: no total/shown fields serialized.
+        let legacy_input: ListFilesInput =
+            serde_json::from_value(serde_json::json!({ "vault_id": vid })).unwrap();
+        let legacy = list_files(&state, &uid, legacy_input).await.unwrap();
+        assert_eq!(legacy.paths.len(), 5);
+        assert!(!legacy.truncated);
+        assert!(legacy.total.is_none());
+    }
+
+    #[test]
+    fn mel_list_finish_listing_5001_boundary_by_metadata() {
+        // 5001-entry boundary exercised on the pure helper, not real blobs.
+        let paths: Vec<String> = (0..5001).map(|i| format!("p{i:05}.md")).collect();
+        let out = finish_listing(paths, Some(100)).unwrap();
+        assert_eq!(out.paths.len(), 100);
+        assert_eq!(out.total, Some(5001));
+        assert!(out.truncated);
+        assert_eq!(out.paths[0], "p00000.md");
+    }
+
+    #[tokio::test]
+    async fn mel_read_bounded_store_refuses_oversized_before_copy() {
+        // read_file_bounded: file above the cap errors with ReadTooLarge.
+        use crate::storage::git::GitStoreError;
+        let (state, _uid, vid, _tmp) = state_user_vault().await;
+        let git = state.git_store();
+        let head = git
+            .commit_changes(
+                &vid,
+                None,
+                &[FileChange::upsert_text("huge.md", vec![b'z'; 4096])],
+                "seed",
+            )
+            .await
+            .unwrap();
+        let err = git
+            .read_file_bounded(&vid, "huge.md", &head, 1024)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            GitStoreError::ReadTooLarge {
+                limit: 1024,
+                actual: 4096
+            }
+        ));
+        // Within cap it reads.
+        let ok = git.read_file_bounded(&vid, "huge.md", &head, 8192).await;
+        assert!(ok.is_ok());
     }
 }

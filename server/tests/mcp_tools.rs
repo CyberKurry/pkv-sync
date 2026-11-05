@@ -4,7 +4,7 @@ use bytes::Bytes;
 use common::test_state;
 use pkv_sync_server::db::repos::{NewUser, UserRepo, VaultRepo};
 use pkv_sync_server::mcp::tools::{
-    list_files, read_file, search, ListFilesInput, ReadFileInput, SearchInput,
+    list_files, read_file, search, ListFilesInput, ReadFileInput, ReadFileOutput, SearchInput,
 };
 use pkv_sync_server::service::AppState;
 use pkv_sync_server::storage::blob::{BlobStore, LocalFsBlobStore};
@@ -59,6 +59,7 @@ async fn list_files_enforces_vault_ownership() {
         ListFilesInput {
             vault_id: vault.id,
             at: None,
+            limit: None,
         },
     )
     .await
@@ -105,6 +106,7 @@ async fn read_file_returns_text_and_expands_text_blob_pointer() {
         ReadFileInput {
             vault_id: vault.id.clone(),
             path: "plain.md".into(),
+            detail: None,
         },
     )
     .await
@@ -115,18 +117,21 @@ async fn read_file_returns_text_and_expands_text_blob_pointer() {
         ReadFileInput {
             vault_id: vault.id,
             path: "blob.txt".into(),
+            detail: None,
         },
     )
     .await
     .unwrap();
 
-    assert!(!plain.is_binary);
-    assert_eq!(plain.encoding.as_deref(), Some("utf-8"));
-    assert_eq!(plain.content, "hello utf8");
-    assert!(!expanded.is_binary);
-    assert_eq!(expanded.mime.as_deref(), Some("text/plain"));
-    assert_eq!(expanded.encoding.as_deref(), Some("utf-8"));
-    assert_eq!(expanded.content, "expanded blob text");
+    assert!(matches!(&plain, ReadFileOutput::Full(f) if !f.is_binary));
+    assert!(matches!(&plain, ReadFileOutput::Full(f) if f.encoding.as_deref() == Some("utf-8")));
+    assert!(matches!(&plain, ReadFileOutput::Full(f) if f.content == "hello utf8"));
+    assert!(matches!(&expanded, ReadFileOutput::Full(f) if !f.is_binary));
+    assert!(
+        matches!(&expanded, ReadFileOutput::Full(f) if f.mime.as_deref() == Some("text/plain"))
+    );
+    assert!(matches!(&expanded, ReadFileOutput::Full(f) if f.encoding.as_deref() == Some("utf-8")));
+    assert!(matches!(&expanded, ReadFileOutput::Full(f) if f.content == "expanded blob text"));
 }
 
 #[tokio::test]
@@ -162,6 +167,7 @@ async fn read_file_answers_vault_not_found_before_consulting_a_foreign_vaults_fi
             ReadFileInput {
                 vault_id: vault.id.clone(),
                 path: path.into(),
+                detail: None,
             },
         )
         .await
@@ -202,13 +208,14 @@ async fn read_file_normalizes_mcp_paths_before_git_lookup() {
         ReadFileInput {
             vault_id: vault.id,
             path: "folder\\note.md".into(),
+            detail: None,
         },
     )
     .await
     .unwrap();
 
-    assert_eq!(output.path, "folder/note.md");
-    assert_eq!(output.content, "normalized");
+    assert!(matches!(&output, ReadFileOutput::Full(f) if f.path == "folder/note.md"));
+    assert!(matches!(&output, ReadFileOutput::Full(f) if f.content == "normalized"));
 }
 
 #[tokio::test]
@@ -223,6 +230,7 @@ async fn read_file_rejects_mcp_parent_traversal_paths() {
         ReadFileInput {
             vault_id: vault.id,
             path: "../secret.md".into(),
+            detail: None,
         },
     )
     .await

@@ -163,6 +163,10 @@ pub enum GitStoreError {
     },
     #[error("blocking task panicked")]
     Panic,
+    /// A bounded read refused content above its limit (MEL-15). Storage-
+    /// level wording only; MCP maps it to its public response-limit error.
+    #[error("read of {actual} bytes exceeds the {limit}-byte limit")]
+    ReadTooLarge { limit: u64, actual: u64 },
 }
 
 /// Test-only observation point for the H-3 read-batch guard (T-2).
@@ -269,6 +273,50 @@ impl Git2VaultStore {
     /// Read many files from the same commit in a single repo open + blocking
     /// task. Paths that do not resolve return `None`; decode and error
     /// semantics mirror `read_file` exactly.
+    /// Fixed-commit bounded read (MEL-15.1): resolves the blob at `at`,
+    /// checks its size from the tree entry / blob header BEFORE copying,
+    /// and re-checks after the copy (a lying tree must not bypass the cap).
+    pub async fn read_file_bounded(
+        &self,
+        vault_id: &str,
+        path: &str,
+        at: &str,
+        max_bytes: u64,
+    ) -> Result<Option<StoredFile>, GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let path = path.to_string();
+        let at = at.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Option<StoredFile>, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let oid = Oid::from_str(&at)?;
+            let commit = repo.find_commit(oid)?;
+            let tree = commit.tree()?;
+            let Ok(entry) = tree.get_path(Path::new(&path)) else {
+                return Ok(None);
+            };
+            // Pre-copy gate: entry size when the ODB agrees, else blob size.
+            let blob = repo.find_blob(entry.id())?;
+            let actual = u64::try_from(blob.size()).unwrap_or(u64::MAX);
+            if actual > max_bytes {
+                return Err(GitStoreError::ReadTooLarge {
+                    limit: max_bytes,
+                    actual,
+                });
+            }
+            let bytes = blob.content().to_vec();
+            let copied = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+            if copied > max_bytes {
+                return Err(GitStoreError::ReadTooLarge {
+                    limit: max_bytes,
+                    actual: copied,
+                });
+            }
+            Ok(Some(decode_file(&path, bytes)))
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
     pub async fn read_files(
         &self,
         vault_id: &str,
