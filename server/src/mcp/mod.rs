@@ -1,6 +1,7 @@
 pub(crate) mod auth;
 pub mod frontmatter;
 pub(crate) mod anchors;
+pub(crate) mod edit_plan;
 pub(crate) mod link_resolver;
 pub(crate) mod link_scan;
 pub(crate) mod response_budget;
