@@ -514,6 +514,9 @@ pub struct MoveFileInput {
 pub enum WriteToolOutput {
     Success {
         commit: String,
+        /// Present only for rewrite moves (MEL-18).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        links_updated: Option<Vec<LinksUpdatedEntry>>,
     },
     Conflict {
         conflict: bool,
@@ -525,6 +528,8 @@ pub enum WriteToolOutput {
         dry_run: bool,
         would_write: Vec<WouldWrite>,
         parent_commit: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        links_updated: Option<Vec<LinksUpdatedEntry>>,
     },
 }
 
@@ -2154,7 +2159,400 @@ pub async fn move_file(
             "invalid_path: case-only renames are not supported (from and to fold to the same name)"
         );
     }
-    move_without_link_rewrite(state, user, input, from, to).await
+    let max_rewrites = input.max_rewrites.unwrap_or(98);
+    anyhow::ensure!(
+        max_rewrites <= 98,
+        "invalid_path: max_rewrites must be 0..=98"
+    );
+    match input.rewrite_links.unwrap_or(true) {
+        false => move_without_link_rewrite(state, user, input, from, to).await,
+        true => move_with_link_rewrite(state, user, input, from, to, max_rewrites).await,
+    }
+}
+
+/// MEL-18: the full coordinator — scan at the pinned parent, plan the
+/// rewrite, then commit ONE batch (rename + rewritten files) through the
+/// shared preflighted path with auto hash guards.
+async fn move_with_link_rewrite(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    input: MoveFileInput,
+    from: String,
+    to: String,
+    max_rewrites: usize,
+) -> Result<WriteToolOutput> {
+    #[cfg(test)]
+    crate::test_probe::checkpoint(&input.vault_id, crate::test_probe::Phase::SnapshotCaptured)
+        .await;
+
+    // Shared preconditions (parent currency, visibility, source present,
+    // target absent) — before any quota or scan.
+    if let Some(conflict) =
+        ensure_write_ready_without_rate_limit(state, user, &input.vault_id, &input.parent_commit)
+            .await?
+    {
+        return Ok(conflict);
+    }
+    let filter = sync::vault_path_filter(state, &input.vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    let git = state.git_store();
+    let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
+    if !mcp_path_visible(&filter, &from) {
+        bail!("not_found: '{from}' does not exist");
+    }
+    if !mcp_path_visible(&filter, &to) {
+        bail!("invalid_path: target path is not writable through MCP");
+    }
+    let source = match git.read_file(&input.vault_id, &from, at).await? {
+        Some(file) => file,
+        None => bail!("not_found: '{from}' does not exist"),
+    };
+    let source_text = match &source {
+        StoredFile::Text { bytes } => String::from_utf8(bytes.clone())
+            .map_err(|_| anyhow!("unsupported_binary_move: '{from}' is not UTF-8 text"))?,
+        StoredFile::BlobPointer { .. } => {
+            bail!("unsupported_binary_move: '{from}' is binary; v1 supports text only")
+        }
+    };
+    if git.read_file(&input.vault_id, &to, at).await?.is_some() {
+        bail!("target_exists: '{to}' already exists");
+    }
+
+    // Dry runs answer before the expensive scan: validations above are
+    // exactly what the real call checks first; the preview below is
+    // derived from the same plan the real call builds.
+    let dry = input.dry_run.unwrap_or(false);
+    if dry {
+        verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+        let (plan, _guards, links_updated) =
+            build_rewrite_plan(state, &input, &from, &to, &source_text, max_rewrites).await?;
+        let mut would_write = vec![WouldWrite {
+            path: to.clone(),
+            change: "rename",
+            old_path: Some(from.clone()),
+            previous_size_bytes: Some(source_text.len()),
+            size_delta: None,
+            size_bytes: source_text.len(),
+        }];
+        if let Some(rewritten) = plan
+            .files
+            .iter()
+            .find(|f| f.original_path == from)
+            .map(|f| f.final_size)
+        {
+            would_write[0].size_bytes = rewritten;
+            would_write[0].size_delta = Some((rewritten as i64) - (source_text.len() as i64));
+        }
+        for file in &plan.files {
+            if file.original_path == from {
+                continue;
+            }
+            would_write.push(WouldWrite {
+                path: file.original_path.clone(),
+                change: "upsert",
+                old_path: None,
+                previous_size_bytes: Some(file.original_size),
+                size_delta: Some((file.final_size as i64) - (file.original_size as i64)),
+                size_bytes: file.final_size,
+            });
+        }
+        return Ok(WriteToolOutput::DryRun {
+            dry_run: true,
+            would_write,
+            parent_commit: input.parent_commit.clone(),
+            links_updated: Some(links_updated),
+        });
+    }
+
+    // Real call: one quota attempt, then the scan.
+    record_mcp_write_rate_limit(state, user, &input.vault_id)?;
+    let (plan, hash_guards, links_updated) =
+        build_rewrite_plan(state, &input, &from, &to, &source_text, max_rewrites).await?;
+
+    // Final pre-commit checks: parent currency once more (post-scan) and
+    // BOTH the caller's guards and the auto guards from the scan.
+    #[cfg(test)]
+    crate::test_probe::checkpoint(&input.vault_id, crate::test_probe::Phase::BeforeCommit).await;
+
+    if let Some(conflict) =
+        ensure_write_ready_without_rate_limit(state, user, &input.vault_id, &input.parent_commit)
+            .await?
+    {
+        return Ok(conflict);
+    }
+    let mut guards = input.expected_hashes.clone().unwrap_or_default();
+    for (path, hash) in &hash_guards {
+        guards.entry(path.clone()).or_insert_with(|| hash.clone());
+    }
+    verify_expected_hashes(state, &input.vault_id, at, Some(&guards)).await?;
+
+    // Physical changes: Delete(from) + Text(to) + one Text per rewritten
+    // file. The source file's own rewrites (self-links) land in Text(to).
+    let mut changes: Vec<PushChange> = vec![
+        PushChange::Delete { path: from.clone() },
+        PushChange::Text {
+            path: to.clone(),
+            content: plan
+                .files
+                .iter()
+                .find(|f| f.original_path == from)
+                .map(|f| {
+                    crate::mcp::link_rewrite::apply_patches(&source_text, &f.patches, f.final_size)
+                })
+                .unwrap_or_else(|| source_text.clone()),
+        },
+    ];
+    for file in &plan.files {
+        if file.original_path == from {
+            continue;
+        }
+        let git_file = git
+            .read_file(&input.vault_id, &file.original_path, at)
+            .await?
+            .ok_or_else(|| anyhow!("not_found: {}", file.original_path))?;
+        let text = match git_file {
+            StoredFile::Text { bytes } => String::from_utf8(bytes).map_err(|_| {
+                anyhow!("unsupported_link_host: {} is not UTF-8", file.original_path)
+            })?,
+            _ => bail!("unsupported_link_host: {} is binary", file.original_path),
+        };
+        changes.push(PushChange::Text {
+            path: file.original_path.clone(),
+            content: crate::mcp::link_rewrite::apply_patches(&text, &file.patches, file.final_size),
+        });
+    }
+
+    // One shared shape validation for the whole batch (2 + N ops, budgets).
+    let max_file_size = state.runtime_cfg.max_file_size().await;
+    let sized: Vec<_> = changes
+        .iter()
+        .filter_map(|c| match c {
+            PushChange::Text { path, content } => Some(crate::mcp::write_plan::SizedText {
+                path: path.clone(),
+                final_len: content.len(),
+                previous_len: None,
+            }),
+            _ => None,
+        })
+        .collect();
+    let deleted: Vec<_> = changes
+        .iter()
+        .filter_map(|c| match c {
+            PushChange::Delete { path } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    crate::mcp::write_plan::validate_plan_shape(
+        &sized,
+        &deleted,
+        max_file_size,
+        WRITE_FILES_MAX_FILES,
+    )?;
+
+    let rewrite_count = plan
+        .files
+        .iter()
+        .filter(|f| f.original_path != from)
+        .count();
+    let activity_path = if rewrite_count > 0 {
+        format!("{from} -> {to} (+{rewrite_count} link rewrites)")
+    } else {
+        format!("{from} -> {to}")
+    };
+    let total_bytes: usize = sized.iter().map(|t| t.final_len).sum();
+
+    let result = apply_preflighted_write_batch(
+        state,
+        user,
+        WriteBatchRequest {
+            vault_id: input.vault_id.clone(),
+            parent_commit: input.parent_commit.clone(),
+            activity_action: "mcp_write",
+            activity_tool: "move_file",
+            activity_path,
+            activity_size_bytes: total_bytes,
+            changes,
+            dry_run: false,
+            expected_hashes: None, // already verified above
+            would_write: Vec::new(),
+        },
+    )
+    .await;
+    match result {
+        Ok(WriteToolOutput::Success { commit, .. }) => Ok(WriteToolOutput::Success {
+            commit,
+            links_updated: Some(links_updated),
+        }),
+        other => other,
+    }
+}
+
+/// Scan at the pinned parent and build the rewrite plan plus the AUTO hash
+/// guards for every touched file (MEL-18.2 step 4).
+#[allow(clippy::too_many_arguments)]
+async fn build_rewrite_plan(
+    state: &AppState,
+    input: &MoveFileInput,
+    from: &str,
+    to: &str,
+    source_text: &str,
+    max_rewrites: usize,
+) -> Result<(
+    crate::mcp::link_rewrite::RewritePlan,
+    Vec<(String, String)>,
+    Vec<LinksUpdatedEntry>,
+)> {
+    let git = state.git_store();
+    let filter = sync::vault_path_filter(state, &input.vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    let snapshot = crate::mcp::link_scan::VaultSnapshot {
+        at: input.parent_commit.clone(),
+        filter,
+        max_file_size: state.runtime_cfg.max_file_size().await,
+    };
+    let limits = crate::mcp::link_scan::ScanLimits::default();
+    let mut tree = git
+        .list_tree(&input.vault_id, Some(&input.parent_commit))
+        .await?;
+    tree.sort_by(|a, b| a.path.cmp(&b.path));
+    let (index, index_integrity) =
+        crate::mcp::link_scan::target_index(&git, &snapshot, &tree, &limits).await;
+    anyhow::ensure!(
+        index_integrity.complete,
+        "link_rewrite_unsupported: target index incomplete ({:?})",
+        index_integrity.reasons
+    );
+
+    let req = crate::mcp::link_rewrite::RewriteRequest {
+        from: from.to_string(),
+        to: to.to_string(),
+        max_rewrites,
+    };
+    let new_index = crate::mcp::link_rewrite::projected_index(&index, from, to);
+
+    let mut plan = crate::mcp::link_rewrite::RewritePlan::default();
+    let mut guards: Vec<(String, String)> = Vec::new();
+    let mut links_updated: Vec<LinksUpdatedEntry> = Vec::new();
+    let mut guard_map = std::collections::HashMap::new();
+
+    {
+        let from_owned = from.to_string();
+        let to_owned = to.to_string();
+        let index_ref = &index;
+        let new_index_ref = &new_index;
+        let req_ref = &req;
+        let max_rewrites_ref = &max_rewrites;
+        let plan_mut = &mut plan;
+        let guards_mut = &mut guard_map;
+        let links_mut = &mut links_updated;
+        let mut visitor = |file: crate::mcp::link_scan::SourceFile<'_>| {
+            // Identity preservation must hold for EVERY document's links.
+            if let Err(err) = crate::mcp::link_rewrite::identity_preserved(
+                index_ref,
+                new_index_ref,
+                &from_owned,
+                &to_owned,
+                &file.text,
+                file.path,
+                &file.scan.tokens,
+            ) {
+                // Surface by panicking into the error channel? We cannot
+                // bail from a closure; record and stop.
+                // The caller re-checks below via `identity_error`.
+                identity_errors::push(err);
+            }
+            let patches = crate::mcp::link_rewrite::plan_document(
+                &file.text,
+                file.path,
+                &file.scan.tokens,
+                index_ref,
+                req_ref,
+            )
+            .unwrap_or_default();
+            if !patches.is_empty() {
+                let final_size = crate::mcp::link_rewrite::projected_patch_size(
+                    &file.text,
+                    &patches,
+                    usize::MAX,
+                )
+                .unwrap_or(file.text.len());
+                plan_mut.files.push(crate::mcp::link_rewrite::RewriteFile {
+                    original_path: file.path.to_string(),
+                    final_path: file.path.to_string(),
+                    original_size: file.text.len(),
+                    final_size,
+                    patches,
+                });
+                guards_mut.insert(file.path.to_string(), file.sha256.clone());
+                links_mut.push(LinksUpdatedEntry {
+                    file: file.path.to_string(),
+                    count: plan_mut.files.last().map(|f| f.patches.len()).unwrap_or(0),
+                });
+                if *max_rewrites_ref == 0 || plan_mut.files.len() > *max_rewrites_ref + 1 {
+                    return crate::mcp::link_scan::VisitFlow::Stop;
+                }
+            }
+            crate::mcp::link_scan::VisitFlow::Continue
+        };
+        let integrity = crate::mcp::link_scan::visit_snapshot(
+            &git,
+            &input.vault_id,
+            &snapshot,
+            &limits,
+            &mut visitor,
+        )
+        .await?;
+        anyhow::ensure!(
+            integrity.complete,
+            "link_rewrite_unsupported: scan incomplete ({:?})",
+            integrity.reasons
+        );
+    }
+
+    let rewrite_count = plan
+        .files
+        .iter()
+        .filter(|f| f.original_path != from)
+        .count();
+    anyhow::ensure!(
+        rewrite_count <= max_rewrites,
+        "link_rewrite_too_large: {rewrite_count} files need rewrites; max_rewrites is {max_rewrites}"
+    );
+    for err in identity_errors::take() {
+        return Err(err);
+    }
+    for (path, hash) in guard_map {
+        guards.push((path, hash));
+    }
+    Ok((plan, guards, links_updated))
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LinksUpdatedEntry {
+    pub file: String,
+    pub count: usize,
+}
+
+/// Closure-channel for identity errors (visit_snapshot takes FnMut).
+mod identity_errors {
+    use std::cell::RefCell;
+    use std::sync::Mutex;
+    static ERRORS: Mutex<Vec<crate::api::error::ApiError>> = Mutex::new(Vec::new());
+    thread_local! {
+        static LOCAL: RefCell<Vec<anyhow::Error>> = RefCell::new(Vec::new());
+    }
+    pub(crate) fn push(err: anyhow::Error) {
+        let _ = &ERRORS;
+        LOCAL.with(|l| l.borrow_mut().push(err));
+    }
+    pub(crate) fn take() -> Vec<anyhow::Error> {
+        LOCAL.with(|l| {
+            let mut v = l.borrow_mut();
+            std::mem::take(&mut *v)
+        })
+    }
 }
 
 /// The pre-1.8.0 move body, unchanged: callers hand over ALREADY
@@ -2714,6 +3112,7 @@ fn dry_run_output(parent_commit: &str, would_write: Vec<WouldWrite>) -> WriteToo
         dry_run: true,
         would_write,
         parent_commit: parent_commit.to_string(),
+        links_updated: None,
     }
 }
 
@@ -2808,6 +3207,7 @@ async fn apply_preflighted_write_batch(
             }
             Ok(WriteToolOutput::Success {
                 commit: resp.new_commit,
+                links_updated: None,
             })
         }
         Err(conflict) => Ok(WriteToolOutput::Conflict {
@@ -3858,6 +4258,7 @@ mod tests {
                 dry_run,
                 would_write,
                 parent_commit,
+                ..
             } => {
                 assert!(dry_run);
                 assert_eq!(parent_commit, head);
@@ -6172,7 +6573,7 @@ mod tests {
         .await
         .unwrap();
         match out {
-            WriteToolOutput::Success { commit } => {
+            WriteToolOutput::Success { commit, .. } => {
                 let stored = state
                     .git_store()
                     .read_file(&vid, "a.md", Some(&commit))
@@ -6209,7 +6610,7 @@ mod tests {
         .await
         .unwrap();
         match out {
-            WriteToolOutput::Success { commit } => {
+            WriteToolOutput::Success { commit, .. } => {
                 let stored = state
                     .git_store()
                     .read_file(&vid, "a.md", Some(&commit))
@@ -6245,7 +6646,7 @@ mod tests {
         .await
         .unwrap();
         match out {
-            WriteToolOutput::Success { commit } => {
+            WriteToolOutput::Success { commit, .. } => {
                 let stored = state
                     .git_store()
                     .read_file(&vid, "a.md", Some(&commit))
@@ -6700,7 +7101,7 @@ mod tests {
             }
         }
         // NFC -> NFD of the same glyph: same folded key, same refusal.
-        let mut input = move_json(&vid, "caf\u{00e9}.md", "cafe\u{0301}.md", false);
+        let input = move_json(&vid, "caf\u{00e9}.md", "cafe\u{0301}.md", false);
         let err = move_file(&state, &auth, input).await.unwrap_err();
         assert!(err.to_string().starts_with("invalid_path: case-only"));
         // Identical raw paths keep the older, same-path error.
@@ -6754,5 +7155,341 @@ mod tests {
             changes[0].status,
             crate::storage::git::ChangeStatus::Renamed
         );
+    }
+
+    // ---- rewrite move coordination (MEL-18) -----------------------------------
+
+    fn rewrite_move_input(
+        vid: &str,
+        parent: &str,
+        from: &str,
+        to: &str,
+        dry: bool,
+    ) -> MoveFileInput {
+        serde_json::from_value(serde_json::json!({
+            "vault_id": vid, "parent_commit": parent, "from": from, "to": to,
+            "dry_run": dry
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn mel_move_rewrite_rewrites_inbound_links_in_one_commit() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("ideas/brainstorm.md", "# Brainstorm"),
+                ("a.md", "see [[ideas/brainstorm]] and [[brainstorm|alias]]"),
+                ("b.md", "![[brainstorm#Sec]]"),
+            ],
+        )
+        .await;
+        let auth = authenticated_user(&state, &uid).await;
+        let out = move_file(
+            &state,
+            &auth,
+            rewrite_move_input(
+                &vid,
+                &head,
+                "ideas/brainstorm.md",
+                "archive/brainstorm-2026.md",
+                false,
+            ),
+        )
+        .await
+        .unwrap();
+        let commit = match out {
+            WriteToolOutput::Success {
+                commit,
+                links_updated,
+            } => {
+                let updated = links_updated.expect("links_updated present");
+                assert_eq!(updated.len(), 2, "{updated:?}");
+                assert!(updated.iter().any(|e| e.file == "a.md" && e.count == 2));
+                assert!(updated.iter().any(|e| e.file == "b.md" && e.count == 1));
+                commit
+            }
+            other => panic!("expected success, got {other:?}"),
+        };
+        let git = state.git_store();
+        let a = git
+            .read_file(&vid, "a.md", Some(&commit))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(&a, StoredFile::Text { bytes } if bytes == &b"see [[archive/brainstorm-2026]] and [[archive/brainstorm-2026|alias]]".to_vec())
+        );
+        let b = git
+            .read_file(&vid, "b.md", Some(&commit))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(&b, StoredFile::Text { bytes } if bytes == &b"![[archive/brainstorm-2026#Sec]]".to_vec())
+        );
+        // Old path gone, new path present — in ONE commit.
+        assert!(git
+            .read_file(&vid, "ideas/brainstorm.md", Some(&commit))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(git
+            .read_file(&vid, "archive/brainstorm-2026.md", Some(&commit))
+            .await
+            .unwrap()
+            .is_some());
+        let (changes, _) = git
+            .list_changes_between(&vid, &head, &commit)
+            .await
+            .unwrap();
+        // rename entry + 2 modified files.
+        assert_eq!(changes.len(), 3, "{changes:?}");
+    }
+
+    #[tokio::test]
+    async fn mel_move_rewrite_dry_run_previews_all_files() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("ideas/brainstorm.md", "# Brainstorm"),
+                ("a.md", "[[ideas/brainstorm]]"),
+            ],
+        )
+        .await;
+        let auth = authenticated_user(&state, &uid).await;
+        let out = move_file(
+            &state,
+            &auth,
+            rewrite_move_input(&vid, &head, "ideas/brainstorm.md", "archive/x.md", true),
+        )
+        .await
+        .unwrap();
+        match out {
+            WriteToolOutput::DryRun {
+                would_write,
+                links_updated,
+                ..
+            } => {
+                assert_eq!(would_write.len(), 2);
+                assert_eq!(would_write[0].change, "rename");
+                assert_eq!(would_write[1].change, "upsert");
+                assert_eq!(would_write[1].path, "a.md");
+                assert_eq!(links_updated.expect("present").len(), 1);
+            }
+            other => panic!("expected dry run, got {other:?}"),
+        }
+        // Nothing committed: HEAD unchanged, a.md unchanged.
+        let git = state.git_store();
+        assert_eq!(
+            git.head(&vid).await.unwrap().as_deref(),
+            Some(head.as_str())
+        );
+        let a = git
+            .read_file(&vid, "a.md", Some(&head))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(&a, StoredFile::Text { bytes } if bytes == &b"[[ideas/brainstorm]]".to_vec())
+        );
+    }
+
+    #[tokio::test]
+    async fn mel_move_rewrite_concurrent_edit_diverges_whole_batch() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("ideas/brainstorm.md", "# Brainstorm"),
+                ("a.md", "[[ideas/brainstorm]]"),
+            ],
+        )
+        .await;
+        let auth = authenticated_user(&state, &uid).await;
+        // Concurrent human edit lands on a.md between scan and commit.
+        let gate = crate::test_probe::arm(&vid, crate::test_probe::Phase::BeforeCommit);
+        let mover = tokio::spawn({
+            let state = state.clone();
+            let auth = auth_clone(&auth);
+            let vid = vid.clone();
+            let head = head.clone();
+            async move {
+                move_file(
+                    &state,
+                    &auth,
+                    rewrite_move_input(&vid, &head, "ideas/brainstorm.md", "archive/x.md", false),
+                )
+                .await
+            }
+        });
+        gate.entered().await;
+        let git = state.git_store();
+        git.commit_changes(
+            &vid,
+            Some(&head),
+            &[FileChange::upsert_text("a.md", b"human edit".to_vec())],
+            "human",
+        )
+        .await
+        .unwrap();
+        gate.release();
+        let result = mover.await.unwrap();
+        // Auto hash guards catch the divergence: whole batch refused.
+        match result {
+            Err(err) => assert!(err.to_string().starts_with("content_diverged:"), "{err}"),
+            Ok(WriteToolOutput::Conflict { .. }) => {}
+            other => panic!("expected divergence or conflict, got {other:?}"),
+        }
+        // Nothing landed: HEAD is the human commit; a.md holds human text.
+        let final_head = git.head(&vid).await.unwrap().unwrap();
+        let a = git
+            .read_file(&vid, "a.md", Some(&final_head))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(&a, StoredFile::Text { bytes } if bytes == &b"human edit".to_vec()));
+        assert!(git
+            .read_file(&vid, "ideas/brainstorm.md", Some(&final_head))
+            .await
+            .unwrap()
+            .is_some());
+    }
+
+    fn auth_clone(auth: &AuthenticatedUser) -> AuthenticatedUser {
+        AuthenticatedUser {
+            user_id: auth.user_id.clone(),
+            username: auth.username.clone(),
+            is_admin: auth.is_admin,
+            token_id: auth.token_id.clone(),
+            device_id: auth.device_id.clone(),
+        }
+    }
+
+    #[tokio::test]
+    async fn mel_move_rewrite_head_advance_returns_conflict() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("ideas/brainstorm.md", "# Brainstorm"),
+                ("unrelated.md", "x"),
+            ],
+        )
+        .await;
+        let auth = authenticated_user(&state, &uid).await;
+        let gate = crate::test_probe::arm(&vid, crate::test_probe::Phase::BeforeCommit);
+        let mover = tokio::spawn({
+            let state = state.clone();
+            let auth = auth_clone(&auth);
+            let vid = vid.clone();
+            let head = head.clone();
+            async move {
+                move_file(
+                    &state,
+                    &auth,
+                    rewrite_move_input(&vid, &head, "ideas/brainstorm.md", "archive/x.md", false),
+                )
+                .await
+            }
+        });
+        gate.entered().await;
+        let git = state.git_store();
+        let q = git
+            .commit_changes(
+                &vid,
+                Some(&head),
+                &[FileChange::upsert_text("unrelated.md", b"y".to_vec())],
+                "other",
+            )
+            .await
+            .unwrap();
+        gate.release();
+        let out = mover.await.unwrap().unwrap();
+        match out {
+            WriteToolOutput::Conflict { current_head, .. } => {
+                assert_eq!(current_head.as_deref(), Some(q.as_str()));
+            }
+            other => panic!("expected conflict, got {other:?}"),
+        }
+        // Strict CAS left everything intact: HEAD=Q, from present, to absent.
+        assert_eq!(git.head(&vid).await.unwrap().as_deref(), Some(q.as_str()));
+        assert!(git
+            .read_file(&vid, "ideas/brainstorm.md", Some(&q))
+            .await
+            .unwrap()
+            .is_some());
+        assert!(git
+            .read_file(&vid, "archive/x.md", Some(&q))
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn mel_move_rewrite_max_rewrites_zero_refuses_nonzero_plan() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("ideas/brainstorm.md", "# Brainstorm"),
+                ("a.md", "[[ideas/brainstorm]]"),
+            ],
+        )
+        .await;
+        let auth = authenticated_user(&state, &uid).await;
+        let mut input =
+            rewrite_move_input(&vid, &head, "ideas/brainstorm.md", "archive/x.md", false);
+        input.max_rewrites = Some(0);
+        let err = move_file(&state, &auth, input).await.unwrap_err();
+        assert!(
+            err.to_string().starts_with("link_rewrite_too_large:"),
+            "{err}"
+        );
+        let git = state.git_store();
+        assert_eq!(
+            git.head(&vid).await.unwrap().as_deref(),
+            Some(head.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn mel_move_rewrite_eighty_drys_then_real() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("ideas/brainstorm.md", "# Brainstorm"),
+                ("a.md", "[[ideas/brainstorm]]"),
+            ],
+        )
+        .await;
+        let auth = authenticated_user(&state, &uid).await;
+        for _ in 0..80 {
+            let out = move_file(
+                &state,
+                &auth,
+                rewrite_move_input(&vid, &head, "ideas/brainstorm.md", "archive/x.md", true),
+            )
+            .await
+            .unwrap();
+            assert!(matches!(out, WriteToolOutput::DryRun { .. }));
+        }
+        let real = move_file(
+            &state,
+            &auth,
+            rewrite_move_input(&vid, &head, "ideas/brainstorm.md", "archive/x.md", false),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(real, WriteToolOutput::Success { .. }));
     }
 }
