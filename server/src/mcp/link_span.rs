@@ -95,6 +95,11 @@ pub(crate) fn decode_link_path(
 }
 
 /// Encode a new path value for the token's host (MEL-05.1).
+/// Percent-decode a raw Markdown destination (MEL-06 shared decode).
+pub(crate) fn percent_decode_path(raw: &str) -> anyhow::Result<String> {
+    markdown::percent_decode(raw)
+}
+
 pub(crate) fn encode_host_path(path: &str, host: &Host) -> anyhow::Result<String> {
     match host {
         Host::Body => Ok(path.to_string()),
