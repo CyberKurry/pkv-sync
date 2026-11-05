@@ -11,6 +11,7 @@ use std::ops::Range;
 pub(crate) mod html;
 pub(crate) mod markdown;
 pub(crate) mod math;
+pub(crate) mod yaml;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Syntax {
@@ -80,7 +81,25 @@ pub(crate) fn decode_link_path(
     token: &LinkToken,
     max_bytes: usize,
 ) -> anyhow::Result<String> {
-    markdown::decode_path(source, token, max_bytes)
+    let raw = &source[token.path.clone()];
+    let decoded = match (&token.host, token.syntax) {
+        (Host::Yaml { style, .. }, _) => yaml::decode_scalar_path(raw, *style)?,
+        (_, Syntax::Markdown) => markdown::percent_decode(raw)?,
+        _ => raw.to_string(),
+    };
+    anyhow::ensure!(
+        decoded.len() <= max_bytes,
+        "invalid_path: decoded link path exceeds {max_bytes} bytes"
+    );
+    Ok(decoded)
+}
+
+/// Encode a new path value for the token's host (MEL-05.1).
+pub(crate) fn encode_host_path(path: &str, host: &Host) -> anyhow::Result<String> {
+    match host {
+        Host::Body => Ok(path.to_string()),
+        Host::Yaml { style, .. } => yaml::encode_scalar_path(path, *style),
+    }
 }
 
 #[cfg(test)]
@@ -139,6 +158,76 @@ mod tests {
         let scan = scan_document("<div>[[Old]]", 100);
         assert!(scan.reasons.contains(&ScanReason::UnsupportedHost));
         assert!(scan.tokens.is_empty());
+    }
+
+    #[test]
+    fn mel_yaml_path_round_trips_apostrophe() {
+        let source = "---\nup: '[[Old]]'\n---\n";
+        let scan = scan_document(source, 100);
+        assert!(scan.reasons.is_empty());
+        let token = &scan.tokens[0];
+        let replacement = encode_host_path("O'Brien", &token.host).unwrap();
+        assert_eq!(replacement, "O''Brien");
+        let mut result = source.to_owned();
+        result.replace_range(token.path.clone(), &replacement);
+        let rescanned = scan_document(&result, 100);
+        assert!(rescanned.reasons.is_empty());
+        assert_eq!(
+            decode_link_path(&result, &rescanned.tokens[0], 512).unwrap(),
+            "O'Brien"
+        );
+    }
+
+    #[test]
+    fn mel_yaml_double_quoted_and_list_items_host_links() {
+        let source = "---\nup: \"[[Old]]\"\nrelated:\n  - '[[A]]'\n  - \"[[B]]\"\n---\n[[Live]]";
+        let scan = scan_document(source, 100);
+        assert!(scan.reasons.is_empty());
+        let raws: Vec<String> = scan
+            .tokens
+            .iter()
+            .map(|t| decode_link_path(source, t, 512).unwrap())
+            .collect();
+        assert_eq!(raws, ["Old", "A", "B", "Live"]);
+        assert!(matches!(scan.tokens[0].host, Host::Yaml { .. }));
+    }
+
+    #[test]
+    fn mel_yaml_unsupported_shapes_do_not_leak_links() {
+        // Nested mappings, flow collections, tags/anchors: the block is
+        // unsupported — no token may escape from inside it.
+        for source in [
+            "---\nmeta:\n  up: '[[Old]]'\n---\n[[Live]]",
+            "---\nup: &anchor '[[Old]]'\n---\n[[Live]]",
+            "---\nlist: ['[[Old]]']\n---\n[[Live]]",
+        ] {
+            let scan = scan_document(source, 100);
+            assert!(
+                scan.reasons.contains(&ScanReason::UnsupportedHost),
+                "{source:?}"
+            );
+            let raws: Vec<String> = scan
+                .tokens
+                .iter()
+                .map(|t| decode_link_path(source, t, 512).unwrap())
+                .collect();
+            assert_eq!(raws, ["Live"], "{source:?}");
+        }
+    }
+
+    #[test]
+    fn mel_yaml_plain_scalar_link_is_unsupported_not_body_link() {
+        // `up: [[Old]]` unquoted is not a supported quoted host; it must be
+        // reported as unsupported, NOT silently treated as a body link.
+        let source = "---\nup: [[Old]]\n---\n[[Live]]";
+        let scan = scan_document(source, 100);
+        assert!(scan.reasons.contains(&ScanReason::UnsupportedHost));
+        let raws: Vec<String> = scan
+            .tokens
+            .iter()
+            .map(|t| decode_link_path(source, t, 512).unwrap())
+            .collect();
+        assert_eq!(raws, ["Live"]);
     }
 
     #[test]

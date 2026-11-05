@@ -14,6 +14,7 @@
 
 use super::html;
 use super::math;
+use super::yaml;
 use super::{DocumentScan, Host, LinkToken, ScanReason, Syntax};
 
 pub(super) fn scan(source: &str, max_links: usize) -> DocumentScan {
@@ -60,7 +61,7 @@ pub(super) fn decode_path(
     Ok(decoded)
 }
 
-fn percent_decode(raw: &str) -> anyhow::Result<String> {
+pub(super) fn percent_decode(raw: &str) -> anyhow::Result<String> {
     let bytes = raw.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -97,10 +98,18 @@ struct Scanner<'a> {
 
 impl<'a> Scanner<'a> {
     fn scan_blocks(&mut self) {
-        // Frontmatter: leading `---` line to a closing `---` line. Excluded
-        // wholesale until the YAML host (Task 05) takes over its scalars.
+        // Frontmatter: the YAML host (MEL-05) owns the block; wiki links
+        // inside supported scalar shapes become Yaml-hosted tokens, and an
+        // unsupported shape marks the document incomplete.
         if self.source.starts_with("---\n") || self.source.starts_with("---\r\n") {
             if let Some(close) = self.find_frontmatter_close() {
+                let yaml_scan = yaml::scan_frontmatter(self.source, 0..close);
+                if yaml_scan.unsupported {
+                    self.reasons.push(ScanReason::UnsupportedHost);
+                }
+                for token in yaml_scan.tokens {
+                    self.push_token(token);
+                }
                 self.excluded.push(0..close);
                 self.skip_to = close;
             }
