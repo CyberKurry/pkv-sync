@@ -342,6 +342,77 @@ pub struct WriteFilesInput {
     pub expected_hashes: Option<std::collections::HashMap<String, String>>,
 }
 
+// ---- edit_file input surface (MEL-13) -------------------------------------
+
+/// Deserialize an optional field that must be PRESENT and non-null when
+/// it appears at all: absent -> None, explicit null -> error. Serde's
+/// plain Option swallows nulls, which would let clients silently clear
+/// flags they meant to set.
+fn present_value<'de, D, T>(d: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    T::deserialize(d).map(Some)
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LiteralAnchor {
+    pub literal: LiteralInput,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LiteralInput {
+    pub edits: Vec<crate::mcp::edit_plan::LiteralEdit>,
+    #[serde(default, deserialize_with = "present_value")]
+    pub replace_all: Option<bool>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct HeadingAnchor {
+    pub heading: Vec<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BlockAnchor {
+    pub block: String,
+}
+
+/// Untagged over STRICT wrappers: `{literal:{...}}` / `{heading:[...]}` /
+/// `{block:"id"}` — an object with two keys cannot deserialize as any of
+/// them (each wrapper is deny_unknown_fields), so no double-shape input
+/// slips through.
+#[derive(Debug, serde::Deserialize)]
+#[serde(untagged)]
+pub(crate) enum EditAnchor {
+    Literal(LiteralAnchor),
+    Heading(HeadingAnchor),
+    Block(BlockAnchor),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EditFileInput {
+    pub vault_id: String,
+    pub path: String,
+    pub parent_commit: String,
+    pub anchor: EditAnchor,
+    #[serde(default, deserialize_with = "present_value")]
+    pub operation: Option<crate::mcp::edit_plan::EditOperation>,
+    /// Required for structural ops (heading/block) with any operation;
+    /// refused for literal+replace (the edits carry their own new text).
+    /// Absent and empty-string are DIFFERENT (empty =合法的清空操作).
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+    #[serde(default)]
+    pub expected_hashes: Option<std::collections::HashMap<String, String>>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct MoveFileInput {
     pub vault_id: String,
@@ -1793,6 +1864,135 @@ pub async fn move_file(
             dry_run: false,
             expected_hashes: None,
             would_write: Vec::new(),
+        },
+    )
+    .await
+}
+
+/// MEL-13: anchor-based editing. The whole file is rewritten through
+/// `apply_write_tool` (single-change delegate of the shared batch path),
+/// so dry-run/CAS/rate-limit/hash-guard/activity all come from ONE
+/// producer — no parallel write semantics.
+pub async fn edit_file(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    input: EditFileInput,
+) -> Result<WriteToolOutput> {
+    let path = normalize_mcp_path(input.path)?;
+    let max_file_size = state.runtime_cfg.max_file_size().await;
+
+    // Anchor/operation/content matrix validation at the ENTRY (R5-1: before
+    // anything can short-circuit past it — even an empty vault validates).
+    let operation = input
+        .operation
+        .unwrap_or(crate::mcp::edit_plan::EditOperation::Replace);
+    let new_content: Option<String> = match &input.anchor {
+        EditAnchor::Literal(literal) => {
+            anyhow::ensure!(
+                input.content.is_none(),
+                "invalid_path: content is not accepted with a literal anchor; the edits carry their own text"
+            );
+            anyhow::ensure!(
+                matches!(operation, crate::mcp::edit_plan::EditOperation::Replace),
+                "invalid_path: literal anchors only support replace"
+            );
+            None
+        }
+        EditAnchor::Heading(..) | EditAnchor::Block(..) => {
+            let Some(content) = input.content.as_deref() else {
+                anyhow::bail!("invalid_path: content is required for heading/block anchors");
+            };
+            Some(content.to_string())
+        }
+    };
+
+    // Ownership/visibility/parent currency through the shared preflight —
+    // the same one write_file uses, before we read anything.
+    if let Some(conflict) =
+        ensure_write_ready_without_rate_limit(state, user, &input.vault_id, &input.parent_commit)
+            .await?
+    {
+        return Ok(conflict);
+    }
+
+    let filter = sync::vault_path_filter(state, &input.vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
+    if !mcp_path_visible(&filter, &path) {
+        bail!("invalid_path: '{path}' is not addressable through MCP");
+    }
+    let git = state.git_store();
+    let source = match git.read_file(&input.vault_id, &path, at).await? {
+        Some(file) => file,
+        None => bail!("not_found: '{path}' does not exist"),
+    };
+    let bytes = match &source {
+        StoredFile::Text { bytes } => bytes,
+        StoredFile::BlobPointer { .. } => {
+            bail!("unsupported_binary_edit: '{path}' is binary; edit_file edits text")
+        }
+    };
+    let text = String::from_utf8(bytes.clone())
+        .map_err(|_| anyhow!("unsupported_binary_edit: '{path}' is not UTF-8 text"))?;
+    let previous = text.len();
+
+    // The edit is based on THIS read; guard it before generating anything
+    // so a concurrent human edit aborts as content_diverged regardless of
+    // whether the anchor still matches (MEL-13.6).
+    verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+
+    let scan = crate::mcp::link_span::scan_document(&text, 10_000);
+    let edited = match (&input.anchor, new_content) {
+        (EditAnchor::Literal(literal), None) => crate::mcp::edit_plan::apply_literal(
+            &text,
+            &literal.literal.edits,
+            literal.literal.replace_all.unwrap_or(false),
+            usize::try_from(max_file_size).unwrap_or(usize::MAX),
+        )?,
+        (EditAnchor::Heading(anchor), Some(content)) => {
+            let range = crate::mcp::anchors::locate_heading(&text, &anchor.heading, &scan)?;
+            crate::mcp::edit_plan::apply_range(
+                &text,
+                range,
+                operation,
+                &content,
+                usize::try_from(max_file_size).unwrap_or(usize::MAX),
+            )?
+        }
+        (EditAnchor::Block(anchor), Some(content)) => {
+            let range = crate::mcp::anchors::locate_block(&text, &anchor.block, &scan)?;
+            crate::mcp::edit_plan::apply_range(
+                &text,
+                range,
+                operation,
+                &content,
+                usize::try_from(max_file_size).unwrap_or(usize::MAX),
+            )?
+        }
+        _ => unreachable!("matrix validated above"),
+    };
+    let size_bytes = edited.len();
+    if size_bytes as u64 > max_file_size {
+        bail!("file exceeds max_file_size of {max_file_size} bytes");
+    }
+
+    apply_write_tool(
+        state,
+        user,
+        WriteToolRequest {
+            vault_id: input.vault_id,
+            parent_commit: input.parent_commit,
+            activity_action: "mcp_write",
+            activity_tool: "edit_file",
+            activity_path: path.clone(),
+            activity_size_bytes: size_bytes,
+            change: PushChange::Text {
+                path,
+                content: edited,
+            },
+            dry_run: input.dry_run.unwrap_or(false),
+            expected_hashes: input.expected_hashes,
         },
     )
     .await
@@ -5436,5 +5636,325 @@ mod tests {
 
         assert!(output.is_binary);
         assert_eq!(output.encoding.as_deref(), Some("base64"));
+    }
+
+    // ---- edit_file (MEL-13) -------------------------------------------------
+
+    fn edit_input(
+        vault_id: &str,
+        path: &str,
+        parent: &str,
+        json: serde_json::Value,
+    ) -> EditFileInput {
+        let mut value = serde_json::json!({
+            "vault_id": vault_id, "path": path, "parent_commit": parent,
+        });
+        let obj = value.as_object_mut().unwrap();
+        if let Some(map) = json.as_object() {
+            for (k, v) in map {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[tokio::test]
+    async fn mel_edit_second_literal_failure_writes_nothing() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        let input = edit_input(
+            &vid,
+            "a.md",
+            &head,
+            serde_json::json!({"anchor": {"literal": {"edits": [
+                {"old_text": "one", "new_text": "two"},
+                {"old_text": "missing", "new_text": "three"}
+            ]}}}),
+        );
+        let error = edit_file(&state, &auth, input).await.unwrap_err();
+        assert!(error.to_string().starts_with("anchor_not_found:"));
+        let git = state.git_store();
+        assert_eq!(
+            git.head(&vid).await.unwrap().as_deref(),
+            Some(head.as_str())
+        );
+        let stored = git
+            .read_file(&vid, "a.md", Some(&head))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            stored,
+            StoredFile::Text {
+                bytes: b"one".to_vec()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn mel_edit_heading_replace_edits_only_that_subtree() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("a.md", "# A\nold\n## B\nchild\n")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        let out = edit_file(
+            &state,
+            &auth,
+            edit_input(
+                &vid,
+                "a.md",
+                &head,
+                serde_json::json!({"anchor": {"heading": ["A"]}, "content": "# A\nnew\n"}),
+            ),
+        )
+        .await
+        .unwrap();
+        match out {
+            WriteToolOutput::Success { commit } => {
+                let stored = state
+                    .git_store()
+                    .read_file(&vid, "a.md", Some(&commit))
+                    .await
+                    .unwrap()
+                    .unwrap();
+                // Replacing section A replaces its WHOLE subtree — the
+                // nested ## B is part of the subtree (per locate_heading
+                // semantics) and does not survive a full-section replace.
+                assert_eq!(
+                    stored,
+                    StoredFile::Text {
+                        bytes: b"# A\nnew\n".to_vec()
+                    }
+                );
+            }
+            other => panic!("expected success, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn mel_edit_heading_insert_keeps_rest() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("a.md", "# A\nold\n## B\nchild\n")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        let out = edit_file(
+            &state,
+            &auth,
+            edit_input(
+                &vid, "a.md", &head,
+                serde_json::json!({"anchor": {"heading": ["A"]}, "operation": "insert_before", "content": "# Intro\n"}),
+            ),
+        )
+        .await
+        .unwrap();
+        match out {
+            WriteToolOutput::Success { commit } => {
+                let stored = state
+                    .git_store()
+                    .read_file(&vid, "a.md", Some(&commit))
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    stored,
+                    StoredFile::Text {
+                        bytes: b"# Intro\n# A\nold\n## B\nchild\n".to_vec()
+                    }
+                );
+            }
+            other => panic!("expected success, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn mel_edit_block_item_replaces_only_item() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("a.md", "- keep\n- edit ^id\n- tail\n")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        let out = edit_file(
+            &state,
+            &auth,
+            edit_input(
+                &vid,
+                "a.md",
+                &head,
+                serde_json::json!({"anchor": {"block": "id"}, "content": "- new\n"}),
+            ),
+        )
+        .await
+        .unwrap();
+        match out {
+            WriteToolOutput::Success { commit } => {
+                let stored = state
+                    .git_store()
+                    .read_file(&vid, "a.md", Some(&commit))
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    stored,
+                    StoredFile::Text {
+                        bytes: b"- keep\n- new\n- tail\n".to_vec()
+                    }
+                );
+            }
+            other => panic!("expected success, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn mel_edit_dry_run_takes_no_quota_and_previews() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        for _ in 0..80 {
+            let out = edit_file(
+                &state,
+                &auth,
+                edit_input(
+                    &vid,
+                    "a.md",
+                    &head,
+                    serde_json::json!({"anchor": {"literal": {"edits": [
+                        {"old_text": "one", "new_text": "two"}
+                    ]}}, "dry_run": true}),
+                ),
+            )
+            .await
+            .unwrap();
+            assert!(matches!(out, WriteToolOutput::DryRun { .. }));
+        }
+        let real = edit_file(
+            &state,
+            &auth,
+            edit_input(
+                &vid,
+                "a.md",
+                &head,
+                serde_json::json!({"anchor": {"literal": {"edits": [
+                    {"old_text": "one", "new_text": "two"}
+                ]}}}),
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(real, WriteToolOutput::Success { .. }));
+    }
+
+    #[tokio::test]
+    async fn mel_edit_stale_hash_aborts_whole_edit() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        // Concurrent writer lands a new commit while the editor's hash is stale.
+        let git = state.git_store();
+        let mid = git
+            .commit_changes(
+                &vid,
+                Some(&head),
+                &[FileChange::upsert_text("a.md", b"human edit".to_vec())],
+                "concurrent",
+            )
+            .await
+            .unwrap();
+        let err = edit_file(
+            &state,
+            &auth,
+            edit_input(
+                &vid,
+                "a.md",
+                &mid,
+                serde_json::json!({
+                    "anchor": {"literal": {"edits": [{"old_text": "one", "new_text": "two"}]}},
+                    "expected_hashes": {"a.md": "deadbeef".repeat(8)}
+                }),
+            ),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().starts_with("content_diverged:"));
+    }
+
+    #[tokio::test]
+    async fn mel_edit_old_parent_returns_conflict_before_any_work() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        let git = state.git_store();
+        let mid = git
+            .commit_changes(
+                &vid,
+                Some(&head),
+                &[FileChange::upsert_text("b.md", b"x".to_vec())],
+                "other",
+            )
+            .await
+            .unwrap();
+        let out = edit_file(
+            &state,
+            &auth,
+            edit_input(
+                &vid,
+                "a.md",
+                &head,
+                serde_json::json!({"anchor": {"literal": {"edits": [
+                    {"old_text": "one", "new_text": "two"}
+                ]}}}),
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(out, WriteToolOutput::Conflict { .. }));
+        let _ = mid;
+    }
+
+    #[tokio::test]
+    async fn mel_edit_matrix_rejections_at_entry() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        // literal + content -> refused
+        let err = edit_file(&state, &auth, edit_input(
+            &vid, "a.md", &head,
+            serde_json::json!({"anchor": {"literal": {"edits": [{"old_text":"one","new_text":"two"}]}}, "content": "x"}),
+        )).await.unwrap_err();
+        assert!(err.to_string().starts_with("invalid_path:"));
+        // structural without content -> refused
+        let err = edit_file(
+            &state,
+            &auth,
+            edit_input(
+                &vid,
+                "a.md",
+                &head,
+                serde_json::json!({"anchor": {"heading": ["A"]}}),
+            ),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().starts_with("invalid_path:"));
+        // literal + append -> refused
+        let err = edit_file(&state, &auth, edit_input(
+            &vid, "a.md", &head,
+            serde_json::json!({"anchor": {"literal": {"edits": [{"old_text":"one","new_text":"two"}]}}, "operation": "append"}),
+        )).await.unwrap_err();
+        assert!(err.to_string().starts_with("invalid_path:"));
+        // double-shaped anchor -> serde rejection surfaces as invalid params
+        let double = serde_json::from_value::<EditFileInput>(serde_json::json!({
+            "vault_id": vid, "path": "a.md", "parent_commit": head,
+            "anchor": {"literal": {"edits": [{"old_text":"x","new_text":"y"}]}, "block": "id"}
+        }));
+        assert!(double.is_err());
+    }
+
+    #[tokio::test]
+    async fn mel_edit_binary_and_missing_file_refusals() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        let err = edit_file(&state, &auth, edit_input(
+            &vid, "missing.md", &head,
+            serde_json::json!({"anchor": {"literal": {"edits": [{"old_text":"x","new_text":"y"}]}}}),
+        )).await.unwrap_err();
+        assert!(err.to_string().starts_with("not_found:"));
     }
 }

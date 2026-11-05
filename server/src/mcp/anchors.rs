@@ -32,7 +32,9 @@ pub(crate) fn locate_heading(
         .any(|r| matches!(r, ScanReason::UnsupportedHost))
     {
         // A host we could not close makes section boundaries unprovable.
-        anyhow::bail!("invalid_anchor: document contains an unclosed host; section boundaries are unprovable");
+        anyhow::bail!(
+            "invalid_anchor: document contains an unclosed host; section boundaries are unprovable"
+        );
     }
 
     let mut search_from = 0usize;
@@ -52,9 +54,10 @@ pub(crate) fn locate_heading(
             let line = &source[offset..line_end];
             if let Some((level, text_range)) = atx_heading(line) {
                 let abs_text = text_range.start + offset..text_range.end + offset;
-                let in_host = scan.excluded.iter().any(|r| {
-                    abs_text.start < r.end && abs_text.end > r.start
-                });
+                let in_host = scan
+                    .excluded
+                    .iter()
+                    .any(|r| abs_text.start < r.end && abs_text.end > r.start);
                 let _ = &abs_text;
                 if !in_host
                     && depth as usize + 1 > matched_level
@@ -74,12 +77,17 @@ pub(crate) fn locate_heading(
                 matched_end = line_end;
                 search_from = line_end;
                 if depth + 1 == chain.len() {
-                    return Ok(section_subtree(
-                        source,
-                        scan,
-                        matched_level,
-                        matched_end,
-                    ));
+                    let body = section_subtree(source, scan, matched_level, matched_end);
+                    // The subtree INCLUDES its own heading line. body.start
+                    // sits just past the heading line's newline; the last
+                    // '\n' strictly before body.start-1 opens the heading
+                    // line. When no such newline exists the heading line
+                    // starts at 0.
+                    let heading_start = source[..body.start.saturating_sub(1)]
+                        .rfind('\n')
+                        .map(|p| p + 1)
+                        .unwrap_or(0);
+                    return Ok(heading_start.max(line_start)..body.end);
                 }
             }
             None => {
@@ -179,8 +187,7 @@ fn atx_heading(line: &str) -> Option<(usize, Range<usize>)> {
             text = trimmed.trim_end();
         }
     }
-    let start = indent + hashes
-        + (rest[hashes..].len() - rest[hashes..].trim_start().len());
+    let start = indent + hashes + (rest[hashes..].len() - rest[hashes..].trim_start().len());
     let _ = start;
     // Locate `text` within the line after the hashes: search from indent+hashes.
     let search_from = indent + hashes;
@@ -306,7 +313,11 @@ fn item_block_range(source: &str, scan: &DocumentScan, id_line: Range<usize>) ->
 /// The standalone form: associate the id line with the previous complete
 /// block across blank lines; return that block plus the id line. A whole
 /// list never collapses to its last item.
-fn standalone_block_range(source: &str, scan: &DocumentScan, id_line: Range<usize>) -> Range<usize> {
+fn standalone_block_range(
+    source: &str,
+    scan: &DocumentScan,
+    id_line: Range<usize>,
+) -> Range<usize> {
     let mut cursor = id_line.start;
     loop {
         let Some(prev_nl) = source[..cursor].rfind('\n') else {
@@ -394,9 +405,7 @@ mod tests {
     fn mel_heading_selects_descendants_but_not_siblings() {
         let source = "# A\nold\n## B\nchild\n\n# C\nkeep\n";
         let scan = scan_document(source, 100);
-        let body = locate_heading(source, &["A".to_owned()], &scan).unwrap();
-        // Body range starts after the heading line; recompose with it.
-        let whole = source[..body.start].rfind("# A").unwrap()..body.end;
+        let whole = locate_heading(source, &["A".to_owned()], &scan).unwrap();
         assert_eq!(&source[whole], "# A\nold\n## B\nchild\n");
     }
 
@@ -404,8 +413,7 @@ mod tests {
     fn mel_heading_trims_trailing_blanks_keeps_last_newline() {
         let source = "# A\nold\n\n\n# C\n";
         let scan = scan_document(source, 100);
-        let body = locate_heading(source, &["A".to_owned()], &scan).unwrap();
-        let whole = source[..body.start].rfind("# A").unwrap()..body.end;
+        let whole = locate_heading(source, &["A".to_owned()], &scan).unwrap();
         assert_eq!(&source[whole], "# A\nold\n");
     }
 
@@ -413,9 +421,7 @@ mod tests {
     fn mel_heading_chain_descends_any_depth() {
         let source = "# A\nx\n### Deep\ny\n## B\nz\n";
         let scan = scan_document(source, 100);
-        let body =
-            locate_heading(source, &["A".to_owned(), "Deep".to_owned()], &scan).unwrap();
-        let whole = source[..body.start].rfind("### Deep").unwrap()..body.end;
+        let whole = locate_heading(source, &["A".to_owned(), "Deep".to_owned()], &scan).unwrap();
         assert_eq!(&source[whole], "### Deep\ny\n");
     }
 
@@ -425,8 +431,7 @@ mod tests {
         let scan = scan_document(source, 100);
         // Chain ["Real"] must NOT be confused by fenced/math headings, and
         // its subtree ends at the next REAL heading (## Real2).
-        let body = locate_heading(source, &["Real".to_owned()], &scan).unwrap();
-        let whole = source[..body.start].rfind("# Real").unwrap()..body.end;
+        let whole = locate_heading(source, &["Real".to_owned()], &scan).unwrap();
         // The H1 subtree includes the deeper H2 section; fenced/math fake
         // headings inside were skipped as boundaries.
         assert_eq!(&source[whole], source);
@@ -444,15 +449,17 @@ mod tests {
     fn mel_heading_crlf_and_no_trailing_newline() {
         let source = "# A\r\nbody\r\n# B\r\nkeep";
         let scan = scan_document(source, 100);
-        let body = locate_heading(source, &["A".to_owned()], &scan).unwrap();
-        let whole = source[..body.start].rfind("# A").unwrap()..body.end;
+        let whole = locate_heading(source, &["A".to_owned()], &scan).unwrap();
         assert_eq!(&source[whole], "# A\r\nbody\r\n");
     }
 
     #[test]
     fn mel_heading_validation_rejects_bad_chains() {
         let scan = scan_document("# A\n", 10);
-        assert!(locate_heading("# A\n", &[], &scan).unwrap_err().to_string().starts_with("invalid_anchor:"));
+        assert!(locate_heading("# A\n", &[], &scan)
+            .unwrap_err()
+            .to_string()
+            .starts_with("invalid_anchor:"));
         let too_long = vec!["x".repeat(1025)];
         assert!(locate_heading("# A\n", &too_long, &scan)
             .unwrap_err()
@@ -486,7 +493,10 @@ mod tests {
         let source = "Intro line one.\nIntro line two.\n\n^para\n\nAfter\n";
         let scan = scan_document(source, 100);
         let range = locate_block(source, "para", &scan).unwrap();
-        assert_eq!(&source[range], "Intro line one.\nIntro line two.\n\n^para\n");
+        assert_eq!(
+            &source[range],
+            "Intro line one.\nIntro line two.\n\n^para\n"
+        );
     }
 
     #[test]
@@ -503,16 +513,31 @@ mod tests {
         let scan = scan_document(source, 100);
         let range = locate_block(source, "id", &scan).unwrap();
         assert_eq!(&source[range], "- real ^id\n");
-        assert!(locate_block(source, "ghost", &scan).unwrap_err().to_string().starts_with("anchor_not_found:"));
-        assert!(locate_block(source, "spook", &scan).unwrap_err().to_string().starts_with("anchor_not_found:"));
+        assert!(locate_block(source, "ghost", &scan)
+            .unwrap_err()
+            .to_string()
+            .starts_with("anchor_not_found:"));
+        assert!(locate_block(source, "spook", &scan)
+            .unwrap_err()
+            .to_string()
+            .starts_with("anchor_not_found:"));
     }
 
     #[test]
     fn mel_block_id_validation() {
         let scan = scan_document("x\n", 10);
-        assert!(locate_block("x\n", "", &scan).unwrap_err().to_string().starts_with("invalid_anchor:"));
-        assert!(locate_block("x\n", "bad_id", &scan).unwrap_err().to_string().starts_with("invalid_anchor:"));
-        assert!(locate_block("x\n", &"i".repeat(129), &scan).unwrap_err().to_string().starts_with("invalid_anchor:"));
+        assert!(locate_block("x\n", "", &scan)
+            .unwrap_err()
+            .to_string()
+            .starts_with("invalid_anchor:"));
+        assert!(locate_block("x\n", "bad_id", &scan)
+            .unwrap_err()
+            .to_string()
+            .starts_with("invalid_anchor:"));
+        assert!(locate_block("x\n", &"i".repeat(129), &scan)
+            .unwrap_err()
+            .to_string()
+            .starts_with("invalid_anchor:"));
     }
 
     #[test]
