@@ -382,6 +382,12 @@ pub struct WouldWrite {
     /// Set for renames (the source path).
     pub old_path: Option<String>,
     pub size_bytes: usize,
+    /// MEL-12: size provenance for token-disciplined previews; absent
+    /// (not serialized) for tools that did not measure the previous size.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_size_bytes: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_delta: Option<i64>,
 }
 
 /// SHA-256 of stored bytes, hex encoded — the currency of `expected_hashes`.
@@ -1639,6 +1645,34 @@ pub async fn write_files(
         );
     }
 
+    // MEL-12: the same shape rules now live in ONE validator; write_files
+    // routes through it so edit_file/move_file rewrites cannot drift from
+    // the batch contract (duplicate/conflicting paths, op count, budgets).
+    let sized: Vec<_> = changes
+        .iter()
+        .filter_map(|c| match c {
+            PushChange::Text { path, content } => Some(crate::mcp::write_plan::SizedText {
+                path: path.clone(),
+                final_len: content.len(),
+                previous_len: None,
+            }),
+            _ => None,
+        })
+        .collect();
+    let deleted: Vec<_> = changes
+        .iter()
+        .filter_map(|c| match c {
+            PushChange::Delete { path } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    crate::mcp::write_plan::validate_plan_shape(
+        &sized,
+        &deleted,
+        max_file_size,
+        WRITE_FILES_MAX_FILES,
+    )?;
+
     let would_write = would_write_from_changes(&changes);
     apply_write_batch(
         state,
@@ -1717,6 +1751,8 @@ pub async fn move_file(
                 change: "rename",
                 old_path: Some(from),
                 size_bytes: content.len(),
+                previous_size_bytes: None,
+                size_delta: None,
             }],
         ));
     }
@@ -2057,12 +2093,16 @@ fn would_write_from_changes(changes: &[PushChange]) -> Vec<WouldWrite> {
                 change: "upsert",
                 old_path: None,
                 size_bytes: content.len(),
+                previous_size_bytes: None,
+                size_delta: None,
             },
             PushChange::Delete { path } => WouldWrite {
                 path: path.clone(),
                 change: "delete",
                 old_path: None,
                 size_bytes: 0,
+                previous_size_bytes: None,
+                size_delta: None,
             },
             // The MCP batch builder only produces text and delete changes;
             // blob writes arrive through the sync API, not this tool.
@@ -2071,6 +2111,8 @@ fn would_write_from_changes(changes: &[PushChange]) -> Vec<WouldWrite> {
                 change: "upsert",
                 old_path: None,
                 size_bytes: 0,
+                previous_size_bytes: None,
+                size_delta: None,
             },
         })
         .collect()
