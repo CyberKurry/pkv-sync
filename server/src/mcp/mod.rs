@@ -1,6 +1,7 @@
 pub(crate) mod auth;
 pub mod frontmatter;
 pub(crate) mod link_resolver;
+pub(crate) mod link_scan;
 pub(crate) mod link_span;
 pub(crate) mod listen_filter;
 pub mod notifications;

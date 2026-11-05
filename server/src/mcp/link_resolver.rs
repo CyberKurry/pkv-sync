@@ -96,7 +96,7 @@ pub(crate) fn resolve(
         let decoded_file = crate::mcp::link_span::percent_decode_path(raw_file)
             .unwrap_or_else(|_| raw_file.to_string());
         let dest = decoded_file.trim().to_string();
-        let decoded = dest.clone();
+        let _decoded = dest.clone();
         if dest.is_empty() {
             return Resolution::Missing;
         }

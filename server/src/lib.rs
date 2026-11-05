@@ -15,6 +15,8 @@ pub mod middleware;
 pub mod server;
 pub mod service;
 pub mod storage;
+#[cfg(test)]
+pub(crate) mod test_probe;
 pub mod time;
 pub mod version;
 

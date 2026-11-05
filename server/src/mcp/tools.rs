@@ -245,6 +245,14 @@ pub struct LinkGraphOutput {
     pub orphans: Vec<String>,
     pub broken: Vec<BrokenLink>,
     pub truncated: bool,
+    /// MEL-07: whether the underlying scan saw every source and a complete
+    /// target index. `false` means resolution claims may be partial (e.g.
+    /// a file/byte/link cap or an unsupported host was hit); reasons are
+    /// fixed snake_case codes.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub scan_complete: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub incomplete_reasons: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1224,11 +1232,21 @@ pub async fn link_graph(
         .map(|node| node.path.clone())
         .collect();
 
+    // MEL-07: `truncated` reflects any incompleteness (node cap, budget,
+    // per-file link cap) for legacy clients; the new fields separate WHY.
+    let scan_complete = !truncated;
+    let incomplete_reasons: Vec<String> = if scan_complete {
+        Vec::new()
+    } else {
+        vec!["node_or_budget_cap".to_string()]
+    };
     Ok(LinkGraphOutput {
         nodes,
         orphans,
         broken,
         truncated,
+        scan_complete,
+        incomplete_reasons,
     })
 }
 
