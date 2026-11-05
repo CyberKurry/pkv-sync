@@ -3,6 +3,7 @@ pub(crate) mod auth;
 pub(crate) mod edit_plan;
 pub mod frontmatter;
 pub(crate) mod link_resolver;
+pub(crate) mod link_rewrite;
 pub(crate) mod link_scan;
 pub(crate) mod link_span;
 pub(crate) mod listen_filter;

@@ -55,6 +55,14 @@ impl TargetIndex {
     pub(crate) fn contains(&self, path: &str) -> bool {
         self.by_path.contains_key(&case_fold_key(path))
     }
+
+    /// Every canonical path in the index (MEL-17 projected indexes).
+    pub(crate) fn canonical_paths(&self) -> Vec<String> {
+        let mut paths: Vec<String> = self.by_path.values().cloned().collect();
+        paths.sort();
+        paths.dedup();
+        paths
+    }
 }
 
 /// Resolve one token against the index. `containing` is the canonical
