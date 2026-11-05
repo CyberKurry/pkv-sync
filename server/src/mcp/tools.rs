@@ -499,6 +499,14 @@ pub struct MoveFileInput {
     /// Guard for the source path (the `from` side) only.
     #[serde(default)]
     pub expected_hashes: Option<std::collections::HashMap<String, String>>,
+    /// MEL-18.1 (declared here so Task 16's compat tests compile): rewrite
+    /// inbound links in the same commit. Default true once Task 18 lands;
+    /// `false` selects the exact pre-1.8.0 behavior.
+    #[serde(default, deserialize_with = "present_value")]
+    pub rewrite_links: Option<bool>,
+    /// Cap on rewritten files (0..=98); default 98.
+    #[serde(default, deserialize_with = "present_value")]
+    pub max_rewrites: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2129,12 +2137,35 @@ pub async fn move_file(
     user: &AuthenticatedUser,
     input: MoveFileInput,
 ) -> Result<WriteToolOutput> {
-    let from = normalize_mcp_path(input.from)?;
-    let to = normalize_mcp_path(input.to)?;
+    let from = normalize_mcp_path(input.from.clone())?;
+    let to = normalize_mcp_path(input.to.clone())?;
     if from == to {
         bail!("invalid_path: from and to are identical");
     }
+    // MEL-D16: a case-only move (raw text differs but the storage
+    // comparison key does not — NFC/NFD or case variants) creates two
+    // case-folded-equal names in one directory on macOS/Windows clients;
+    // the same data-loss guard the push path enforces (S5), refused at
+    // the ENTRY for both dry and real calls before any quota or scan.
+    if crate::mcp::link_resolver::case_fold_key(&from)
+        == crate::mcp::link_resolver::case_fold_key(&to)
+    {
+        bail!(
+            "invalid_path: case-only renames are not supported (from and to fold to the same name)"
+        );
+    }
+    move_without_link_rewrite(state, user, input, from, to).await
+}
 
+/// The pre-1.8.0 move body, unchanged: callers hand over ALREADY
+/// normalized and pre-checked from/to (MEL-16.2).
+async fn move_without_link_rewrite(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    input: MoveFileInput,
+    from: String,
+    to: String,
+) -> Result<WriteToolOutput> {
     if let Some(conflict) =
         ensure_write_ready_without_rate_limit(state, user, &input.vault_id, &input.parent_commit)
             .await?
@@ -3990,6 +4021,8 @@ mod tests {
                     to: "b.md".into(),
                     dry_run: Some(true),
                     expected_hashes: None,
+                    rewrite_links: None,
+                    max_rewrites: None,
                 },
             )
             .await
@@ -4015,6 +4048,8 @@ mod tests {
                 to: "b.md".into(),
                 dry_run: None,
                 expected_hashes: None,
+                rewrite_links: None,
+                max_rewrites: None,
             },
         )
         .await
@@ -4085,6 +4120,8 @@ mod tests {
                 to: "c.md".into(),
                 dry_run: None,
                 expected_hashes: None,
+                rewrite_links: None,
+                max_rewrites: None,
             },
         )
         .await
@@ -6633,5 +6670,89 @@ mod tests {
         // Within cap it reads.
         let ok = git.read_file_bounded(&vid, "huge.md", &head, 8192).await;
         assert!(ok.is_ok());
+    }
+
+    // ---- move entry guard (MEL-16) -------------------------------------------
+
+    fn move_json(vid: &str, from: &str, to: &str, dry: bool) -> MoveFileInput {
+        serde_json::from_value(serde_json::json!({
+            "vault_id": vid, "parent_commit": "", "from": from, "to": to,
+            "dry_run": dry
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn mel_move_case_only_rejected_for_all_four_combinations() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let auth = authenticated_user(&state, &uid).await;
+        // Two flags × dry/real. Empty vault still validates at the entry.
+        for rewrite in [false, true] {
+            for dry in [false, true] {
+                let mut input = move_json(&vid, "Old.md", "old.md", dry);
+                input.rewrite_links = Some(rewrite);
+                let err = move_file(&state, &auth, input).await.unwrap_err();
+                assert!(
+                    err.to_string().starts_with("invalid_path: case-only"),
+                    "rewrite={rewrite} dry={dry}: {}",
+                    err
+                );
+            }
+        }
+        // NFC -> NFD of the same glyph: same folded key, same refusal.
+        let mut input = move_json(&vid, "caf\u{00e9}.md", "cafe\u{0301}.md", false);
+        let err = move_file(&state, &auth, input).await.unwrap_err();
+        assert!(err.to_string().starts_with("invalid_path: case-only"));
+        // Identical raw paths keep the older, same-path error.
+        let err = move_file(&state, &auth, move_json(&vid, "a.md", "a.md", false))
+            .await
+            .unwrap_err();
+        assert!(err
+            .to_string()
+            .starts_with("invalid_path: from and to are identical"));
+    }
+
+    #[tokio::test]
+    async fn mel_move_rewrite_false_matches_legacy_behavior() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("a.md", "one")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        let mut input = move_json(&vid, "a.md", "b.md", true);
+        input.parent_commit = head.clone();
+        input.rewrite_links = Some(false);
+        let out = move_file(&state, &auth, input).await.unwrap();
+        match out {
+            WriteToolOutput::DryRun { would_write, .. } => {
+                assert_eq!(would_write.len(), 1);
+                assert_eq!(would_write[0].change, "rename");
+                assert_eq!(would_write[0].old_path.as_deref(), Some("a.md"));
+                // No size metadata on the legacy path.
+                assert_eq!(would_write[0].previous_size_bytes, None);
+                assert_eq!(would_write[0].size_delta, None);
+            }
+            other => panic!("expected dry run, got {other:?}"),
+        }
+        // Real move: single commit, no rewrites expected.
+        let mut real = move_json(&vid, "a.md", "b.md", false);
+        real.rewrite_links = Some(false);
+        real.parent_commit = head.clone();
+        let out = move_file(&state, &auth, real).await.unwrap();
+        assert!(matches!(out, WriteToolOutput::Success { .. }));
+        let git = state.git_store();
+        let new_head = git.head(&vid).await.unwrap().unwrap();
+        let changes = git
+            .list_changes_between(&vid, &head, &new_head)
+            .await
+            .unwrap()
+            .0;
+        // Git rename detection folds the physical delete+add into ONE
+        // Renamed entry on the diff surface (the commit itself still
+        // carries both changes — the dry-run preview is where the pairing
+        // is asserted).
+        assert_eq!(changes.len(), 1, "rename entry: {:?}", changes);
+        assert_eq!(
+            changes[0].status,
+            crate::storage::git::ChangeStatus::Renamed
+        );
     }
 }
