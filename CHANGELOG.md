@@ -7,6 +7,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Internal: MCP link scanning now has a single span-aware Markdown
+  scanner (code fences, indented code, inline code, `%%` comments,
+  HTML comments, wiki/Markdown link forms with escapes) shared by the
+  upcoming edit/backlink/rewrite surfaces; `link_graph` keeps its
+  current semantics until the snapshot scan lands.
+
 ## [1.7.4] - 2026-11-04
 
 ### Fixed

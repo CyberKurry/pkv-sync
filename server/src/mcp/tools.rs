@@ -1354,6 +1354,13 @@ fn extract_links(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// MEL-02.5: test-only bridge so the span scanner's agreement test can see
+/// the legacy extractor without making it public API.
+#[cfg(test)]
+pub(crate) fn extract_link_targets_for_tests(text: &str) -> Vec<String> {
+    extract_links(text)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LinkKind {
     Wikilink,
