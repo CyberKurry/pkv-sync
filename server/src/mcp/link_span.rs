@@ -8,6 +8,7 @@
 
 use std::ops::Range;
 
+pub(crate) mod html;
 pub(crate) mod markdown;
 pub(crate) mod math;
 
@@ -107,6 +108,37 @@ mod tests {
         }
         let incomplete = scan_document("$$\n[[Old]]\n", 100);
         assert!(incomplete.reasons.contains(&ScanReason::UnsupportedHost));
+    }
+
+    #[test]
+    fn mel_scan_html_preserves_outer_markdown() {
+        let source = "before <span title=\"[[Old]]\">[[Old]]</span> after [[Live]]";
+        let scan = scan_document(source, 100);
+        assert!(scan.reasons.is_empty());
+        let paths = paths_of(&scan, source);
+        assert_eq!(paths, ["Live"]);
+    }
+
+    #[test]
+    fn mel_scan_html_nested_and_void() {
+        // Nested elements are one contiguous exclusion; void elements own
+        // only their tag; raw-text content is not parsed as markup.
+        let source = "<span><b>[[Old]]</b></span> [[Live1]] <br> [[Live2]]";
+        let scan = scan_document(source, 100);
+        assert!(scan.reasons.is_empty());
+        assert_eq!(paths_of(&scan, source), ["Live1", "Live2"]);
+
+        let raw = "<script>if (a<b) [[Old]]</script> [[Live3]]";
+        let scan = scan_document(raw, 100);
+        assert!(scan.reasons.is_empty());
+        assert_eq!(paths_of(&scan, raw), ["Live3"]);
+    }
+
+    #[test]
+    fn mel_scan_html_unclosed_container_is_unsupported() {
+        let scan = scan_document("<div>[[Old]]", 100);
+        assert!(scan.reasons.contains(&ScanReason::UnsupportedHost));
+        assert!(scan.tokens.is_empty());
     }
 
     #[test]

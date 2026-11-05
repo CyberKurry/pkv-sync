@@ -12,6 +12,7 @@
 //! 3. Ranges are validated with `str::get` before use; all pushes happen
 //!    on char boundaries.
 
+use super::html;
 use super::math;
 use super::{DocumentScan, Host, LinkToken, ScanReason, Syntax};
 
@@ -270,6 +271,47 @@ impl<'a> Scanner<'a> {
                         i = end;
                     } else {
                         i += 4;
+                    }
+                }
+                b'<' => {
+                    // HTML host (MEL-R2-03): the element owns its tag bytes
+                    // and, for non-void elements, its content until the
+                    // matching close tag. Raw-text elements skip content
+                    // parsing entirely.
+                    match html::open_tag(self.source, i) {
+                        Some((open_end, name, void)) => {
+                            if void {
+                                self.excluded.push(i..open_end);
+                                i = open_end;
+                            } else {
+                                let search_from = if html::is_raw_text(&name) {
+                                    open_end
+                                } else {
+                                    // For normal elements the close search
+                                    // must not stop inside a NESTED same-name
+                                    // child; find_close_tag handles nesting
+                                    // by scanning for the first matching
+                                    // close, which is correct for our
+                                    // subset (nested same-name elements
+                                    // collapse into the outer range).
+                                    open_end
+                                };
+                                match html::find_close_tag(self.source, search_from, &name) {
+                                    Some(end) => {
+                                        self.excluded.push(i..end);
+                                        i = end;
+                                    }
+                                    None => {
+                                        // Unclosed container: boundary
+                                        // unprovable.
+                                        self.reasons.push(ScanReason::UnsupportedHost);
+                                        self.excluded.push(i..self.bytes.len());
+                                        i = self.bytes.len();
+                                    }
+                                }
+                            }
+                        }
+                        None => i += 1,
                     }
                 }
                 b'!' if self.bytes.get(i + 1) == Some(&b'[') => {
