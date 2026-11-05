@@ -46,11 +46,7 @@ impl TargetIndex {
                 .and_then(|s| s.to_str())
             {
                 let stem = case_fold_key(stem);
-                index
-                    .by_basename
-                    .entry(stem)
-                    .or_default()
-                    .push(canonical);
+                index.by_basename.entry(stem).or_default().push(canonical);
             }
         }
         index
@@ -130,10 +126,13 @@ pub(crate) fn resolve(
 fn decode_for_resolve(token: &LinkToken, source: &str) -> String {
     let raw = &source[token.path.clone()];
     match (&token.host, token.syntax) {
-        (Host::Yaml { style, .. }, _) => crate::mcp::link_span::yaml::decode_scalar_path(raw, *style)
-            .unwrap_or_else(|_| raw.to_string()),
-        (_, Syntax::Markdown) => crate::mcp::link_span::percent_decode_path(raw)
-            .unwrap_or_else(|_| raw.to_string()),
+        (Host::Yaml { style, .. }, _) => {
+            crate::mcp::link_span::yaml::decode_scalar_path(raw, *style)
+                .unwrap_or_else(|_| raw.to_string())
+        }
+        (_, Syntax::Markdown) => {
+            crate::mcp::link_span::percent_decode_path(raw).unwrap_or_else(|_| raw.to_string())
+        }
         _ => raw.to_string(),
     }
 }
@@ -142,23 +141,26 @@ fn resolve_plain(index: &TargetIndex, dest: &str) -> Resolution {
     // A destination carrying a directory component must match that path
     // exactly (Obsidian: bare destinations are vault-absolute first);
     // dropping the directory to fall back to basename would redirect.
-    let dest_no_md = dest.strip_suffix(".md").unwrap_or(dest);
     let key = case_fold_key(dest);
     if let Some(hit) = index.by_path.get(&key) {
         return Resolution::Resolved(hit.clone());
     }
-    let key_no_md = case_fold_key(dest_no_md);
-    if dest_no_md != dest {
-        if let Some(hit) = index.by_path.get(&key_no_md) {
-            return Resolution::Resolved(hit.clone());
-        }
+    // A `.md` suffix is optional in wiki destinations, path or bare alike.
+    let key_md = case_fold_key(&format!("{dest}.md"));
+    if let Some(hit) = index.by_path.get(&key_md) {
+        return Resolution::Resolved(hit.clone());
     }
     if dest.contains('/') {
         return Resolution::Missing;
     }
+    let dest_no_md = dest.strip_suffix(".md").unwrap_or(dest);
     // Bare name: unique basename wins; multiple -> Ambiguous; extension
     // must participate (`report.png` never matches `report.canvas`).
-    match index.by_basename.get(&case_fold_key(dest_no_md)).map(|v| v.as_slice()) {
+    match index
+        .by_basename
+        .get(&case_fold_key(dest_no_md))
+        .map(|v| v.as_slice())
+    {
         Some([only]) => Resolution::Resolved(only.clone()),
         Some(&[]) | None => Resolution::Missing,
         Some(_) => Resolution::Ambiguous,
@@ -228,7 +230,11 @@ mod tests {
     fn mel_resolve_root_before_relative() {
         // root A.md and docs/A.md both exist; docs/I.md says [x](A.md):
         // the bare destination is vault-absolute-first -> root A.md.
-        let index = TargetIndex::new(["A.md".to_string(), "docs/A.md".to_string(), "docs/I.md".to_string()]);
+        let index = TargetIndex::new([
+            "A.md".to_string(),
+            "docs/A.md".to_string(),
+            "docs/I.md".to_string(),
+        ]);
         assert_eq!(
             resolve_str(&index, "docs/I.md", "[x](A.md)"),
             Resolution::Resolved("A.md".into())
@@ -237,7 +243,11 @@ mod tests {
 
     #[test]
     fn mel_resolve_explicit_relative_only() {
-        let index = TargetIndex::new(["A.md".to_string(), "docs/A.md".to_string(), "docs/I.md".to_string()]);
+        let index = TargetIndex::new([
+            "A.md".to_string(),
+            "docs/A.md".to_string(),
+            "docs/I.md".to_string(),
+        ]);
         assert_eq!(
             resolve_str(&index, "docs/I.md", "[x](./A.md)"),
             Resolution::Resolved("docs/A.md".into())
@@ -252,10 +262,22 @@ mod tests {
 
     #[test]
     fn mel_resolve_keeps_directory() {
-        let index = TargetIndex::new(["A.md".to_string(), "missing/A.md".to_string()]);
+        let index = TargetIndex::new(["A.md".to_string()]);
         // [[missing/A]] with only root A.md present: directory component
-        // must not be dropped to reach the root file.
-        assert_eq!(resolve_str(&index, "I.md", "[[missing/A]]"), Resolution::Missing);
+        // must not be dropped to reach the root file. (The original fixture
+        // also indexed missing/A.md, which masked the intent — resolving to
+        // it is correct and now has its own case below.)
+        assert_eq!(
+            resolve_str(&index, "I.md", "[[missing/A]]"),
+            Resolution::Missing
+        );
+        // With the file present, the path destination resolves through the
+        // optional-.md rule.
+        let full = TargetIndex::new(["A.md".to_string(), "missing/A.md".to_string()]);
+        assert_eq!(
+            resolve_str(&full, "I.md", "[[missing/A]]"),
+            Resolution::Resolved("missing/A.md".into())
+        );
     }
 
     #[test]
@@ -263,7 +285,10 @@ mod tests {
         let index = TargetIndex::new(["report.canvas".to_string()]);
         // ![[report.png]] must not resolve to report.canvas: extensions
         // other than .md participate exactly.
-        assert_eq!(resolve_str(&index, "I.md", "![[report.png]]"), Resolution::Missing);
+        assert_eq!(
+            resolve_str(&index, "I.md", "![[report.png]]"),
+            Resolution::Missing
+        );
     }
 
     #[test]
@@ -292,17 +317,32 @@ mod tests {
     #[test]
     fn mel_resolve_self_reference() {
         let index = TargetIndex::new(["I.md".to_string()]);
-        assert_eq!(resolve_str(&index, "I.md", "[[#H]]"), Resolution::SelfReference);
-        assert_eq!(resolve_str(&index, "I.md", "[[#^id]]"), Resolution::SelfReference);
+        assert_eq!(
+            resolve_str(&index, "I.md", "[[#H]]"),
+            Resolution::SelfReference
+        );
+        assert_eq!(
+            resolve_str(&index, "I.md", "[[#^id]]"),
+            Resolution::SelfReference
+        );
         // Self-reference is NOT counted as a file-level backlink target.
-        assert_ne!(resolve_str(&index, "I.md", "[[#H]]"), Resolution::Resolved("I.md".into()));
+        assert_ne!(
+            resolve_str(&index, "I.md", "[[#H]]"),
+            Resolution::Resolved("I.md".into())
+        );
     }
 
     #[test]
     fn mel_resolve_dotted_basename_wikilink_md_equivalence() {
         let index = TargetIndex::new(["N.md".to_string()]);
-        assert_eq!(resolve_str(&index, "I.md", "[[N]]"), Resolution::Resolved("N.md".into()));
-        assert_eq!(resolve_str(&index, "I.md", "[[N.md]]"), Resolution::Resolved("N.md".into()));
+        assert_eq!(
+            resolve_str(&index, "I.md", "[[N]]"),
+            Resolution::Resolved("N.md".into())
+        );
+        assert_eq!(
+            resolve_str(&index, "I.md", "[[N.md]]"),
+            Resolution::Resolved("N.md".into())
+        );
     }
 
     #[test]

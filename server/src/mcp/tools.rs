@@ -1327,6 +1327,231 @@ pub async fn link_graph(
     })
 }
 
+// ---- backlinks (MEL-14) ---------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct BacklinksInput {
+    pub vault_id: String,
+    pub path: String,
+    #[serde(default, deserialize_with = "present_value")]
+    pub at: Option<String>,
+    #[serde(default, deserialize_with = "present_value")]
+    pub limit: Option<usize>,
+    #[serde(default, deserialize_with = "present_value")]
+    pub context_bytes: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BacklinkHit {
+    pub from: String,
+    pub line_number: usize,
+    pub snippet: String,
+    pub raw_link: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BacklinksOutput {
+    pub path: String,
+    pub at: String,
+    pub backlinks: Vec<BacklinkHit>,
+    /// Exact total when the scan completed; null when it stopped early.
+    pub total: Option<usize>,
+    pub shown: usize,
+    pub truncated: bool,
+    pub scan_complete: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub incomplete_reasons: Vec<String>,
+}
+
+pub async fn backlinks(
+    state: &AppState,
+    user_id: &str,
+    input: BacklinksInput,
+) -> Result<BacklinksOutput> {
+    let limit = input.limit.unwrap_or(100);
+    anyhow::ensure!(
+        (1..=500).contains(&limit),
+        "invalid_path: limit must be 1..=500"
+    );
+    let context_bytes = input.context_bytes.unwrap_or(160);
+    anyhow::ensure!(
+        context_bytes <= 1024,
+        "invalid_path: context_bytes must be 0..=1024"
+    );
+    ensure_owned_vault(state, user_id, &input.vault_id).await?;
+    let filter = sync::vault_path_filter(state, &input.vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    let target = normalize_mcp_path(input.path.clone())?;
+    if !mcp_path_visible(&filter, &target) {
+        bail!("not_found: '{target}' does not exist");
+    }
+
+    let git = state.git_store();
+    let at = match input.at.clone() {
+        Some(at) => Some(at),
+        None => git
+            .head(&input.vault_id)
+            .await
+            .map_err(git_error_to_anyhow)?,
+    };
+    let Some(at) = at else {
+        return Ok(BacklinksOutput {
+            path: target,
+            at: String::new(),
+            backlinks: Vec::new(),
+            total: Some(0),
+            shown: 0,
+            truncated: false,
+            scan_complete: true,
+            incomplete_reasons: Vec::new(),
+        });
+    };
+
+    let mut tree = git.list_tree(&input.vault_id, Some(&at)).await?;
+    tree.sort_by(|a, b| a.path.cmp(&b.path));
+
+    let snapshot = crate::mcp::link_scan::VaultSnapshot {
+        at: at.clone(),
+        filter: filter.clone(),
+        max_file_size: state.runtime_cfg.max_file_size().await,
+    };
+    let limits = crate::mcp::link_scan::ScanLimits::default();
+    let (index, index_integrity) =
+        crate::mcp::link_scan::target_index(&git, &snapshot, &tree, &limits).await;
+
+    let target_folded = crate::mcp::link_resolver::case_fold_key(&target);
+    let mut hits: Vec<BacklinkHit> = Vec::new();
+    let mut truncated = false;
+    let mut scan_integrity = crate::mcp::link_scan::ScanIntegrity::default();
+    {
+        // Collect ordered by (path byte order, token offset): the visitor
+        // already walks the sorted tree; within a file, token order.
+        let mut collector = |file: crate::mcp::link_scan::SourceFile<'_>| {
+            if hits.len() >= limit {
+                truncated = true;
+                return crate::mcp::link_scan::VisitFlow::Stop;
+            }
+            for token in &file.scan.tokens {
+                if hits.len() >= limit {
+                    truncated = true;
+                    return crate::mcp::link_scan::VisitFlow::Stop;
+                }
+                let resolution = crate::mcp::link_scan::resolve_guarded(
+                    &index,
+                    index_integrity.complete,
+                    file.path,
+                    token,
+                    &file.text,
+                );
+                if let crate::mcp::link_resolver::Resolution::Resolved(hit) = resolution {
+                    if crate::mcp::link_resolver::case_fold_key(&hit) == target_folded {
+                        hits.push(backlink_hit(file.path, &file.text, token, context_bytes));
+                    }
+                }
+            }
+            crate::mcp::link_scan::VisitFlow::Continue
+        };
+        scan_integrity = crate::mcp::link_scan::visit_snapshot(
+            &git,
+            &input.vault_id,
+            &snapshot,
+            &limits,
+            &mut collector,
+        )
+        .await?;
+    }
+
+    let scan_complete = scan_integrity.complete && index_integrity.complete && !truncated;
+    let mut reasons: Vec<String> = scan_integrity
+        .reasons
+        .iter()
+        .chain(index_integrity.reasons.iter())
+        .map(|r| r.to_string())
+        .collect();
+    if truncated {
+        reasons.push("limit".to_string());
+    }
+    reasons.sort();
+    reasons.dedup();
+    Ok(BacklinksOutput {
+        path: target,
+        at,
+        shown: hits.len(),
+        total: if scan_complete {
+            Some(hits.len())
+        } else {
+            None
+        },
+        backlinks: hits,
+        truncated,
+        scan_complete,
+        incomplete_reasons: reasons,
+    })
+}
+
+fn filter_for_snapshot(filter: &SyncPathFilter) -> SyncPathFilter {
+    filter.clone()
+}
+
+fn backlink_hit(
+    from: &str,
+    text: &str,
+    token: &crate::mcp::link_span::LinkToken,
+    context_bytes: usize,
+) -> BacklinkHit {
+    let line_start = text[..token.whole.start]
+        .rfind('\n')
+        .map(|p| p + 1)
+        .unwrap_or(0);
+    let line_number = text[..line_start].bytes().filter(|&b| b == b'\n').count() + 1;
+    let line_end = text[line_start..]
+        .find('\n')
+        .map(|rel| line_start + rel)
+        .unwrap_or(text.len());
+    let line = &text[line_start..line_end];
+    // Snippet: centered window around the link's own line.
+    let focus = token.whole.start - line_start;
+    let half = context_bytes / 2;
+    let window_start = focus.saturating_sub(half);
+    let window_end = (focus + (context_bytes - half)).min(line.len());
+    let window_start =
+        crate::mcp::response_budget::prefix_bytes(&line[window_start.min(focus)..], 0)
+            .len()
+            .min(window_start);
+    let snippet_raw = &line[window_start..window_end.min(line.len())];
+    let snippet_start = text.as_ptr() as usize + line_start + window_start;
+    let snippet = crate::mcp::response_budget::prefix_bytes(
+        snippet_raw,
+        crate::mcp::response_budget::MAX_SNIPPET_BYTES,
+    );
+    let _ = snippet_start;
+    let alias = token.display.as_ref().map(|d| {
+        // The display range carries the leading '|' (raw bytes); the wire
+        // field is the alias TEXT without it.
+        let raw = &text[d.clone()];
+        let stripped = raw.strip_prefix('|').unwrap_or(raw);
+        crate::mcp::response_budget::prefix_bytes(
+            stripped,
+            crate::mcp::response_budget::MAX_ALIAS_BYTES,
+        )
+        .to_string()
+    });
+    BacklinkHit {
+        from: from.to_string(),
+        line_number,
+        snippet: snippet.to_string(),
+        raw_link: crate::mcp::response_budget::prefix_bytes(
+            &text[token.whole.clone()],
+            crate::mcp::response_budget::MAX_RAW_LINK_BYTES,
+        )
+        .to_string(),
+        alias,
+    }
+}
+
 pub async fn changes_since(
     state: &AppState,
     user_id: &str,
@@ -1887,7 +2112,7 @@ pub async fn edit_file(
         .operation
         .unwrap_or(crate::mcp::edit_plan::EditOperation::Replace);
     let new_content: Option<String> = match &input.anchor {
-        EditAnchor::Literal(literal) => {
+        EditAnchor::Literal(_literal) => {
             anyhow::ensure!(
                 input.content.is_none(),
                 "invalid_path: content is not accepted with a literal anchor; the edits carry their own text"
@@ -1935,7 +2160,7 @@ pub async fn edit_file(
     };
     let text = String::from_utf8(bytes.clone())
         .map_err(|_| anyhow!("unsupported_binary_edit: '{path}' is not UTF-8 text"))?;
-    let previous = text.len();
+    let _previous = text.len();
 
     // The edit is based on THIS read; guard it before generating anything
     // so a concurrent human edit aborts as content_diverged regardless of
@@ -5956,5 +6181,128 @@ mod tests {
             serde_json::json!({"anchor": {"literal": {"edits": [{"old_text":"x","new_text":"y"}]}}}),
         )).await.unwrap_err();
         assert!(err.to_string().starts_with("not_found:"));
+    }
+
+    // ---- backlinks (MEL-14) --------------------------------------------------
+
+    fn backlinks_input(vid: &str, path: &str) -> BacklinksInput {
+        serde_json::from_value(serde_json::json!({
+            "vault_id": vid, "path": path
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn mel_backlinks_reports_all_link_forms_with_lines_and_snippets() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("target.md", "# T\nbody"),
+                ("a.md", "intro\n[[target]] end"),
+                ("b.md", "[[target|alias]] mid"),
+                ("c.md", "![[target#Heading]] embed"),
+                ("d.md", "[x](target.md) md"),
+            ],
+        )
+        .await;
+        let out = backlinks(&state, &uid, backlinks_input(&vid, "target.md"))
+            .await
+            .unwrap();
+        assert_eq!(out.at, head);
+        assert_eq!(out.backlinks.len(), 4);
+        let sources: Vec<&str> = out.backlinks.iter().map(|h| h.from.as_str()).collect();
+        assert_eq!(sources, ["a.md", "b.md", "c.md", "d.md"]);
+        assert_eq!(out.backlinks[0].line_number, 2);
+        assert!(out.backlinks[0].snippet.contains("[[target]]"));
+        assert_eq!(out.backlinks[1].alias.as_deref(), Some("alias"));
+        assert!(out.backlinks[2].raw_link.starts_with("![[target"));
+        assert!(out.scan_complete);
+        assert_eq!(out.total, Some(4));
+    }
+
+    #[tokio::test]
+    async fn mel_backlinks_code_and_math_links_not_reported() {
+        let (state, uid, vid, _tmp) = state_user_vvault_or().await;
+        let head = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("t.md", "x"),
+                ("a.md", "`[[t]]` code\n[[t]] live"),
+                ("b.md", "$[[t]]$ math\n[[t]] too"),
+            ],
+        )
+        .await;
+        let out = backlinks(&state, &uid, backlinks_input(&vid, "t.md"))
+            .await
+            .unwrap();
+        // Only the real links: one in a.md, one in b.md.
+        assert_eq!(out.backlinks.len(), 2);
+        assert!(out.backlinks.iter().all(|h| h.line_number == 2));
+    }
+
+    async fn state_user_vvault_or() -> (AppState, String, String, tempfile::TempDir) {
+        state_user_vault().await
+    }
+
+    #[tokio::test]
+    async fn mel_backlinks_limit_truncates_with_total_null() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let owned: Vec<(String, &str)> = (0..3).map(|i| (format!("f{i}.md"), "[[t]]")).collect();
+        let files: Vec<(&str, &str)> = std::iter::once(("t.md", "x"))
+            .chain(owned.iter().map(|(p, c)| (p.as_str(), *c)))
+            .collect();
+        let head = seed_text_files(&state, &vid, &files).await;
+        let input: BacklinksInput = serde_json::from_value(serde_json::json!({
+            "vault_id": vid, "path": "t.md", "limit": 2
+        }))
+        .unwrap();
+        let out = backlinks(&state, &uid, input).await.unwrap();
+        assert_eq!(out.backlinks.len(), 2);
+        assert!(out.truncated);
+        assert!(!out.scan_complete);
+        assert_eq!(out.total, None);
+        assert_eq!(out.shown, 2);
+        assert!(out.incomplete_reasons.contains(&"limit".to_string()));
+        let _ = head;
+    }
+
+    #[tokio::test]
+    async fn mel_backlinks_self_reference_not_counted() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        seed_text_files(&state, &vid, &[("t.md", "# T\nsee [[#T]] and [[t]]")]).await;
+        let out = backlinks(&state, &uid, backlinks_input(&vid, "t.md"))
+            .await
+            .unwrap();
+        // [[#T]] is a self reference; [[t]] resolves to t.md — itself.
+        // A file linking to itself IS a backlink per the resolution rules
+        // (SelfReference only covers empty-path links), so 1 hit.
+        assert_eq!(out.backlinks.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn mel_backlinks_validation_and_missing_target() {
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("t.md", "x")]).await;
+        let bad: BacklinksInput = serde_json::from_value(serde_json::json!({
+            "vault_id": vid, "path": "t.md", "limit": 0
+        }))
+        .unwrap();
+        assert!(backlinks(&state, &uid, bad)
+            .await
+            .unwrap_err()
+            .to_string()
+            .starts_with("invalid_path:"));
+        let bad2: Result<BacklinksInput, _> = serde_json::from_value(serde_json::json!({
+            "vault_id": vid, "path": "t.md", "limit": null
+        }));
+        assert!(bad2.is_err());
+        let out = backlinks(&state, &uid, backlinks_input(&vid, "missing.md"))
+            .await
+            .unwrap();
+        assert_eq!(out.total, Some(0));
+        let _ = head;
     }
 }

@@ -194,9 +194,7 @@ where
         while batch_paths.len() < limits.batch_size && index < entries.len() {
             let entry = &entries[index];
             let size = entry.size;
-            let used = scanned_bytes
-                .checked_add(size)
-                .unwrap_or(u64::MAX);
+            let used = scanned_bytes.checked_add(size).unwrap_or(u64::MAX);
             if used > limits.max_source_bytes {
                 integrity.complete = false;
                 integrity.reasons.push("byte_cap");
@@ -231,7 +229,13 @@ where
                 }
             }
             let sha = sha256_hex(text.as_bytes());
-            if visit(SourceFile { path, text, scan, sha256: sha }) == VisitFlow::Stop {
+            if visit(SourceFile {
+                path,
+                text,
+                scan,
+                sha256: sha,
+            }) == VisitFlow::Stop
+            {
                 stopped = true;
                 break;
             }
@@ -281,6 +285,44 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod resolve_guarded_tests {
+    use super::*;
+    use crate::mcp::link_resolver::{Resolution, TargetIndex};
+    use crate::mcp::link_span::scan_document;
+
+    #[test]
+    fn mel_backlinks_guarded_basename_degrades_under_incomplete_index() {
+        let source = "[[Note]]";
+        let scan = scan_document(source, 10);
+        let token = &scan.tokens[0];
+        let index = TargetIndex::new(["dir/Note.md".to_string()]);
+        // Complete index: basename claim stands.
+        assert_eq!(
+            resolve_guarded(&index, true, "I.md", token, source),
+            Resolution::Resolved("dir/Note.md".into())
+        );
+        // Incomplete index: the same basename-only claim degrades to
+        // Missing — another Note.md elsewhere could have changed the answer.
+        assert_eq!(
+            resolve_guarded(&index, false, "I.md", token, source),
+            Resolution::Missing
+        );
+    }
+
+    #[test]
+    fn mel_backlinks_guarded_direct_path_claims_survive_incompleteness() {
+        let source = "[[dir/Note]]";
+        let scan = scan_document(source, 10);
+        let token = &scan.tokens[0];
+        let index = TargetIndex::new(["dir/Note.md".to_string()]);
+        // A direct path match does not depend on basename uniqueness.
+        assert_eq!(
+            resolve_guarded(&index, false, "I.md", token, source),
+            Resolution::Resolved("dir/Note.md".into())
+        );
+    }
+}

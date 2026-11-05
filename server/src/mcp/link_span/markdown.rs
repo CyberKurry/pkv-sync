@@ -235,10 +235,8 @@ impl<'a> Scanner<'a> {
                                 i = end;
                             }
                             None => {
-                                let run = self.bytes[i..]
-                                    .iter()
-                                    .take_while(|&&b| b == b'$')
-                                    .count();
+                                let run =
+                                    self.bytes[i..].iter().take_while(|&&b| b == b'$').count();
                                 if run >= 2 {
                                     // Unclosed block math: the host boundary
                                     // is unprovable — document not complete.
@@ -351,9 +349,7 @@ impl<'a> Scanner<'a> {
     }
 
     fn in_excluded(&self, start: usize, end: usize) -> bool {
-        self.excluded
-            .iter()
-            .any(|r| start < r.end && end > r.start)
+        self.excluded.iter().any(|r| start < r.end && end > r.start)
     }
 
     fn push_token(&mut self, token: LinkToken) {
@@ -393,7 +389,7 @@ impl<'a> Scanner<'a> {
             return None;
         }
         let token = LinkToken {
-            whole: open..close + 2,
+            whole: if embed { open - 1 } else { open }..close + 2,
             path: rel(path)..rel(path) + path.len(),
             subpath: (!subpath.is_empty()).then(|| {
                 let s = rel(subpath);
