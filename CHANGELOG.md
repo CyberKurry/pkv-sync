@@ -7,27 +7,6 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
-### Fixed
-
-- MCP: hostile link-syntax floods (`[[`, `[`, backtick runs) no longer
-  make document scans quadratic — one crafted file could stall every
-  scan-path tool (`backlinks`, `move_file` rewrites, `edit_file`) for
-  minutes. Scan work is now budgeted and degrades honestly with a
-  `search_budget` incomplete-scan reason instead of burning CPU.
-- MCP: `move_file` with the default empty `parent_commit` now resolves
-  the current head and succeeds (previously it failed before scanning);
-  all reads, the rewrite scan, and the commit pin the same commit, and
-  the rewrite plan carries each file's scanned content so a concurrent
-  edit can never receive byte-offset patches planned against older
-  bytes.
-
-### Performance
-
-- MCP: case-fold comparison keys take an ASCII fast path (identical
-  results for ASCII paths; full NFD pipeline unchanged for non-ASCII),
-  backlink line resolution is single-pass, literal-only `edit_file`
-  skips the span scan, and heading anchor host probes are logarithmic.
-
 ## [1.8.0] - 2026-11-06
 
 ### Added
@@ -95,6 +74,24 @@ and this project adheres to semantic versioning starting at v1.0.0.
   (from different commits) wrote to the same second-stamped conflict
   sidecar path — the second write silently overwrote the first sidecar's
   content. Same-path collisions within one pass now append a short nonce.
+- MCP: hostile link-syntax floods (`[[`, `[`, backtick runs) no longer
+  make document scans quadratic — one crafted file could stall every
+  scan-path tool (`backlinks`, `move_file` rewrites, `edit_file`) for
+  minutes. Scan work is now budgeted and degrades honestly with a
+  `search_budget` incomplete-scan reason instead of burning CPU.
+- MCP: `move_file` with the default empty `parent_commit` now resolves
+  the current head and succeeds (previously it failed before scanning);
+  all reads, the rewrite scan, and the commit pin the same commit, and
+  the rewrite plan carries each file's scanned content so a concurrent
+  edit can never receive byte-offset patches planned against older
+  bytes.
+
+### Performance
+
+- MCP: case-fold comparison keys take an ASCII fast path (identical
+  results for ASCII paths; full NFD pipeline unchanged for non-ASCII),
+  backlink line resolution is single-pass, literal-only `edit_file`
+  skips the span scan, and heading anchor host probes are logarithmic.
 
 ## [1.7.4] - 2026-11-04
 
