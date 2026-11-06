@@ -550,12 +550,8 @@ pub struct WouldWrite {
 }
 
 /// SHA-256 of stored bytes, hex encoded — the currency of `expected_hashes`.
-fn sha256_hex(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
-}
+// Single producer: link_scan::sha256_hex (MEL review F9).
+use crate::mcp::link_scan::sha256_hex;
 
 /// Refuse the whole batch when any guarded path no longer matches what the
 /// caller read. This is the optimistic half of "AI writes safely": the
@@ -1656,22 +1652,25 @@ fn backlink_hit(
         .map(|rel| line_start + rel)
         .unwrap_or(text.len());
     let line = &text[line_start..line_end];
-    // Snippet: centered window around the link's own line.
+    // Snippet: centered window around the link's own line, clamped to
+    // UTF-8 char boundaries on BOTH edges (a mid-char focus must never
+    // panic, and the window must actually center — the previous clamp
+    // expression always collapsed to the line start).
     let focus = token.whole.start - line_start;
     let half = context_bytes / 2;
-    let window_start = focus.saturating_sub(half);
-    let window_end = (focus + (context_bytes - half)).min(line.len());
-    let window_start =
-        crate::mcp::response_budget::prefix_bytes(&line[window_start.min(focus)..], 0)
-            .len()
-            .min(window_start);
-    let snippet_raw = &line[window_start..window_end.min(line.len())];
-    let snippet_start = text.as_ptr() as usize + line_start + window_start;
+    let mut window_start = focus.saturating_sub(half);
+    while window_start > 0 && !line.is_char_boundary(window_start) {
+        window_start -= 1;
+    }
+    let mut window_end = (window_start + context_bytes).min(line.len());
+    while window_end > window_start && !line.is_char_boundary(window_end) {
+        window_end -= 1;
+    }
+    let snippet_raw = &line[window_start..window_end];
     let snippet = crate::mcp::response_budget::prefix_bytes(
         snippet_raw,
         crate::mcp::response_budget::MAX_SNIPPET_BYTES,
     );
-    let _ = snippet_start;
     let alias = token.display.as_ref().map(|d| {
         // The display range carries the leading '|' (raw bytes); the wire
         // field is the alias TEXT without it.
@@ -2259,6 +2258,26 @@ async fn move_with_link_rewrite(
                 size_bytes: file.final_size,
             });
         }
+        // Same shape gate as the real call (review F4): a preview must
+        // not succeed where the commit would fail batch budgets.
+        let max_file_size = state.runtime_cfg.max_file_size().await;
+        let sized: Vec<_> = would_write
+            .iter()
+            .filter(|w| w.change != "delete")
+            .map(|w| crate::mcp::write_plan::SizedText {
+                path: w.path.clone(),
+                final_len: w.size_bytes,
+                previous_len: None,
+            })
+            .collect();
+        let total_final: usize = sized.iter().map(|t| t.final_len).sum();
+        crate::mcp::write_plan::validate_plan_shape(
+            &sized,
+            &[],
+            max_file_size,
+            WRITE_FILES_MAX_FILES,
+        )?;
+        let _ = total_final;
         return Ok(WriteToolOutput::DryRun {
             dry_run: true,
             would_write,
@@ -2404,7 +2423,6 @@ async fn build_rewrite_plan(
     Vec<(String, String)>,
     Vec<LinksUpdatedEntry>,
 )> {
-    identity_errors::clear();
     let git = state.git_store();
     let filter = sync::vault_path_filter(state, &input.vault_id)
         .await
@@ -2437,6 +2455,10 @@ async fn build_rewrite_plan(
     let mut guards: Vec<(String, String)> = Vec::new();
     let mut links_updated: Vec<LinksUpdatedEntry> = Vec::new();
     let mut guard_map = std::collections::HashMap::new();
+    // Visitor-captured failures (review F2/F3): a FnMut closure cannot
+    // bail, so refusals accumulate here — same thread as the take, no
+    // channel, no cross-await loss.
+    let mut visitor_errors: Vec<anyhow::Error> = Vec::new();
 
     {
         let from_owned = from.to_string();
@@ -2447,6 +2469,7 @@ async fn build_rewrite_plan(
         let plan_mut = &mut plan;
         let guards_mut = &mut guard_map;
         let links_mut = &mut links_updated;
+        let errors_mut = &mut visitor_errors;
         let mut visitor = |file: crate::mcp::link_scan::SourceFile<'_>| {
             // Identity preservation must hold for EVERY document's links.
             if let Err(err) = crate::mcp::link_rewrite::identity_preserved(
@@ -2458,19 +2481,24 @@ async fn build_rewrite_plan(
                 file.path,
                 &file.scan.tokens,
             ) {
-                // Surface by panicking into the error channel? We cannot
-                // bail from a closure; record and stop.
-                // The caller re-checks below via `identity_error`.
-                identity_errors::push(err);
+                errors_mut.push(err);
+                return crate::mcp::link_scan::VisitFlow::Stop;
             }
-            let patches = crate::mcp::link_rewrite::plan_document(
+            let patches = match crate::mcp::link_rewrite::plan_document(
                 &file.text,
                 file.path,
                 &file.scan.tokens,
                 index_ref,
                 req_ref,
-            )
-            .unwrap_or_default();
+            ) {
+                Ok(patches) => patches,
+                // An un-rewritable link (host encoding, overlap) refuses
+                // the whole move — never a silent stale link.
+                Err(err) => {
+                    errors_mut.push(err);
+                    return crate::mcp::link_scan::VisitFlow::Stop;
+                }
+            };
             if !patches.is_empty() {
                 let final_size = crate::mcp::link_rewrite::projected_patch_size(
                     &file.text,
@@ -2519,7 +2547,7 @@ async fn build_rewrite_plan(
         rewrite_count <= max_rewrites,
         "link_rewrite_too_large: {rewrite_count} files need rewrites; max_rewrites is {max_rewrites}"
     );
-    if let Some(err) = identity_errors::take().into_iter().next() {
+    if let Some(err) = visitor_errors.into_iter().next() {
         return Err(err);
     }
     for (path, hash) in guard_map {
@@ -2532,32 +2560,6 @@ async fn build_rewrite_plan(
 pub struct LinksUpdatedEntry {
     pub file: String,
     pub count: usize,
-}
-
-/// Closure-channel for identity errors (visit_snapshot takes FnMut).
-mod identity_errors {
-    use std::cell::RefCell;
-    use std::sync::Mutex;
-    static ERRORS: Mutex<Vec<crate::api::error::ApiError>> = Mutex::new(Vec::new());
-    thread_local! {
-        static LOCAL: RefCell<Vec<anyhow::Error>> = const { RefCell::new(Vec::new()) };
-    }
-    pub(crate) fn push(err: anyhow::Error) {
-        let _ = &ERRORS;
-        LOCAL.with(|l| l.borrow_mut().push(err));
-    }
-    pub(crate) fn take() -> Vec<anyhow::Error> {
-        LOCAL.with(|l| {
-            let mut v = l.borrow_mut();
-            std::mem::take(&mut *v)
-        })
-    }
-    /// Drain any residue from an earlier aborted call on this worker
-    /// thread — a bail between push and take must not leak into the next
-    /// invocation's verdict.
-    pub(crate) fn clear() {
-        take();
-    }
 }
 
 /// The pre-1.8.0 move body, unchanged: callers hand over ALREADY
@@ -7588,5 +7590,72 @@ mod tests {
         .await
         .unwrap();
         assert!(matches!(real, WriteToolOutput::Success { .. }));
+    }
+
+    // ---- review remediation (MEL-22 round) ------------------------------------
+
+    #[test]
+    fn mel_backlink_snippet_multibyte_no_panic_and_centers() {
+        // A CJK line with the link deep inside: focus-half lands mid-char;
+        // must not panic and must not collapse to line start.
+        let line = format!("{}[[target]]{}", "汉".repeat(60), "字".repeat(60));
+        let source = format!("{}\n", line);
+        let scan = crate::mcp::link_span::scan_document(&source, 10);
+        let token = scan.tokens[0].clone();
+        let hit = backlink_hit("a.md", &source, &token, 160);
+        // Centered: snippet is 160 bytes around the link, not the head.
+        assert!(hit.snippet.contains("[[target]]"));
+        assert!(hit.snippet.len() <= 160);
+        assert!(hit.snippet.len() >= 80, "window centered, not line-start");
+    }
+
+    #[tokio::test]
+    async fn mel_move_rewrite_unwritable_link_refuses_whole_move() {
+        // plan_document refuses overlapping/invalid patch ranges (the
+        // reachable Err path); a refused link must abort the WHOLE move —
+        // never commit with the link left stale.
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(&state, &vid, &[("old.md", "# Old")]).await;
+        let auth = authenticated_user(&state, &uid).await;
+        // Force an overlap: two tokens resolving to `from` whose ranges
+        // interleave is not constructible via the scanner, so pin the
+        // refusal CHANNEL instead: any Err pushed by the visitor must
+        // surface as link_rewrite_unsupported/plan error, not a silent
+        // success. The identity-ambiguity case provides a real Err:
+        // moving old.md to a name that makes an existing unique-basename
+        // link ambiguous.
+        let head2 = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("old.md", "# Old"),
+                ("dir/note.md", "x"),
+                ("reader.md", "[[note]]"),
+            ],
+        )
+        .await;
+        let err = move_file(
+            &state,
+            &auth,
+            rewrite_move_input(&vid, &head2, "old.md", "archive/note.md", false),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().starts_with("link_rewrite_unsupported:"),
+            "got: {err}"
+        );
+        // Nothing moved.
+        let git = state.git_store();
+        assert_eq!(
+            git.head(&vid).await.unwrap().as_deref(),
+            Some(head2.as_str())
+        );
+        assert!(git
+            .read_file(&vid, "old.md", Some(&head2))
+            .await
+            .unwrap()
+            .is_some());
+        let _ = head;
     }
 }
