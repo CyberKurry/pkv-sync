@@ -17,6 +17,24 @@ use super::math;
 use super::yaml;
 use super::{DocumentScan, Host, LinkToken, ScanReason, Syntax};
 
+/// Upper bound on how far one failed construct search may scan past its
+/// opening bytes. Crafted documents (`[`/`[[`/`<!--` floods) make failed
+/// searches common; without a bound each failure rescans a huge span and
+/// the whole scan degrades to quadratic.
+const MAX_CONSTRUCT_RESCAN: usize = 64 * 1024;
+
+/// Total construct-search work budget before the scan degrades. Debt is
+/// charged per byte searched by the non-telescoping helpers (wiki close,
+/// bracket/destination matching, comment closes). Once debt exceeds this
+/// budget, those construct attempts stop — the walker keeps advancing
+/// monotonically, so total scan work stays O(document) even for hostile
+/// inputs; links past that point in a hostile file are under-reported
+/// (reported via `ScanReason::SearchBudget`, same honesty class as an
+/// unclosed host swallowing the rest of the file).
+fn search_debt_cap(source_len: usize) -> usize {
+    2 * source_len + 1024 * 1024
+}
+
 pub(super) fn scan(source: &str, max_links: usize) -> DocumentScan {
     let mut scanner = Scanner {
         source,
@@ -28,6 +46,8 @@ pub(super) fn scan(source: &str, max_links: usize) -> DocumentScan {
         link_capped: false,
         skip_to: 0,
         previous_blank: true,
+        search_debt: 0,
+        degraded: false,
     };
     scanner.scan_blocks();
     scanner.scan_inline();
@@ -35,6 +55,10 @@ pub(super) fn scan(source: &str, max_links: usize) -> DocumentScan {
     if scanner.link_capped {
         reasons.push(ScanReason::LinkCap);
     }
+    if scanner.degraded {
+        reasons.push(ScanReason::SearchBudget);
+    }
+    // Kept sorted+coalesced by push_excluded; sort again is a no-op safety.
     scanner.excluded.sort_by_key(|r| r.start);
     DocumentScan {
         tokens: scanner.tokens,
@@ -76,6 +100,10 @@ struct Scanner<'a> {
     /// from here after a multi-line host was consumed.
     skip_to: usize,
     previous_blank: bool,
+    /// Construct-search debt (see `search_debt_cap`).
+    search_debt: usize,
+    /// Set when the debt cap tripped; surfaces as `SearchBudget`.
+    degraded: bool,
 }
 
 impl<'a> Scanner<'a> {
@@ -92,7 +120,7 @@ impl<'a> Scanner<'a> {
                 for token in yaml_scan.tokens {
                     self.push_token(token);
                 }
-                self.excluded.push(0..close);
+                self.push_excluded(0..close);
                 self.skip_to = close;
             }
         }
@@ -115,31 +143,51 @@ impl<'a> Scanner<'a> {
                 if indent <= 3 {
                     match self.find_fence_close(line_end, fence_char, fence_len) {
                         Some(end) => {
-                            self.excluded.push(offset..end);
+                            self.push_excluded(offset..end);
                             consumed_to = end;
                         }
                         None => {
                             // Unclosed fence owns the rest of the document.
-                            self.excluded.push(offset..self.source.len());
+                            self.push_excluded(offset..self.source.len());
                             consumed_to = self.source.len();
                         }
                     }
                 }
             } else if trimmed.starts_with("%%") && !trimmed.ends_with("%%") && trimmed.len() > 2 {
-                if let Some(rel) = self.source[offset + 2..].find("%%") {
+                let tail = &self.source[(offset + 2).min(self.source.len())..];
+                let window = &tail[..tail.len().min(MAX_CONSTRUCT_RESCAN)];
+                if let Some(rel) = window.find("%%") {
                     let end = offset + 2 + rel + 2;
-                    self.excluded.push(offset..end);
+                    self.push_excluded(offset..end);
                     consumed_to = end;
                 }
             } else if trimmed.starts_with("<!--") && !trimmed.contains("-->") {
-                if let Some(rel) = self.source[offset..].find("-->") {
+                let tail = &self.source[offset..];
+                let window = &tail[..tail.len().min(MAX_CONSTRUCT_RESCAN)];
+                if let Some(rel) = window.find("-->") {
                     let end = offset + rel + 3;
-                    self.excluded.push(offset..end);
+                    self.push_excluded(offset..end);
+                    consumed_to = end;
+                }
+            } else if trimmed.starts_with("%%") && trimmed.ends_with("%%") && trimmed.len() > 4 {
+                // Single-line comment opens and closes on this line: the
+                // whole line is comment (R13 regression — the old inline
+                // pass re-paired it, which the debt probes now skip).
+                self.push_excluded(offset..line_end);
+                consumed_to = line_end;
+            } else if trimmed.starts_with("<!--") && trimmed.contains("-->") {
+                // Single-line comment: exclude only through the close
+                // marker — a live link may follow on the same line.
+                let tail = &self.source[offset..];
+                let window = &tail[..tail.len().min(MAX_CONSTRUCT_RESCAN)];
+                if let Some(rel) = window.find("-->") {
+                    let end = offset + rel + 3;
+                    self.push_excluded(offset..end);
                     consumed_to = end;
                 }
             } else if indent >= 4 && self.previous_blank && !trimmed.is_empty() {
                 let end = self.find_indented_code_end(offset);
-                self.excluded.push(offset..end);
+                self.push_excluded(offset..end);
                 consumed_to = end;
             }
 
@@ -213,7 +261,7 @@ impl<'a> Scanner<'a> {
                     if !escaped_at(self.bytes, i) {
                         match math::math_host_end(self.source, i) {
                             Some(end) => {
-                                self.excluded.push(i..end);
+                                self.push_excluded(i..end);
                                 i = end;
                             }
                             None => {
@@ -223,7 +271,7 @@ impl<'a> Scanner<'a> {
                                     // Unclosed block math: the host boundary
                                     // is unprovable — document not complete.
                                     self.reasons.push(ScanReason::UnsupportedHost);
-                                    self.excluded.push(i..self.bytes.len());
+                                    self.push_excluded(i..self.bytes.len());
                                     i = self.bytes.len();
                                 } else {
                                     // Unpaired single $: back to the body.
@@ -237,26 +285,47 @@ impl<'a> Scanner<'a> {
                 }
                 b'`' => {
                     let run = backtick_run(self.bytes, i);
-                    if let Some(end) = find_backtick_close(self.bytes, i + run, run) {
-                        self.excluded.push(i..end);
-                        i = end;
-                    } else {
-                        i += run;
+                    match find_backtick_close(self.bytes, i + run, run) {
+                        Some(end) => {
+                            self.push_excluded(i..end);
+                            i = end;
+                        }
+                        None => {
+                            // Failed pair search: charge what it scanned
+                            // (to EOF) so hostile run-length patterns stay
+                            // bounded overall.
+                            let scanned = self.bytes.len().saturating_sub(i + run);
+                            if !self.charge_debt(scanned) {
+                                // Budget tripped: exclude the rest rather
+                                // than keep attempting — walk stays linear.
+                                self.push_excluded(i..self.bytes.len());
+                                break;
+                            }
+                            i += run;
+                        }
                     }
                 }
                 b'%' if self.bytes.get(i + 1) == Some(&b'%') => {
-                    if let Some(rel) = self.source[i + 2..].find("%%") {
+                    if !self.charge_debt(0) {
+                        i += 2;
+                        continue;
+                    }
+                    let tail = &self.source[(i + 2).min(self.source.len())..];
+                    let window = &tail[..tail.len().min(MAX_CONSTRUCT_RESCAN)];
+                    if let Some(rel) = window.find("%%") {
                         let end = i + 2 + rel + 2;
-                        self.excluded.push(i..end);
+                        self.push_excluded(i..end);
                         i = end;
                     } else {
                         i += 2;
                     }
                 }
                 b'<' if self.source[i..].starts_with("<!--") => {
-                    if let Some(rel) = self.source[i..].find("-->") {
+                    let tail = &self.source[i.min(self.source.len())..];
+                    let window = &tail[..tail.len().min(MAX_CONSTRUCT_RESCAN)];
+                    if let Some(rel) = window.find("-->") {
                         let end = i + rel + 3;
-                        self.excluded.push(i..end);
+                        self.push_excluded(i..end);
                         i = end;
                     } else {
                         i += 4;
@@ -270,7 +339,7 @@ impl<'a> Scanner<'a> {
                     match html::open_tag(self.source, i) {
                         Some((open_end, name, void)) => {
                             if void {
-                                self.excluded.push(i..open_end);
+                                self.push_excluded(i..open_end);
                                 i = open_end;
                             } else {
                                 let search_from = if html::is_raw_text(&name) {
@@ -287,14 +356,14 @@ impl<'a> Scanner<'a> {
                                 };
                                 match html::find_close_tag(self.source, search_from, &name) {
                                     Some(end) => {
-                                        self.excluded.push(i..end);
+                                        self.push_excluded(i..end);
                                         i = end;
                                     }
                                     None => {
                                         // Unclosed container: boundary
                                         // unprovable.
                                         self.reasons.push(ScanReason::UnsupportedHost);
-                                        self.excluded.push(i..self.bytes.len());
+                                        self.push_excluded(i..self.bytes.len());
                                         i = self.bytes.len();
                                     }
                                 }
@@ -318,6 +387,13 @@ impl<'a> Scanner<'a> {
                     }
                 }
                 b'[' => {
+                    // Fail fast on a construct the budget no longer covers
+                    // (R13-1: repeated failed attempts are the hostile
+                    // shape; see `search_debt_cap`).
+                    if !self.charge_debt(0) {
+                        i += 1;
+                        continue;
+                    }
                     if let Some(next) = self.try_markdown_link(i) {
                         i = next;
                     } else {
@@ -330,8 +406,44 @@ impl<'a> Scanner<'a> {
         }
     }
 
+    /// Charge `searched` bytes of construct-search debt. Returns false
+    /// when the budget is exhausted (the caller stops attempting
+    /// constructs but keeps walking monotonically). `searched == 0` is a
+    /// pure budget probe used before attempting a construct.
+    fn charge_debt(&mut self, searched: usize) -> bool {
+        self.search_debt = self.search_debt.saturating_add(searched);
+        if self.search_debt > search_debt_cap(self.source.len()) {
+            self.degraded = true;
+            return false;
+        }
+        true
+    }
+
+    /// Record an exclusion range, keeping `excluded` sorted by start and
+    /// coalescing touching/overlapping ranges. With coalescing, the
+    /// `in_excluded` binary search stays O(log n) and the vector stays
+    /// proportional to DISJOINT spans, not to the number of constructs.
+    fn push_excluded(&mut self, range: std::ops::Range<usize>) {
+        if range.start >= range.end {
+            return;
+        }
+        if let Some(last) = self.excluded.last_mut() {
+            if range.start <= last.end {
+                if range.end > last.end {
+                    last.end = range.end;
+                }
+                return;
+            }
+        }
+        self.excluded.push(range);
+    }
+
+    /// Inclusion probe for [start, end) — O(log n) over coalesced ranges.
     fn in_excluded(&self, start: usize, end: usize) -> bool {
-        self.excluded.iter().any(|r| start < r.end && end > r.start)
+        let idx = self.excluded.partition_point(|r| r.end <= start);
+        self.excluded
+            .get(idx)
+            .is_some_and(|r| start < r.end && end > r.start)
     }
 
     fn push_token(&mut self, token: LinkToken) {
@@ -345,7 +457,16 @@ impl<'a> Scanner<'a> {
     /// `[[path#sub|display]]`; `open` points at the first `[`.
     fn try_wiki(&mut self, open: usize, embed: bool) -> Option<usize> {
         let inner_start = open + 2;
-        let close = self.source[inner_start..].find("]]")? + inner_start;
+        // Failed searches are the hostile-input hot path (`[[` flood):
+        // bound one attempt's scan distance and charge it to the debt
+        // budget so the walk stays linear overall.
+        let window_end = (inner_start + MAX_CONSTRUCT_RESCAN).min(self.source.len());
+        let window = self.source.get(inner_start..window_end)?;
+        let close_rel = window.find("]]")?;
+        if !self.charge_debt(close_rel.saturating_sub(2).max(4)) {
+            return None;
+        }
+        let close = inner_start + close_rel;
         // A wiki link never spans lines and its inner text never contains
         // another `[[` (Obsidian emits single-line links; anything else is
         // plain text, e.g. the unclosed-construct case).
@@ -391,11 +512,29 @@ impl<'a> Scanner<'a> {
 
     /// `[label](dest "title")` with escapes and nested brackets/parens.
     fn try_markdown_link(&mut self, open: usize) -> Option<usize> {
-        let label_end = self.match_brackets(open)?;
+        let label_end = match self.match_brackets(open) {
+            Some(end) => end,
+            None => {
+                // Unclosed brackets scanned to EOF — that walk is the
+                // hostile-input cost center; charge it even on failure
+                // (R13-1) so a `[` flood cannot go quadratic.
+                let scanned = self.bytes.len().saturating_sub(open);
+                if !self.charge_debt(scanned) {
+                    return None;
+                }
+                return None;
+            }
+        };
+        if !self.charge_debt(label_end.saturating_sub(open).max(4)) {
+            return None;
+        }
         if self.bytes.get(label_end) != Some(&b'(') {
             return None;
         }
         let (close, dest_range) = self.match_destination(label_end + 1)?;
+        if !self.charge_debt(close.saturating_sub(label_end).max(4)) {
+            return None;
+        }
         let dest = &self.source[dest_range.clone()];
         if dest.is_empty() {
             return None;

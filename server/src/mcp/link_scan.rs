@@ -70,6 +70,7 @@ impl ScanIntegrity {
                     ScanReason::ByteCap => "byte_cap",
                     ScanReason::LinkCap => "link_cap",
                     ScanReason::UnsupportedHost => "unsupported_host",
+                    ScanReason::SearchBudget => "search_budget",
                 })
                 .collect(),
         };

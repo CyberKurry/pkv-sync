@@ -63,6 +63,10 @@ pub(crate) enum ScanReason {
     ByteCap,
     LinkCap,
     UnsupportedHost,
+    /// Construct-search budget exhausted: later constructs in a hostile
+    /// document were not attempted (links under-reported rather than the
+    /// whole scan becoming quadratic).
+    SearchBudget,
 }
 
 #[derive(Debug)]
@@ -141,6 +145,65 @@ mod tests {
         }
         let incomplete = scan_document("$$\n[[Old]]\n", 100);
         assert!(incomplete.reasons.contains(&ScanReason::UnsupportedHost));
+    }
+
+    #[test]
+    fn mel_scan_hostile_floods_stay_bounded() {
+        // Wall-clock guard: the pre-R13 scanner was quadratic on failed
+        // construct searches (each `[` walked to EOF); at this size the
+        // old code needed minutes. Bound is generous (10s) so a loaded
+        // runner stays green while a true quadratic goes red.
+        let flood_open_brackets = "[a".repeat(200_000);
+        let started = std::time::Instant::now();
+        let scan = scan_document(&flood_open_brackets, 10_000);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed.as_secs() < 10,
+            "bracket flood scan took {elapsed:?} — quadratic regression"
+        );
+        assert!(
+            scan.reasons.contains(&ScanReason::SearchBudget),
+            "bracket flood must degrade honestly"
+        );
+        assert!(scan.tokens.is_empty());
+
+        // Unclosed wiki openers: bounded window per attempt, honest budget
+        // signal, no token from a closed tail that was never there.
+        let wiki_flood = "[[".repeat(20_000);
+        let scan = scan_document(&wiki_flood, 10_000);
+        assert!(scan.tokens.is_empty());
+        assert!(scan.reasons.contains(&ScanReason::SearchBudget) || scan.reasons.is_empty());
+
+        // Inline-code flood (paired ` runs with distinct lengths): the
+        // pairing search must not go quadratic; this shape pairs, so it
+        // completes without degradation.
+        let mut code_flood = String::new();
+        for k in 1..=200 {
+            code_flood.push_str(&"`".repeat(k));
+            code_flood.push(' ');
+            code_flood.push_str(&"`".repeat(k));
+            code_flood.push(' ');
+        }
+        let scan = scan_document(&code_flood, 10_000);
+        assert!(scan.reasons.is_empty(), "{:?}", scan.reasons);
+
+        // Inline `%%` comment flood pairs without degradation.
+        let comment_flood = "%%x%% ".repeat(20_000);
+        let scan = scan_document(&comment_flood, 10_000);
+        assert!(scan.reasons.is_empty(), "{:?}", scan.reasons);
+        assert!(!scan.excluded.is_empty());
+    }
+
+    #[test]
+    fn mel_scan_excluded_ranges_coalesce() {
+        // R13-1: N adjacent inline-code spans must coalesce to O(1)
+        // disjoint ranges, not N entries each membership-checked linearly.
+        let source = "`a``a``a``a``a``a``a``a` [[Live]]";
+        let scan = scan_document(source, 100);
+        assert!(scan.reasons.is_empty());
+        assert_eq!(paths_of(&scan, source), ["Live"]);
+        // One contiguous excluded span (all spans touch), not 8 entries.
+        assert!(scan.excluded.len() <= 2, "{:?}", scan.excluded);
     }
 
     #[test]
@@ -372,5 +435,22 @@ mod tests {
             legacy.sort();
             assert_eq!(spanned, legacy, "divergence on {source:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod r13_wallclock_probe {
+    use super::*;
+    #[test]
+    fn old_scanner_is_quadratic_here() {
+        let flood = "[a".repeat(200_000);
+        let started = std::time::Instant::now();
+        let scan = scan_document(&flood, 10_000);
+        let elapsed = started.elapsed();
+        eprintln!("R13-PROBE elapsed={:?} reasons={:?}", elapsed, scan.reasons);
+        assert!(
+            elapsed.as_secs() < 10,
+            "R13-PROBE RED: old code took {elapsed:?}"
+        );
     }
 }
