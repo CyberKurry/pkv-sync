@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-06
+
 ### Added
 
 - MCP `edit_file`: anchored edits (heading subtree, block id, or ordered
@@ -23,11 +25,24 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Changed
 
-- Internal: MCP link scanning now has a single span-aware Markdown
-  scanner (code fences, indented code, inline code, `%%` comments,
-  HTML comments, wiki/Markdown link forms with escapes) shared by the
-  upcoming edit/backlink/rewrite surfaces; `link_graph` keeps its
-  current semantics until the snapshot scan lands.
+- `move_file` defaults to rewriting inbound links; pass
+  `rewrite_links: false` for the pre-1.8.0 raw move. Case-only renames
+  (`Old.md` → `old.md`, NFC → NFD) are now rejected at the entry on
+  every path, dry or real.
+- MCP tool-business failures (validation, not-found, hash guards,
+  session scoping) now answer as `isError: true` results carrying the
+  public prefixed message, which models can self-correct from; unknown
+  tools return `-32602` instead of `-32000`. Authentication and
+  protocol errors keep their JSON-RPC envelopes.
+- `link_graph` responses add `scan_complete`/`incomplete_reasons`
+  (omitted when the scan completed) so an incomplete scan can no longer
+  read as a complete graph; the previous fields are unchanged.
+- Links inside math (`$…$`, `$$…$$`), HTML elements, and unsupported
+  frontmatter shapes are no longer parsed, reported, or rewritten —
+  hosts the scanner cannot prove closed mark the scan incomplete
+  instead of guessing.
+- `read_file` full responses above 64 MiB are refused (previously the
+  text path had no ceiling; binary already had one).
 
 ## [1.7.4] - 2026-11-04
 

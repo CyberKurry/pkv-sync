@@ -2,15 +2,15 @@
 
 [English](./mcp-howto.md) | [简体中文](./mcp-howto.zh-CN.md) | 繁體中文 | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
-文件版本：v1.7.4。
+文件版本：v1.8.0。
 
 PKV Sync 可以透過 MCP server 暴露筆記庫內容。服務端返回檔案內容前會解析 blob pointer，也可以透過顯式讀寫工具寫入檔案，並且必須使用普通 PKV Sync bearer 裝置 token。
 
 ## 工具
 
 - `list_vaults`：列出目前使用者可存取的筆記庫。
-- `list_files {vault_id, at?}`：列出 HEAD 下的路徑；設定 `at` 時則列出該 commit SHA 下的路徑。
-- `read_file {vault_id, path}`：讀取 HEAD 下的檔案。回應會帶有 `sha256`，也就是寫入守衛所要求的雜湊值。
+- `list_files {vault_id, at?, limit?}`：列出 HEAD 下的路徑；設定 `at` 時則列出該 commit SHA 下的路徑。（指定 `limit` 時附 `total`/`shown`/`truncated`）
+- `read_file {vault_id, path, detail?}`：讀取 HEAD 下的檔案。回應會帶有 `sha256`，也就是寫入守衛所要求的雜湊值。（`detail: \"concise\"` 回摘要＋8 KiB 開頭）
 - `read_file_at_commit {vault_id, path, commit}`：讀取指定 commit 下的檔案（同樣帶有 `sha256`）。
 - `search {vault_id, query, at?, limit?, path_prefix?, frontmatter?, after?}`：在文字檔案中執行大小寫不敏感的子字串搜尋。`at` 將範圍限定到歷史 commit；`limit` 限制回傳的命中數量（硬上限——一頁永遠不會超出這個數量）；`path_prefix` 在讀取任何檔案之前就把掃描範圍限制到單一子樹；`frontmatter` 依頂層 frontmatter 過濾（`{"kind":"wiki"}` 比對經裁剪的完整純量，`{"sources":true}` 要求該鍵存在，其它取值會被拒絕並回報 `invalid_path`，被過濾掉的檔案仍會計入內容預算）；`after` 是不透明游標——把上一個回應的 `next_after` 原樣傳回，分頁就會精確鋪滿結果，既不遺漏也不重複。不是這個服務端發出的游標會以 `invalid_cursor` 被拒絕。
 - `link_graph {vault_id, at?, path_prefix?, limit?, kind?}`：返回筆記庫的 wikilink 與 Markdown 連結圖。回應包含每個檔案的節點及其 `outlinks` 與計算出的 `inlinks`、孤立頁面、帶有 `missing` 或 `ambiguous` 原因的斷裂連結，以及 `truncated` 標記。`kind` 只保留頂層 frontmatter 的 `kind:` 相符的檔案，但連結目標仍會對每個可見文字檔案解析——因此 wiki 頁面引用 source 頁面不會被誤報為斷裂連結，而孤立頁面則在所選層內計算。
@@ -19,7 +19,9 @@ PKV Sync 可以透過 MCP server 暴露筆記庫內容。服務端返回檔案�
 - `write_file {vault_id, path, content, parent_commit}`：以 `parent_commit` 樂觀並發控制建立或更新文字檔案。
 - `delete_file {vault_id, path, parent_commit}`：以 `parent_commit` 樂觀並發控制刪除檔案。
 - `write_files {vault_id, parent_commit, writes?, deletes?}`：在一個 commit 中原子地建立、更新和／或刪除多個文字檔案。`writes[]` 包含 `{path, content}` 物件；`deletes[]` 包含路徑。
-- `move_file {vault_id, parent_commit, from, to}`：在一個 commit 中移動或重新命名文字檔案，並保留 git rename 歷史。目標路徑不能已經存在。
+- `edit_file {vault_id, path, parent_commit, anchor, operation?, content?}`：以標題鏈、區塊 id 或逐字文字錨點編輯檔案（附 dry-run／CAS／雜湊守衛）。錯誤碼 `anchor_not_found`／`anchor_ambiguous`。
+- `backlinks {vault_id, path, at?, limit?, context_bytes?}`：列出連結到 `path` 的檔案，附行號、片段與原始連結文字；以 `truncated`／`total` 明示截斷。
+- `move_file {vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?}`：預設會在同一個 commit 改寫所有入鏈（保留別名與子路徑）；`rewrite_links: false` 為 1.8.0 之前的原始搬移，case-only rename 會被拒絕。
 
 被目前 `SyncPathFilter` 拒絕的路徑不會被列出、搜尋、讀取，也不會納入連結圖或變更報告。讀取類工具（`list_files`、`read_file`、`read_file_at_commit`、`search`）會接受被按 vault allowlist 重新納入的隱藏路徑，並可能返回自動生成的 `.conflict-*` 旁檔。`link_graph`、`changes_since` 以及所有寫入類工具採用更嚴格的政策，直接拒絕隱藏路徑，因此 agent 無法對隱藏檔案執行操作。
 

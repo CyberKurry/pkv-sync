@@ -2,7 +2,7 @@
 
 [English](./llm-wiki-howto.md) | [简体中文](./llm-wiki-howto.zh-CN.md) | [繁體中文](./llm-wiki-howto.zh-Hant.md) | 日本語 | [한국어](./llm-wiki-howto.ko.md)
 
-ドキュメントバージョン: v1.7.4。
+ドキュメントバージョン: v1.8.0。
 
 この文書は機械翻訳による初版です。公開前にネイティブ話者によるレビューを推奨します。
 
@@ -97,7 +97,7 @@ captured: 2026-06-08
 
 1. Ingest: `sources/` の下に source material を追加または更新し、可能な限り元の wording を保ちます。1 つの source が 10-25 個の source pages と wiki pages に展開される場合は、`write_files` を使い、ingest 全体を 1 つの atomic commit として保存します。
 2. Query: agent に関連する source pages と wiki pages を読ませ、`wiki/` の更新案を出させます。
-3. Write: agent が current `parent_commit` を持っている場合だけ、`write_file`、`write_files`、`move_file`、または `delete_file` を使わせます。page merge、split、archive move には `move_file` を使い、git が history を失わず rename として報告できるようにします。大きな書き換えでは、まず `dry_run: true` を要求して `would_write` の計画をレビューします。`expected_hashes` には agent が読み取ったときの `sha256` を渡し、その間に人間が編集したページは上書きされず `content_diverged` として拒否されるようにします。
+3. Write: agent が current `parent_commit` を持っている場合だけ、`write_file`、`write_files`、`move_file`、または `delete_file` を使わせます。page merge、split、archive move には `move_file` を使い、git が history を失わず rename として報告できるようにします。大きな書き換えでは、まず `dry_run: true` を要求して `would_write` の計画をレビューします。`expected_hashes` には agent が読み取ったときの `sha256` を渡し、その間に人間が編集したページは上書きされず `content_diverged` として拒否されるようにします。（1.8.0 から `move_file` は同一 commit で全ての被リンクを書き換え、`links_updated` で報告します。`edit_file` はセクション単位の編集に、`detail: "concise"` は大きなページの先読みに使えます。）
 4. Lint: `stale_pages` を実行して根拠が動いたページを取得し（後述）、`link_graph` で orphaned、missing、ambiguous links を探し、最後に人間が review した commit から `changes_since` を実行して変更内容を summarize します。
 5. Review: proposed commits を inspect し、conflicts を resolve し、不確かな claims は人間が wiki pages に promote するまで sources に残します。
 

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 1.7.4
+  version: 1.8.0
   license:
     name: AGPL-3.0-only
   contact:
@@ -1808,7 +1808,18 @@ paths:
         production text budget and caps link extraction at 10000 per file and
         20000 broken links in total (either cap sets `truncated: true`), and
         `changes_since` returns at most 5000 visible change entries. Binary/blob read responses above 64 MiB are
-        rejected instead of being base64-expanded into JSON.
+        rejected instead of being base64-expanded into JSON. The 1.8.0 tool
+        set adds `edit_file` (anchored edits behind dry-run/CAS/hash guards;
+        `anchor_not_found`/`anchor_ambiguous` business failures) and
+        `backlinks` (bounded inbound-link context with scan-integrity
+        reporting); `read_file` accepts `detail: "concise"` (digest + 8 KiB
+        head) and `list_files` accepts an explicit `limit` — bounded
+        responses always disclose truncation. `move_file` rejects case-only
+        renames and, by default (`rewrite_links: true`), rewrites every
+        inbound link in the same commit (identity-preserving, automatic
+        per-file hash guards, `links_updated` report, `max_rewrites` cap of
+        98). Tool-business failures return `isError: true` results with
+        prefixed public messages; unknown tools are `-32602`.
       requestBody:
         required: true
         content:

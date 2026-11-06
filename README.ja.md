@@ -5,13 +5,13 @@ PKV Sync は、Obsidian の Vault をセルフホストで同期する Git ネ�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-ドキュメントのバージョン: v1.7.4。
+ドキュメントのバージョン: v1.8.0。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · 日本語 · [한국어](./README.ko.md)
 
 ## リリース状況
 
-PKV Sync 1.7.4 は現在の安定パッチリリースです。同期パイプラインを全体にわたって強化しました。パスワード変更で MCP キャッシュセッションが即時無効化されます。定期クリーンアップループは panic や固着したロックでも黙って停止しなくなりました。REST 読み取りは対象 vault の設定を参照する前に所有権を検証します。パーセントエスケープされたパス区切り（`a%2Fb.md`）はクライアントとサーバーの両側で一貫して拒否され、異なるディレクトリツリーとして黙って保存されなくなりました。プラグイン側では、設定書き込みの失敗が成功した同期をエラーに書き換えなくなり、読み取り不能なファイルは赤いステータスバーだけでなくファイルを特定する通知を出し、即時同期ボタンのアイコンは言語のラベル文本に依存しなくなりました。内部の重複（4 つのトークン有効性実装、5 か所のロック取得、約 190 か所の重複フィクスチャ）は挙動を変えずに統合されました。
+PKV Sync 1.8.0 は現在の機能リリースです。MCP ツール面に、アンカー編集（`edit_file`：見出しサブツリー・ブロック id・逐次リテラル編集。他の書き込みツールと同じ dry-run／CAS／ハッシュガード管線）、被リンクコンテキスト（`backlinks`：行番号・スニペット・生リンクテキスト付き）、そしてリンクを保守する `move_file` が加わりました。既定では全ての被リンク（wikilink・埋め込み・Markdown リンク・frontmatter 属性リンク）を同一 commit で書き換え、恒等性を保ち、自動コンテンツハッシュガードを付けます——並行編集は上書きではなく移動全体を中止します。`read_file` には token 節約の `concise` モード、`list_files` には明示的な `limit` が加わり、有界な応答は必ず切り詰めを明示します。case-only rename は拒否され、ツールの業務失敗はモデルが自己修正できる `isError` 結果として返ります。
 
 
 ## 機能

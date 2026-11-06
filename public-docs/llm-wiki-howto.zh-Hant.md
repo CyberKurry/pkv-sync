@@ -2,7 +2,7 @@
 
 [English](./llm-wiki-howto.md) | [简体中文](./llm-wiki-howto.zh-CN.md) | 繁體中文 | [日本語](./llm-wiki-howto.ja.md) | [한국어](./llm-wiki-howto.ko.md)
 
-文件版本：v1.7.4。
+文件版本：v1.8.0。
 
 PKV Sync 為由 LLM 維護的 wiki 提供儲存、歷史與 MCP substrate。你自己的 MCP-capable agent 負責執行 LLM，透過普通 PKV Sync 裝置 token 讀寫，並把每個接受的變更提交到筆記庫的 git 歷史。
 
@@ -95,7 +95,7 @@ captured: 2026-06-08
 
 1. Ingest：在 `sources/` 下新增或更新 source 材料，盡量保留原始措辭。當一個 source 會展開成 10 到 25 個 source 與 wiki 頁面時，使用 `write_files`，讓整個 ingest 以一個原子 commit 落地。
 2. Query：請 agent 讀取相關 source 與 wiki 頁面，然後提出 `wiki/` 下的更新。
-3. Write：只有在 agent 擁有目前的 `parent_commit` 之後，才允許它使用 `write_file`、`write_files`、`move_file` 或 `delete_file`。頁面合併、拆分和歸檔移動時使用 `move_file`，讓 git 能回報重新命名，而不是遺失歷史。大改寫時，先要求 `dry_run: true` 並審查 `would_write` 計畫；把讀取時得到的 `sha256` 值作為 `expected_hashes` 傳入，這樣期間被人改過的頁面會被拒絕（`content_diverged`），而不是被覆寫。
+3. Write：只有在 agent 擁有目前的 `parent_commit` 之後，才允許它使用 `write_file`、`write_files`、`move_file` 或 `delete_file`。頁面合併、拆分和歸檔移動時使用 `move_file`，讓 git 能回報重新命名，而不是遺失歷史。大改寫時，先要求 `dry_run: true` 並審查 `would_write` 計畫；把讀取時得到的 `sha256` 值作為 `expected_hashes` 傳入，這樣期間被人改過的頁面會被拒絕（`content_diverged`），而不是被覆寫。（自 1.8.0 起 `move_file` 會在同一個 commit 改寫所有入鏈並以 `links_updated` 回報；`edit_file` 適合章節級編輯，`detail: "concise"` 適合先讀大頁面。）
 4. Lint：執行 `stale_pages` 取得來源已移動的頁面清單（見下文），執行 `link_graph` 找出孤立、缺失或 ambiguous 連結，並從上次審查過的 commit 執行 `changes_since`，摘要變更內容。
 5. Review：檢查提出的 commits、解決衝突，並將不確定的主張保留在 sources 中，直到人類將它們提升到 wiki 頁面。
 

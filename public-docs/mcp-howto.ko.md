@@ -2,7 +2,7 @@
 
 [English](./mcp-howto.md) | [简体中文](./mcp-howto.zh-CN.md) | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | 한국어
 
-문서 버전: v1.7.4.
+문서 버전: v1.8.0.
 
 이 문서는 기계 번역으로 만든 초기 버전입니다. 공개 전에 원어민 검토를 권장합니다.
 
@@ -11,8 +11,8 @@ PKV Sync는 MCP server를 통해 vault 내용을 노출할 수 있습니다. 서
 ## Tools
 
 - `list_vaults`: 인증된 사용자가 사용할 수 있는 vault를 나열합니다.
-- `list_files {vault_id, at?}`: HEAD 또는 `at`이 지정된 경우 해당 commit SHA의 paths를 나열합니다.
-- `read_file {vault_id, path}`: HEAD의 파일을 읽습니다. 응답에는 write 가드가 기대하는 hash인 `sha256`이 포함됩니다.
+- `list_files {vault_id, at?, limit?}`: HEAD 또는 `at`이 지정된 경우 해당 commit SHA의 paths를 나열합니다.（`limit` 지정 시 `total`/`shown`/`truncated` 동반）
+- `read_file {vault_id, path, detail?}`: HEAD의 파일을 읽습니다. 응답에는 write 가드가 기대하는 hash인 `sha256`이 포함됩니다.（`detail: \"concise\"`는 digest＋8 KiB 머리를 반환）
 - `read_file_at_commit {vault_id, path, commit}`: 특정 commit의 파일을 읽습니다(마찬가지로 `sha256` 포함).
 - `search {vault_id, query, at?, limit?, path_prefix?, frontmatter?, after?}`: 텍스트 파일에서 대소문자를 구분하지 않는 substring search를 수행합니다. `at`은 과거 commit으로 범위를 한정하고, `limit`은 반환되는 일치 수의 상한을 지정합니다(엄격한 상한이므로 한 페이지가 이 값을 넘지 않습니다). `path_prefix`는 파일을 읽기 전에 스캔 범위를 하나의 subtree로 제한합니다. `frontmatter`는 최상위 frontmatter로 필터링합니다(`{"kind":"wiki"}`는 trim된 전체 scalar와 일치하고, `{"sources":true}`는 키가 존재해야 하며, 그 외 값은 `invalid_path`로 거부되고 필터에서 걸러진 파일도 content budget에 계상됩니다). `after`는 불투명 커서입니다. 이전 응답의 `next_after`를 그대로 되돌려 전달하면 페이지들이 겹침이나 누락 없이 결과를 정확히 나눠 가지므로, 건너뛰거나 반복되는 항목이 없습니다. 이 서버가 발급하지 않은 커서는 `invalid_cursor`로 거부됩니다.
 - `link_graph {vault_id, at?, path_prefix?, limit?, kind?}`: vault의 wikilink 및 Markdown link graph를 반환합니다. 응답에는 파일별 node와 `outlinks`, 계산된 `inlinks`, orphaned pages, `missing` 또는 `ambiguous` reason이 있는 broken links, 그리고 `truncated` flag가 포함됩니다. `kind`는 최상위 frontmatter의 `kind:`가 일치하는 파일만 남기지만, 링크 대상은 여전히 보이는 모든 텍스트 파일에 대해 해석됩니다. 따라서 wiki 페이지가 source 페이지를 인용해도 broken으로 잘못 보고되지 않으며, orphaned pages는 선택한 층 안에서 계산됩니다.
@@ -21,7 +21,9 @@ PKV Sync는 MCP server를 통해 vault 내용을 노출할 수 있습니다. 서
 - `write_file {vault_id, path, content, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 텍스트 파일을 만들거나 업데이트합니다.
 - `delete_file {vault_id, path, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 파일을 삭제합니다.
 - `write_files {vault_id, parent_commit, writes?, deletes?}`: 여러 텍스트 파일의 생성, 업데이트, 삭제를 하나의 commit으로 atomically 수행합니다. `writes[]`에는 `{path, content}` objects가 들어가고, `deletes[]`에는 paths가 들어갑니다.
-- `move_file {vault_id, parent_commit, from, to}`: 텍스트 파일을 하나의 commit에서 이동하거나 rename하며 git rename history를 보존합니다. target path는 이미 존재하면 안 됩니다.
+- `edit_file {vault_id, path, parent_commit, anchor, operation?, content?}`: 제목 체인·블록 id·순차 리터럴 텍스트 앵커로 편집합니다(dry-run／CAS／해시 가드 포함). `anchor_not_found`／`anchor_ambiguous` 오류.
+- `backlinks {vault_id, path, at?, limit?, context_bytes?}`: `path`를 가리키는 유입 링크를 줄 번호·스니펫·원본 링크 텍스트와 함께 나열합니다. 잘림은 `truncated`／`total`로 명시.
+- `move_file {vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?}`: 기본값에서는 모든 유입 링크를 같은 commit에서 다시 씁니다(별칭·서브패스 보존). `rewrite_links: false`는 이전의 단순 이동이며 case-only rename은 거부합니다.
 
 현재 `SyncPathFilter`에서 거부된 paths는 나열, 검색, 읽기, link graph 및 변경 보고 대상에서 제외됩니다. 읽기 도구(`list_files`, `read_file`, `read_file_at_commit`, `search`)는 vault allowlist로 다시 허용된 hidden paths를 받아들이며, 자동 생성된 `.conflict-*` 사이드카를 반환할 수 있습니다. `link_graph`, `changes_since` 및 모든 쓰기 도구는 더 엄격한 정책을 적용해 hidden paths를 일괄 거부하므로, agent가 hidden files를 작업 대상으로 삼을 수 없습니다.
 

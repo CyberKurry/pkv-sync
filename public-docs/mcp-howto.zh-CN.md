@@ -2,15 +2,15 @@
 
 [English](./mcp-howto.md) | 简体中文 | [繁體中文](./mcp-howto.zh-Hant.md) | [日本語](./mcp-howto.ja.md) | [한국어](./mcp-howto.ko.md)
 
-文档版本：v1.7.4。
+文档版本：v1.8.0。
 
 PKV Sync 可以通过 MCP server 暴露笔记库内容。服务端在返回文件内容前会解析 blob pointer，可以通过显式读写工具写入文件，并且要求使用普通的 PKV Sync bearer 设备 token。
 
 ## 工具
 
 - `list_vaults`：列出已认证用户可访问的笔记库。
-- `list_files {vault_id, at?}`：列出 HEAD 的路径；设置 `at` 时，列出该 commit SHA 下的路径。
-- `read_file {vault_id, path}`：读取 HEAD 下的文件。响应会带上 `sha256`，也就是写入守卫所期望的哈希。
+- `list_files {vault_id, at?, limit?}`：列出 HEAD 的路径；设置 `at` 时，列出该 commit SHA 下的路径。传入 `limit`（1–5000）时响应会附带 `total`、`shown` 与 `truncated`；不传则与之前一样不限量。
+- `read_file {vault_id, path, detail?}`：读取 HEAD 下的文件。响应会带上 `sha256`，也就是写入守卫所期望的哈希。`detail: "concise"` 返回摘要加尺寸信息和 8 KiB 开头，而不是完整正文——足够据此发起 `edit_file` 或构造 `expected_hashes` 守卫，而不必为整个文件付费。
 - `read_file_at_commit {vault_id, path, commit}`：读取指定 commit 下的文件（同样带有 `sha256`）。
 - `search {vault_id, query, at?, limit?, path_prefix?, frontmatter?, after?}`：在文本文件中执行大小写不敏感的子串搜索。`at` 将范围限定到某个历史 commit；`limit` 限制返回的匹配数量（硬上限——一页绝不会超出该上限）；`path_prefix` 会在读取任何文件之前把扫描限定到某个子树；`frontmatter` 按顶层 frontmatter 过滤（`{"kind":"wiki"}` 匹配去除首尾空白后的完整标量，`{"sources":true}` 要求该键存在，其它取值会被拒绝并报 `invalid_path`，被过滤器丢弃的文件仍会计入内容预算）；`after` 是不透明游标——把上一次响应中的 `next_after` 原样传回，各页就能精确铺满结果，既不跳过也不重复。凡不是本服务端签发的游标都会被拒绝并报 `invalid_cursor`。
 - `link_graph {vault_id, at?, path_prefix?, limit?, kind?}`：返回笔记库的 wikilink 和 Markdown 链接图。响应包含每个文件节点的 `outlinks` 和计算出的 `inlinks`、孤立页面、带有 `missing` 或 `ambiguous` 原因的断链，以及 `truncated` 标志。`kind` 只保留顶层 frontmatter `kind:` 匹配的文件，而链接目标仍会对整个可见文本文件解析——因此引用了 source 页面的 wiki 页面不会被报为断链，孤儿则在被选中的层内计算。
@@ -19,7 +19,9 @@ PKV Sync 可以通过 MCP server 暴露笔记库内容。服务端在返回文�
 - `write_file {vault_id, path, content, parent_commit}`：以 `parent_commit` 进行乐观并发控制，创建或更新文本文件。
 - `delete_file {vault_id, path, parent_commit}`：以 `parent_commit` 进行乐观并发控制，删除文件。
 - `write_files {vault_id, parent_commit, writes?, deletes?}`：在一个 commit 中原子地创建、更新和／或删除多个文本文件。`writes[]` 包含 `{path, content}` 对象；`deletes[]` 包含路径。
-- `move_file {vault_id, parent_commit, from, to}`：在一个 commit 中移动或重命名文本文件，并保留 git rename 历史。目标路径不能已经存在。
+- `edit_file {vault_id, path, parent_commit, anchor, operation?, content?, dry_run?, expected_hashes?}`：按锚点编辑文本文件——标题链（`{"heading": ["A", "B"]}`，匹配 ATX 标题子树）、块 id（`{"block": "id"}`，即 `^id` 所在的列表项或独立块），或有序字面文本（`{"literal": {"edits": [{"old_text", "new_text"}], "replace_all?}}`，全有或全无，未开 `replace_all` 时要求唯一匹配）。标题／块锚点配合 `operation`（默认 `replace`，另有 `insert_before`、`insert_after`、`append`、`prepend`）接收 `content`；字面锚点只支持 `replace` 并拒绝 `content`。代码块、行内代码、数学、HTML 与 `%%` 注释里的内容永远不会被当作锚点或被改写。错误码：`anchor_not_found`、`anchor_ambiguous`（附带匹配数）、`invalid_anchor`。整个文件走与 `write_file` 相同的 dry-run／CAS／哈希守卫管线，人类的并发编辑会以 `content_diverged` 中止，而不是被覆盖。
+- `backlinks {vault_id, path, at?, limit?, context_bytes?}`：列出所有链接到 `path` 的文件，每条包含 `from`、从 1 开始的 `line_number`、有界的 `snippet`（默认围绕链接行 160 字节）、原始链接文本（`raw_link`），以及带别名时的解码 `alias`。解析规则与 `link_graph` 相同；自引用（`[[#heading]]`）不计入。响应附带 `total`（扫描提前停止时为 null）、`shown`、`truncated` 与扫描完整性（`scan_complete`、`incomplete_reasons`）——不完整的扫描绝不猜测唯一 basename 匹配。
+- `move_file {vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?, dry_run?, expected_hashes?}`：在一个 commit 中移动或重命名文本文件，并保留 git rename 历史。目标路径不能已经存在；仅大小写不同的重命名（`Old.md` → `old.md`，或 NFC → NFD 写法）在入口即被拒绝。默认（`rewrite_links: true`）所有入链——wikilink、嵌入、Markdown 链接与 frontmatter 属性链接——会在同一个 commit 中被改写，且保持身份不变：每个被改写的目标只再生路径分量，`#subpath`、`|alias` 与嵌入参数逐字节保留；若重命名会改变任何其它链接的解析身份，整个计划拒绝（整批 `link_rewrite_unsupported`）。每个被触碰的文件都带自动内容哈希守卫，因此对任何反链文件的并发编辑都会以 `content_diverged` 中止整个搬移，不留任何部分提交。`links_updated` 报告哪些文件被改、各改了几条链接。`max_rewrites`（默认 98，上限 98）限制扇出；超出则以 `link_rewrite_too_large` 拒绝搬移。传入 `rewrite_links: false` 可回到 1.8.0 之前的裸搬移。
 
 被当前 `SyncPathFilter` 拒绝的路径不会被列出、搜索、读取，也不会纳入链接图或变更报告。读取类工具（`list_files`、`read_file`、`read_file_at_commit`、`search`）会接受被按库 allowlist 重新纳入的隐藏路径，并可能返回自动生成的 `.conflict-*` 旁路文件。`link_graph`、`changes_since` 以及所有写入类工具采用更严格的策略，直接拒绝隐藏路径，因此 agent 无法对隐藏文件执行操作。
 

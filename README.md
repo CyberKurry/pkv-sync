@@ -5,25 +5,24 @@ PKV Sync is a self-hosted, Git-native sync server for Obsidian vaults.
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.7.4.
+Document version: v1.8.0.
 
 English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## Status
 
-PKV Sync 1.7.4 is the current stable patch release. It hardens the sync
-pipeline end to end: a password change now invalidates cached MCP
-sessions immediately; the periodic cleanup loop survives panics and
-stuck locks instead of dying silently; REST reads check vault ownership
-before consulting the target vault's configuration; and percent-escaped
-path separators (`a%2Fb.md`) are refused on both client and server
-instead of silently storing a different tree. Plugin-side, a failed
-settings write no longer turns a successful sync into an error, a
-permanently unreadable file now produces a pointed notice instead of a
-silent red bar, and the sync-now button's icon no longer depends on the
-locale's label text. Internal redundancy (four token-liveness
-implementations, five lock preambles, ~190 duplicated fixture
-spellings) was consolidated with no behavior change.
+PKV Sync 1.8.0 is the current feature release. The MCP surface gains
+anchored editing (`edit_file`: heading subtrees, block ids, ordered
+literal edits, behind the same dry-run/CAS/hash-guard pipeline),
+inbound-link context (`backlinks` with line numbers, snippets, and raw
+link text), and a link-maintaining `move_file`: by default every inbound
+wikilink, embed, Markdown link, and frontmatter property link is
+rewritten in the same commit — identity-preserving, with automatic
+content-hash guards so a concurrent edit aborts the whole move instead
+of being overwritten. `read_file` learns a token-disciplined `concise`
+mode, `list_files` an explicit `limit`; bounded responses always disclose
+their truncation. Case-only renames are refused, and business failures
+now answer as `isError` results the model can act on.
 
 
 ## Features

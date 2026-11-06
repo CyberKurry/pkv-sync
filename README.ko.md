@@ -5,13 +5,13 @@ PKV Sync는 Obsidian Vault를 자체 호스팅으로 동기화하는 Git 네이�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-문서 버전: v1.7.4.
+문서 버전: v1.8.0.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · 한국어
 
 ## 릴리스 상태
 
-PKV Sync 1.7.4는 현재 안정 패치 릴리스입니다. 동기화 파이프라인을 전반적으로 강화했습니다. 비밀번호 변경 시 MCP 캐시 세션이 즉시 무효화됩니다. 주기적 정리 루프는 panic이나 고착된 락에서도 조용히 멈추지 않습니다. REST 읽기는 대상 vault 설정을 조회하기 전에 소유권을 검증합니다. 퍼센트 이스케이프된 경로 구분자(`a%2Fb.md`)는 클라이언트와 서버 양쪽에서 일관되게 거부되어, 다른 디렉터리 트리로 조용히 저장되지 않습니다. 플러그인 측에서는 설정 쓰기 실패가 성공한 동기화를 오류로 바꾸지 않고, 영구적으로 읽을 수 없는 파일은 빨간 상태 표시줄 대신 파일을 지정하는 알림을 표시하며, 지금 동기화 버튼 아이콘이 언어 레이블 텍스트에 의존하지 않습니다. 내부 중복(토큰 유효성 구현 4개, 락 획득 전문 5곳, 약 190곳의 중복 픽스처)은 동작 변경 없이 통합되었습니다.
+PKV Sync 1.8.0는 현재 기능 릴리스입니다. MCP 도구 면에 앵커 편집(`edit_file`: 제목 서브트리·블록 id·순차 리터럴 편집, 다른 쓰기 도구와 동일한 dry-run／CAS／해시 가드 파이프라인), 유입 링크 컨텍스트(`backlinks`: 줄 번호·스니펫·원본 링크 텍스트 포함), 그리고 링크를 보존하는 `move_file`가 추가되었습니다. 기본값에서는 모든 유입 링크(wikilink·임베드·Markdown 링크·frontmatter 속성 링크)를 같은 commit에서 다시 쓰며, 식별성을 보존하고 자동 콘텐츠 해시 가드를 붙입니다——병행 편집은 덮어쓰는 대신 이동 전체를 중단합니다. `read_file`에는 토큰 절약 `concise` 모드, `list_files`에는 명시적 `limit`가 추가되었고, 유계 응답은 항상 잘림을 밝힙니다. case-only rename은 거부되며 도구의 업무 실패는 모델이 자체 수정할 수 있는 `isError` 결과로 돌아옵니다.
 
 ## 기능
 

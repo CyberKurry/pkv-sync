@@ -2,7 +2,7 @@
 
 [English](./llm-wiki-howto.md) | [简体中文](./llm-wiki-howto.zh-CN.md) | [繁體中文](./llm-wiki-howto.zh-Hant.md) | [日本語](./llm-wiki-howto.ja.md) | 한국어
 
-문서 버전: v1.7.4.
+문서 버전: v1.8.0.
 
 이 문서는 기계 번역을 바탕으로 다듬은 한국어 문서입니다. 어색한 표현이나 의미가 모호한 부분이 있으면 영어 원문을 함께 확인하세요.
 
@@ -97,7 +97,7 @@ captured: 2026-06-08
 
 1. Ingest: `sources/` 아래 source material을 추가하거나 업데이트하되, 가능하면 원문 표현을 보존합니다. 하나의 source가 10-25개의 source 및 wiki pages로 확장될 때는 `write_files`를 사용해 전체 ingest가 하나의 atomic commit으로 저장되게 합니다.
 2. Query: agent에게 관련 source 및 wiki pages를 읽게 한 다음 `wiki/` 아래 updates를 제안하게 합니다.
-3. Write: agent가 current `parent_commit`을 확보한 뒤에만 `write_file`, `write_files`, `move_file`, 또는 `delete_file`을 사용하게 합니다. page merge, split, archival move에는 `move_file`을 사용해 git이 history를 잃지 않고 rename으로 보고할 수 있게 합니다. 큰 재작성 전에는 `dry_run: true`로 `would_write` 계획을 먼저 확인하고, agent가 읽을 때 받은 `sha256` 값을 `expected_hashes`로 넘겨 그 사이 사람이 편집한 페이지가 덮어써지지 않고 `content_diverged`로 거부되게 하세요.
+3. Write: agent가 current `parent_commit`을 확보한 뒤에만 `write_file`, `write_files`, `move_file`, 또는 `delete_file`을 사용하게 합니다. page merge, split, archival move에는 `move_file`을 사용해 git이 history를 잃지 않고 rename으로 보고할 수 있게 합니다. 큰 재작성 전에는 `dry_run: true`로 `would_write` 계획을 먼저 확인하고, agent가 읽을 때 받은 `sha256` 값을 `expected_hashes`로 넘겨 그 사이 사람이 편집한 페이지가 덮어써지지 않고 `content_diverged`로 거부되게 하세요.(1.8.0부터 `move_file`는 같은 commit에서 모든 유입 링크를 다시 쓰고 `links_updated`로 보고합니다. `edit_file`은 섹션 단위 편집에, `detail: "concise"`는 큰 페이지 미리 읽기에 사용할 수 있습니다.)
 4. Lint: `stale_pages`를 실행해 근거가 움직인 페이지를 얻고(아래 참조), `link_graph`로 orphaned, missing, ambiguous links를 찾고, 마지막 reviewed commit부터 `changes_since`로 변경 사항을 summarize합니다.
 5. Review: proposed commits를 inspect하고 conflicts를 resolve하며, 불확실한 claims는 사람이 wiki pages로 promote할 때까지 sources에 남겨 둡니다.
 

@@ -5,13 +5,13 @@ PKV Sync 是一个自托管的、Git 原生的 Obsidian 笔记库同步服务端
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.7.4。
+文档版本：v1.8.0。
 
 [English](./README.md) · 简体中文 · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## 状态
 
-PKV Sync 1.7.4 是当前稳定补丁版本。它对同步管线做了端到端加固：修改密码后 MCP 缓存会话立即失效；定时清理循环在 panic 与卡死锁下存活而不再静默停摆；REST 读取先校验 vault 归属再读取目标配置；百分号转义的路径分隔符（`a%2Fb.md`）在客户端与服务端两侧一致拒绝，不再静默存储成不同的目录树。插件侧：设置写入失败不再把一次成功的同步改判为错误；永久不可读的文件现在会弹出指明文件的提示而非只有红色状态条；立即同步按钮的图标不再依赖当前语言的文案。内部冗余（四份令牌有效性实现、五处锁获取序言、约 190 处重复的测试夹具拼写）在行为不变的前提下完成合并。
+PKV Sync 1.8.0 是当前的功能版本。MCP 工具面新增：定位编辑（`edit_file`——标题子树、块 id、有序字面编辑，走与其它写入工具相同的 dry-run／CAS／哈希守卫管线）、反链上下文（`backlinks`，带行号、片段与原始链接文本），以及带链接维护的 `move_file`：默认在同一个 commit 里改写全部入链（wikilink、嵌入、Markdown 链接与 frontmatter 属性链接），保持身份不变并附带自动内容哈希守卫——并发编辑会中止整个搬移而不是被覆盖。`read_file` 新增面向 token 纪律的 `concise` 模式，`list_files` 支持显式 `limit`；有界响应总会披露截断。仅大小写的重命名被拒绝，工具业务失败改以模型可自纠的 `isError` 结果返回。
 
 
 ## 功能

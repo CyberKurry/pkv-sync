@@ -2,7 +2,7 @@
 
 English | [简体中文](./llm-wiki-howto.zh-CN.md) | [繁體中文](./llm-wiki-howto.zh-Hant.md) | [日本語](./llm-wiki-howto.ja.md) | [한국어](./llm-wiki-howto.ko.md)
 
-Document version: v1.7.4.
+Document version: v1.8.0.
 
 PKV Sync provides the storage, history, and MCP substrate for an LLM-maintained wiki. Your own MCP-capable agent runs the LLM, reads and writes through a normal PKV Sync device token, and commits every accepted change into the vault's git history.
 
@@ -99,7 +99,7 @@ captured: 2026-06-08
 
 1. Ingest: add or update source material under `sources/`, preserving original wording where possible. When one source fans out into 10-25 source and wiki pages, use `write_files` so the whole ingest lands atomically in one commit.
 2. Query: ask the agent to read relevant source and wiki pages, then propose updates under `wiki/`.
-3. Write: let the agent use `write_file`, `write_files`, `move_file`, or `delete_file` only after it has a current `parent_commit`. Use `move_file` for page merges, splits, and archival moves so git can report the rename instead of losing history. For a large rewrite, ask for `dry_run: true` first and review the `would_write` plan; pass `expected_hashes` with the `sha256` values from the agent's reads so a page a human edited in the meantime is refused (`content_diverged`) instead of overwritten.
+3. Write: let the agent use `write_file`, `write_files`, `edit_file`, `move_file`, or `delete_file` only after it has a current `parent_commit`. Prefer `edit_file` for section-level changes — a heading anchor replaces exactly that subtree, a block id exactly that item, and a literal edit is all-or-nothing — so a human editing a different part of the page in the meantime is refused (`content_diverged`) instead of merged blindly. Use `move_file` for page merges, splits, and archival moves so git can report the rename instead of losing history; since 1.8.0 it rewrites every inbound link in the same commit (identity-preserving, reported in `links_updated`), so a move no longer leaves a trail of broken links for the next lint pass. For a large rewrite, ask for `dry_run: true` first and review the `would_write` plan; pass `expected_hashes` with the `sha256` values from the agent's reads. When reading large pages first, `read_file` with `detail: "concise"` gives the digest and an 8 KiB head — enough to anchor the edit without paying for the whole body.
 4. Lint: run `stale_pages` to get the pages whose sources moved (below), `link_graph` to find orphaned, missing, or ambiguous links, and `changes_since` from the last reviewed commit to summarize what changed.
 5. Review: inspect the proposed commits, resolve conflicts, and keep uncertain claims in sources until a human promotes them into wiki pages.
 

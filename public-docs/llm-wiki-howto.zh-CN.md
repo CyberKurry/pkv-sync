@@ -2,7 +2,7 @@
 
 [English](./llm-wiki-howto.md) | 简体中文 | [繁體中文](./llm-wiki-howto.zh-Hant.md) | [日本語](./llm-wiki-howto.ja.md) | [한국어](./llm-wiki-howto.ko.md)
 
-文档版本：v1.7.4。
+文档版本：v1.8.0。
 
 PKV Sync 为由 LLM 维护的 wiki 提供存储、历史和 MCP 基底。你自己的 MCP-capable agent 负责运行 LLM，通过普通的 PKV Sync 设备 token 读写，并把每个已接受的改动提交到笔记库的 git 历史中。
 
@@ -95,7 +95,7 @@ captured: 2026-06-08
 
 1. Ingest：在 `sources/` 下新增或更新 source 材料，尽量保留原始措辞。当一个 source 会展开成 10 到 25 个 source 和 wiki 页面时，使用 `write_files`，让整个 ingest 以一个原子 commit 落地。
 2. Query：要求 agent 读取相关 source 和 wiki 页面，然后提出 `wiki/` 下的更新。
-3. Write：只有在 agent 拿到当前 `parent_commit` 后，才允许它使用 `write_file`、`write_files`、`move_file` 或 `delete_file`。页面合并、拆分和归档移动时使用 `move_file`，让 git 能报告重命名，而不是丢失历史。大改写时先要求 `dry_run: true` 并审查 `would_write` 计划；把 agent 读取时得到的 `sha256` 作为 `expected_hashes` 传入，这样期间被人改过的页面会被拒绝（`content_diverged`）而不是被覆盖。
+3. Write：只有在 agent 拿到当前 `parent_commit` 后，才允许它使用 `write_file`、`write_files`、`edit_file`、`move_file` 或 `delete_file`。章节级修改优先用 `edit_file`——标题锚点只替换该子树、块 id 只替换该条目、字面编辑全有或全无——这样期间人类编辑页面其它部分会被拒绝（`content_diverged`），而不是被盲目合并。页面合并、拆分和归档移动时使用 `move_file`，让 git 能报告重命名，而不是丢失历史；自 1.8.0 起，它会在同一个 commit 里改写所有入链（保持身份不变，结果记录在 `links_updated` 中），搬移不再给下一次 lint 留下一地断链。大改写时先要求 `dry_run: true` 并审查 `would_write` 计划；把 agent 读取时得到的 `sha256` 作为 `expected_hashes` 传入。先读大页面时，带 `detail: "concise"` 的 `read_file` 会给出摘要和 8 KiB 开头——足以锚定编辑而不必为整个正文付费。
 4. Lint：先运行 `stale_pages` 拿到来源已移动的页面清单（见下文），再运行 `link_graph` 查找孤立链接、缺失链接或有歧义的链接，最后从上次 review 过的 commit 开始运行 `changes_since`，总结发生了什么变化。
 5. Review：检查提出的 commit，解决冲突，并把不确定的主张留在 sources 中，直到人类将其提升为 wiki 页面。
 
