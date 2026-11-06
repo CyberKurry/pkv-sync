@@ -45,13 +45,21 @@ pub(crate) struct LinkToken {
     /// `|alias` raw bytes including the leading pipe (and `\|` escapes).
     pub display: Option<Range<usize>>,
     pub syntax: Syntax,
+    /// Embed (`![[…]]`) marker; destinations regenerate identically for
+    /// embeds and links, so no reader consumes it in production paths.
+    #[allow(dead_code)]
     pub embed: bool,
     pub host: Host,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScanReason {
+    /// Reserved for scan-level file/byte caps (consumed by
+    /// ScanIntegrity::from_scan_reasons; document scans only emit the
+    /// other two today).
+    #[allow(dead_code)]
     FileCap,
+    #[allow(dead_code)]
     ByteCap,
     LinkCap,
     UnsupportedHost,
@@ -76,6 +84,7 @@ pub(crate) fn scan_document(source: &str, max_links: usize) -> DocumentScan {
 /// Percent-decode the path component of `token` with a byte budget.
 ///
 /// Only the path is decoded; aliases never become unbounded Strings here.
+#[allow(dead_code)]
 pub(crate) fn decode_link_path(
     source: &str,
     token: &LinkToken,

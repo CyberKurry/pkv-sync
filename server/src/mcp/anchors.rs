@@ -39,7 +39,6 @@ pub(crate) fn locate_heading(
 
     let mut search_from = 0usize;
     let mut matched_level = 0usize;
-    let mut matched_end = 0usize;
     let mut deepest = 0usize;
 
     for (depth, segment) in chain.iter().enumerate() {
@@ -60,7 +59,7 @@ pub(crate) fn locate_heading(
                     .any(|r| abs_text.start < r.end && abs_text.end > r.start);
                 let _ = &abs_text;
                 if !in_host
-                    && depth as usize + 1 > matched_level
+                    && depth + 1 > matched_level
                     && (matched_level == 0 || level > matched_level)
                     && fold_heading(&line[text_range.clone()]) == target
                 {
@@ -74,10 +73,9 @@ pub(crate) fn locate_heading(
             Some((level, line_start, line_end)) => {
                 deepest = depth + 1;
                 matched_level = level;
-                matched_end = line_end;
                 search_from = line_end;
                 if depth + 1 == chain.len() {
-                    let body = section_subtree(source, scan, matched_level, matched_end);
+                    let body = section_subtree(source, scan, matched_level, line_end);
                     // The subtree INCLUDES its own heading line. body.start
                     // sits just past the heading line's newline; the last
                     // '\n' strictly before body.start-1 opens the heading
@@ -136,14 +134,9 @@ fn section_subtree(
     // drop the whitespace-only tail after the final content byte, then
     // re-attach that content line's own newline when one existed.
     let mut end = offset;
-    while end > from {
+    if end > from {
         let prev = source[..end].trim_end_matches(['\n', '\r', ' ', '\t']);
-        if prev.len() < from {
-            end = from;
-            break;
-        }
-        end = prev.len();
-        break;
+        end = if prev.len() < from { from } else { prev.len() };
     }
     // `end` now points just past the last content byte; if a newline
     // followed it in the original, keep exactly one.
@@ -265,6 +258,7 @@ fn in_host(scan: &DocumentScan, start: usize, end: usize) -> bool {
 
 /// The item form: from the marker of the item carrying the id, through its
 /// continuation lines and nested sublists, ending before the next sibling.
+#[allow(clippy::while_let_loop)]
 fn item_block_range(source: &str, scan: &DocumentScan, id_line: Range<usize>) -> Range<usize> {
     let id_line_text = &source[id_line.clone()];
     let id_indent = leading_spaces(id_line_text);
@@ -313,6 +307,7 @@ fn item_block_range(source: &str, scan: &DocumentScan, id_line: Range<usize>) ->
 /// The standalone form: associate the id line with the previous complete
 /// block across blank lines; return that block plus the id line. A whole
 /// list never collapses to its last item.
+#[allow(clippy::while_let_loop)]
 fn standalone_block_range(
     source: &str,
     scan: &DocumentScan,
@@ -360,6 +355,7 @@ fn standalone_block_range(
     id_line.start..id_line.end
 }
 
+#[allow(clippy::while_let_loop)]
 fn list_start_above(source: &str, scan: &DocumentScan, from: usize) -> usize {
     let mut start = from;
     loop {

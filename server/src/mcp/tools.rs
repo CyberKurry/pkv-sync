@@ -433,13 +433,13 @@ where
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct LiteralAnchor {
+pub struct LiteralAnchor {
     pub literal: LiteralInput,
 }
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct LiteralInput {
+pub struct LiteralInput {
     pub edits: Vec<crate::mcp::edit_plan::LiteralEdit>,
     #[serde(default, deserialize_with = "present_value")]
     pub replace_all: Option<bool>,
@@ -447,13 +447,13 @@ pub(crate) struct LiteralInput {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct HeadingAnchor {
+pub struct HeadingAnchor {
     pub heading: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct BlockAnchor {
+pub struct BlockAnchor {
     pub block: String,
 }
 
@@ -463,7 +463,7 @@ pub(crate) struct BlockAnchor {
 /// slips through.
 #[derive(Debug, serde::Deserialize)]
 #[serde(untagged)]
-pub(crate) enum EditAnchor {
+pub enum EditAnchor {
     Literal(LiteralAnchor),
     Heading(HeadingAnchor),
     Block(BlockAnchor),
@@ -1573,7 +1573,7 @@ pub async fn backlinks(
     let target_folded = crate::mcp::link_resolver::case_fold_key(&target);
     let mut hits: Vec<BacklinkHit> = Vec::new();
     let mut truncated = false;
-    let mut scan_integrity = crate::mcp::link_scan::ScanIntegrity::default();
+    let scan_integrity;
     {
         // Collect ordered by (path byte order, token offset): the visitor
         // already walks the sorted tree; within a file, token order.
@@ -1638,10 +1638,6 @@ pub async fn backlinks(
         scan_complete,
         incomplete_reasons: reasons,
     })
-}
-
-fn filter_for_snapshot(filter: &SyncPathFilter) -> SyncPathFilter {
-    filter.clone()
 }
 
 fn backlink_hit(
@@ -2232,7 +2228,7 @@ async fn move_with_link_rewrite(
     if dry {
         verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
         let (plan, _guards, links_updated) =
-            build_rewrite_plan(state, &input, &from, &to, &source_text, max_rewrites).await?;
+            build_rewrite_plan(state, &input, &from, &to, max_rewrites).await?;
         let mut would_write = vec![WouldWrite {
             path: to.clone(),
             change: "rename",
@@ -2274,7 +2270,7 @@ async fn move_with_link_rewrite(
     // Real call: quota was recorded above (before the binary check); now
     // the expensive scan.
     let (plan, hash_guards, links_updated) =
-        build_rewrite_plan(state, &input, &from, &to, &source_text, max_rewrites).await?;
+        build_rewrite_plan(state, &input, &from, &to, max_rewrites).await?;
 
     // Final pre-commit checks: parent currency once more (post-scan) and
     // BOTH the caller's guards and the auto guards from the scan.
@@ -2402,7 +2398,6 @@ async fn build_rewrite_plan(
     input: &MoveFileInput,
     from: &str,
     to: &str,
-    source_text: &str,
     max_rewrites: usize,
 ) -> Result<(
     crate::mcp::link_rewrite::RewritePlan,
@@ -2434,7 +2429,6 @@ async fn build_rewrite_plan(
     let req = crate::mcp::link_rewrite::RewriteRequest {
         from: from.to_string(),
         to: to.to_string(),
-        max_rewrites,
     };
     let new_index = crate::mcp::link_rewrite::projected_index(&index, from, to);
 
@@ -2449,7 +2443,6 @@ async fn build_rewrite_plan(
         let index_ref = &index;
         let new_index_ref = &new_index;
         let req_ref = &req;
-        let max_rewrites_ref = &max_rewrites;
         let plan_mut = &mut plan;
         let guards_mut = &mut guard_map;
         let links_mut = &mut links_updated;
@@ -2486,7 +2479,6 @@ async fn build_rewrite_plan(
                 .unwrap_or(file.text.len());
                 plan_mut.files.push(crate::mcp::link_rewrite::RewriteFile {
                     original_path: file.path.to_string(),
-                    final_path: file.path.to_string(),
                     original_size: file.text.len(),
                     final_size,
                     patches,
@@ -2496,7 +2488,7 @@ async fn build_rewrite_plan(
                     file: file.path.to_string(),
                     count: plan_mut.files.last().map(|f| f.patches.len()).unwrap_or(0),
                 });
-                if *max_rewrites_ref == 0 || plan_mut.files.len() > *max_rewrites_ref + 1 {
+                if plan_mut.files.len() > max_rewrites + 1 {
                     return crate::mcp::link_scan::VisitFlow::Stop;
                 }
             }
@@ -2526,7 +2518,7 @@ async fn build_rewrite_plan(
         rewrite_count <= max_rewrites,
         "link_rewrite_too_large: {rewrite_count} files need rewrites; max_rewrites is {max_rewrites}"
     );
-    for err in identity_errors::take() {
+    if let Some(err) = identity_errors::take().into_iter().next() {
         return Err(err);
     }
     for (path, hash) in guard_map {
@@ -2547,7 +2539,7 @@ mod identity_errors {
     use std::sync::Mutex;
     static ERRORS: Mutex<Vec<crate::api::error::ApiError>> = Mutex::new(Vec::new());
     thread_local! {
-        static LOCAL: RefCell<Vec<anyhow::Error>> = RefCell::new(Vec::new());
+        static LOCAL: RefCell<Vec<anyhow::Error>> = const { RefCell::new(Vec::new()) };
     }
     pub(crate) fn push(err: anyhow::Error) {
         let _ = &ERRORS;

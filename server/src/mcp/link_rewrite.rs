@@ -6,14 +6,12 @@
 //! the per-file text patches. Nothing here performs I/O or commits.
 
 use crate::mcp::link_resolver::{self, Resolution, TargetIndex};
-use crate::mcp::link_span::{decode_link_path, encode_host_path, Host, LinkToken, Syntax};
-use std::collections::BTreeMap;
+use crate::mcp::link_span::{encode_host_path, Host, LinkToken, Syntax};
 use std::ops::Range;
 
 pub(crate) struct RewriteRequest {
     pub from: String,
     pub to: String,
-    pub max_rewrites: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -25,7 +23,6 @@ pub(crate) struct TextPatch {
 #[derive(Debug, Clone)]
 pub(crate) struct RewriteFile {
     pub original_path: String,
-    pub final_path: String,
     pub original_size: usize,
     pub final_size: usize,
     pub patches: Vec<TextPatch>,
@@ -34,8 +31,6 @@ pub(crate) struct RewriteFile {
 #[derive(Debug, Default)]
 pub(crate) struct RewritePlan {
     pub files: Vec<RewriteFile>,
-    /// The moved source itself (Text(to) with rewrites applied).
-    pub source_rewritten: bool,
 }
 
 /// Map one canonical path through the move (identity except from -> to).
@@ -87,7 +82,7 @@ pub(crate) fn plan_document(
         // path component for the new world.
         let new_dest = regenerate_destination(source, token, containing, &req.to, &new_index)?;
         let replacement_span = token.path.clone();
-        if &source[replacement_span.clone()] == new_dest {
+        if source[replacement_span.clone()] == new_dest {
             continue; // byte-identical: no rewrite recorded
         }
         patches.push(TextPatch {
@@ -96,7 +91,7 @@ pub(crate) fn plan_document(
         });
     }
     // Sort by range, dedupe, refuse overlaps.
-    patches.sort_by(|a, b| a.range.start.cmp(&b.range.start));
+    patches.sort_by_key(|p| p.range.start);
     for pair in patches.windows(2) {
         anyhow::ensure!(
             pair[0].range.end <= pair[1].range.start,
@@ -273,14 +268,6 @@ pub(crate) fn identity_preserved(
     Ok(())
 }
 
-/// Decode helper exposed for planning: the resolved path of a token.
-pub(crate) fn decoded_path(source: &str, token: &LinkToken) -> String {
-    decode_link_path(source, token, 4096).unwrap_or_default()
-}
-
-#[allow(dead_code)]
-pub(crate) type _SizeMap = BTreeMap<String, usize>;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,7 +278,6 @@ mod tests {
         RewriteRequest {
             from: "ideas/brainstorm.md".into(),
             to: "archive/brainstorm-2026.md".into(),
-            max_rewrites: 98,
         }
     }
 
@@ -409,7 +395,6 @@ mod tests {
         let r = RewriteRequest {
             from: "ideas/brainstorm.md".into(),
             to: "archive/a.md".into(),
-            max_rewrites: 98,
         };
         let src2 = "[[a]] resolves uniquely today";
         let scan2 = scan_document(src2, 10);

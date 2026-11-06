@@ -35,6 +35,9 @@ impl Default for ScanLimits {
 pub(crate) struct VaultSnapshot {
     pub at: String,
     pub filter: SyncPathFilter,
+    /// Carried per the snapshot contract (MEL-07); consumers currently
+    /// enforce per-batch byte budgets via ScanLimits, not per-file caps.
+    #[allow(dead_code)]
     pub max_file_size: u64,
 }
 
@@ -194,7 +197,7 @@ where
         while batch_paths.len() < limits.batch_size && index < entries.len() {
             let entry = &entries[index];
             let size = entry.size;
-            let used = scanned_bytes.checked_add(size).unwrap_or(u64::MAX);
+            let used = scanned_bytes.saturating_add(size);
             if used > limits.max_source_bytes {
                 integrity.complete = false;
                 integrity.reasons.push("byte_cap");

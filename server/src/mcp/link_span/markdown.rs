@@ -43,24 +43,6 @@ pub(super) fn scan(source: &str, max_links: usize) -> DocumentScan {
     }
 }
 
-pub(super) fn decode_path(
-    source: &str,
-    token: &LinkToken,
-    max_bytes: usize,
-) -> anyhow::Result<String> {
-    let raw = &source[token.path.clone()];
-    let decoded = if token.syntax == Syntax::Markdown {
-        percent_decode(raw)?
-    } else {
-        raw.to_string()
-    };
-    anyhow::ensure!(
-        decoded.len() <= max_bytes,
-        "invalid_path: decoded link path exceeds {max_bytes} bytes"
-    );
-    Ok(decoded)
-}
-
 pub(super) fn percent_decode(raw: &str) -> anyhow::Result<String> {
     let bytes = raw.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());

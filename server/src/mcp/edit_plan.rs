@@ -9,14 +9,14 @@ use std::ops::Range;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct LiteralEdit {
+pub struct LiteralEdit {
     pub old_text: String,
     pub new_text: String,
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum EditOperation {
+pub enum EditOperation {
     Replace,
     InsertBefore,
     InsertAfter,

@@ -16,14 +16,12 @@
 //! map back to raw bytes, because a patch we cannot place precisely is a
 //! corruption risk, not a feature.
 
-use super::{Host, LinkToken, QuoteStyle, ScanReason, Syntax};
+use super::{Host, LinkToken, QuoteStyle, Syntax};
 use std::ops::Range;
 
 /// Outcome of parsing the frontmatter block.
 pub(super) struct YamlScan {
     pub tokens: Vec<LinkToken>,
-    /// The block consumed (None when frontmatter is absent).
-    pub consumed: Option<Range<usize>>,
     pub unsupported: bool,
 }
 
@@ -32,7 +30,6 @@ pub(super) struct YamlScan {
 pub(super) fn scan_frontmatter(source: &str, block: Range<usize>) -> YamlScan {
     let mut scan = YamlScan {
         tokens: Vec::new(),
-        consumed: Some(block.clone()),
         unsupported: false,
     };
     let text = &source[block.clone()];
@@ -228,9 +225,4 @@ pub(crate) fn encode_scalar_path(path: &str, style: QuoteStyle) -> anyhow::Resul
             Ok(path.to_string())
         }
     }
-}
-
-/// Convenience for the caller: mark unsupported hosts.
-pub(super) fn unsupported_reason() -> ScanReason {
-    ScanReason::UnsupportedHost
 }

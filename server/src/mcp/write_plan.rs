@@ -10,20 +10,26 @@ use crate::service::sync::PushChange;
 use crate::storage::path;
 use std::collections::BTreeMap;
 
+/// Plan-side cap constant (write_files uses WRITE_FILES_MAX_FILES at its
+/// boundary); kept here as the single documented number.
+#[allow(dead_code)]
 pub(crate) const MAX_OPERATIONS: usize = 100;
 
 /// A finalized text write with its geometry known up front.
 pub(crate) struct SizedText {
     pub path: String,
     pub final_len: usize,
+    #[allow(dead_code)]
     pub previous_len: Option<usize>,
 }
 
+#[allow(dead_code)]
 pub(crate) struct RenamePair {
     pub from: String,
     pub to: String,
 }
 
+#[allow(dead_code)]
 pub(crate) struct WritePlan {
     pub changes: Vec<PushChange>,
     pub rename: Option<RenamePair>,
@@ -100,6 +106,7 @@ pub(crate) fn validate_plan_shape(
 /// The one mapping from a physical change set to dry-run preview lines.
 /// A Delete(from) paired with exactly one Text(to) — and no other change
 /// touching either — folds into a single `rename` line.
+#[allow(dead_code)]
 pub(crate) fn preview_from_plan(plan: &WritePlan) -> Vec<WouldWriteLine> {
     let mut lines = Vec::new();
     let rename = plan.rename.as_ref();
@@ -181,6 +188,7 @@ pub(crate) fn preview_from_plan(plan: &WritePlan) -> Vec<WouldWriteLine> {
     lines
 }
 
+#[allow(dead_code)]
 fn delta(previous: Option<usize>, current: usize) -> Option<i64> {
     previous.map(|p| {
         i64::try_from(current)
@@ -192,6 +200,7 @@ fn delta(previous: Option<usize>, current: usize) -> Option<i64> {
 
 /// Mirror of tools::WouldWrite for this module's derived previews; tools
 /// converts at its boundary (single mapping, no second producer).
+#[allow(dead_code)]
 pub(crate) struct WouldWriteLine {
     pub path: String,
     pub change: &'static str,

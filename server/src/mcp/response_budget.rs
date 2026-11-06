@@ -12,10 +12,17 @@ use serde::Serialize;
 use serde_json::Value;
 use std::io::{self, Write};
 
-/// Hard budgets (bytes unless noted).
+/// Hard budgets (bytes unless noted). The wire-facing caps (raw link,
+/// alias, snippet) are consumed by `backlinks`; the envelope caps are the
+/// plan-08 contract for edit/move previews, whose callers adopt them when
+/// those tools grow their envelope wiring.
+#[allow(dead_code)]
 pub(crate) const MAX_SUCCESS_BYTES: usize = 1024 * 1024;
+#[allow(dead_code)]
 pub(crate) const MAX_ANCHOR_ERROR_BYTES: usize = 16 * 1024;
+#[allow(dead_code)]
 pub(crate) const MAX_CANDIDATES: usize = 20;
+#[allow(dead_code)]
 pub(crate) const MAX_EXCERPT_BYTES: usize = 160;
 pub(crate) const MAX_RAW_LINK_BYTES: usize = 4096;
 pub(crate) const MAX_ALIAS_BYTES: usize = 1024;
@@ -33,6 +40,7 @@ pub(crate) fn prefix_bytes(source: &str, max: usize) -> &str {
 /// Counting writer: raw JSON bytes and their JSON-string-escaped length
 /// (the text-mirror cost) in one pass, failing the moment the combined
 /// envelope would exceed `limit`.
+#[allow(dead_code)]
 struct JsonSizes {
     raw: usize,
     escaped: usize,
@@ -74,6 +82,7 @@ impl Write for JsonSizes {
 /// Predict the final envelope size for `value` under `era` decoration:
 /// a minimal envelope carrying the value as structuredContent and its
 /// serialized form as the single text block. Never builds the full JSON.
+#[allow(dead_code)]
 pub(crate) fn checked_success_size<T: Serialize + ?Sized>(
     value: &T,
     modern: bool,
@@ -104,6 +113,7 @@ pub(crate) fn checked_success_size<T: Serialize + ?Sized>(
     Ok(total)
 }
 
+#[allow(dead_code)]
 fn json_envelope_skeleton(modern: bool) -> Value {
     // The minimal envelope with a null structuredContent placeholder; the
     // caller subtracts the 4-byte `null` when inserting the value. For
@@ -127,6 +137,7 @@ fn json_envelope_skeleton(modern: bool) -> Value {
 /// Bounded business failure: public snake_case code + message (Display
 /// keeps the prefixed wire shape) + optional structured details that MUST
 /// already be field-clamped by the caller.
+#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ToolFailure {
     pub code: &'static str,
@@ -143,6 +154,7 @@ impl std::fmt::Display for ToolFailure {
 /// Unified success envelope: `content` (text mirror of the structured
 /// JSON) + `structuredContent` + `isError:false`, decorated for modern
 /// era via the single producer (`protocol::decorate_result`).
+#[allow(dead_code)]
 pub(crate) fn make_tool_result(
     structured: Value,
     is_error: bool,
