@@ -18,6 +18,8 @@ pub enum PathError {
     WindowsUnsafe,
     #[error("percent-encoding nests too deeply")]
     PercentEncodingTooDeep,
+    #[error("percent-escape is not valid UTF-8")]
+    InvalidUtf8Escape,
 }
 
 const MAX_PATH_LEN: usize = 512;
@@ -75,6 +77,11 @@ const MAX_DECODE_ROUNDS: usize = 4;
 enum DecodeFail {
     /// A percent escape would decode into a path separator (R10-1).
     EscapedSeparator,
+    /// A percent escape decodes into bytes that are not valid UTF-8
+    /// (R12-2): accepting would silently rename the file to U+FFFD
+    /// replacements on the server while the client keeps the literal —
+    /// the two ends can never converge.
+    InvalidUtf8,
     /// The decode chain never stabilized within the round budget.
     TooDeep,
 }
@@ -85,9 +92,7 @@ fn decode_to_fixed_point(input: &str) -> Result<String, DecodeFail> {
         if introduces_escaped_separator(&current) {
             return Err(DecodeFail::EscapedSeparator);
         }
-        let next = percent_decode_str(&current)
-            .decode_utf8_lossy()
-            .into_owned();
+        let next = decode_round(&current)?;
         if next == current {
             return Ok(current);
         }
@@ -98,14 +103,25 @@ fn decode_to_fixed_point(input: &str) -> Result<String, DecodeFail> {
     if introduces_escaped_separator(&current) {
         return Err(DecodeFail::EscapedSeparator);
     }
-    let next = percent_decode_str(&current)
-        .decode_utf8_lossy()
-        .into_owned();
+    let next = decode_round(&current)?;
     if next == current {
         Ok(current)
     } else {
         Err(DecodeFail::TooDeep)
     }
+}
+
+/// One strict decode round (R12-2): percent-decode then REQUIRE valid
+/// UTF-8 — a `%FF` style escape must refuse instead of silently becoming
+/// U+FFFD, which renamed the file server-side while the plugin kept the
+/// literal name (permanent two-end divergence).
+fn decode_round(input: &str) -> Result<String, DecodeFail> {
+    let decoded = percent_decode_str(input);
+    let text = decoded
+        .decode_utf8()
+        .map_err(|_| DecodeFail::InvalidUtf8)?
+        .into_owned();
+    Ok(text)
 }
 
 /// Whether any percent escape in `input` decodes (in any round) into a
@@ -133,6 +149,7 @@ pub fn normalize(input: &str) -> Result<String, PathError> {
         // pathological depth.
         Err(DecodeFail::EscapedSeparator) => return Err(PathError::WindowsUnsafe),
         Err(DecodeFail::TooDeep) => return Err(PathError::PercentEncodingTooDeep),
+        Err(DecodeFail::InvalidUtf8) => return Err(PathError::InvalidUtf8Escape),
     };
     let s = if decoded.contains('\\') {
         std::borrow::Cow::Owned(decoded.replace('\\', "/"))
@@ -390,5 +407,24 @@ mod tests {
             PathError::WindowsUnsafe
         );
         assert_eq!(normalize("note.md"), Ok("note.md".into()));
+    }
+}
+
+#[cfg(test)]
+mod r12_tests {
+    use super::*;
+
+    #[test]
+    fn mel_invalid_utf8_escape_refused_not_lossy_renamed() {
+        // R12-2 red: previously `a%FFb.md` decoded lossily to `a\u{FFFD}b.md`
+        // and was ACCEPTED — renaming the file server-side while the plugin
+        // kept the literal name. Both ends must refuse.
+        let err = normalize("a%FFb.md").unwrap_err();
+        assert!(matches!(err, PathError::InvalidUtf8Escape));
+        // Valid escapes still decode.
+        assert_eq!(normalize("a%2fb.md").unwrap_err(), PathError::WindowsUnsafe);
+        assert_eq!(normalize("caf%C3%A9.md").unwrap(), "café.md");
+        // A literal U+FFFD in the name (user's own character) stays legal.
+        assert_eq!(normalize("a\u{FFFD}b.md").unwrap(), "a\u{FFFD}b.md");
     }
 }

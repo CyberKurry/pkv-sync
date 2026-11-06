@@ -267,6 +267,14 @@ function hasUnsafeDecodedShape(path: string): boolean {
     try {
       decoded = decodeURIComponent(current);
     } catch {
+      // R12-2: distinguish two throw shapes. A MALFORMED escape pattern
+      // (`%` not followed by valid hex — e.g. the ordinary name `100%.md`)
+      // is not an escape at all; leave it to the literal rules. A
+      // well-formed `%XX` that decodes into non-UTF-8 bytes (`a%FFb.md`)
+      // is what the server refuses — refuse here too.
+      if (/%[0-9a-f]{2}/i.test(current)) {
+        return true;
+      }
       return false;
     }
     if (decoded === current) return false;

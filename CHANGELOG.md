@@ -46,8 +46,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [1.7.4] - 2026-11-04
 
-### Fixed
-
+- A percent escape that decodes into bytes which are not valid UTF-8
+  (`a%FFb.md`) was accepted by the plugin but renamed by the server to
+  `a\uFFFDb.md` (lossy replacement) — the same file then existed under
+  two names on the two ends and never converged. Both ends now refuse
+  such paths (server: `InvalidUtf8Escape`; plugin: excluded at scan
+  time), while literal lone `%` names (`100%.md`) stay ordinary.
 - MCP `read_file` text responses had no size ceiling (binary responses
   were capped at 64 MiB): a large `max_file_size` let one read expand
   its content twice — as `structuredContent` and its text mirror — into
