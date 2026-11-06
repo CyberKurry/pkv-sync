@@ -2188,6 +2188,7 @@ async fn move_with_link_rewrite(
 
     // Shared preconditions (parent currency, visibility, source present,
     // target absent) — before any quota or scan.
+
     if let Some(conflict) =
         ensure_write_ready_without_rate_limit(state, user, &input.vault_id, &input.parent_commit)
             .await?
@@ -2198,7 +2199,20 @@ async fn move_with_link_rewrite(
         .await
         .map_err(api_error_to_anyhow)?;
     let git = state.git_store();
-    let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
+    // R13-3: pin ALL reads to one commit. Empty parent_commit means
+    // "current head" — resolve once, then source read, hash guards, and
+    // the rewrite scan all use the same pinned commit (the apply batch
+    // carries scanned content, so a head drift between scan and commit
+    // aborts via CAS instead of patching shifted bytes).
+    let scan_at = if input.parent_commit.is_empty() {
+        git.head(&input.vault_id)
+            .await
+            .map_err(git_error_to_anyhow)?
+            .ok_or_else(|| anyhow!("not_found: vault has no commits yet"))?
+    } else {
+        input.parent_commit.clone()
+    };
+    let at = Some(scan_at.as_str());
     if !mcp_path_visible(&filter, &from) {
         bail!("not_found: '{from}' does not exist");
     }
@@ -2293,6 +2307,7 @@ async fn move_with_link_rewrite(
 
     // Real call: quota was recorded above (before the binary check); now
     // the expensive scan.
+
     let (plan, hash_guards, links_updated) =
         build_rewrite_plan(state, &input, &from, &to, max_rewrites).await?;
 
@@ -2333,19 +2348,20 @@ async fn move_with_link_rewrite(
         if file.original_path == from {
             continue;
         }
-        let git_file = git
-            .read_file(&input.vault_id, &file.original_path, at)
-            .await?
-            .ok_or_else(|| anyhow!("not_found: {}", file.original_path))?;
-        let text = match git_file {
-            StoredFile::Text { bytes } => String::from_utf8(bytes).map_err(|_| {
-                anyhow!("unsupported_link_host: {} is not UTF-8", file.original_path)
-            })?,
-            _ => bail!("unsupported_link_host: {} is binary", file.original_path),
-        };
+        // R13-3: patch the content captured during the scan — the auto
+        // hash guards below pin exactly these bytes at the pinned scan
+        // commit, so a file that changed between scan and commit aborts
+        // instead of taking byte-offset patches onto shifted content.
+        // (Defense-in-depth: the pinned-commit verify already caught the
+        // explicit-parent case; carrying the text removes the drift
+        // class entirely.)
         changes.push(PushChange::Text {
             path: file.original_path.clone(),
-            content: crate::mcp::link_rewrite::apply_patches(&text, &file.patches, file.final_size),
+            content: crate::mcp::link_rewrite::apply_patches(
+                &file.original_text,
+                &file.patches,
+                file.final_size,
+            ),
         });
     }
 
@@ -2393,7 +2409,9 @@ async fn move_with_link_rewrite(
         user,
         WriteBatchRequest {
             vault_id: input.vault_id.clone(),
-            parent_commit: input.parent_commit.clone(),
+            // The pinned scan commit (resolved head when the caller sent
+            // ""), so the CAS guards exactly what was scanned (R13-3).
+            parent_commit: scan_at.clone(),
             activity_action: "mcp_write",
             activity_tool: "move_file",
             activity_path,
@@ -2432,15 +2450,27 @@ async fn build_rewrite_plan(
     let filter = sync::vault_path_filter(state, &input.vault_id)
         .await
         .map_err(api_error_to_anyhow)?;
+    // R13-3: pin the scan to ONE resolved commit. An empty
+    // parent_commit means "current head" — resolving it here (rather
+    // than passing Some("") downstream, which Oid::from_str rejects)
+    // keeps the default-path move working AND makes the read commit
+    // explicit so apply uses the same pinned content (no TOCTOU drift
+    // between verify and apply).
+    let scan_at = if input.parent_commit.is_empty() {
+        git.head(&input.vault_id)
+            .await
+            .map_err(git_error_to_anyhow)?
+            .ok_or_else(|| anyhow!("not_found: vault has no commits yet"))?
+    } else {
+        input.parent_commit.clone()
+    };
     let snapshot = crate::mcp::link_scan::VaultSnapshot {
-        at: input.parent_commit.clone(),
+        at: scan_at.clone(),
         filter,
         max_file_size: state.runtime_cfg.max_file_size().await,
     };
     let limits = crate::mcp::link_scan::ScanLimits::default();
-    let mut tree = git
-        .list_tree(&input.vault_id, Some(&input.parent_commit))
-        .await?;
+    let mut tree = git.list_tree(&input.vault_id, Some(&scan_at)).await?;
     tree.sort_by(|a, b| a.path.cmp(&b.path));
     let (index, index_integrity) =
         crate::mcp::link_scan::target_index(&git, &snapshot, &tree, &limits).await;
@@ -2516,6 +2546,7 @@ async fn build_rewrite_plan(
                     original_size: file.text.len(),
                     final_size,
                     patches,
+                    original_text: file.text.clone(),
                 });
                 guards_mut.insert(file.path.to_string(), file.sha256.clone());
                 links_mut.push(LinksUpdatedEntry {
@@ -3255,13 +3286,23 @@ async fn ensure_write_ready_without_rate_limit(
     parent_commit: &str,
 ) -> Result<Option<WriteToolOutput>> {
     ensure_owned_vault(state, &user.user_id, vault_id).await?;
+    // R13-3: an empty parent_commit means "the head at entry". Resolving
+    // it here (instead of comparing None != Some(head), which made every
+    // empty-parent write on a non-empty vault Conflict at the door) keeps
+    // the "current head" semantics usable; the actual CAS at commit time
+    // still pins whatever head the batch was built against.
     let parent = (!parent_commit.is_empty()).then_some(parent_commit);
     let current_head = state
         .git_store()
         .head(vault_id)
         .await
         .map_err(git_error_to_anyhow)?;
-    if current_head.as_deref() != parent {
+    let mismatch = match (parent, current_head.as_deref()) {
+        (Some(want), Some(have)) => want != have,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    if mismatch {
         return Ok(Some(WriteToolOutput::Conflict {
             conflict: true,
             current_head,
@@ -7276,6 +7317,114 @@ mod tests {
             "dry_run": dry
         }))
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn mel_move_rewrite_empty_parent_commits_against_resolved_head() {
+        // R13-3 red: with the default parent_commit="", the rewrite scan
+        // used to pass Some("") to git (Oid::from_str("") fails), so the
+        // DEFAULT move call could never succeed. It must resolve the
+        // head once, scan at that commit, and commit cleanly.
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let _head = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("ideas/brainstorm.md", "# Brainstorm"),
+                ("a.md", "[[ideas/brainstorm]]"),
+            ],
+        )
+        .await;
+        let auth = authenticated_user(&state, &uid).await;
+        let input = rewrite_move_input(&vid, "", "ideas/brainstorm.md", "archive/x.md", false);
+        let out = move_file(&state, &auth, input).await.unwrap();
+        assert!(
+            matches!(out, WriteToolOutput::Success { .. }),
+            "expected success, got {out:?}"
+        );
+        let git = state.git_store();
+        let head = git.head(&vid).await.unwrap().unwrap();
+        let a = git
+            .read_file(&vid, "a.md", Some(&head))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(&a, StoredFile::Text { bytes } if bytes == &b"[[archive/x]]".to_vec()),
+            "a.md must point at the new path, got {:?}",
+            a
+        );
+    }
+
+    #[tokio::test]
+    async fn mel_move_rewrite_scan_apply_gap_cannot_patch_shifted_content() {
+        // R13-3 (audit #3) red: between the scan and the commit, a
+        // concurrent human edit to a BACKLINK file used to sail through
+        // when the touched file had no auto guard catch — the apply path
+        // re-read the file at HEAD and applied byte-offset patches
+        // planned against the OLD content, silently corrupting it. The
+        // plan must carry the scanned text; the auto hash guard then
+        // aborts the whole move on divergence.
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let head = seed_text_files(
+            &state,
+            &vid,
+            &[
+                ("ideas/brainstorm.md", "# Brainstorm"),
+                ("a.md", "[[ideas/brainstorm]]"),
+            ],
+        )
+        .await;
+        let auth = authenticated_user(&state, &uid).await;
+        // Gate AFTER the plan is built but before the verify/commit leg.
+        let gate = crate::test_probe::arm(&vid, crate::test_probe::Phase::BeforeCommit);
+        let mover = tokio::spawn({
+            let state = state.clone();
+            let auth = auth_clone(&auth);
+            let vid = vid.clone();
+            let head = head.clone();
+            async move {
+                move_file(
+                    &state,
+                    &auth,
+                    rewrite_move_input(&vid, &head, "ideas/brainstorm.md", "archive/x.md", false),
+                )
+                .await
+            }
+        });
+        gate.entered().await;
+        let git = state.git_store();
+        // Human edit shifts a.md's bytes (prefix inserted BEFORE the link).
+        git.commit_changes(
+            &vid,
+            Some(&head),
+            &[FileChange::upsert_text(
+                "a.md",
+                b"human prefix [[ideas/brainstorm]]".to_vec(),
+            )],
+            "human",
+        )
+        .await
+        .unwrap();
+        gate.release();
+        let result = mover.await.unwrap();
+        match result {
+            Err(err) => assert!(err.to_string().starts_with("content_diverged:"), "{err}"),
+            Ok(WriteToolOutput::Conflict { .. }) => {}
+            other => panic!("expected divergence or conflict, got {other:?}"),
+        }
+        // a.md keeps the HUMAN text byte-for-byte; nothing landed.
+        let final_head = git.head(&vid).await.unwrap().unwrap();
+        let a = git
+            .read_file(&vid, "a.md", Some(&final_head))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(&a, StoredFile::Text { bytes } if bytes == &b"human prefix [[ideas/brainstorm]]".to_vec()),
+            "a.md must hold the human edit, got {:?}",
+            a
+        );
     }
 
     #[tokio::test]

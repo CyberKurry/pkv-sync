@@ -26,6 +26,10 @@ pub(crate) struct RewriteFile {
     pub original_size: usize,
     pub final_size: usize,
     pub patches: Vec<TextPatch>,
+    /// Content as read during the scan (R13-3): apply must patch the
+    /// SAME bytes the plan was derived from — a fresh read at a moving
+    /// HEAD could shift byte offsets underneath the patches.
+    pub original_text: String,
 }
 
 #[derive(Debug, Default)]
