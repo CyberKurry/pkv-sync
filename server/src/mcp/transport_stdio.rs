@@ -666,17 +666,14 @@ pub(crate) async fn handle_jsonrpc(
                         "id": id,
                         "result": result
                     }),
-                    Err(err) if err.to_string() == INVALID_TOOL_ARGUMENTS => {
-                        jsonrpc_error(id, -32602, INVALID_TOOL_ARGUMENTS)
-                    }
-                    // MEL-19.5: tool-business failures answer inside the
-                    // result (isError:true, public message); only unknown
-                    // tool / internal errors stay protocol-level.
-                    Err(err)
-                        if !err.to_string().starts_with("unknown tool:")
-                            && err.to_string() != GENERIC_MCP_INTERNAL_ERROR =>
-                    {
-                        match tool_call_response(Err::<Value, _>(err)) {
+                    // One classifier feeds both eras and the result
+                    // builder (self-review F3) — no string ladders here.
+                    Err(err) => match classify_tool_error(&err) {
+                        ToolCallFailure::InvalidArguments => {
+                            jsonrpc_error(id, -32602, INVALID_TOOL_ARGUMENTS)
+                        }
+                        ToolCallFailure::UnknownTool => jsonrpc_error(id, -32602, &err.to_string()),
+                        ToolCallFailure::Business => match tool_call_response(&err) {
                             Ok(result) => json!({
                                 "jsonrpc": "2.0",
                                 "id": id,
@@ -686,15 +683,12 @@ pub(crate) async fn handle_jsonrpc(
                                 let message = mcp_tool_error_public_message(&err);
                                 jsonrpc_error(id, -32000, &message)
                             }
+                        },
+                        ToolCallFailure::Internal => {
+                            let message = mcp_tool_error_public_message(&err);
+                            jsonrpc_error(id, -32000, &message)
                         }
-                    }
-                    Err(err) if err.to_string().starts_with("unknown tool:") => {
-                        jsonrpc_error(id, -32602, &err.to_string())
-                    }
-                    Err(err) => {
-                        let message = mcp_tool_error_public_message(&err);
-                        jsonrpc_error(id, -32000, &message)
-                    }
+                    },
                 },
                 Err(err) => jsonrpc_error(id, -32602, &format!("invalid params: {err}")),
             }
@@ -746,15 +740,13 @@ pub(crate) async fn handle_modern_jsonrpc(
                         let result = crate::mcp::protocol::decorate_result(result, None);
                         json!({"jsonrpc": "2.0", "id": id, "result": result})
                     }
-                    Err(err) if err.to_string() == INVALID_TOOL_ARGUMENTS => {
-                        jsonrpc_error(id, -32602, INVALID_TOOL_ARGUMENTS)
-                    }
-                    // MEL-19.5 (see the legacy arm note).
-                    Err(err)
-                        if !err.to_string().starts_with("unknown tool:")
-                            && err.to_string() != GENERIC_MCP_INTERNAL_ERROR =>
-                    {
-                        match tool_call_response(Err::<Value, _>(err)) {
+                    // One classifier feeds both eras (self-review F3).
+                    Err(err) => match classify_tool_error(&err) {
+                        ToolCallFailure::InvalidArguments => {
+                            jsonrpc_error(id, -32602, INVALID_TOOL_ARGUMENTS)
+                        }
+                        ToolCallFailure::UnknownTool => jsonrpc_error(id, -32602, &err.to_string()),
+                        ToolCallFailure::Business => match tool_call_response(&err) {
                             Ok(result) => {
                                 let result = crate::mcp::protocol::decorate_result(result, None);
                                 json!({"jsonrpc": "2.0", "id": id, "result": result})
@@ -763,15 +755,12 @@ pub(crate) async fn handle_modern_jsonrpc(
                                 let message = mcp_tool_error_public_message(&err);
                                 jsonrpc_error(id, -32000, &message)
                             }
+                        },
+                        ToolCallFailure::Internal => {
+                            let message = mcp_tool_error_public_message(&err);
+                            jsonrpc_error(id, -32000, &message)
                         }
-                    }
-                    Err(err) if err.to_string().starts_with("unknown tool:") => {
-                        jsonrpc_error(id, -32602, &err.to_string())
-                    }
-                    Err(err) => {
-                        let message = mcp_tool_error_public_message(&err);
-                        jsonrpc_error(id, -32000, &message)
-                    }
+                    },
                 },
                 Err(err) => jsonrpc_error(id, -32602, &format!("invalid params: {err}")),
             }
@@ -876,25 +865,57 @@ async fn call_tool(
     }))
 }
 
+/// The ONE classification of a tools/call error (R12 self-review F3):
+/// every consumer (both era arms, the result builder) matches on this
+/// enum instead of re-deriving string prefixes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ToolCallFailure {
+    /// Malformed `arguments` — protocol-level -32602.
+    InvalidArguments,
+    /// Unknown tool name — protocol-level -32602 (spec).
+    UnknownTool,
+    /// Correctable by the model — answers inside the result with
+    /// `isError:true` and the public prefixed message.
+    Business,
+    /// Everything else stays a masked protocol-level -32000 (logged).
+    Internal,
+}
+
+fn clone_anyhow(error: &anyhow::Error) -> anyhow::Error {
+    anyhow::anyhow!("{error}")
+}
+
+pub(crate) fn classify_tool_error(error: &anyhow::Error) -> ToolCallFailure {
+    let raw = error.to_string();
+    if raw == INVALID_TOOL_ARGUMENTS {
+        ToolCallFailure::InvalidArguments
+    } else if raw.starts_with("unknown tool:") {
+        ToolCallFailure::UnknownTool
+    } else if raw == GENERIC_MCP_INTERNAL_ERROR {
+        ToolCallFailure::Internal
+    } else {
+        // Anything the whitelist publishes is model-correctable; the
+        // masked remainder is internal by definition.
+        if is_public_mcp_tool_error(&raw) {
+            ToolCallFailure::Business
+        } else {
+            ToolCallFailure::Internal
+        }
+    }
+}
+
 /// MEL-19.5: a TOOL-business failure (validation, not-found, guards) is a
 /// correctable outcome for the model — report it INSIDE the tools/call
 /// result with `isError:true` and the public prefixed message, not as a
 /// JSON-RPC protocol error. Transport/protocol failures (auth, unknown
 /// method/tool, malformed request) remain protocol errors.
-pub(crate) fn tool_call_response(outcome: Result<Value, anyhow::Error>) -> Result<Value> {
-    match outcome {
-        Ok(result) => Ok(result),
-        Err(error) => {
-            let message = mcp_tool_error_public_message(&error).to_string();
-            if message == GENERIC_MCP_INTERNAL_ERROR {
-                // Internal errors keep the protocol-level envelope (logged
-                // in mcp_tool_error_public_message).
-                return Err(error);
-            }
-            if message.starts_with("unknown tool:") {
-                // Spec: unknown tool is a protocol-level invalid params.
-                return Err(error);
-            }
+pub(crate) fn tool_call_response(error: &anyhow::Error) -> Result<Value> {
+    match classify_tool_error(error) {
+        ToolCallFailure::Internal
+        | ToolCallFailure::UnknownTool
+        | ToolCallFailure::InvalidArguments => Err(clone_anyhow(error)),
+        ToolCallFailure::Business => {
+            let message = mcp_tool_error_public_message(error).to_string();
             Ok(json!({
                 "content": [{"type": "text", "text": message}],
                 "structuredContent": {

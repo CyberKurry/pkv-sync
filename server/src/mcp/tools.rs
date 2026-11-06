@@ -1766,11 +1766,11 @@ pub async fn changes_since(
     })
 }
 
-// MCP read surfaces such as list_files/search use path_visible_on_read(), which
-// may expose vault-allowlisted hidden paths. Mutating and graph/history tools use
-// this stricter policy so hidden/excluded paths remain non-addressable to agents.
+/// Graph/history/mutating tools and the rewrite scanner share ONE
+/// visibility producer (link_scan::mcp_visible): hidden paths stay
+/// non-addressable to agents regardless of per-vault read allowlists.
 fn mcp_path_visible(filter: &SyncPathFilter, path: &str) -> bool {
-    !crate::service::exclude::is_hidden_path(path) && sync::path_visible_on_read(filter, path)
+    crate::mcp::link_scan::mcp_visible(filter, path)
 }
 
 fn contains_ascii_case_insensitive(haystack: &str, lowercase_needle: &str) -> bool {
@@ -2264,8 +2264,9 @@ async fn move_with_link_rewrite(
                 size_bytes: file.final_size,
             });
         }
-        // Same shape gate as the real call (review F4): a preview must
-        // not succeed where the commit would fail batch budgets.
+        // Same shape gate as the real call (review F4): the preview runs
+        // the EXACT validate_plan_shape contract the commit runs — same
+        // deletes (the renamed source), same op count, same budgets.
         let max_file_size = state.runtime_cfg.max_file_size().await;
         let sized: Vec<_> = would_write
             .iter()
@@ -2278,7 +2279,7 @@ async fn move_with_link_rewrite(
             .collect();
         crate::mcp::write_plan::validate_plan_shape(
             &sized,
-            &[],
+            std::slice::from_ref(&from),
             max_file_size,
             WRITE_FILES_MAX_FILES,
         )?;

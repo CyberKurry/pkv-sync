@@ -178,28 +178,6 @@ fn excerpt(text: &str) -> String {
     crate::mcp::response_budget::prefix_bytes(text, 160).to_string()
 }
 
-/// Observable materialization hook (MEL-11.4): tests wrap this to count
-/// String materializations. Production `apply_literal` is structured so a
-/// REFUSED plan never reaches a materializing step; this function exists
-/// so the test can prove it (count == 0 on size failure).
-#[cfg(test)]
-pub(crate) fn materialize_replacements(
-    source: &str,
-    edit: &LiteralEdit,
-    matches: usize,
-    expected_len: usize,
-) -> String {
-    let mut next = String::with_capacity(expected_len);
-    let mut last = 0;
-    for (at, _) in source.match_indices(&edit.old_text).take(matches) {
-        next.push_str(&source[last..at]);
-        next.push_str(&edit.new_text);
-        last = at + edit.old_text.len();
-    }
-    next.push_str(&source[last..]);
-    next
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,31 +363,21 @@ mod tests {
 
     #[test]
     fn mel_literal_size_failure_never_materializes() {
-        use std::cell::Cell;
-        let materialized = Cell::new(0usize);
-        // Instrument via a wrapper that counts calls to the public helper.
-        // Since apply_literal refuses at arithmetic, our mirror plan here
-        // proves the counter stays 0 when the same geometry is refused.
+        // MEL-D01: the production path must REFUSE the geometry — assert
+        // on apply_literal itself, not a mirror of its arithmetic.
         let source = "a".repeat(16);
         let edit = LiteralEdit {
             old_text: "a".into(),
             new_text: "b".repeat(15),
         };
-        let matches = source.match_indices(&edit.old_text).count();
-        // The exact pre-check apply_literal performs:
-        let refused = checked_replacement_len(
-            source.len(),
-            edit.old_text.len(),
-            edit.new_text.len(),
-            matches,
-            64,
-        )
-        .is_err();
-        assert!(refused, "geometry must refuse");
-        if !refused {
-            let _ = materialize_replacements(&source, &edit, matches, 240);
-            materialized.set(materialized.get() + 1);
-        }
-        assert_eq!(materialized.get(), 0, "refusal materialized nothing");
+        let err = apply_literal(&source, &[edit], true, 64).unwrap_err();
+        assert!(err.to_string().starts_with("file exceeds max_file_size"));
+        // Within budget the same plan materializes exactly.
+        let edit = LiteralEdit {
+            old_text: "a".into(),
+            new_text: "b".repeat(15),
+        };
+        let out = apply_literal(&source, &[edit], true, 240).unwrap();
+        assert_eq!(out.len(), 240);
     }
 }

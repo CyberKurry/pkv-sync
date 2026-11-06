@@ -45,6 +45,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
   text path had no ceiling; binary already had one).
 
 ### Fixed
+- Backlink snippets were clamped through an expression that always
+  collapsed to the line start (and could panic mid-UTF-8 character);
+  snippets now center on the link within the requested window, cut only
+  at character boundaries. A rewrite whose link could not be safely
+  re-encoded now refuses the whole move instead of silently leaving the
+  inbound link stale, and rewrite-move dry runs enforce the same batch
+  shape budget as the real call.
 
 - A percent escape that decodes into bytes which are not valid UTF-8
   (`a%FFb.md`) was accepted by the plugin but renamed by the server to

@@ -115,7 +115,7 @@ pub(crate) async fn target_index(
     (TargetIndex::new(visible), integrity)
 }
 
-fn mcp_visible(filter: &SyncPathFilter, path: &str) -> bool {
+pub(crate) fn mcp_visible(filter: &SyncPathFilter, path: &str) -> bool {
     !crate::service::exclude::is_hidden_path(path)
         && crate::service::sync::path_visible_on_read(filter, path)
 }

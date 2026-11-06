@@ -84,12 +84,13 @@ MCP 规范中的 `Origin` 请求头 DNS-rebinding 检查未在 `/mcp` 上实现�
 
 ## 写入工具
 
-PKV Sync 在读取工具之外提供四个 MCP 写入工具：
+PKV Sync 在读取工具之外提供五个 MCP 写入工具：
 
 - `write_file(vault_id, path, content, parent_commit, dry_run?, expected_hashes?)`：创建或更新文本文件。
 - `delete_file(vault_id, path, parent_commit, dry_run?, expected_hashes?)`：删除文件。
 - `write_files(vault_id, parent_commit, writes[], deletes[], dry_run?, expected_hashes?)`：在一个 commit 中原子地创建、更新和删除多个文本文件。如果任一路径无效、文件超过 `max_file_size`、批次为空（`empty_batch`），或批次超过 100 个变更（`batch_too_large`），服务端不会提交任何内容。陈旧的 `parent_commit` 会返回常规 `Conflict` 响应。
-- `move_file(vault_id, parent_commit, from, to, dry_run?, expected_hashes?)`：在单个 commit 中移动或重命名一个文本文件。它会拒绝已存在的目标（`target_exists`）、二进制／blob-pointer 源文件（`unsupported_binary_move`），以及缺失或隐藏的源文件（`not_found`）。
+- `edit_file(vault_id, path, parent_commit, anchor, operation?, content?, dry_run?, expected_hashes?)`：按标题链、块 id 或字面文本锚点编辑（见上文工具列表）。锚点命中多处会带匹配数报 `anchor_ambiguous`；锚点缺失报 `anchor_not_found`。
+- `move_file(vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?, dry_run?, expected_hashes?)`：在单个 commit 中移动或重命名一个文本文件，默认在同一 commit 改写全部入链（`rewrite_links: false` 回到裸搬移；完整语义见上文工具列表）。它会拒绝已存在的目标（`target_exists`）、二进制／blob-pointer 源文件（`unsupported_binary_move`）、缺失或隐藏的源文件（`not_found`），并在入口拒绝仅大小写不同的重命名。
 
 ### Dry run 与内容守卫
 

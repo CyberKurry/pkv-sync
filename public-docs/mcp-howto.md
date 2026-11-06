@@ -189,12 +189,13 @@ above 64 MiB are rejected instead of being base64-expanded into JSON.
 
 ## Write tools
 
-PKV Sync exposes four MCP write tools alongside the read tools:
+PKV Sync exposes five MCP write tools alongside the read tools:
 
 - `write_file(vault_id, path, content, parent_commit, dry_run?, expected_hashes?)`: create or update a text file.
 - `delete_file(vault_id, path, parent_commit, dry_run?, expected_hashes?)`: delete a file.
 - `write_files(vault_id, parent_commit, writes[], deletes[], dry_run?, expected_hashes?)`: create, update, and delete multiple text files atomically in one commit. If any path is invalid, a file exceeds `max_file_size`, the batch is empty (`empty_batch`), or the batch exceeds 100 changes (`batch_too_large`), nothing is committed. A stale `parent_commit` returns the normal `Conflict` response.
-- `move_file(vault_id, parent_commit, from, to, dry_run?, expected_hashes?)`: move or rename one text file in a single commit. It refuses existing targets (`target_exists`), binary/blob-pointer sources (`unsupported_binary_move`), and missing or hidden sources (`not_found`).
+- `edit_file(vault_id, path, parent_commit, anchor, operation?, content?, dry_run?, expected_hashes?)`: edit at a heading-chain, block-id, or literal-text anchor (see the tool list above). Anchors matching multiple places report `anchor_ambiguous` with match counts; a missing anchor reports `anchor_not_found`.
+- `move_file(vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?, dry_run?, expected_hashes?)`: move or rename one text file in a single commit, rewriting every inbound link in the same commit by default (`rewrite_links: false` selects the raw move; see the tool list above for the full semantics). It refuses existing targets (`target_exists`), binary/blob-pointer sources (`unsupported_binary_move`), missing or hidden sources (`not_found`), and case-only renames at the door.
 
 ### Dry runs and content guards
 
