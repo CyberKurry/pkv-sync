@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn mel_literal_validation_rejects_empty_and_oversized_plans() {
-        let scan_edits: Vec<LiteralEdit> = vec![LiteralEdit {
+        let _scan_edits: Vec<LiteralEdit> = vec![LiteralEdit {
             old_text: "x".into(),
             new_text: "y".into(),
         }];

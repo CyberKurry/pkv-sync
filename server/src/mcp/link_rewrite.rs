@@ -382,7 +382,7 @@ mod tests {
             "other.md".to_string(),
         ]);
         let scan_src = "[[other]]";
-        let scan = scan_document(scan_src, 10);
+        let _scan = scan_document(scan_src, 10);
         // In old index "other" resolves to keep/other.md (root other.md also
         // exists -> ambiguous actually). Build a clean case:
         // Old world: [[a]] resolves by unique basename to ideas/a.md.

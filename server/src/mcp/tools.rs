@@ -2276,14 +2276,12 @@ async fn move_with_link_rewrite(
                 previous_len: None,
             })
             .collect();
-        let total_final: usize = sized.iter().map(|t| t.final_len).sum();
         crate::mcp::write_plan::validate_plan_shape(
             &sized,
             &[],
             max_file_size,
             WRITE_FILES_MAX_FILES,
         )?;
-        let _ = total_final;
         return Ok(WriteToolOutput::DryRun {
             dry_run: true,
             would_write,
@@ -5272,7 +5270,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let head = git
+        let _head = git
             .commit_changes(
                 &vault_id,
                 Some(&base),
@@ -5284,7 +5282,6 @@ mod tests {
             )
             .await
             .unwrap();
-        let _ = head;
 
         let out = stale_pages(
             &state,
@@ -6854,7 +6851,7 @@ mod tests {
         let head = seed_text_files(&state, &vid, &[("a.md", "one")]).await;
         let auth = authenticated_user(&state, &uid).await;
         let git = state.git_store();
-        let mid = git
+        let _mid = git
             .commit_changes(
                 &vid,
                 Some(&head),
@@ -6878,7 +6875,6 @@ mod tests {
         .await
         .unwrap();
         assert!(matches!(out, WriteToolOutput::Conflict { .. }));
-        let _ = mid;
     }
 
     #[tokio::test]
@@ -6974,7 +6970,7 @@ mod tests {
     #[tokio::test]
     async fn mel_backlinks_code_and_math_links_not_reported() {
         let (state, uid, vid, _tmp) = state_user_vvault_or().await;
-        let head = seed_text_files(
+        let _head = seed_text_files(
             &state,
             &vid,
             &[
@@ -7003,7 +6999,7 @@ mod tests {
         let files: Vec<(&str, &str)> = std::iter::once(("t.md", "x"))
             .chain(owned.iter().map(|(p, c)| (p.as_str(), *c)))
             .collect();
-        let head = seed_text_files(&state, &vid, &files).await;
+        let _head = seed_text_files(&state, &vid, &files).await;
         let input: BacklinksInput = serde_json::from_value(serde_json::json!({
             "vault_id": vid, "path": "t.md", "limit": 2
         }))
@@ -7015,7 +7011,6 @@ mod tests {
         assert_eq!(out.total, None);
         assert_eq!(out.shown, 2);
         assert!(out.incomplete_reasons.contains(&"limit".to_string()));
-        let _ = head;
     }
 
     #[tokio::test]
@@ -7034,7 +7029,7 @@ mod tests {
     #[tokio::test]
     async fn mel_backlinks_validation_and_missing_target() {
         let (state, uid, vid, _tmp) = state_user_vault().await;
-        let head = seed_text_files(&state, &vid, &[("t.md", "x")]).await;
+        let _head = seed_text_files(&state, &vid, &[("t.md", "x")]).await;
         let bad: BacklinksInput = serde_json::from_value(serde_json::json!({
             "vault_id": vid, "path": "t.md", "limit": 0
         }))
@@ -7052,7 +7047,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(out.total, Some(0));
-        let _ = head;
     }
 
     // ---- read/list budgets (MEL-15) ------------------------------------------
@@ -7061,7 +7055,7 @@ mod tests {
     async fn mel_read_concise_head_digest_and_flags() {
         let (state, uid, vid, _tmp) = state_user_vault().await;
         let body = "x".repeat(100 * 1024);
-        let head = seed_text_files(&state, &vid, &[("big.md", body.as_str())]).await;
+        let _head = seed_text_files(&state, &vid, &[("big.md", body.as_str())]).await;
         let auth_input: ReadFileInput = serde_json::from_value(serde_json::json!({
             "vault_id": vid, "path": "big.md", "detail": "concise"
         }))
@@ -7088,7 +7082,6 @@ mod tests {
             }
             other => panic!("expected concise, got {other:?}"),
         }
-        let _ = head;
     }
 
     #[tokio::test]
@@ -7627,7 +7620,7 @@ mod tests {
         // reachable Err path); a refused link must abort the WHOLE move —
         // never commit with the link left stale.
         let (state, uid, vid, _tmp) = state_user_vault().await;
-        let head = seed_text_files(&state, &vid, &[("old.md", "# Old")]).await;
+        let _head = seed_text_files(&state, &vid, &[("old.md", "# Old")]).await;
         let auth = authenticated_user(&state, &uid).await;
         // Force an overlap: two tokens resolving to `from` whose ranges
         // interleave is not constructible via the scanner, so pin the
@@ -7668,7 +7661,6 @@ mod tests {
             .await
             .unwrap()
             .is_some());
-        let _ = head;
     }
 
     #[tokio::test]
@@ -7677,7 +7669,7 @@ mod tests {
         // with the public prefix (previously the text path had no cap).
         let (state, uid, vid, _tmp) = state_user_vault().await;
         let big = "x".repeat(MCP_MAX_TEXT_RESPONSE_BYTES as usize + 1);
-        let head = seed_text_files(&state, &vid, &[("big.md", big.as_str())]).await;
+        let _head = seed_text_files(&state, &vid, &[("big.md", big.as_str())]).await;
         let input = ReadFileInput {
             vault_id: vid.clone(),
             path: "big.md".into(),
@@ -7689,6 +7681,5 @@ mod tests {
                 .starts_with("file exceeds MCP response limit"),
             "{err}"
         );
-        let _ = head;
     }
 }

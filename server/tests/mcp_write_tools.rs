@@ -112,10 +112,6 @@ async fn post_tool(state: AppState, raw: &str, name: &str, arguments: Value) -> 
 }
 
 /// MEL-19.5 helpers: tool-business failures now answer inside the result.
-fn tool_error_code(body: &Value) -> i64 {
-    body["error"]["code"].as_i64().unwrap_or(0)
-}
-
 fn tool_business_message(body: &Value) -> String {
     assert_eq!(
         body["result"]["isError"], true,

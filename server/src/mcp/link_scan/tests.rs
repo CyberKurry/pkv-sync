@@ -60,7 +60,7 @@ async fn mel_scan_budget_visits_all_files_sorted_and_reports_complete() {
     let mut seen: Vec<String> = Vec::new();
     let integrity = visit_snapshot(&git, &vid, &snapshot, &limits, |file| {
         seen.push(file.path.to_string());
-        assert!(!file.scan.reasons.is_empty() == false);
+        assert!(file.scan.reasons.is_empty());
         VisitFlow::Continue
     })
     .await
@@ -117,7 +117,7 @@ async fn mel_scan_budget_file_cap_marks_incomplete_and_guards_basenames() {
     let git = state.git_store();
     let changes: Vec<_> = (0..4)
         .map(|i| {
-            crate::storage::git::FileChange::upsert_text(&format!("f{i}.md"), b"[[x]]".to_vec())
+            crate::storage::git::FileChange::upsert_text(format!("f{i}.md"), b"[[x]]".to_vec())
         })
         .collect();
     let head = git

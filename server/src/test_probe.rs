@@ -14,6 +14,7 @@ use tokio::sync::Notify;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Phase {
     SnapshotCaptured,
+    #[allow(dead_code)]
     AfterReadMetadata,
     BeforeCommit,
 }

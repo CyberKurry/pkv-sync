@@ -216,13 +216,6 @@ mod tests {
     use super::*;
     use crate::mcp::link_span::scan_document;
 
-    fn token_of(source: &str) -> (String, LinkToken, String) {
-        let scan = scan_document(source, 10);
-        assert!(scan.reasons.is_empty(), "scan incomplete: {source:?}");
-        let token = scan.tokens[0].clone();
-        (source.to_string(), token, String::new())
-    }
-
     fn resolve_str(index: &TargetIndex, containing: &str, source: &str) -> Resolution {
         let scan = scan_document(source, 10);
         assert!(scan.reasons.is_empty());
