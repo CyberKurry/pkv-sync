@@ -308,8 +308,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
 - All five migration guides now describe byte-sized batches, cancellation, final
   local-state saving and recovery, including retained partial remote imports.
 
-### Fixed
-
+- Two remote conflicts for the same note landing inside the same second
+  (from different commits) wrote to the same second-stamped conflict
+  sidecar path — the second write silently overwrote the first sidecar's
+  content. Same-path collisions within one pass now append a short nonce.
 - Connection storage failures now show localized save, recovery or apply
   messages with the original cause instead of internal `data_commit_*` codes.
   Failures that pause sync emit one warning and preserve the recovery barrier.
