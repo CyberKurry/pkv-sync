@@ -963,9 +963,15 @@ fn write_tree_with_edits(
 /// Same folding as `case_fold_key`, exposed crate-wide (MEL-01) so the MCP
 /// link resolver answers target identity with the storage comparison key
 /// instead of a second algorithm. Do not "simplify" this to ASCII folding:
-/// see the R6/K2 note above for why each step exists.
+/// see the R6/K2 note above for why each step exists. Pure-ASCII inputs
+/// (the overwhelming majority of vault paths) take the cheap lowercase
+/// path — for them NFD is the identity and ASCII lowercase equals Unicode
+/// lowercase; anything non-ASCII goes through the full pipeline unchanged.
 pub(crate) fn case_fold_key(name: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
+    if name.is_ascii() {
+        return name.to_ascii_lowercase();
+    }
     name.nfd().flat_map(|c| c.to_lowercase()).collect()
 }
 
