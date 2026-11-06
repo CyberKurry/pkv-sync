@@ -2404,6 +2404,7 @@ async fn build_rewrite_plan(
     Vec<(String, String)>,
     Vec<LinksUpdatedEntry>,
 )> {
+    identity_errors::clear();
     let git = state.git_store();
     let filter = sync::vault_path_filter(state, &input.vault_id)
         .await
@@ -2550,6 +2551,12 @@ mod identity_errors {
             let mut v = l.borrow_mut();
             std::mem::take(&mut *v)
         })
+    }
+    /// Drain any residue from an earlier aborted call on this worker
+    /// thread — a bail between push and take must not leak into the next
+    /// invocation's verdict.
+    pub(crate) fn clear() {
+        take();
     }
 }
 
