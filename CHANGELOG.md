@@ -44,7 +44,7 @@ and this project adheres to semantic versioning starting at v1.0.0.
 - `read_file` full responses above 64 MiB are refused (previously the
   text path had no ceiling; binary already had one).
 
-## [1.7.4] - 2026-11-04
+### Fixed
 
 - A percent escape that decodes into bytes which are not valid UTF-8
   (`a%FFb.md`) was accepted by the plugin but renamed by the server to
@@ -58,6 +58,18 @@ and this project adheres to semantic versioning starting at v1.0.0.
   an unbounded wire response. Text reads are now capped like binary,
   and every successful tool result is envelope-checked at 1 MiB before
   serialization (`mcp_response_too_large`).
+- The plugin's remote-delete apply had a snapshot→trash race: a user
+  edit landing in that window was destroyed by the trash while the
+  conflict sidecar only held the pre-edit bytes. The delete now
+  re-snapshots before trashing (mirroring the inline-text recheck); a
+  changed hash skips the trash so the edit survives for the next pull.
+- Two remote conflicts for the same note landing inside the same second
+  (from different commits) wrote to the same second-stamped conflict
+  sidecar path — the second write silently overwrote the first sidecar's
+  content. Same-path collisions within one pass now append a short nonce.
+
+## [1.7.4] - 2026-11-04
+
 - The sync-now button's refresh icon was keyed off a display-text
   comparison against the current locale's label — any wording change
   (or a second button sharing the label) silently dropped the icon.
@@ -225,11 +237,6 @@ and this project adheres to semantic versioning starting at v1.0.0.
   data; not reachable — `EchMode::Enable` is not used). Lockfile-only bump;
   no other crates move.
 
-- The plugin's remote-delete apply had a snapshot→trash race: a user
-  edit landing in that window was destroyed by the trash while the
-  conflict sidecar only held the pre-edit bytes. The delete now
-  re-snapshots before trashing (mirroring the inline-text recheck); a
-  changed hash skips the trash so the edit survives for the next pull.
 - The plugin's built-in update check always reported "PKV Sync plugin is up
   to date" when the update source was GitHub. The client queried the main
   repository's latest release, whose assets are the plugin zip and server
@@ -308,10 +315,6 @@ and this project adheres to semantic versioning starting at v1.0.0.
 - All five migration guides now describe byte-sized batches, cancellation, final
   local-state saving and recovery, including retained partial remote imports.
 
-- Two remote conflicts for the same note landing inside the same second
-  (from different commits) wrote to the same second-stamped conflict
-  sidecar path — the second write silently overwrote the first sidecar's
-  content. Same-path collisions within one pass now append a short nonce.
 - Connection storage failures now show localized save, recovery or apply
   messages with the original cause instead of internal `data_commit_*` codes.
   Failures that pause sync emit one warning and preserve the recovery barrier.
