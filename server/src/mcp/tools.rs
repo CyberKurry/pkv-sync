@@ -47,6 +47,12 @@ const MAX_BROKEN_LINKS: usize = 20_000;
 const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64;
 #[cfg(not(test))]
 const MCP_MAX_BINARY_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
+/// R12-1: ceiling for TEXT read responses (mirrors the binary cap; the
+/// concise path uses its own digest-first budget).
+#[cfg(test)]
+const MCP_MAX_TEXT_RESPONSE_BYTES: u64 = 1024 * 1024;
+#[cfg(not(test))]
+const MCP_MAX_TEXT_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
 /// Concise reads materialize the WHOLE blob once for the digest; the cap
 /// mirrors the full-read binary ceiling (tests stay small so a single
 /// const works without an injection seam).
@@ -3461,6 +3467,12 @@ fn render_bytes(path: String, bytes: Vec<u8>, mime: Option<String>) -> Result<Re
     let is_text =
         TextClassifier::default_ref().is_text_path(&path) || mime_is_text(mime.as_deref());
     if is_text {
+        // R12-1: the text path had NO ceiling while the binary path capped
+        // at MCP_MAX_BINARY_RESPONSE_BYTES — a large max_file_size let a
+        // single read expand ~2x (content + text mirror) into the wire.
+        if bytes.len() as u64 > MCP_MAX_TEXT_RESPONSE_BYTES {
+            bail!("file exceeds MCP response limit");
+        }
         match String::from_utf8(bytes) {
             Ok(content) => {
                 return Ok(ReadFileOutput::Full(ReadFullOutput {
@@ -7656,6 +7668,27 @@ mod tests {
             .await
             .unwrap()
             .is_some());
+        let _ = head;
+    }
+
+    #[tokio::test]
+    async fn mel_read_oversized_text_refused_above_cap() {
+        // R12-1 red: a text file above the text response cap must refuse
+        // with the public prefix (previously the text path had no cap).
+        let (state, uid, vid, _tmp) = state_user_vault().await;
+        let big = "x".repeat(MCP_MAX_TEXT_RESPONSE_BYTES as usize + 1);
+        let head = seed_text_files(&state, &vid, &[("big.md", big.as_str())]).await;
+        let input = ReadFileInput {
+            vault_id: vid.clone(),
+            path: "big.md".into(),
+            detail: None,
+        };
+        let err = read_file(&state, &uid, input).await.unwrap_err();
+        assert!(
+            err.to_string()
+                .starts_with("file exceeds MCP response limit"),
+            "{err}"
+        );
         let _ = head;
     }
 }

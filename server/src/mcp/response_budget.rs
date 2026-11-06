@@ -16,7 +16,6 @@ use std::io::{self, Write};
 /// alias, snippet) are consumed by `backlinks`; the envelope caps are the
 /// plan-08 contract for edit/move previews, whose callers adopt them when
 /// those tools grow their envelope wiring.
-#[allow(dead_code)]
 pub(crate) const MAX_SUCCESS_BYTES: usize = 1024 * 1024;
 #[allow(dead_code)]
 pub(crate) const MAX_ANCHOR_ERROR_BYTES: usize = 16 * 1024;
@@ -82,7 +81,6 @@ impl Write for JsonSizes {
 /// Predict the final envelope size for `value` under `era` decoration:
 /// a minimal envelope carrying the value as structuredContent and its
 /// serialized form as the single text block. Never builds the full JSON.
-#[allow(dead_code)]
 pub(crate) fn checked_success_size<T: Serialize + ?Sized>(
     value: &T,
     modern: bool,

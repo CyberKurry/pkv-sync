@@ -48,6 +48,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- MCP `read_file` text responses had no size ceiling (binary responses
+  were capped at 64 MiB): a large `max_file_size` let one read expand
+  its content twice — as `structuredContent` and its text mirror — into
+  an unbounded wire response. Text reads are now capped like binary,
+  and every successful tool result is envelope-checked at 1 MiB before
+  serialization (`mcp_response_too_large`).
 - The sync-now button's refresh icon was keyed off a display-text
   comparison against the current locale's label — any wording change
   (or a second button sharing the label) silently dropped the icon.

@@ -857,6 +857,15 @@ async fn call_tool(
         _ => return Err(anyhow!("unknown tool: {}", params.name)),
     };
 
+    // R12-1: the envelope carries the payload twice (structuredContent +
+    // its JSON-string mirror); refuse oversized SUCCESS results before
+    // either copy is serialized. (Concise reads already bounded their
+    // sources; this is the transport-level backstop for every tool.)
+    crate::mcp::response_budget::checked_success_size(
+        &structured,
+        false,
+        crate::mcp::response_budget::MAX_SUCCESS_BYTES,
+    )?;
     Ok(json!({
         "content": [{
             "type": "text",
