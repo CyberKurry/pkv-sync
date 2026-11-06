@@ -1648,11 +1648,18 @@ fn backlink_hit(
     token: &crate::mcp::link_span::LinkToken,
     context_bytes: usize,
 ) -> BacklinkHit {
-    let line_start = text[..token.whole.start]
-        .rfind('\n')
-        .map(|p| p + 1)
-        .unwrap_or(0);
-    let line_number = text[..line_start].bytes().filter(|&b| b == b'\n').count() + 1;
+    // One pass over the prefix up to the link: the line start and the
+    // 1-based line number fall out of the same walk (R13-4: the old
+    // rfind + newline-count did two O(offset) scans per hit — quadratic
+    // across the hits of a hub note).
+    let mut line_start = 0usize;
+    let mut line_number = 1usize;
+    for (idx, b) in text.as_bytes()[..token.whole.start].iter().enumerate() {
+        if *b == b'\n' {
+            line_start = idx + 1;
+            line_number += 1;
+        }
+    }
     let line_end = text[line_start..]
         .find('\n')
         .map(|rel| line_start + rel)
@@ -2774,7 +2781,18 @@ pub async fn edit_file(
     // whether the anchor still matches (MEL-13.6).
     verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
 
-    let scan = crate::mcp::link_span::scan_document(&text, 10_000);
+    // The span scan is only needed by heading/block anchors (host-zone
+    // exclusion); a literal edit never consults it (R13-4: don't pay a
+    // full document scan for the plain find-and-replace path).
+    let needs_scan = !matches!(
+        (&input.anchor, new_content.as_deref()),
+        (EditAnchor::Literal(_), None)
+    );
+    let scan = if needs_scan {
+        crate::mcp::link_span::scan_document(&text, 10_000)
+    } else {
+        crate::mcp::link_span::scan_document("", 0)
+    };
     let edited = match (&input.anchor, new_content) {
         (EditAnchor::Literal(literal), None) => crate::mcp::edit_plan::apply_literal(
             &text,

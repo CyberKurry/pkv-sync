@@ -53,12 +53,8 @@ pub(crate) fn locate_heading(
             let line = &source[offset..line_end];
             if let Some((level, text_range)) = atx_heading(line) {
                 let abs_text = text_range.start + offset..text_range.end + offset;
-                let in_host = scan
-                    .excluded
-                    .iter()
-                    .any(|r| abs_text.start < r.end && abs_text.end > r.start);
-                let _ = &abs_text;
-                if !in_host
+                let host = in_host(scan, abs_text.start, abs_text.end);
+                if !host
                     && depth + 1 > matched_level
                     && (matched_level == 0 || level > matched_level)
                     && fold_heading(&line[text_range.clone()]) == target
@@ -118,12 +114,8 @@ fn section_subtree(
         let line = &source[offset..line_end];
         if let Some((level, text_range)) = atx_heading(line) {
             let abs_text = text_range.start + offset..text_range.end + offset;
-            let in_host = scan
-                .excluded
-                .iter()
-                .any(|r| abs_text.start < r.end && abs_text.end > r.start);
-            let _ = &text_range;
-            if !in_host && level <= matched_level {
+            let host = in_host(scan, abs_text.start, abs_text.end);
+            if !host && level <= matched_level {
                 break;
             }
         }
@@ -252,8 +244,14 @@ pub(crate) fn locate_block(
     Ok(standalone_block_range(source, scan, hit))
 }
 
+/// O(log n) host-zone probe over the scan's sorted, coalesced exclusion
+/// ranges (R13-4: the linear any() sweep made locate calls O(H*E) on
+/// documents with many headings and many exclusion ranges).
 fn in_host(scan: &DocumentScan, start: usize, end: usize) -> bool {
-    scan.excluded.iter().any(|r| start < r.end && end > r.start)
+    let idx = scan.excluded.partition_point(|r| r.end <= start);
+    scan.excluded
+        .get(idx)
+        .is_some_and(|r| start < r.end && end > r.start)
 }
 
 /// The item form: from the marker of the item carrying the id, through its
