@@ -487,8 +487,8 @@ async fn http_mcp_write_file_reports_tool_error_above_max_file_size() {
     .await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["error"]["code"], -32000);
-    assert!(body["error"]["message"]
+    assert_eq!(body["result"]["isError"], true);
+    assert!(body["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("file exceeds max_file_size of 1024 bytes"));
@@ -543,8 +543,8 @@ async fn http_mcp_write_files_oversized_file_reports_public_max_file_size_error(
     .await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["error"]["code"], -32000);
-    let message = body["error"]["message"].as_str().unwrap();
+    assert_eq!(body["result"]["isError"], true);
+    let message = body["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         message.contains("max_file_size"),
         "must be the public size error, got: {message}"
@@ -589,8 +589,8 @@ async fn http_mcp_read_file_at_commit_with_bogus_commit_reports_public_invalid_c
     .await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["error"]["code"], -32000);
-    let message = body["error"]["message"].as_str().unwrap();
+    assert_eq!(body["result"]["isError"], true);
+    let message = body["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         message.contains("invalid_commit"),
         "must be invalid_commit, got: {message}"
@@ -623,8 +623,8 @@ async fn http_mcp_tool_call_cannot_access_another_users_vault() {
     .await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["error"]["code"], -32000);
-    assert!(body["error"]["message"]
+    assert_eq!(body["result"]["isError"], true);
+    assert!(body["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("vault not found"));
@@ -1306,4 +1306,85 @@ async fn http_mcp_listen_stream_ends_when_shutdown_precedes_request() {
         ended,
         "listen SSE stream must END when shutdown was already triggered before the request; body so far: {body}"
     );
+}
+
+#[tokio::test]
+async fn mel_wire_http_tools_list_exact_both_eras() {
+    let (state, _tmp) = test_state().await;
+    let (_user_id, raw) = create_user_with_token(&state, "mel-http-wire").await;
+    let expected = [
+        "backlinks",
+        "changes_since",
+        "delete_file",
+        "edit_file",
+        "link_graph",
+        "list_files",
+        "list_vaults",
+        "move_file",
+        "read_file",
+        "read_file_at_commit",
+        "search",
+        "stale_pages",
+        "write_file",
+        "write_files",
+    ];
+    // Legacy era through the plain helper.
+    let (status, _headers, body) = post_mcp(
+        state.clone(),
+        Some(&raw),
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let mut names: Vec<&str> = body["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, expected);
+    assert!(body["result"].get("resultType").is_none());
+
+    // Modern era needs the modern headers; drive the router directly.
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json")
+        .header("authorization", format!("Bearer {raw}"))
+        .header("x-pkvsync-deployment-key", DEPLOYMENT_KEY)
+        .header("MCP-Protocol-Version", "2026-07-28")
+        .header("Mcp-Method", "tools/list")
+        .body(Body::from(
+            json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = transport_http::router(state, DEPLOYMENT_KEY.into())
+        .oneshot(req)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let mut names: Vec<&str> = body["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, expected);
+    assert_eq!(body["result"]["resultType"], "complete");
 }

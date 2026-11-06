@@ -64,7 +64,9 @@ pub(super) fn scan_frontmatter(source: &str, block: Range<usize>) -> YamlScan {
         if let Some(rest) = bare.strip_prefix("- ") {
             if indent >= 2 {
                 let value_offset = line_start + (trimmed.len() - rest.len());
-                if let Some((style, scalar_range, inner_range)) = scan_scalar(rest.trim(), value_offset + (rest.len() - rest.trim().len())) {
+                if let Some((style, scalar_range, inner_range)) =
+                    scan_scalar(rest.trim(), value_offset + (rest.len() - rest.trim().len()))
+                {
                     if let Some(mut token) = scan_wiki_in_scalar(source, &inner_range, style) {
                         token.host = Host::Yaml {
                             scalar: scalar_range,
@@ -115,7 +117,10 @@ pub(super) fn scan_frontmatter(source: &str, block: Range<usize>) -> YamlScan {
 
 /// Returns (style, scalar_range_in_source, raw_inner_range) for a quoted
 /// scalar, or None when `value` is not a recognized quoted scalar.
-fn scan_scalar(value: &str, value_start: usize) -> Option<(QuoteStyle, Range<usize>, Range<usize>)> {
+fn scan_scalar(
+    value: &str,
+    value_start: usize,
+) -> Option<(QuoteStyle, Range<usize>, Range<usize>)> {
     let bytes = value.as_bytes();
     if bytes.first() == Some(&b'\'') && bytes.last() == Some(&b'\'') && value.len() >= 2 {
         return Some((

@@ -84,7 +84,10 @@ pub(crate) fn apply_literal(
     for edit in edits {
         let matches = current.match_indices(&edit.old_text).count();
         if matches == 0 {
-            anyhow::bail!("anchor_not_found: old_text not found: {:?}", excerpt(&edit.old_text));
+            anyhow::bail!(
+                "anchor_not_found: old_text not found: {:?}",
+                excerpt(&edit.old_text)
+            );
         }
         if matches > 1 && !replace_all {
             anyhow::bail!(
@@ -93,7 +96,13 @@ pub(crate) fn apply_literal(
             );
         }
         // Geometry check BEFORE building the next string.
-        checked_replacement_len(current.len(), edit.old_text.len(), edit.new_text.len(), matches, max)?;
+        checked_replacement_len(
+            current.len(),
+            edit.old_text.len(),
+            edit.new_text.len(),
+            matches,
+            max,
+        )?;
         let mut next = String::with_capacity(
             current.len() - edit.old_text.len() * matches + edit.new_text.len() * matches,
         );
@@ -168,7 +177,6 @@ pub(crate) fn apply_range(
 fn excerpt(text: &str) -> String {
     crate::mcp::response_budget::prefix_bytes(text, 160).to_string()
 }
-
 
 /// Observable materialization hook (MEL-11.4): tests wrap this to count
 /// String materializations. Production `apply_literal` is structured so a
@@ -329,11 +337,25 @@ mod tests {
             "# T\nnew\n"
         );
         assert_eq!(
-            apply_range(source, range.clone(), EditOperation::InsertBefore, "pre\n", 1024).unwrap(),
+            apply_range(
+                source,
+                range.clone(),
+                EditOperation::InsertBefore,
+                "pre\n",
+                1024
+            )
+            .unwrap(),
             "# T\npre\nbody\n"
         );
         assert_eq!(
-            apply_range(source, range.clone(), EditOperation::InsertAfter, "\npost", 1024).unwrap(),
+            apply_range(
+                source,
+                range.clone(),
+                EditOperation::InsertAfter,
+                "\npost",
+                1024
+            )
+            .unwrap(),
             "# T\nbody\npost\n"
         );
         assert_eq!(

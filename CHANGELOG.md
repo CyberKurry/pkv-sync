@@ -7,6 +7,20 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- MCP `edit_file`: anchored edits (heading subtree, block id, or ordered
+  literal text) behind the same dry-run/CAS/hash-guard pipeline as the
+  other write tools, with `anchor_not_found`/`anchor_ambiguous` errors.
+- MCP `backlinks`: bounded inbound-link context (line numbers, snippets,
+  raw link text, optional alias) with `truncated`/`total`/scan-integrity
+  reporting.
+- `read_file` accepts `detail: "concise"` (sha256 + 8 KiB head) and
+  `list_files` accepts `limit`; both disclose clipping explicitly.
+- `move_file` now rewrites every inbound link in the same commit
+  (identity-preserving, auto content-hash guards, `links_updated`
+  report); `rewrite_links: false` selects the previous raw move.
+
 ### Changed
 
 - Internal: MCP link scanning now has a single span-aware Markdown

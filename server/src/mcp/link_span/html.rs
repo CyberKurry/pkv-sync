@@ -19,8 +19,8 @@
 const RAW_TEXT: [&str; 4] = ["script", "style", "textarea", "title"];
 /// Void elements: no closing tag, own only their own tag bytes.
 const VOID: [&str; 14] = [
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
-    "source", "track", "wbr",
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
 ];
 
 /// Returns (end_of_open_tag, tag_name, is_void) for the tag starting at

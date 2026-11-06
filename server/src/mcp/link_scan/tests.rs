@@ -1,10 +1,8 @@
 //! Tests for MEL-07: fixed-commit scanning, budgets, completeness.
 
-use crate::mcp::link_scan::{
-    target_index, visit_snapshot, ScanLimits, VaultSnapshot, VisitFlow,
-};
-use crate::service::exclude::{EffectiveExcludes, SyncPathFilter};
 use crate::db::repos::UserRepo;
+use crate::mcp::link_scan::{target_index, visit_snapshot, ScanLimits, VaultSnapshot, VisitFlow};
+use crate::service::exclude::{EffectiveExcludes, SyncPathFilter};
 use crate::storage::git::GitVaultStore;
 
 async fn state_user_vault() -> (crate::service::AppState, String, String, tempfile::TempDir) {
@@ -67,7 +65,11 @@ async fn mel_scan_budget_visits_all_files_sorted_and_reports_complete() {
     })
     .await
     .unwrap();
-    assert!(integrity.complete, "no reason to be incomplete: {:?}", integrity.reasons);
+    assert!(
+        integrity.complete,
+        "no reason to be incomplete: {:?}",
+        integrity.reasons
+    );
     assert_eq!(seen, ["a.md", "b.md"], "sorted tree order");
 }
 
@@ -200,7 +202,11 @@ async fn mel_scan_budget_visitor_stop_keeps_scan_complete() {
     .await
     .unwrap();
     assert_eq!(seen, 1, "visitor stop halts immediately");
-    assert!(integrity.complete, "caller stop is not scan incompleteness: {:?}", integrity.reasons);
+    assert!(
+        integrity.complete,
+        "caller stop is not scan incompleteness: {:?}",
+        integrity.reasons
+    );
 }
 
 #[tokio::test]

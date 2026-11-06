@@ -47,12 +47,14 @@ impl Write for JsonSizes {
                 0..=31 => 6,
                 _ => 1,
             };
-            self.raw = self.raw.checked_add(1).ok_or_else(|| {
-                io::Error::other("response size overflow")
-            })?;
-            self.escaped = self.escaped.checked_add(add).ok_or_else(|| {
-                io::Error::other("response size overflow")
-            })?;
+            self.raw = self
+                .raw
+                .checked_add(1)
+                .ok_or_else(|| io::Error::other("response size overflow"))?;
+            self.escaped = self
+                .escaped
+                .checked_add(add)
+                .ok_or_else(|| io::Error::other("response size overflow"))?;
             if self
                 .raw
                 .checked_add(self.escaped)
@@ -89,7 +91,9 @@ pub(crate) fn checked_success_size<T: Serialize + ?Sized>(
     // plus, for modern, the decorated result fields. We measure a real
     // minimal envelope below and add raw+escaped on top.
     let skeleton = json_envelope_skeleton(modern);
-    let skeleton_len = serde_json::to_vec(&skeleton).map_err(|e| anyhow::anyhow!("{e}"))?.len();
+    let skeleton_len = serde_json::to_vec(&skeleton)
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .len();
     let total = skeleton_len
         .checked_add(sizes.raw)
         .and_then(|n| n.checked_add(sizes.escaped))
@@ -194,8 +198,7 @@ mod tests {
     #[test]
     fn mel_response_checked_size_refuses_over_budget() {
         let value = serde_json::json!({ "alias": "x".repeat(40 * 1024) });
-        let err = checked_success_size(&value, false, MAX_ANCHOR_ERROR_BYTES)
-            .unwrap_err();
+        let err = checked_success_size(&value, false, MAX_ANCHOR_ERROR_BYTES).unwrap_err();
         assert!(err.to_string().starts_with("mcp_response_too_large:"));
     }
 
@@ -214,7 +217,10 @@ mod tests {
         assert_eq!(legacy["isError"], false);
         assert_eq!(legacy["structuredContent"]["ok"], true);
         assert!(legacy["content"][0]["text"].is_string());
-        assert!(legacy.get("resultType").is_none(), "legacy has no resultType");
+        assert!(
+            legacy.get("resultType").is_none(),
+            "legacy has no resultType"
+        );
 
         let modern = make_tool_result(structured, false, Era::Modern, None).unwrap();
         assert_eq!(modern["resultType"], "complete");
@@ -240,7 +246,12 @@ mod tests {
             predicted >= real_len,
             "prediction {predicted} must bound real {real_len}"
         );
-        assert!(predicted - real_len < 256, "skeleton overhead sane: {} vs {}", predicted, real_len);
+        assert!(
+            predicted - real_len < 256,
+            "skeleton overhead sane: {} vs {}",
+            predicted,
+            real_len
+        );
     }
 
     #[test]

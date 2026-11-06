@@ -2208,6 +2208,13 @@ async fn move_with_link_rewrite(
         Some(file) => file,
         None => bail!("not_found: '{from}' does not exist"),
     };
+    // MEL-18.2 step 2: the REAL call records one write attempt after the
+    // existence check and BEFORE the binary/UTF-8 rejection (pinned by
+    // move_file_binary_source_consumes_write_rate_limit).
+    let dry = input.dry_run.unwrap_or(false);
+    if !dry {
+        record_mcp_write_rate_limit(state, user, &input.vault_id)?;
+    }
     let source_text = match &source {
         StoredFile::Text { bytes } => String::from_utf8(bytes.clone())
             .map_err(|_| anyhow!("unsupported_binary_move: '{from}' is not UTF-8 text"))?,
@@ -2222,7 +2229,6 @@ async fn move_with_link_rewrite(
     // Dry runs answer before the expensive scan: validations above are
     // exactly what the real call checks first; the preview below is
     // derived from the same plan the real call builds.
-    let dry = input.dry_run.unwrap_or(false);
     if dry {
         verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
         let (plan, _guards, links_updated) =
@@ -2265,8 +2271,8 @@ async fn move_with_link_rewrite(
         });
     }
 
-    // Real call: one quota attempt, then the scan.
-    record_mcp_write_rate_limit(state, user, &input.vault_id)?;
+    // Real call: quota was recorded above (before the binary check); now
+    // the expensive scan.
     let (plan, hash_guards, links_updated) =
         build_rewrite_plan(state, &input, &from, &to, &source_text, max_rewrites).await?;
 
@@ -2978,8 +2984,98 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             true,
         ),
         write_tool(
+            "edit_file",
+            "Edit a text file at a heading, block-id, or literal-text anchor using optimistic concurrency. Replaces the anchor's section/item, or inserts/appends content, in one atomic commit.",
+            object(serde_json::json!({
+                "type": "object",
+                "required": ["vault_id", "path", "parent_commit", "anchor"],
+                "properties": {
+                    "vault_id": { "type": "string" },
+                    "path": { "type": "string" },
+                    "parent_commit": { "type": "string" },
+                    "anchor": {
+                        "type": "object",
+                        "oneOf": [
+                            { "$ref": "#/$defs/literalAnchor" },
+                            { "$ref": "#/$defs/headingAnchor" },
+                            { "$ref": "#/$defs/blockAnchor" }
+                        ]
+                    },
+                    "operation": { "type": ["string", "null"], "enum": ["replace", "insert_before", "insert_after", "append", "prepend", null], "description": "Default replace. literal anchors only support replace." },
+                    "content": { "type": ["string", "null"], "description": "Required for heading/block anchors (may be empty); refused for literal." },
+                    "dry_run": { "type": ["boolean", "null"] },
+                    "expected_hashes": { "type": ["object", "null"], "additionalProperties": { "type": "string" } }
+                },
+                "$defs": {
+                    "literalAnchor": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["literal"],
+                        "properties": {
+                            "literal": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": ["edits"],
+                                "properties": {
+                                    "edits": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "maxItems": 100,
+                                        "items": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "required": ["old_text", "new_text"],
+                                            "properties": {
+                                                "old_text": { "type": "string", "minLength": 1 },
+                                                "new_text": { "type": "string" }
+                                            }
+                                        }
+                                    },
+                                    "replace_all": { "type": ["boolean", "null"] }
+                                }
+                            }
+                        }
+                    },
+                    "headingAnchor": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["heading"],
+                        "properties": {
+                            "heading": { "type": "array", "minItems": 1, "maxItems": 6, "items": { "type": "string", "maxLength": 1024 } }
+                        }
+                    },
+                    "blockAnchor": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["block"],
+                        "properties": {
+                            "block": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,128}$" }
+                        }
+                    }
+                },
+                "additionalProperties": false
+            })),
+            true,
+        ),
+        tool(
+            "backlinks",
+            "List files that link to a vault path, with line numbers, bounded snippets, and the raw link text. Resolution follows the same rules as link_graph; hidden and excluded paths are never sources.",
+            object(serde_json::json!({
+                "type": "object",
+                "required": ["vault_id", "path"],
+                "properties": {
+                    "vault_id": { "type": "string" },
+                    "path": { "type": "string" },
+                    "at": { "type": ["string", "null"] },
+                    "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": 500 },
+                    "context_bytes": { "type": ["integer", "null"], "minimum": 0, "maximum": 1024, "description": "Snippet window around the link line (default 160)." }
+                },
+                "additionalProperties": false
+            })),
+        ),
+        write_tool(
             "move_file",
-            "Move or rename a text file within a vault in a single commit, preserving git history. Fails if the target exists or the source is binary.",
+            "Move or rename a text file within a vault in a single commit, preserving git history. By default inbound links are rewritten in the same commit (identity-preserving; pass rewrite_links:false for the raw move). Fails if the target exists, the source is binary, or the rename is case-only.",
             object(serde_json::json!({
                 "type": "object",
                 "required": ["vault_id", "parent_commit", "from", "to"],
@@ -2988,7 +3084,9 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
                     "parent_commit": { "type": "string" },
                     "from": { "type": "string" },
                     "to": { "type": "string" },
-                    "dry_run": { "type": ["boolean", "null"], "description": "Validate and report the rename (would_write) without committing. Consumes no write quota and records no activity." },
+                    "rewrite_links": { "type": ["boolean", "null"], "default": true, "description": "Rewrite every inbound link in the same commit. false = the pre-1.8.0 raw move." },
+                    "max_rewrites": { "type": ["integer", "null"], "minimum": 0, "maximum": 98, "default": 98, "description": "Cap on rewritten files; exceeding it refuses the whole move (link_rewrite_too_large)." },
+                    "dry_run": { "type": ["boolean", "null"], "description": "Validate and report the rename plus every planned rewrite (would_write) without committing. Consumes no write quota and records no activity." },
                     "expected_hashes": { "type": ["object", "null"], "additionalProperties": { "type": "string" }, "description": "Optional guard for the source path: the sha256 a previous read_file returned for `from`. A mismatch aborts with content_diverged." }
                 },
                 "additionalProperties": false

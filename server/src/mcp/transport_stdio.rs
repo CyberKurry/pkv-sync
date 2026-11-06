@@ -669,6 +669,28 @@ pub(crate) async fn handle_jsonrpc(
                     Err(err) if err.to_string() == INVALID_TOOL_ARGUMENTS => {
                         jsonrpc_error(id, -32602, INVALID_TOOL_ARGUMENTS)
                     }
+                    // MEL-19.5: tool-business failures answer inside the
+                    // result (isError:true, public message); only unknown
+                    // tool / internal errors stay protocol-level.
+                    Err(err)
+                        if !err.to_string().starts_with("unknown tool:")
+                            && err.to_string() != GENERIC_MCP_INTERNAL_ERROR =>
+                    {
+                        match tool_call_response(Err::<Value, _>(err)) {
+                            Ok(result) => json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": result
+                            }),
+                            Err(err) => {
+                                let message = mcp_tool_error_public_message(&err);
+                                jsonrpc_error(id, -32000, &message)
+                            }
+                        }
+                    }
+                    Err(err) if err.to_string().starts_with("unknown tool:") => {
+                        jsonrpc_error(id, -32602, &err.to_string())
+                    }
                     Err(err) => {
                         let message = mcp_tool_error_public_message(&err);
                         jsonrpc_error(id, -32000, &message)
@@ -726,6 +748,25 @@ pub(crate) async fn handle_modern_jsonrpc(
                     }
                     Err(err) if err.to_string() == INVALID_TOOL_ARGUMENTS => {
                         jsonrpc_error(id, -32602, INVALID_TOOL_ARGUMENTS)
+                    }
+                    // MEL-19.5 (see the legacy arm note).
+                    Err(err)
+                        if !err.to_string().starts_with("unknown tool:")
+                            && err.to_string() != GENERIC_MCP_INTERNAL_ERROR =>
+                    {
+                        match tool_call_response(Err::<Value, _>(err)) {
+                            Ok(result) => {
+                                let result = crate::mcp::protocol::decorate_result(result, None);
+                                json!({"jsonrpc": "2.0", "id": id, "result": result})
+                            }
+                            Err(err) => {
+                                let message = mcp_tool_error_public_message(&err);
+                                jsonrpc_error(id, -32000, &message)
+                            }
+                        }
+                    }
+                    Err(err) if err.to_string().starts_with("unknown tool:") => {
+                        jsonrpc_error(id, -32602, &err.to_string())
                     }
                     Err(err) => {
                         let message = mcp_tool_error_public_message(&err);
@@ -807,6 +848,12 @@ async fn call_tool(
         "move_file" => serde_json::to_value(
             tools::move_file(state, user, serde_json::from_value(arguments)?).await?,
         )?,
+        "edit_file" => serde_json::to_value(
+            tools::edit_file(state, user, serde_json::from_value(arguments)?).await?,
+        )?,
+        "backlinks" => serde_json::to_value(
+            tools::backlinks(state, &user.user_id, serde_json::from_value(arguments)?).await?,
+        )?,
         _ => return Err(anyhow!("unknown tool: {}", params.name)),
     };
 
@@ -818,6 +865,36 @@ async fn call_tool(
         "structuredContent": structured,
         "isError": false
     }))
+}
+
+/// MEL-19.5: a TOOL-business failure (validation, not-found, guards) is a
+/// correctable outcome for the model — report it INSIDE the tools/call
+/// result with `isError:true` and the public prefixed message, not as a
+/// JSON-RPC protocol error. Transport/protocol failures (auth, unknown
+/// method/tool, malformed request) remain protocol errors.
+pub(crate) fn tool_call_response(outcome: Result<Value, anyhow::Error>) -> Result<Value> {
+    match outcome {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            let message = mcp_tool_error_public_message(&error).to_string();
+            if message == GENERIC_MCP_INTERNAL_ERROR {
+                // Internal errors keep the protocol-level envelope (logged
+                // in mcp_tool_error_public_message).
+                return Err(error);
+            }
+            if message.starts_with("unknown tool:") {
+                // Spec: unknown tool is a protocol-level invalid params.
+                return Err(error);
+            }
+            Ok(json!({
+                "content": [{"type": "text", "text": message}],
+                "structuredContent": {
+                    "error": { "message": message }
+                },
+                "isError": true
+            }))
+        }
+    }
 }
 
 pub(crate) fn mcp_tool_error_public_message(error: &anyhow::Error) -> Cow<'_, str> {
@@ -832,6 +909,8 @@ pub(crate) fn mcp_tool_error_public_message(error: &anyhow::Error) -> Cow<'_, st
 
 fn is_public_mcp_tool_error(message: &str) -> bool {
     const PREFIXES: &[&str] = &[
+        "anchor_ambiguous:",
+        "anchor_not_found:",
         "batch_bytes_exceed_budget:",
         "batch_too_large:",
         "conflicting_path:",
@@ -839,17 +918,23 @@ fn is_public_mcp_tool_error(message: &str) -> bool {
         "duplicate_path:",
         "empty_batch:",
         "file_too_large:",
+        "invalid_anchor:",
         "invalid_commit:",
         "invalid_cursor:",
         "invalid_path:",
         "not_found:",
         "path_conflict:",
         "path_excluded:",
+        "link_rewrite_too_large:",
+        "link_rewrite_unsupported:",
+        "mcp_response_too_large:",
         "rate_limited:",
         "target_exists:",
         "unrelated_commit:",
-        "unknown tool:",
+        "unsupported_binary_edit:",
         "unsupported_binary_move:",
+        "unsupported_link_host:",
+        "unknown tool:",
         "wrong_file_kind:",
     ];
     const EXACT: &[&str] = &[

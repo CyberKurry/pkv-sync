@@ -200,8 +200,10 @@ async fn stdio_session_rejects_cross_vault_tool_arguments_without_panicking() {
 
     assert_eq!(response["jsonrpc"], "2.0");
     assert_eq!(response["id"], "cross-vault");
-    assert_eq!(response["error"]["code"], -32000);
-    assert!(response["error"]["message"]
+    // MEL-19.5: session scoping is a tool-business failure -> isError
+    // result with the public message.
+    assert_eq!(response["result"]["isError"], true);
+    assert!(response["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("vault not available"));
@@ -1402,4 +1404,93 @@ async fn stdio_run_on_propagates_writer_errors() {
         err.contains("broken pipe") || err.contains("writer"),
         "error should name the writer failure, got: {err}"
     );
+}
+
+// ---- MEL-19: exact tool surface ---------------------------------------------
+
+#[tokio::test]
+async fn mel_wire_tools_list_is_exact() {
+    let (session, _state, _uid, _vid, _tmp) = session_with_vault("mel-wire").await;
+    let expected = [
+        "backlinks",
+        "changes_since",
+        "delete_file",
+        "edit_file",
+        "link_graph",
+        "list_files",
+        "list_vaults",
+        "move_file",
+        "read_file",
+        "read_file_at_commit",
+        "search",
+        "stale_pages",
+        "write_file",
+        "write_files",
+    ];
+    for modern in [false, true] {
+        let request = if modern {
+            modern_request(serde_json::json!(1), "tools/list")
+        } else {
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})
+        };
+        let responses = send(&session, request).await;
+        assert_eq!(responses.len(), 1);
+        let result = &responses[0]["result"];
+        let mut names: Vec<&str> = result["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect();
+        names.sort_unstable();
+        assert_eq!(names, expected);
+        assert_eq!(
+            names.len(),
+            names.iter().collect::<std::collections::HashSet<_>>().len()
+        );
+        assert_eq!(result.get("resultType").is_some(), modern);
+    }
+}
+
+#[tokio::test]
+async fn mel_wire_business_failure_is_result_error_not_protocol_error() {
+    let (session, state, _uid, vid, _tmp) = session_with_vault("mel-wire-err").await;
+    // Seed a commit so the vault has a HEAD to read against.
+    let git = Git2VaultStore::new(state.default_vault_root());
+    git.commit_changes(
+        &vid,
+        None,
+        &[FileChange::upsert_text("seed.md", b"seed".to_vec())],
+        "seed",
+    )
+    .await
+    .unwrap();
+    let head = git.head(&vid).await.unwrap().unwrap();
+    // edit_file on a missing file (current parent): business failure ->
+    // isError:true in the result (public prefix), NOT a JSON-RPC error.
+    let request = serde_json::json!({
+        "jsonrpc":"2.0","id":2,"method":"tools/call",
+        "params":{"name":"edit_file","arguments":{
+            "vault_id": vid, "path": "missing.md", "parent_commit": head,
+            "anchor": {"literal": {"edits": [{"old_text":"a","new_text":"b"}]}}
+        }}
+    });
+    let responses = send(&session, request).await;
+    assert_eq!(responses.len(), 1);
+    let resp = &responses[0];
+    assert!(resp.get("error").is_none(), "no protocol error: {resp}");
+    assert_eq!(resp["result"]["isError"], true);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with("not_found:"), "{text}");
+}
+
+#[tokio::test]
+async fn mel_wire_unknown_tool_is_jsonrpc_error() {
+    let (session, _state, _uid, _vid, _tmp) = session_with_vault("mel-wire-unk").await;
+    let request = serde_json::json!({
+        "jsonrpc":"2.0","id":3,"method":"tools/call",
+        "params":{"name":"no_such_tool","arguments":{}}
+    });
+    let responses = send(&session, request).await;
+    assert_eq!(responses[0]["error"]["code"], -32602);
 }

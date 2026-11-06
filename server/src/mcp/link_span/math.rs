@@ -17,10 +17,7 @@
 /// closed on the current rules.
 pub(super) fn math_host_end(source: &str, open: usize) -> Option<usize> {
     let bytes = source.as_bytes();
-    let dollars = bytes[open..]
-        .iter()
-        .take_while(|&&b| b == b'$')
-        .count();
+    let dollars = bytes[open..].iter().take_while(|&&b| b == b'$').count();
     if dollars >= 2 {
         // Block math: find a closing $$ run of the same length.
         let want = dollars;
@@ -31,10 +28,7 @@ pub(super) fn math_host_end(source: &str, open: usize) -> Option<usize> {
                 continue;
             }
             if bytes[i] == b'$' {
-                let run = bytes[i..]
-                    .iter()
-                    .take_while(|&&b| b == b'$')
-                    .count();
+                let run = bytes[i..].iter().take_while(|&&b| b == b'$').count();
                 if run == want {
                     return Some(i + run);
                 }

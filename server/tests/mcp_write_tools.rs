@@ -111,6 +111,22 @@ async fn post_tool(state: AppState, raw: &str, name: &str, arguments: Value) -> 
     serde_json::from_slice(&bytes).unwrap()
 }
 
+/// MEL-19.5 helpers: tool-business failures now answer inside the result.
+fn tool_error_code(body: &Value) -> i64 {
+    body["error"]["code"].as_i64().unwrap_or(0)
+}
+
+fn tool_business_message(body: &Value) -> String {
+    assert_eq!(
+        body["result"]["isError"], true,
+        "not a business failure: {body}"
+    );
+    body["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 async fn seed_text(
     state: &AppState,
     user: &AuthenticatedUser,
@@ -290,8 +306,8 @@ async fn write_file_respects_exclude_globs() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    assert!(body["error"]["message"]
+    assert_eq!(body["result"]["isError"], true);
+    assert!(body["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("path_excluded"));
@@ -415,8 +431,8 @@ async fn write_files_rejects_invalid_path_without_committing() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    assert!(body["error"]["message"]
+    assert_eq!(body["result"]["isError"], true);
+    assert!(body["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("invalid_path"));
@@ -452,8 +468,8 @@ async fn write_files_rejects_duplicate_paths_across_writes_and_deletes() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    let message = body["error"]["message"].as_str().unwrap();
+    assert_eq!(body["result"]["isError"], true);
+    let message = body["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         message.contains("duplicate_path") || message.contains("conflicting_path"),
         "{message}"
@@ -512,8 +528,8 @@ async fn write_files_rejects_empty_and_oversized() {
         }),
     )
     .await;
-    assert_eq!(empty["error"]["code"], -32000);
-    assert!(empty["error"]["message"]
+    assert_eq!(empty["result"]["isError"], true);
+    assert!(empty["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("empty_batch"));
@@ -532,8 +548,8 @@ async fn write_files_rejects_empty_and_oversized() {
         }),
     )
     .await;
-    assert_eq!(oversized["error"]["code"], -32000);
-    assert!(oversized["error"]["message"]
+    assert_eq!(oversized["result"]["isError"], true);
+    assert!(oversized["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("batch_too_large"));
@@ -574,9 +590,9 @@ async fn write_files_rejects_batch_total_bytes_over_max_file_size() {
         }),
     )
     .await;
-    assert_eq!(over["error"]["code"], -32000);
+    assert_eq!(over["result"]["isError"], true);
     assert!(
-        over["error"]["message"]
+        over["result"]["content"][0]["text"]
             .as_str()
             .unwrap()
             .contains("batch_bytes"),
@@ -644,8 +660,8 @@ async fn write_files_counts_one_rate_limit_record() {
     )
     .await;
 
-    assert_eq!(second["error"]["code"], -32000);
-    assert!(second["error"]["message"]
+    assert_eq!(second["result"]["isError"], true);
+    assert!(second["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("rate_limited"));
@@ -756,8 +772,8 @@ async fn move_file_target_exists_check_does_not_leak_excluded_paths() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    let message = body["error"]["message"].as_str().unwrap();
+    assert_eq!(body["result"]["isError"], true);
+    let message = body["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         message.contains("invalid_path") || message.contains("not_found"),
         "{message}"
@@ -797,8 +813,8 @@ async fn move_file_rejects_existing_target() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    assert!(body["error"]["message"]
+    assert_eq!(body["result"]["isError"], true);
+    assert!(body["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("target_exists"));
@@ -849,8 +865,8 @@ async fn move_file_rejects_binary() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    assert!(body["error"]["message"]
+    assert_eq!(body["result"]["isError"], true);
+    assert!(body["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("unsupported_binary_move"));
@@ -884,8 +900,8 @@ async fn move_file_not_found() {
         }),
     )
     .await;
-    assert_eq!(hidden["error"]["code"], -32000);
-    assert!(hidden["error"]["message"]
+    assert_eq!(hidden["result"]["isError"], true);
+    assert!(hidden["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("not_found"));
@@ -902,8 +918,8 @@ async fn move_file_not_found() {
         }),
     )
     .await;
-    assert_eq!(missing["error"]["code"], -32000);
-    assert!(missing["error"]["message"]
+    assert_eq!(missing["result"]["isError"], true);
+    assert!(missing["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("not_found"));
@@ -993,8 +1009,8 @@ async fn write_rate_limit_kicks_in_at_61st_request_in_window() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    assert!(body["error"]["message"]
+    assert_eq!(body["result"]["isError"], true);
+    assert!(body["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("rate_limited"));
@@ -1031,8 +1047,8 @@ async fn oversized_write_file_is_rejected_before_consuming_write_quota() {
         }),
     )
     .await;
-    assert_eq!(oversized["error"]["code"], -32000);
-    assert!(oversized["error"]["message"]
+    assert_eq!(oversized["result"]["isError"], true);
+    assert!(oversized["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("max_file_size"));
@@ -1094,7 +1110,7 @@ async fn different_token_or_different_vault_has_independent_quota() {
         }),
     )
     .await;
-    assert!(same_scope["error"]["message"]
+    assert!(same_scope["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("rate_limited"));
@@ -1160,8 +1176,8 @@ async fn move_file_invalid_source_does_not_burn_rate_limit() {
             }),
         )
         .await;
-        assert_eq!(invalid["error"]["code"], -32000);
-        let message = invalid["error"]["message"].as_str().unwrap();
+        assert_eq!(invalid["result"]["isError"], true);
+        let message = invalid["result"]["content"][0]["text"].as_str().unwrap();
         assert!(message.contains("not_found"), "{message}");
         assert!(!message.contains("rate_limited"), "{message}");
     }
@@ -1231,8 +1247,8 @@ async fn move_file_binary_source_consumes_write_rate_limit() {
         }),
     )
     .await;
-    assert_eq!(first["error"]["code"], -32000);
-    let first_message = first["error"]["message"].as_str().unwrap();
+    assert_eq!(first["result"]["isError"], true);
+    let first_message = tool_business_message(&first);
     assert!(
         first_message.contains("unsupported_binary_move"),
         "{first_message}"
@@ -1250,8 +1266,8 @@ async fn move_file_binary_source_consumes_write_rate_limit() {
         }),
     )
     .await;
-    assert_eq!(second["error"]["code"], -32000);
-    let second_message = second["error"]["message"].as_str().unwrap();
+    assert_eq!(second["result"]["isError"], true);
+    let second_message = tool_business_message(&second);
     assert!(second_message.contains("rate_limited"), "{second_message}");
 
     let text_move = post_tool(
@@ -1266,8 +1282,8 @@ async fn move_file_binary_source_consumes_write_rate_limit() {
         }),
     )
     .await;
-    assert_eq!(text_move["error"]["code"], -32000);
-    let text_message = text_move["error"]["message"].as_str().unwrap();
+    assert_eq!(text_move["result"]["isError"], true);
+    let text_message = tool_business_message(&text_move);
     assert!(text_message.contains("rate_limited"), "{text_message}");
 }
 
@@ -1304,8 +1320,8 @@ async fn move_file_checks_ownership_before_tree_or_content_probe() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    let message = body["error"]["message"].as_str().unwrap();
+    assert_eq!(body["result"]["isError"], true);
+    let message = body["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         message.contains("not_found") || message.contains("vault not found"),
         "must reject before leaking target_exists or source metadata: {message}"
@@ -1459,8 +1475,8 @@ async fn write_files_oversized_file_reports_public_max_file_size_error() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    let message = body["error"]["message"].as_str().unwrap();
+    assert_eq!(body["result"]["isError"], true);
+    let message = body["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         message.contains("max_file_size"),
         "must be the public size error, got: {message}"
@@ -1551,8 +1567,8 @@ async fn read_file_on_directory_path_reports_public_not_found() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    let message = body["error"]["message"].as_str().unwrap();
+    assert_eq!(body["result"]["isError"], true);
+    let message = body["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         message.contains("not_found"),
         "a directory path must read as not_found, got: {message}"
@@ -1589,8 +1605,8 @@ async fn read_file_at_commit_with_bogus_commit_reports_public_invalid_commit() {
     )
     .await;
 
-    assert_eq!(body["error"]["code"], -32000);
-    let message = body["error"]["message"].as_str().unwrap();
+    assert_eq!(body["result"]["isError"], true);
+    let message = body["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         message.contains("invalid_commit"),
         "a bogus commit must read as invalid_commit, got: {message}"
