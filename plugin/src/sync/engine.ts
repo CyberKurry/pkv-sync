@@ -1046,8 +1046,21 @@ export class SyncEngine {
       }
       if (indexed && fileExists) {
         const local = await this.opts.vault.snapshot(path, this.opts.textExtensions);
+        const localHashAtCheck: string | undefined = local?.hash;
         if (isLocalDirty(local, indexed.lastSyncedHash)) {
           await this.writeConflict(path, local);
+          return index;
+        }
+        // R12-3: close the snapshot→trash TOCTOU window, mirroring
+        // applyInlineText's recheck. An edit landing between the snapshot
+        // (which showed the file clean, or whose conflict copy was just
+        // written) and the trash would be DESTROYED by the trash while the
+        // sidecar holds only the pre-edit bytes. Re-read + re-hash: a
+        // mismatch writes a fresh sidecar capturing the new content and
+        // skips the trash — the full pull then reconciles.
+        const recheck = await this.opts.vault.snapshot(path, this.opts.textExtensions);
+        if (localHashAtCheck !== undefined && recheck.hash !== localHashAtCheck) {
+          await this.writeConflict(path, recheck);
           return index;
         }
       }

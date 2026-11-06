@@ -225,8 +225,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
   data; not reachable — `EchMode::Enable` is not used). Lockfile-only bump;
   no other crates move.
 
-### Fixed
-
+- The plugin's remote-delete apply had a snapshot→trash race: a user
+  edit landing in that window was destroyed by the trash while the
+  conflict sidecar only held the pre-edit bytes. The delete now
+  re-snapshots before trashing (mirroring the inline-text recheck); a
+  changed hash skips the trash so the edit survives for the next pull.
 - The plugin's built-in update check always reported "PKV Sync plugin is up
   to date" when the update source was GitHub. The client queried the main
   repository's latest release, whose assets are the plugin zip and server
