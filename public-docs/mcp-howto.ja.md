@@ -22,8 +22,8 @@ PKV Sync は MCP server を通じて vault 内容を公開できます。サー�
 - `delete_file {vault_id, path, parent_commit}`: `parent_commit` による optimistic concurrency でファイルを削除します。
 - `write_files {vault_id, parent_commit, writes?, deletes?}`: 複数のテキストファイルの作成、更新、削除を 1 つの commit として atomically に実行します。`writes[]` は `{path, content}` objects、`deletes[]` は paths を含みます。
 - `edit_file {vault_id, path, parent_commit, anchor, operation?, content?}`: 見出しチェーン・ブロック id・逐次リテラルテキストのアンカーで編集します（dry-run／CAS／ハッシュガード付き）。`anchor_not_found`／`anchor_ambiguous` エラー。
-- `backlinks {vault_id, path, at?, limit?, context_bytes?}`: `path` への被リンクを行番号・スニペット・生リンクテキスト付きで列挙します。切りの良さは `truncated`／`total` で明示。
-- `move_file {vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?}`: 既定では全ての被リンクを同一 commit で書き換えます（alias と subpath は保持）。`rewrite_links: false` で従来の素の移動。case-only rename は拒否します。
+- `backlinks {vault_id, path, at?, limit?, context_bytes?}`: `path` への被リンクを行番号・スニペット・生リンクテキスト付きで列挙します。切りの良さは `truncated`／`total` で明示。スキャン不完全時は `scan_complete`／`incomplete_reasons` を伴います（理由は `file_cap`／`byte_cap`／`link_cap` 予算、`unsupported_host` 証明不能なホスト境界、`search_budget` 悪意ある文書による構造検索予算の消費）。
+- `move_file {vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?}`: 既定では全ての被リンクを同一 commit で書き換えます（alias と subpath は保持）。`rewrite_links: false` で従来の素の移動。case-only rename は拒否します。空の `parent_commit` は呼び出し時点の HEAD を指します（読み取り・スキャン・CAS が同じ commit に固定）。
 
 現在の `SyncPathFilter` に拒否された paths は、一覧表示、検索、読み取り、link graph や change report への含有の対象になりません。読み取り系ツール（`list_files`、`read_file`、`read_file_at_commit`、`search`）は、vault の allowlist で再び許可された hidden paths を受け入れ、自動生成された `.conflict-*` サイドカーを返すことがあります。`link_graph`、`changes_since`、およびすべての書き込み系ツールはより厳格なポリシーを適用し、hidden paths を一律に拒否するため、agent は hidden files を操作対象にできません。
 

@@ -22,8 +22,8 @@ PKV Sync는 MCP server를 통해 vault 내용을 노출할 수 있습니다. 서
 - `delete_file {vault_id, path, parent_commit}`: `parent_commit`을 사용한 optimistic concurrency로 파일을 삭제합니다.
 - `write_files {vault_id, parent_commit, writes?, deletes?}`: 여러 텍스트 파일의 생성, 업데이트, 삭제를 하나의 commit으로 atomically 수행합니다. `writes[]`에는 `{path, content}` objects가 들어가고, `deletes[]`에는 paths가 들어갑니다.
 - `edit_file {vault_id, path, parent_commit, anchor, operation?, content?}`: 제목 체인·블록 id·순차 리터럴 텍스트 앵커로 편집합니다(dry-run／CAS／해시 가드 포함). `anchor_not_found`／`anchor_ambiguous` 오류.
-- `backlinks {vault_id, path, at?, limit?, context_bytes?}`: `path`를 가리키는 유입 링크를 줄 번호·스니펫·원본 링크 텍스트와 함께 나열합니다. 잘림은 `truncated`／`total`로 명시.
-- `move_file {vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?}`: 기본값에서는 모든 유입 링크를 같은 commit에서 다시 씁니다(별칭·서브패스 보존). `rewrite_links: false`는 이전의 단순 이동이며 case-only rename은 거부합니다.
+- `backlinks {vault_id, path, at?, limit?, context_bytes?}`: `path`를 가리키는 유입 링크를 줄 번호·스니펫·원본 링크 텍스트와 함께 나열합니다. 잘림은 `truncated`／`total`로 명시. 스캔이 불완전하면 `scan_complete`／`incomplete_reasons`가 함께 옵니다(이유는 `file_cap`／`byte_cap`／`link_cap` 예산, `unsupported_host` 증명 불가능한 호스트 경계, `search_budget` 악의적 문서로 인한 구성 검색 예산 소진).
+- `move_file {vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?}`: 기본값에서는 모든 유입 링크를 같은 commit에서 다시 씁니다(별칭·서브패스 보존). `rewrite_links: false`는 이전의 단순 이동이며 case-only rename은 거부합니다. 빈 `parent_commit`는 호출 시점의 HEAD를 의미합니다(읽기·스캔·CAS가 같은 커밋에 고정).
 
 현재 `SyncPathFilter`에서 거부된 paths는 나열, 검색, 읽기, link graph 및 변경 보고 대상에서 제외됩니다. 읽기 도구(`list_files`, `read_file`, `read_file_at_commit`, `search`)는 vault allowlist로 다시 허용된 hidden paths를 받아들이며, 자동 생성된 `.conflict-*` 사이드카를 반환할 수 있습니다. `link_graph`, `changes_since` 및 모든 쓰기 도구는 더 엄격한 정책을 적용해 hidden paths를 일괄 거부하므로, agent가 hidden files를 작업 대상으로 삼을 수 없습니다.
 

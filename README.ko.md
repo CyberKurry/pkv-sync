@@ -2,6 +2,8 @@
 
 PKV Sync는 Obsidian Vault를 자체 호스팅으로 동기화하는 Git 네이티브 서버입니다.
 
+프로젝트 이름은 **PKV Sync**입니다. **PKV**는 **Personal Knowledge Vault**의 머리글자 약어이며, **Sync**는 완전한 단어입니다.
+
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
@@ -11,7 +13,7 @@ PKV Sync는 Obsidian Vault를 자체 호스팅으로 동기화하는 Git 네이�
 
 ## 릴리스 상태
 
-PKV Sync 1.8.0는 현재 기능 릴리스입니다. MCP 도구 면에 앵커 편집(`edit_file`: 제목 서브트리·블록 id·순차 리터럴 편집, 다른 쓰기 도구와 동일한 dry-run／CAS／해시 가드 파이프라인), 유입 링크 컨텍스트(`backlinks`: 줄 번호·스니펫·원본 링크 텍스트 포함), 그리고 링크를 보존하는 `move_file`가 추가되었습니다. 기본값에서는 모든 유입 링크(wikilink·임베드·Markdown 링크·frontmatter 속성 링크)를 같은 commit에서 다시 쓰며, 식별성을 보존하고 자동 콘텐츠 해시 가드를 붙입니다——병행 편집은 덮어쓰는 대신 이동 전체를 중단합니다. `read_file`에는 토큰 절약 `concise` 모드, `list_files`에는 명시적 `limit`가 추가되었고, 유계 응답은 항상 잘림을 밝힙니다. case-only rename은 거부되며 도구의 업무 실패는 모델이 자체 수정할 수 있는 `isError` 결과로 돌아옵니다.
+PKV Sync 1.8.0는 현재 기능 릴리스입니다. MCP 도구 면에 앵커 편집(`edit_file`: 제목 서브트리·블록 id·순차 리터럴 편집, 다른 쓰기 도구와 동일한 dry-run／CAS／해시 가드 파이프라인), 유입 링크 컨텍스트(`backlinks`: 줄 번호·스니펫·원본 링크 텍스트 포함), 그리고 링크를 보존하는 `move_file`가 추가되었습니다. 기본값에서는 모든 유입 링크(wikilink·임베드·Markdown 링크·frontmatter 속성 링크)를 같은 commit에서 다시 쓰며, 식별성을 보존하고 자동 콘텐츠 해시 가드를 붙입니다——병행 편집은 덮어쓰는 대신 이동 전체를 중단합니다. `read_file`에는 토큰 절약 `concise` 모드, `list_files`에는 명시적 `limit`가 추가되었고, 유계 응답은 항상 잘림을 밝힙니다. case-only rename은 거부되며 도구의 업무 실패는 모델이 자체 수정할 수 있는 `isError` 결과로 돌아옵니다. 또한 1.8.0 라인은 링크 스캐너를 악의적 문서에 대해 강화했습니다(조작된 링크 폭주로 스캔을 멈출 수 없게 됨——작업량은 예산화되고 정직하게 저하). 그리고 `move_file`를 단일 커밋에 고정하여 기본 빈 `parent_commit`는 현재 HEAD를 해석하며, 병행 편집이 낡은 패치를 받는 일은 없습니다.
 
 ## 기능
 

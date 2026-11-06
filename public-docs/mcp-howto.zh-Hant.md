@@ -20,8 +20,8 @@ PKV Sync 可以透過 MCP server 暴露筆記庫內容。服務端返回檔案�
 - `delete_file {vault_id, path, parent_commit}`：以 `parent_commit` 樂觀並發控制刪除檔案。
 - `write_files {vault_id, parent_commit, writes?, deletes?}`：在一個 commit 中原子地建立、更新和／或刪除多個文字檔案。`writes[]` 包含 `{path, content}` 物件；`deletes[]` 包含路徑。
 - `edit_file {vault_id, path, parent_commit, anchor, operation?, content?}`：以標題鏈、區塊 id 或逐字文字錨點編輯檔案（附 dry-run／CAS／雜湊守衛）。錯誤碼 `anchor_not_found`／`anchor_ambiguous`。
-- `backlinks {vault_id, path, at?, limit?, context_bytes?}`：列出連結到 `path` 的檔案，附行號、片段與原始連結文字；以 `truncated`／`total` 明示截斷。
-- `move_file {vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?}`：預設會在同一個 commit 改寫所有入鏈（保留別名與子路徑）；`rewrite_links: false` 為 1.8.0 之前的原始搬移，case-only rename 會被拒絕。
+- `backlinks {vault_id, path, at?, limit?, context_bytes?}`：列出連結到 `path` 的檔案，附行號、片段與原始連結文字；以 `truncated`／`total` 明示截斷。掃描不完整時附 `scan_complete`／`incomplete_reasons`（原因含 `file_cap`／`byte_cap`／`link_cap` 預算、`unsupported_host` 無法證明的宿主邊界、`search_budget` 惡意文件構造搜尋預算耗盡）。
+- `move_file {vault_id, parent_commit, from, to, rewrite_links?, max_rewrites?}`：預設會在同一個 commit 改寫所有入鏈（保留別名與子路徑）；`rewrite_links: false` 為 1.8.0 之前的原始搬移，case-only rename 會被拒絕。空的 `parent_commit` 表示以呼叫時刻的 HEAD 為準（讀取、掃描與 CAS 釘同一個 commit）。
 
 被目前 `SyncPathFilter` 拒絕的路徑不會被列出、搜尋、讀取，也不會納入連結圖或變更報告。讀取類工具（`list_files`、`read_file`、`read_file_at_commit`、`search`）會接受被按 vault allowlist 重新納入的隱藏路徑，並可能返回自動生成的 `.conflict-*` 旁檔。`link_graph`、`changes_since` 以及所有寫入類工具採用更嚴格的政策，直接拒絕隱藏路徑，因此 agent 無法對隱藏檔案執行操作。
 

@@ -2,6 +2,8 @@
 
 PKV Sync is a self-hosted, Git-native sync server for Obsidian vaults.
 
+The name is **PKV Sync**: **PKV** is the initialism of **Personal Knowledge Vault**, and **Sync** is spelled out in full.
+
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
@@ -22,7 +24,12 @@ content-hash guards so a concurrent edit aborts the whole move instead
 of being overwritten. `read_file` learns a token-disciplined `concise`
 mode, `list_files` an explicit `limit`; bounded responses always disclose
 their truncation. Case-only renames are refused, and business failures
-now answer as `isError` results the model can act on.
+now answer as `isError` results the model can act on. The 1.8.0 line
+also hardens the link scanner against hostile documents (a crafted
+link flood can no longer stall scans — work is budgeted and degrades
+honestly) and pins `move_file` to one commit, so the default empty
+`parent_commit` resolves the current head and concurrent edits can
+never receive stale patches.
 
 
 ## Features
