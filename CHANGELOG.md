@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-11-07
+
 ### Fixed
 
 - Plugin conflict sidecars: the name grammar had three hand-rolled

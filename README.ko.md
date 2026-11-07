@@ -7,13 +7,13 @@ PKV Sync는 Obsidian Vault를 자체 호스팅으로 동기화하는 Git 네이�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-문서 버전: v1.8.0.
+문서 버전: v1.8.1.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · 한국어
 
 ## 릴리스 상태
 
-PKV Sync 1.8.0는 현재 기능 릴리스입니다. MCP 도구 면에 앵커 편집(`edit_file`: 제목 서브트리·블록 id·순차 리터럴 편집, 다른 쓰기 도구와 동일한 dry-run／CAS／해시 가드 파이프라인), 유입 링크 컨텍스트(`backlinks`: 줄 번호·스니펫·원본 링크 텍스트 포함), 그리고 링크를 보존하는 `move_file`가 추가되었습니다. 기본값에서는 모든 유입 링크(wikilink·임베드·Markdown 링크·frontmatter 속성 링크)를 같은 commit에서 다시 쓰며, 식별성을 보존하고 자동 콘텐츠 해시 가드를 붙입니다——병행 편집은 덮어쓰는 대신 이동 전체를 중단합니다. `read_file`에는 토큰 절약 `concise` 모드, `list_files`에는 명시적 `limit`가 추가되었고, 유계 응답은 항상 잘림을 밝힙니다. case-only rename은 거부되며 도구의 업무 실패는 모델이 자체 수정할 수 있는 `isError` 결과로 돌아옵니다. 또한 1.8.0 라인은 링크 스캐너를 악의적 문서에 대해 강화했습니다(조작된 링크 폭주로 스캔을 멈출 수 없게 됨——작업량은 예산화되고 정직하게 저하). 그리고 `move_file`를 단일 커밋에 고정하여 기본 빈 `parent_commit`는 현재 HEAD를 해석하며, 병행 편집이 낡은 패치를 받는 일은 없습니다.
+PKV Sync 1.8.1은 리뷰에서 발견된 두 가지 운영 경로를 강화했습니다. Docker 자가 업데이터가 상시 감시자로 바뀌었습니다. 「Upgrade now」는 이전에 최대 한 건의 요청만 소비했습니다(oneshot 컨테이너가 종료된 후 다시 동작하지 않음). 30분이 넘는 오래된 업그레이드 요청은 적용되지 않고 거부되며, 시도마다 `upgrade-status.json`에 기록되고 관리 패널에 최근 결과가 표시됩니다. 충돌 사이드카 이름에는 항상 유일성 nonce가 붙고(서버 문법과 일치) 같은 초의 두 사이드카가 플러그인 재시작을 넘어 서로 덮어쓰는 일이 없어지며, 충돌 UI 파싱도 불일치하던 3류에서 하나로 수렴했습니다. 1.8.0 기능 릴리스(MCP 편집 면) 하이라이트: MCP 도구 면에 앵커 편집(`edit_file`: 제목 서브트리·블록 id·순차 리터럴 편집, 다른 쓰기 도구와 동일한 dry-run／CAS／해시 가드 파이프라인), 유입 링크 컨텍스트(`backlinks`: 줄 번호·스니펫·원본 링크 텍스트 포함), 그리고 링크를 보존하는 `move_file`가 추가되었습니다. 기본값에서는 모든 유입 링크(wikilink·임베드·Markdown 링크·frontmatter 속성 링크)를 같은 commit에서 다시 쓰며, 식별성을 보존하고 자동 콘텐츠 해시 가드를 붙입니다——병행 편집은 덮어쓰는 대신 이동 전체를 중단합니다. `read_file`에는 토큰 절약 `concise` 모드, `list_files`에는 명시적 `limit`가 추가되었고, 유계 응답은 항상 잘림을 밝힙니다. case-only rename은 거부되며 도구의 업무 실패는 모델이 자체 수정할 수 있는 `isError` 결과로 돌아옵니다. 또한 1.8.0 라인은 링크 스캐너를 악의적 문서에 대해 강화했습니다(조작된 링크 폭주로 스캔을 멈출 수 없게 됨——작업량은 예산화되고 정직하게 저하). 그리고 `move_file`를 단일 커밋에 고정하여 기본 빈 `parent_commit`는 현재 HEAD를 해석하며, 병행 편집이 낡은 패치를 받는 일은 없습니다.
 
 ## 기능
 

@@ -7,13 +7,13 @@ PKV Sync 是一个自托管的、Git 原生的 Obsidian 笔记库同步服务端
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.8.0。
+文档版本：v1.8.1。
 
 [English](./README.md) · 简体中文 · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## 状态
 
-PKV Sync 1.8.0 是当前的功能版本。MCP 工具面新增：定位编辑（`edit_file`——标题子树、块 id、有序字面编辑，走与其它写入工具相同的 dry-run／CAS／哈希守卫管线）、反链上下文（`backlinks`，带行号、片段与原始链接文本），以及带链接维护的 `move_file`：默认在同一个 commit 里改写全部入链（wikilink、嵌入、Markdown 链接与 frontmatter 属性链接），保持身份不变并附带自动内容哈希守卫——并发编辑会中止整个搬移而不是被覆盖。`read_file` 新增面向 token 纪律的 `concise` 模式，`list_files` 支持显式 `limit`；有界响应总会披露截断。仅大小写的重命名被拒绝，工具业务失败改以模型可自纠的 `isError` 结果返回。1.8.0 系列同时加固了链接扫描器对恶意文档的防御（构造的链接洪水再也无法拖死扫描——工作量有预算并诚实降级），并把 `move_file` 钉在单一 commit 上：默认空 `parent_commit` 解析当前 HEAD，并发编辑绝不会收到过期补丁。
+PKV Sync 1.8.1 加固了评审中发现的两条运维路径。Docker 自升级器改为常驻监听：「Upgrade now」此前最多消费一次请求（一次性容器退出后再无人值守），超过 30 分钟的过期升级请求会被拒绝而非照常应用，且每次尝试都记录在 `upgrade-status.json` 中，管理面板显示最近一次结果。冲突侧车名现在恒带唯一性 nonce（与服务端语法一致）——同秒两份侧车不会再在插件重载后互相覆盖，冲突 UI 也从三套不一致的解析收敛为单一语法。1.8.0 功能版（MCP 编辑面）的要点：MCP 工具面新增：定位编辑（`edit_file`——标题子树、块 id、有序字面编辑，走与其它写入工具相同的 dry-run／CAS／哈希守卫管线）、反链上下文（`backlinks`，带行号、片段与原始链接文本），以及带链接维护的 `move_file`：默认在同一个 commit 里改写全部入链（wikilink、嵌入、Markdown 链接与 frontmatter 属性链接），保持身份不变并附带自动内容哈希守卫——并发编辑会中止整个搬移而不是被覆盖。`read_file` 新增面向 token 纪律的 `concise` 模式，`list_files` 支持显式 `limit`；有界响应总会披露截断。仅大小写的重命名被拒绝，工具业务失败改以模型可自纠的 `isError` 结果返回。1.8.0 系列同时加固了链接扫描器对恶意文档的防御（构造的链接洪水再也无法拖死扫描——工作量有预算并诚实降级），并把 `move_file` 钉在单一 commit 上：默认空 `parent_commit` 解析当前 HEAD，并发编辑绝不会收到过期补丁。
 
 
 ## 功能

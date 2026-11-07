@@ -7,13 +7,13 @@ PKV Sync は、Obsidian の Vault をセルフホストで同期する Git ネ�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-ドキュメントのバージョン: v1.8.0。
+ドキュメントのバージョン: v1.8.1。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · 日本語 · [한국어](./README.ko.md)
 
 ## リリース状況
 
-PKV Sync 1.8.0 は現在の機能リリースです。MCP ツール面に、アンカー編集（`edit_file`：見出しサブツリー・ブロック id・逐次リテラル編集。他の書き込みツールと同じ dry-run／CAS／ハッシュガード管線）、被リンクコンテキスト（`backlinks`：行番号・スニペット・生リンクテキスト付き）、そしてリンクを保守する `move_file` が加わりました。既定では全ての被リンク（wikilink・埋め込み・Markdown リンク・frontmatter 属性リンク）を同一 commit で書き換え、恒等性を保ち、自動コンテンツハッシュガードを付けます——並行編集は上書きではなく移動全体を中止します。`read_file` には token 節約の `concise` モード、`list_files` には明示的な `limit` が加わり、有界な応答は必ず切り詰めを明示します。case-only rename は拒否され、ツールの業務失敗はモデルが自己修正できる `isError` 結果として返ります。さらに 1.8.0 系列はリンクスキャナを悪意ある文書に対して強化しました（仕組まれたリンク洪水でスキャンを止められなくなりました——作業量は予算化され誠実に低下）。また `move_file` を単一 commit に固定し、既定の空 `parent_commit` は現在の HEAD を解決します。並行編集が古いパッチを受けることはありません。
+PKV Sync 1.8.1 はレビューで見つかった 2 つの運用経路を強化しました。Docker セルフアップデーターは常駐ウォッチャーとなり、「Upgrade now」は以前は最大 1 件のリクエストしか消費しませんでした（oneshot コンテナの終了後は二度と動作しない）。30 分を超える古いアップグレードリクエストは適用されず拒否され、試行ごとに `upgrade-status.json` へ記録され、管理パネルに直近の結果が表示されます。コンフリクト側車の名前は常に一意性 nonce を伴い（サーバーの文法と一致）、同じ秒の 2 つの側車がプラグイン再読み込みをまたいで上書し合うことはなくなり、コンフリクト UI の解析も不一致な 3 流から 1 つに収束しました。1.8.0 機能リリース（MCP 編集面）のハイライト：MCP ツール面に、アンカー編集（`edit_file`：見出しサブツリー・ブロック id・逐次リテラル編集。他の書き込みツールと同じ dry-run／CAS／ハッシュガード管線）、被リンクコンテキスト（`backlinks`：行番号・スニペット・生リンクテキスト付き）、そしてリンクを保守する `move_file` が加わりました。既定では全ての被リンク（wikilink・埋め込み・Markdown リンク・frontmatter 属性リンク）を同一 commit で書き換え、恒等性を保ち、自動コンテンツハッシュガードを付けます——並行編集は上書きではなく移動全体を中止します。`read_file` には token 節約の `concise` モード、`list_files` には明示的な `limit` が加わり、有界な応答は必ず切り詰めを明示します。case-only rename は拒否され、ツールの業務失敗はモデルが自己修正できる `isError` 結果として返ります。さらに 1.8.0 系列はリンクスキャナを悪意ある文書に対して強化しました（仕組まれたリンク洪水でスキャンを止められなくなりました——作業量は予算化され誠実に低下）。また `move_file` を単一 commit に固定し、既定の空 `parent_commit` は現在の HEAD を解決します。並行編集が古いパッチを受けることはありません。
 
 
 ## 機能

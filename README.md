@@ -7,13 +7,23 @@ The name is **PKV Sync**: **PKV** is the initialism of **Personal Knowledge Vaul
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.8.0.
+Document version: v1.8.1.
 
 English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## Status
 
-PKV Sync 1.8.0 is the current feature release. The MCP surface gains
+PKV Sync 1.8.1 hardens two operational paths found in review. The
+Docker self-updater is now a resident watcher: "Upgrade now" previously
+consumed at most one request (the oneshot container exited and nothing
+ever re-armed), stale upgrade requests older than 30 minutes are refused
+instead of applied, and every attempt is recorded in
+`upgrade-status.json` with the last outcome shown in the admin panel.
+Conflict sidecar names now always carry a uniqueness nonce (matching the
+server's grammar) — two same-second sidecars can no longer overwrite each
+other across a plugin reload, and the conflict UI parses one grammar
+instead of three that disagreed. On the 1.8.0 feature release — the MCP
+edit surface — the highlights were:
 anchored editing (`edit_file`: heading subtrees, block ids, ordered
 literal edits, behind the same dry-run/CAS/hash-guard pipeline),
 inbound-link context (`backlinks` with line numbers, snippets, and raw
