@@ -7,6 +7,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Docker updater: discover the running image via Compose canonical labels
+  (`com.docker.compose.project`/`service`, `oneoff=False` first) instead of
+  the default container-name shape — deployments that pin `container_name:`
+  previously made the lookup fail, which aborted every upgrade with
+  "cannot determine the running image"; the name-shape match remains as the
+  last-resort fallback.
+
 ## [1.8.1] - 2026-11-07
 
 ### Fixed

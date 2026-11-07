@@ -80,14 +80,37 @@ compose() {
   docker compose -f "$COMPOSE_FILE" -f "$COMPOSE_UPDATER_FILE" "$@"
 }
 
-# Exact-service lookup for the running container's image. `docker ps
-# --filter name=X` is a SUBSTRING match: with this profile up, "pkv-sync"
-# also matches pkv-sync-socket-proxy-1 and pkv-sync-updater-1, and taking
-# the first row returned the proxy's image — silently disabling the
-# downgrade guard. Compose names containers <project>-<service>-<n>, so
-# match that full shape for the target service.
+# Exact-service lookup for the running container's image. Primary: compose
+# canonical labels — immune to `container_name:` pinning (compose-spec sets
+# the labels on every service container; container_name only renames).
+# Filters AND daemon-side, so the socket proxy's CONTAINERS=1 (path-prefix
+# ACL, query string not inspected) still suffices — zero new grants.
+# Live-verified gotcha (2026-11-07 research Q1): `docker ps` WITHOUT -a does
+# NOT exclude RUNNING oneoff containers from `compose run` — they carry the
+# SAME project+service labels. Try oneoff=False first (Compose's own
+# getDefaultFilters does exactly this)… but older Compose v2 omitted the
+# oneoff label on NORMAL containers, so an empty result falls back to the
+# plain identity filters before giving up on labels entirely. Last resort:
+# the default <project>-<service>-<n> name shape (pre-label or hand-wired
+# deployments); `--filter name=X` is a SUBSTRING match, so a full-shape
+# regex is required to not hit pkv-sync-socket-proxy-1 etc.
 running_image() {
   proj="${COMPOSE_PROJECT_NAME:-pkv-sync}"
+  img="$(docker ps \
+    --filter "label=com.docker.compose.project=${proj}" \
+    --filter "label=com.docker.compose.service=${SERVICE}" \
+    --filter "label=com.docker.compose.oneoff=False" \
+    --format '{{.Image}}' 2>/dev/null | head -n1)"
+  if [ -z "$img" ]; then
+    img="$(docker ps \
+      --filter "label=com.docker.compose.project=${proj}" \
+      --filter "label=com.docker.compose.service=${SERVICE}" \
+      --format '{{.Image}}' 2>/dev/null | head -n1)"
+  fi
+  if [ -n "$img" ]; then
+    printf '%s\n' "$img"
+    return
+  fi
   # NOTE: the field separator is a plain "|" — docker's Go template takes
   # it literally, and a backslash-escaped "\|" inside the format string is
   # emitted AS a backslash, so the awk split never matches (verified on the
