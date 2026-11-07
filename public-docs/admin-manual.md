@@ -405,10 +405,26 @@ pulls the requested `X.Y.Z` image, recreates `pkv-sync`, health-checks it, and
 re-pins the running tag on failure; every attempt is recorded in
 `data/upgrade-status.json` and the admin dashboard shows the last outcome
 (applied / refused / failed) so a dropped click is distinguishable from an
-applied one. As an alternative, point a
+applied one. The running image is discovered via Compose canonical labels
+(project + service), so deployments that pin `container_name:` are handled;
+the default `<project>-<service>-<n>` name shape remains a fallback. As an
+alternative, point a
 third-party tool such as [Watchtower](https://containrrr.dev/watchtower/) or
 compose-updater at the `pkv-sync` container — note those poll `:latest` on a
 schedule rather than honoring the one-click pinned target.
+
+While the updater works it also reports coarse steps (`pull`, `recreate`,
+`health`) in `upgrade-status.json`, and the admin dashboard surfaces them
+live: submitting the request disables the button and polls the read-only
+`GET /admin/upgrade/status` endpoint every 2 seconds — across the restart
+itself, riding out the expected 5xx responses — showing the current stage
+and reloading the page once the upgrade reaches a terminal outcome
+(applied, refused, or failed). Polling also starts on page load when a
+request is still pending or an upgrade is in progress. The endpoint returns
+two nullable fields: `request_pending` (a marker awaiting updater pickup)
+and `status` (the updater's last record: phase, from/target versions,
+reason, step). Without JavaScript the panel still renders the last outcome
+and the upgrade completes normally; only the live progress is absent.
 
 A brief restart interruption is expected during any upgrade; clients reconnect
 automatically.

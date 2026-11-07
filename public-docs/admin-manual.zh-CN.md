@@ -236,7 +236,9 @@ PKV_HOST_DIR=$(pwd) docker compose -f docker-compose.yml \
   -f deploy/updater/compose.updater.yml --profile updater up -d
 ```
 
-`PKV_HOST_DIR` 必须是部署目录（即包含 `docker-compose.yml` 的目录）的绝对路径；升级器在自己的容器内运行 compose，无法自行发现该路径。Docker 没有「文件出现」触发原语，因此升级器容器会**常驻**轮询请求 marker（空闲成本：每 `PKV_UPDATER_POLL` 秒一次 stat，默认 30；可通过环境变量覆盖）。超过 `PKV_UPDATER_MAX_AGE` 秒（默认 1800）的请求会被当作过期拒绝，而不是照样应用。升级器会拉取所请求的 `X.Y.Z` 镜像、重建 `pkv-sync`、对其做健康检查，失败时重新固定回原先运行的 tag；每次尝试都会记录到 `data/upgrade-status.json`，管理面板会显示最近一次结果（已应用／已拒绝／失败），由此可以区分「请求被丢弃」与「已应用」。作为替代，你也可以让 [Watchtower](https://containrrr.dev/watchtower/) 或 compose-updater 等第三方工具盯住 `pkv-sync` 容器——但它们是按计划轮询 `:latest`，而非遵循一键固定的目标版本。
+`PKV_HOST_DIR` 必须是部署目录（即包含 `docker-compose.yml` 的目录）的绝对路径；升级器在自己的容器内运行 compose，无法自行发现该路径。Docker 没有「文件出现」触发原语，因此升级器容器会**常驻**轮询请求 marker（空闲成本：每 `PKV_UPDATER_POLL` 秒一次 stat，默认 30；可通过环境变量覆盖）。超过 `PKV_UPDATER_MAX_AGE` 秒（默认 1800）的请求会被当作过期拒绝，而不是照样应用。升级器会拉取所请求的 `X.Y.Z` 镜像、重建 `pkv-sync`、对其做健康检查，失败时重新固定回原先运行的 tag；每次尝试都会记录到 `data/upgrade-status.json`，管理面板会显示最近一次结果（已应用／已拒绝／失败），由此可以区分「请求被丢弃」与「已应用」。正在运行的镜像通过 Compose 规范 label（project＋service）发现，因此固定了 `container_name:` 的部署也能正确处理；默认的 `<project>-<service>-<n>` 命名形状仍作为回退。作为替代，你也可以让 [Watchtower](https://containrrr.dev/watchtower/) 或 compose-updater 等第三方工具盯住 `pkv-sync` 容器——但它们是按计划轮询 `:latest`，而非遵循一键固定的目标版本。
+
+升级器工作期间还会把粗粒度阶段（`pull`、`recreate`、`health`）写入 `upgrade-status.json`，管理面板会实时呈现：提交请求后按钮即被禁用，面板每 2 秒轮询一次只读的 `GET /admin/upgrade/status` 端点——贯穿服务重启本身、扛过预期的 5xx 响应——展示当前阶段，并在升级到达终态（已应用、已拒绝或失败）后刷新页面。当请求仍在等待拾取或升级正在进行时，页面加载后也会自动开始轮询。该端点返回两个可空的字段：`request_pending`（等待升级器拾取的 marker）与 `status`（升级器的最近一条记录：phase、from/target 版本、reason、step）。没有 JavaScript 时面板仍会渲染最近一次结果，升级本身照常完成；缺少的只是实时进度。
 
 升级期间会有短暂的重启中断；客户端会自动重连。
 
