@@ -152,11 +152,15 @@ json_escape() {
   printf '%s' "$1" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 write_status() {
-  # $1 phase, $2 from, $3 target, $4 reason ("" allowed)
+  # $1 phase, $2 from, $3 target, $4 reason ("" allowed),
+  # $5 coarse step while in_progress: pull | recreate | health ("" otherwise,
+  # i.e. on every terminal record) so the admin panel can show which stage
+  # the updater is in.
   now=$(date +%s)
   esc_reason=$(json_escape "$4")
-  printf '{\n  "phase": "%s",\n  "from": "%s",\n  "target": "%s",\n  "at_unix": %s,\n  "reason": "%s"\n}\n' \
-    "$1" "$2" "$3" "$now" "$esc_reason" > "$STATUS.tmp" \
+  esc_step=$(json_escape "${5:-}")
+  printf '{\n  "phase": "%s",\n  "from": "%s",\n  "target": "%s",\n  "at_unix": %s,\n  "reason": "%s",\n  "step": "%s"\n}\n' \
+    "$1" "$2" "$3" "$now" "$esc_reason" "$esc_step" > "$STATUS.tmp" \
     && mv -f "$STATUS.tmp" "$STATUS" \
     || echo "docker-updater: warning: could not write $STATUS" >&2
 }
@@ -212,12 +216,14 @@ process_marker() {
 
   # Pull the requested pinned image and recreate just the pkv-sync service.
   if ! export PKV_SYNC_TAG="$TARGET"; then :; fi
+  write_status in_progress "$PREV_TAG" "$TARGET" "" "pull"
   if ! compose pull "$SERVICE"; then
     echo "docker-updater: pull failed for $TARGET; keeping marker for retry" >&2
     write_status failed "$PREV_TAG" "$TARGET" "pull failed"
     echo failed
     return
   fi
+  write_status in_progress "$PREV_TAG" "$TARGET" "" "recreate"
   if ! compose up -d --no-deps "$SERVICE"; then
     echo "docker-updater: recreate failed for $TARGET; rolling back tag to $PREV_TAG" >&2
     write_status failed "$PREV_TAG" "$TARGET" "recreate failed"
@@ -230,6 +236,7 @@ process_marker() {
 
   # Health window: poll up to ~60s for the recreated service to report ready.
   # wget, not curl: the docker:*-cli image ships busybox wget but NO curl.
+  write_status in_progress "$PREV_TAG" "$TARGET" "" "health"
   ok=0
   i=0
   while [ "$i" -lt 30 ]; do

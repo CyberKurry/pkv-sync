@@ -19,11 +19,15 @@ HEALTH_URL="${PKV_HEALTH_URL:-http://127.0.0.1:6710/api/health}"
 SERVICE="${PKV_SERVICE:-pkv-sync}"
 
 write_status() {
-  # $1 phase, $2 from, $3 target, $4 reason
+  # $1 phase, $2 from, $3 target, $4 reason ("" allowed),
+  # $5 coarse step while in_progress: pull (stage) | recreate (swap+restart)
+  # | health — so the admin panel can show which stage the updater is in.
+  # Terminal records (refused/failed/success) carry an empty step.
   now=$(date +%s)
   esc=$(printf '%s' "$4" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  printf '{\n  "phase": "%s",\n  "from": "%s",\n  "target": "%s",\n  "at_unix": %s,\n  "reason": "%s"\n}\n' \
-    "$1" "$2" "$3" "$now" "$esc" > "$STATUS.tmp" \
+  esc_step=$(printf '%s' "${5:-}" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  printf '{\n  "phase": "%s",\n  "from": "%s",\n  "target": "%s",\n  "at_unix": %s,\n  "reason": "%s",\n  "step": "%s"\n}\n' \
+    "$1" "$2" "$3" "$now" "$esc" "$esc_step" > "$STATUS.tmp" \
     && mv -f "$STATUS.tmp" "$STATUS" \
     || echo "pkv-sync-update: warning: could not write $STATUS" >&2
 }
@@ -76,6 +80,7 @@ fi
 write_status in_progress "$CUR" "$TARGET" ""
 
 # Stage + verify via the existing CLI (writes <bin>.new, SHA256-checked).
+write_status in_progress "$CUR" "$TARGET" "" "pull"
 "$BIN" upgrade --yes --version "$TARGET"
 NEW="$BIN.new"
 if [ ! -f "$NEW" ]; then
@@ -84,12 +89,14 @@ if [ ! -f "$NEW" ]; then
   exit 1
 fi
 
+write_status in_progress "$CUR" "$TARGET" "" "recreate"
 cp -f "$BIN" "$BIN.old"
 install -m 0755 "$NEW" "$BIN"
 rm -f "$NEW"
 systemctl restart "$SERVICE"
 
 # Health window: poll up to ~60s for the restarted server to report ready.
+write_status in_progress "$CUR" "$TARGET" "" "health"
 ok=0
 i=0
 while [ "$i" -lt 30 ]; do

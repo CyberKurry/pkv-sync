@@ -7,6 +7,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- Upgrade progress steps: both updaters record a coarse `step`
+  (`pull` / `recreate` / `health`) in `upgrade-status.json` while an
+  upgrade is in progress, so the admin panel can show which stage is
+  running instead of a bare "in progress"; terminal records carry no
+  step, and the field is absent from older status files (parsed as
+  empty).
+
 ### Fixed
 
 - Docker updater: discover the running image via Compose canonical labels
