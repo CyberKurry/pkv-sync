@@ -264,8 +264,8 @@ PKV_HOST_DIR=$(pwd) docker compose -f docker-compose.yml \
   -f deploy/updater/compose.updater.yml --profile updater up -d
 ```
 
-`PKV_HOST_DIR` にはデプロイディレクトリ（`docker-compose.yml` を含むディレクトリ）の絶対パスを指定します。更新ツールは独自のコンテナ内から compose を実行するため、このパスを自己発見できません。更新ツールは指定された `X.Y.Z` イメージを pull し、`pkv-sync` を再作成して
-ヘルスチェックし、失敗した場合は実行中のタグに再ピンします。別案として
+`PKV_HOST_DIR` にはデプロイディレクトリ（`docker-compose.yml` を含むディレクトリ）の絶対パスを指定します。更新ツールは独自のコンテナ内から compose を実行するため、このパスを自己発見できません。Docker には「ファイル出現」トリガーがないため、更新ツールのコンテナは**常駐**してリクエスト marker をポーリングします（アイドルコスト: `PKV_UPDATER_POLL` 秒ごとに 1 回の stat、既定 30。環境変数で上書き可）。`PKV_UPDATER_MAX_AGE` 秒（既定 1800）より古いリクエストは、そのまま適用せず期限切れとして拒否されます。更新ツールは指定された `X.Y.Z` イメージを pull し、`pkv-sync` を再作成して
+ヘルスチェックし、失敗した場合は実行中のタグに再ピンします。試行ごとに `data/upgrade-status.json` へ記録され、管理パネルに直近の結果（適用済み／拒否／失敗）が表示されるため、「リクエストが捨てられた」と「適用された」を区別できます。別案として
 [Watchtower](https://containrrr.dev/watchtower/) や compose-updater などの
 サードパーティ製ツールを `pkv-sync` コンテナに向ける方法もありますが、これらは
 ワンクリックで指定した固定バージョンに従うのではなく、スケジュールで `:latest` を

@@ -396,9 +396,16 @@ PKV_HOST_DIR=$(pwd) docker compose -f docker-compose.yml \
 
 `PKV_HOST_DIR` must be the absolute path of the deployment directory (the
 directory holding `docker-compose.yml`); the updater runs compose from inside
-its own container and cannot rediscover it. The updater pulls the requested
-`X.Y.Z` image, recreates `pkv-sync`, health-checks it, and re-pins the
-running tag on failure. As an alternative, point a
+its own container and cannot rediscover it. Docker has no file-appearance
+trigger, so the updater container stays RESIDENT and polls for the request
+marker (idle cost: one stat every `PKV_UPDATER_POLL` seconds, default 30;
+override via the environment). Requests older than `PKV_UPDATER_MAX_AGE`
+seconds (default 1800) are refused as stale instead of applied. The updater
+pulls the requested `X.Y.Z` image, recreates `pkv-sync`, health-checks it, and
+re-pins the running tag on failure; every attempt is recorded in
+`data/upgrade-status.json` and the admin dashboard shows the last outcome
+(applied / refused / failed) so a dropped click is distinguishable from an
+applied one. As an alternative, point a
 third-party tool such as [Watchtower](https://containrrr.dev/watchtower/) or
 compose-updater at the `pkv-sync` container — note those poll `:latest` on a
 schedule rather than honoring the one-click pinned target.

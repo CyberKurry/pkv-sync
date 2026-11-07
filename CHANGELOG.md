@@ -7,6 +7,24 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Docker updater path: "Upgrade now" silently did nothing after the
+  first invocation. Docker has no file-appearance trigger, so the
+  `restart: "no"` oneshot consumed at most one request and every later
+  click was dropped. The updater container is now a resident poller
+  (idle cost: one stat every `PKV_UPDATER_POLL` seconds, default 30),
+  its exit codes separate idle/refused (0) from config errors (2) and
+  failed-and-rolled-back (3), requests older than
+  `PKV_UPDATER_MAX_AGE` seconds (default 1800) are refused as stale
+  instead of applied, and every attempt is recorded in
+  `data/upgrade-status.json` with the last outcome shown in the admin
+  dashboard (applied / refused / failed) — a dropped click is now
+  distinguishable from an applied one. The systemd updater script
+  gains the same stale guard and outcome record; the admin hint (5
+  languages) no longer presents the two paths as equivalent one-click
+  options.
+
 ## [1.8.0] - 2026-11-06
 
 ### Added

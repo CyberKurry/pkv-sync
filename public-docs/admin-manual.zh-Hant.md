@@ -253,8 +253,8 @@ PKV_HOST_DIR=$(pwd) docker compose -f docker-compose.yml \
   -f deploy/updater/compose.updater.yml --profile updater up -d
 ```
 
-`PKV_HOST_DIR` 必須是部署目錄（即包含 `docker-compose.yml` 的目錄）的絕對路徑；更新器在自己的容器內執行 compose，無法自行發現該路徑。更新器會拉取指定的 `X.Y.Z` 映像、重建 `pkv-sync`、對它做健康檢查，並在失敗時
-把標籤重新釘回原先執行的版本。另一個做法是把 [Watchtower](https://containrrr.dev/watchtower/)
+`PKV_HOST_DIR` 必須是部署目錄（即包含 `docker-compose.yml` 的目錄）的絕對路徑；更新器在自己的容器內執行 compose，無法自行發現該路徑。Docker 沒有「檔案出現」觸發原語，因此更新器容器會**常駐**輪詢請求 marker（空閒成本：每 `PKV_UPDATER_POLL` 秒一次 stat，預設 30；可透過環境變數覆寫）。超過 `PKV_UPDATER_MAX_AGE` 秒（預設 1800）的請求會被視為過期而拒絕，而不是照樣應用。更新器會拉取指定的 `X.Y.Z` 映像、重建 `pkv-sync`、對它做健康檢查，並在失敗時
+把標籤重新釘回原先執行的版本；每次嘗試都會記錄到 `data/upgrade-status.json`，管理面板會顯示最近一次結果（已應用／已拒絕／失敗），由此可以區分「請求被丟棄」與「已應用」。另一個做法是把 [Watchtower](https://containrrr.dev/watchtower/)
 或 compose-updater 這類第三方工具指向 `pkv-sync` 容器——但請注意它們是照排程
 輪詢 `:latest`，不會遵循一鍵指定的釘選版本。
 

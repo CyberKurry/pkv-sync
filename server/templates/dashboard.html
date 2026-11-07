@@ -21,6 +21,14 @@
   </form>
 </section>
 {% endif %}
+{% if !upgrade_last_result.is_empty() %}
+<section class="update-banner">
+  <div>
+    <strong>{{ t.upgrade_last_result_label }}</strong>
+    <span>{{ upgrade_last_result }}</span>
+  </div>
+</section>
+{% endif %}
 
 <section class="metric-grid dashboard-metrics">
   <article class="metric-card">
