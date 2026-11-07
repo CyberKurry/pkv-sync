@@ -6,6 +6,7 @@
 //! "request written" from "applied / refused / failed". One file, last
 //! writer wins: it is a liveness record, not a log.
 
+use crate::service::upgrade_signal::UpgradeRequest;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -37,6 +38,11 @@ pub struct UpgradeStatus {
     /// Machine-readable refusal/failure reason (absent on success).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub reason: String,
+    /// Coarse stage the updater reported while in_progress: `pull` /
+    /// `recreate` / `health`. Empty on terminal records and absent in
+    /// legacy status files.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub step: String,
 }
 
 pub fn status_path(data_dir: &Path) -> PathBuf {
@@ -61,9 +67,24 @@ pub fn read_status(data_dir: &Path) -> Option<UpgradeStatus> {
     serde_json::from_slice(&bytes).ok()
 }
 
+/// Whether a written request still awaits its updater pickup: the marker
+/// exists and no in_progress status covers ITS target. A stale
+/// in_progress for an older request must not block a new one — the
+/// marker is the request's source of truth.
+pub fn request_pending(data_dir: &Path) -> Option<UpgradeRequest> {
+    let req = crate::service::upgrade_signal::read_request(data_dir)
+        .ok()
+        .flatten()?;
+    match read_status(data_dir) {
+        Some(st) if st.phase == UpgradePhase::InProgress && st.target == req.target_version => None,
+        _ => Some(req),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::upgrade_signal::write_request;
 
     #[test]
     fn status_round_trips_and_omits_empty_optional_fields() {
@@ -74,6 +95,7 @@ mod tests {
             target: "1.8.0".into(),
             at_unix: 1_794_000_000,
             reason: String::new(),
+            step: String::new(),
         };
         write_status(dir.path(), &status).unwrap();
         assert_eq!(read_status(dir.path()), Some(status));
@@ -96,5 +118,67 @@ mod tests {
         assert_eq!(json, "\"in_progress\"");
         let failed: UpgradePhase = serde_json::from_str("\"failed\"").unwrap();
         assert_eq!(failed, UpgradePhase::Failed);
+    }
+
+    #[test]
+    fn step_round_trips_and_defaults_to_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        // A legacy record without the step key deserializes with an empty step.
+        let legacy = format!(
+            "{{\"phase\": \"in_progress\", \"from\": \"1.8.0\", \"target\": \"1.8.1\", \"at_unix\": {}, \"reason\": \"\"}}",
+            1_794_000_000
+        );
+        std::fs::write(status_path(dir.path()), legacy).unwrap();
+        let read = read_status(dir.path()).unwrap();
+        assert_eq!(read.phase, UpgradePhase::InProgress);
+        assert_eq!(read.step, "");
+        // New records round-trip the step.
+        let status = UpgradeStatus {
+            phase: UpgradePhase::InProgress,
+            from: "1.8.0".into(),
+            target: "1.8.1".into(),
+            at_unix: 1_794_000_000,
+            reason: String::new(),
+            step: "pull".into(),
+        };
+        write_status(dir.path(), &status).unwrap();
+        assert_eq!(read_status(dir.path()), Some(status.clone()));
+        let raw = std::fs::read_to_string(status_path(dir.path())).unwrap();
+        assert!(raw.contains("\"step\": \"pull\""), "step serialized: {raw}");
+        // An empty step is omitted, matching from/reason.
+        let done = UpgradeStatus {
+            step: String::new(),
+            ..status
+        };
+        write_status(dir.path(), &done).unwrap();
+        let raw = std::fs::read_to_string(status_path(dir.path())).unwrap();
+        assert!(!raw.contains("\"step\""), "empty step omitted: {raw}");
+    }
+
+    #[test]
+    fn request_pending_tracks_marker_and_in_progress_target() {
+        let dir = tempfile::tempdir().unwrap();
+        // No marker at all.
+        assert_eq!(request_pending(dir.path()), None);
+        // Marker written, the updater has not reported anything yet.
+        let req = UpgradeRequest::new("1.8.1", 1_794_000_000, "admin").unwrap();
+        write_request(dir.path(), &req).unwrap();
+        assert_eq!(request_pending(dir.path()), Some(req.clone()));
+        // Same-target in_progress: the request is being applied.
+        let st = UpgradeStatus {
+            phase: UpgradePhase::InProgress,
+            from: "1.8.0".into(),
+            target: "1.8.1".into(),
+            at_unix: 1_794_000_001,
+            reason: String::new(),
+            step: "pull".into(),
+        };
+        write_status(dir.path(), &st).unwrap();
+        assert_eq!(request_pending(dir.path()), None);
+        // A stale in_progress for a DIFFERENT target does not block the
+        // new request — the marker is the request's source of truth.
+        let req2 = UpgradeRequest::new("1.8.2", 1_794_000_002, "admin").unwrap();
+        write_request(dir.path(), &req2).unwrap();
+        assert_eq!(request_pending(dir.path()), Some(req2.clone()));
     }
 }
