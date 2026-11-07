@@ -8,6 +8,21 @@
 # Reaches Docker ONLY through the scoped docker-socket-proxy (DOCKER_HOST);
 # the pkv-sync container itself never receives the socket.
 #
+# TRIGGER MODEL (2026-11-07 report): Docker has no "file appears" primitive
+# (no PathExists= equivalent), so a `restart: "no"` oneshot fired once by
+# `compose up` consumed at most ONE request and every later click was
+# silently dropped. This script therefore STAYS RESIDENT and polls for the
+# marker. Idle cost is one stat + sleep per interval (~3s CPU/day at 30s);
+# no Docker API call happens unless a marker exists. The systemd deployment
+# gets the equivalent via its .path unit; the two paths are now equivalent.
+#
+# EXIT CODES (0/2/3 — refusing is not failing):
+#   0  idle loop or a legitimately refused request (container keeps running)
+#   2  configuration error (fix the deployment; restarting cannot help)
+#   3  an upgrade attempt failed and was rolled back (one-shot mode only)
+# The resident loop continues after refusals and failures; only exit 2
+# terminates it (configuration errors cannot be retried into success).
+#
 # Deployment coordinates come from the environment (set by
 # compose.updater.yml from the host-side invocation): the absolute host
 # directory of the deployment and the compose project name. This container's
@@ -15,14 +30,21 @@
 # paths or the project from it provisions a duplicate stack instead of
 # upgrading the running one (2026-11-01 audit, defects 1+2).
 #
-# NOTE: runtime behavior must be validated on a Linux + Docker host (see the
-# plan's integration check); it cannot be exercised on a host without Docker.
+# NOTE: runtime behavior must be validated on a Linux + Docker host; it
+# cannot be exercised on a host without Docker.
 set -eu
 
 DATA_DIR="${PKV_DATA_DIR:-/var/lib/pkv-sync}"
 MARKER="$DATA_DIR/upgrade-request.json"
+STATUS="$DATA_DIR/upgrade-status.json"
 HEALTH_URL="${PKV_HEALTH_URL:-http://pkv-sync:6710/api/health}"
 SERVICE="${PKV_TARGET_SERVICE:-pkv-sync}"
+# Marker poll interval in seconds (idle cost: one stat per interval).
+POLL="${PKV_UPDATER_POLL:-30}"
+# A request older than this many seconds is stale and refused, not applied:
+# the admin clicked a while ago and the world may have moved on (the field
+# was written since 1.4.0 but never validated — 2026-11-07 report, defect 3).
+MAX_AGE="${PKV_UPDATER_MAX_AGE:-1800}"
 # Compose files (mounted read-only into the updater) used to recreate the service.
 COMPOSE_FILE="${PKV_COMPOSE_FILE:-/compose/docker-compose.yml}"
 COMPOSE_UPDATER_FILE="${PKV_COMPOSE_UPDATER_FILE:-/compose/deploy/updater/compose.updater.yml}"
@@ -33,11 +55,18 @@ COMPOSE_UPDATER_FILE="${PKV_COMPOSE_UPDATER_FILE:-/compose/deploy/updater/compos
 HOST_DIR="${PKV_HOST_DIR:-}"
 if [ -z "$HOST_DIR" ]; then
   echo "docker-updater: PKV_HOST_DIR is not set (pass the absolute deployment directory); aborting without touching anything" >&2
-  exit 1
+  exit 2
 fi
 case "$HOST_DIR" in
   /*) ;;
-  *) echo "docker-updater: PKV_HOST_DIR must be absolute (got '$HOST_DIR'); aborting" >&2; exit 1 ;;
+  *) echo "docker-updater: PKV_HOST_DIR must be absolute (got '$HOST_DIR'); aborting" >&2; exit 2 ;;
+esac
+case "$POLL" in
+  ''|*[!0-9]*) echo "docker-updater: PKV_UPDATER_POLL must be a positive integer (got '$POLL'); aborting" >&2; exit 2 ;;
+esac
+[ "$POLL" -ge 1 ] || { echo "docker-updater: PKV_UPDATER_POLL must be >= 1s; aborting" >&2; exit 2; }
+case "$MAX_AGE" in
+  ''|*[!0-9]*) echo "docker-updater: PKV_UPDATER_MAX_AGE must be a non-negative integer (got '$MAX_AGE'); aborting" >&2; exit 2 ;;
 esac
 
 compose() {
@@ -56,9 +85,7 @@ compose() {
 # also matches pkv-sync-socket-proxy-1 and pkv-sync-updater-1, and taking
 # the first row returned the proxy's image — silently disabling the
 # downgrade guard. Compose names containers <project>-<service>-<n>, so
-# match that full shape for the target service (the report's bare
-# `$1 == service` never matches: the container NAME carries the project
-# prefix and index).
+# match that full shape for the target service.
 running_image() {
   proj="${COMPOSE_PROJECT_NAME:-pkv-sync}"
   # NOTE: the field separator is a plain "|" — docker's Go template takes
@@ -71,20 +98,10 @@ running_image() {
 
 # Strip an image reference down to a comparable version: drop the registry
 # and repository, take the tag, tolerate the published "v" prefix.
-#   ghcr.io/x/y:1.7.1 -> 1.7.1     ghcr.io/x/y:v1.7.1 -> 1.7.1
 version_of() {
   t="${1##*:}"
   printf '%s' "$t" | sed 's/^v//'
 }
-
-[ -f "$MARKER" ] || exit 0
-
-TARGET="$(sed -n 's/.*"target_version"[[:space:]]*:[[:space:]]*"\([0-9.]*\)".*/\1/p' "$MARKER" | head -n1)"
-if [ -z "$TARGET" ]; then
-  echo "docker-updater: no target_version in $MARKER; clearing"
-  rm -f "$MARKER"
-  exit 1
-fi
 
 # Refuse downgrades/same-version reinstalls. The marker lives in a directory
 # the unprivileged pkv-sync user can write, so the privileged side must not
@@ -101,51 +118,142 @@ version_lte() {
     exit 0
   }'
 }
-# The rollback target is the image the service is RUNNING right now —
-# captured before anything changes it. The previous code re-derived it from
-# PKV_SYNC_TAG (unset here, so "latest"), which could roll "back" to a
-# NEWER image than the one that just failed its health check.
-CUR_TAG="$(running_image | { read -r img || true; [ -n "$img" ] && version_of "$img" || true; })"
-PREV_TAG="$CUR_TAG"
-if echo "$CUR_TAG" | grep -Eq '^[0-9]+(\.[0-9]+)+$' && version_lte "$TARGET" "$CUR_TAG"; then
-  echo "docker-updater: refusing non-upgrade $CUR_TAG -> $TARGET; clearing marker"
-  rm -f "$MARKER"
-  exit 1
-fi
-if [ -z "$PREV_TAG" ]; then
-  echo "docker-updater: cannot determine the running image for service '$SERVICE'; aborting without touching anything" >&2
-  exit 1
-fi
 
-# Pull the requested pinned image and recreate just the pkv-sync service.
-export PKV_SYNC_TAG="$TARGET"
-compose pull "$SERVICE"
-compose up -d --no-deps "$SERVICE"
+# Record an outcome next to the (removed) marker so /admin can tell a
+# dropped click from an applied/refused/failed one. JSON is emitted with
+# printf: the docker:*-cli image has no jq, and hand-rolled quoting keeps
+# values (versions, reasons) safely inside one JSON string each.
+json_escape() {
+  # Single-line, script-generated reasons only: escape backslashes and
+  # double quotes, drop any stray newlines. No awk acrobatics needed.
+  printf '%s' "$1" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+write_status() {
+  # $1 phase, $2 from, $3 target, $4 reason ("" allowed)
+  now=$(date +%s)
+  esc_reason=$(json_escape "$4")
+  printf '{\n  "phase": "%s",\n  "from": "%s",\n  "target": "%s",\n  "at_unix": %s,\n  "reason": "%s"\n}\n' \
+    "$1" "$2" "$3" "$now" "$esc_reason" > "$STATUS.tmp" \
+    && mv -f "$STATUS.tmp" "$STATUS" \
+    || echo "docker-updater: warning: could not write $STATUS" >&2
+}
 
-# Health window: poll up to ~60s for the recreated service to report ready.
-# wget, not curl: the docker:*-cli image ships busybox wget but NO curl, so
-# the previous curl invocation always failed with 127 (command not found) —
-# the health check could never succeed and every upgrade was rolled back
-# (found in the 2026-11-01 end-to-end pass; earlier repros never reached
-# this line because they died at port binding first).
-ok=0
-i=0
-while [ "$i" -lt 30 ]; do
-  if wget -q -T 3 -O /dev/null "$HEALTH_URL" 2>/dev/null; then
-    ok=1
-    break
+# Process one marker occurrence. Never exits; echoes a process outcome:
+#   applied | refused | failed
+process_marker() {
+  TARGET="$(sed -n 's/.*"target_version"[[:space:]]*:[[:space:]]*"\([0-9.]*\)".*/\1/p' "$MARKER" | head -n1)"
+  REQ_AT="$(sed -n 's/.*"requested_at_unix"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$MARKER" | head -n1)"
+  if [ -z "$TARGET" ]; then
+    echo "docker-updater: no target_version in $MARKER; clearing" >&2
+    write_status refused "" "" "no target_version in marker"
+    rm -f "$MARKER"
+    echo refused
+    return
   fi
-  i=$((i + 1))
-  sleep 2
-done
 
-if [ "$ok" -ne 1 ]; then
-  echo "docker-updater: health check failed; rolling back to $PREV_TAG"
-  export PKV_SYNC_TAG="$PREV_TAG"
-  compose up -d --no-deps "$SERVICE"
+  # Stale request guard (2026-11-07 report, defect 3): requested_at_unix has
+  # been written since 1.4.0 but never validated. An old marker must not be
+  # applied against a world that has moved on. A missing/zero timestamp is
+  # treated as stale-safe=unknown: age 0 keeps pre-1.8.1 markers applicable.
+  now=$(date +%s)
+  age=$(( now - ${REQ_AT:-0} ))
+  [ "$age" -lt 0 ] && age=0
+  if [ "$MAX_AGE" -gt 0 ] && [ "$age" -gt "$MAX_AGE" ]; then
+    echo "docker-updater: refusing stale request (age ${age}s > ${MAX_AGE}s); clearing" >&2
+    write_status refused "" "$TARGET" "request older than ${MAX_AGE}s"
+    rm -f "$MARKER"
+    echo refused
+    return
+  fi
+
+  # The rollback target is the image the service is RUNNING right now —
+  # captured before anything changes it.
+  CUR_TAG="$(running_image | { read -r img || true; [ -n "$img" ] && version_of "$img" || true; })"
+  PREV_TAG="$CUR_TAG"
+  if [ -z "$PREV_TAG" ]; then
+    echo "docker-updater: cannot determine the running image for service '$SERVICE'; keeping marker for retry" >&2
+    write_status refused "" "$TARGET" "cannot determine running image"
+    echo refused
+    return
+  fi
+  if echo "$CUR_TAG" | grep -Eq '^[0-9]+(\.[0-9]+)+$' && version_lte "$TARGET" "$CUR_TAG"; then
+    echo "docker-updater: refusing non-upgrade $CUR_TAG -> $TARGET; clearing" >&2
+    write_status refused "$CUR_TAG" "$TARGET" "non-upgrade target"
+    rm -f "$MARKER"
+    echo refused
+    return
+  fi
+
+  write_status in_progress "$PREV_TAG" "$TARGET" ""
+  echo "docker-updater: applying upgrade $PREV_TAG -> $TARGET" >&2
+
+  # Pull the requested pinned image and recreate just the pkv-sync service.
+  if ! export PKV_SYNC_TAG="$TARGET"; then :; fi
+  if ! compose pull "$SERVICE"; then
+    echo "docker-updater: pull failed for $TARGET; keeping marker for retry" >&2
+    write_status failed "$PREV_TAG" "$TARGET" "pull failed"
+    echo failed
+    return
+  fi
+  if ! compose up -d --no-deps "$SERVICE"; then
+    echo "docker-updater: recreate failed for $TARGET; rolling back tag to $PREV_TAG" >&2
+    write_status failed "$PREV_TAG" "$TARGET" "recreate failed"
+    export PKV_SYNC_TAG="$PREV_TAG"
+    compose up -d --no-deps "$SERVICE" >/dev/null 2>&1 || true
+    rm -f "$MARKER"
+    echo failed
+    return
+  fi
+
+  # Health window: poll up to ~60s for the recreated service to report ready.
+  # wget, not curl: the docker:*-cli image ships busybox wget but NO curl.
+  ok=0
+  i=0
+  while [ "$i" -lt 30 ]; do
+    if wget -q -T 3 -O /dev/null "$HEALTH_URL" 2>/dev/null; then
+      ok=1
+      break
+    fi
+    i=$((i + 1))
+    sleep 2
+  done
+
+  if [ "$ok" -ne 1 ]; then
+    echo "docker-updater: health check failed; rolling back to $PREV_TAG" >&2
+    write_status failed "$PREV_TAG" "$TARGET" "health check failed; rolled back"
+    export PKV_SYNC_TAG="$PREV_TAG"
+    compose up -d --no-deps "$SERVICE"
+    rm -f "$MARKER"
+    echo failed
+    return
+  fi
+
   rm -f "$MARKER"
-  exit 1
+  write_status success "$PREV_TAG" "$TARGET" ""
+  echo "docker-updater: upgraded $SERVICE to $TARGET (was $PREV_TAG)" >&2
+  echo applied
+}
+
+# One-shot mode (tests, manual runs): process at most one marker and exit
+# with the documented code. The resident loop below is the default.
+if [ "${PKV_UPDATER_ONCE:-0}" = "1" ]; then
+  if [ ! -f "$MARKER" ]; then
+    exit 0
+  fi
+  OUTCOME="$(process_marker || echo failed)"
+  case "$OUTCOME" in
+    applied|refused) exit 0 ;;
+    *) exit 3 ;;
+  esac
 fi
 
-rm -f "$MARKER"
-echo "docker-updater: upgraded $SERVICE to $TARGET (was $PREV_TAG)"
+# Resident loop: poll for the marker, process it, keep watching. A failure
+# inside process_marker records a status and returns to the loop rather
+# than killing the watcher — the next click still works (the defect this
+# fixes was exactly a watcher that died after its first run).
+while :; do
+  if [ -f "$MARKER" ]; then
+    process_marker || true
+  fi
+  sleep "$POLL"
+done

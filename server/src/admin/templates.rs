@@ -45,6 +45,10 @@ pub struct DashboardTemplate {
     pub current_version: &'static str,
     /// Localised "X ago" or empty when no check has run yet.
     pub last_update_check_display: String,
+    /// One-line summary of the last updater outcome from
+    /// upgrade-status.json (empty when no updater has run yet) — lets an
+    /// operator tell "request written" from "applied / refused / failed".
+    pub upgrade_last_result: String,
     /// Live count of SSE subscribers across all vaults.
     pub sse_subscribers: usize,
     /// Localised "X ago" string for the most recent sync activity (push /
@@ -402,6 +406,7 @@ mod tests {
             update_status: None,
             current_version: env!("CARGO_PKG_VERSION"),
             last_update_check_display: String::new(),
+            upgrade_last_result: String::new(),
             sse_subscribers: 0,
             last_sync_activity_display: String::new(),
             sync_status_state: "quiet",
@@ -458,6 +463,7 @@ mod tests {
             }),
             current_version: env!("CARGO_PKG_VERSION"),
             last_update_check_display: "1 minute ago".into(),
+            upgrade_last_result: String::new(),
             sse_subscribers: 0,
             last_sync_activity_display: String::new(),
             sync_status_state: "quiet",
@@ -720,6 +726,7 @@ mod tests {
             update_status: None,
             current_version: env!("CARGO_PKG_VERSION"),
             last_update_check_display: String::new(),
+            upgrade_last_result: String::new(),
             sse_subscribers: 0,
             last_sync_activity_display: String::new(),
             sync_status_state: "quiet",
@@ -1345,6 +1352,7 @@ mod tests {
             update_status: None,
             current_version: env!("CARGO_PKG_VERSION"),
             last_update_check_display: String::new(),
+            upgrade_last_result: String::new(),
             sse_subscribers: 0,
             last_sync_activity_display: String::new(),
             sync_status_state: "quiet",

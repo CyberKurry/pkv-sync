@@ -95,6 +95,42 @@ fn effective_cpu_cores(logical_cores: usize, quota_cores: Option<f32>) -> f32 {
         .unwrap_or(logical)
 }
 
+/// One-line summary of the last updater outcome for the dashboard:
+/// "<phase word> <from> → <target> (<X ago>)[ — reason]". Phase words are
+/// localized via the i18n table; the arrow form is language-neutral.
+pub(crate) fn format_upgrade_last_result(
+    st: &crate::service::upgrade_status::UpgradeStatus,
+    lang: &'static str,
+) -> String {
+    use crate::service::upgrade_status::UpgradePhase;
+    let t = match lang {
+        "zh-CN" => crate::admin::i18n::AdminText::zh_cn(),
+        "zh-Hant" => crate::admin::i18n::AdminText::zh_hant(),
+        "ja" => crate::admin::i18n::AdminText::ja(),
+        "ko" => crate::admin::i18n::AdminText::ko(),
+        _ => crate::admin::i18n::AdminText::en(),
+    };
+    let phase = match st.phase {
+        UpgradePhase::InProgress => t.upgrade_phase_in_progress,
+        UpgradePhase::Success => t.upgrade_phase_success,
+        UpgradePhase::Refused => t.upgrade_phase_refused,
+        UpgradePhase::Failed => t.upgrade_phase_failed,
+    };
+    let mut line = if st.from.is_empty() {
+        format!("{phase} → {}", st.target)
+    } else {
+        format!("{phase} {} → {}", st.from, st.target)
+    };
+    let now = chrono::Utc::now().timestamp().max(0) as u64;
+    let age = now.saturating_sub(st.at_unix);
+    let ago = crate::human::format_duration_seconds(age, lang);
+    line.push_str(&format!(" ({ago})"));
+    if !st.reason.is_empty() {
+        line.push_str(&format!(" — {}", st.reason));
+    }
+    line
+}
+
 pub(crate) fn format_cpu_cores(cores: f32, t: &crate::admin::i18n::AdminText) -> String {
     let rounded = cores.round();
     if (cores - rounded).abs() < 0.05 {

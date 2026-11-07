@@ -695,6 +695,7 @@ async fn dashboard(
     let recent_activities = list_admin_activities(&state, 5, &ActivityFilters::default()).await?;
     let update_status = state.update_status.read().await.clone();
     let last_update_check_at = *state.last_update_check_at.read().await;
+    let upgrade_last = crate::service::upgrade_status::read_status(&state.data_dir);
     let last_sync_activity_at = dashboard_summary.last_sync_activity_at;
     let sse_subscribers = state.events.total_subscribers();
     let now = chrono::Utc::now().timestamp();
@@ -733,6 +734,10 @@ async fn dashboard(
         ),
         update_status,
         current_version: env!("CARGO_PKG_VERSION"),
+        upgrade_last_result: match &upgrade_last {
+            Some(st) => crate::admin::system::format_upgrade_last_result(st, t.html_lang),
+            None => String::new(),
+        },
         last_update_check_display,
         sse_subscribers,
         last_sync_activity_display,

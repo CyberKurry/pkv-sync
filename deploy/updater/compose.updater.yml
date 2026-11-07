@@ -51,7 +51,14 @@ services:
 
   updater:
     image: docker:27.5.1-cli
-    restart: "no"
+    # Resident watcher (2026-11-07 report): Docker has no "file appears"
+    # trigger, so the updater polls for the marker (idle cost: one stat per
+    # PKV_UPDATER_POLL, default 30s). `restart: "no"` made it a oneshot
+    # that consumed at most ONE request — every later "Upgrade now" click
+    # was silently dropped. The script exits non-zero only on config errors
+    # (exit 2), which the unless-stopped policy deliberately surfaces as a
+    # visible crash instead of a silent no-op.
+    restart: unless-stopped
     profiles: ["updater"]
     depends_on: [socket-proxy]
     entrypoint: ["/bin/sh", "/compose/deploy/updater/docker-updater.sh"]
@@ -83,6 +90,11 @@ services:
       # Pin the project explicitly: compose would otherwise derive it from
       # /compose's directory ("compose") and provision a duplicate stack.
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-pkv-sync}
+      # Marker poll interval (seconds); idle cost is one stat per interval.
+      PKV_UPDATER_POLL: ${PKV_UPDATER_POLL:-30}
+      # Requests older than this many seconds are refused as stale instead
+      # of being applied against a moved-on world (0 disables the guard).
+      PKV_UPDATER_MAX_AGE: ${PKV_UPDATER_MAX_AGE:-1800}
     volumes:
       # Writable (marker removal) and pinned to the deployment's absolute
       # host dir — the same directory the base compose's ./data resolves
