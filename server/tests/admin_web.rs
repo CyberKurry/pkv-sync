@@ -1967,3 +1967,88 @@ async fn hatch_keeps_session_cookie_without_secure_flag() {
     );
     let _ = csrf_cookie;
 }
+
+#[tokio::test]
+async fn upgrade_status_requires_admin_session() {
+    let (app, _dir) = app().await;
+    let resp = app
+        .oneshot(request(Method::GET, "/admin/upgrade/status", Body::empty()))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn upgrade_status_reports_nulls_when_idle() {
+    let (app, _dir) = app().await;
+    let cookie = login_cookie(&app).await;
+    let mut req = request(Method::GET, "/admin/upgrade/status", Body::empty());
+    req.headers_mut()
+        .insert(header::COOKIE, cookie.parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = read_body(resp).await;
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(json["request_pending"], serde_json::Value::Null);
+    assert_eq!(json["status"], serde_json::Value::Null);
+}
+
+#[tokio::test]
+async fn upgrade_status_reports_pending_marker_and_live_status() {
+    let (app, dir) = app().await;
+    let data_dir = dir.path().to_path_buf();
+
+    // The updater picked the request up: a same-target in_progress means
+    // the marker is NO longer pending (the status carries the live step).
+    let marker = pkv_sync_server::service::upgrade_signal::UpgradeRequest::new(
+        "1.8.2",
+        1_794_000_000,
+        "admin",
+    )
+    .unwrap();
+    pkv_sync_server::service::upgrade_signal::write_request(&data_dir, &marker).unwrap();
+    let status = pkv_sync_server::service::upgrade_status::UpgradeStatus {
+        phase: pkv_sync_server::service::upgrade_status::UpgradePhase::InProgress,
+        from: "1.8.1".into(),
+        target: "1.8.2".into(),
+        at_unix: 1_794_000_010,
+        reason: String::new(),
+        step: "pull".into(),
+    };
+    pkv_sync_server::service::upgrade_status::write_status(&data_dir, &status).unwrap();
+
+    let cookie = login_cookie(&app).await;
+    let mut req = request(Method::GET, "/admin/upgrade/status", Body::empty());
+    req.headers_mut()
+        .insert(header::COOKIE, cookie.parse().unwrap());
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = read_body(resp).await;
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(json["request_pending"], serde_json::Value::Null);
+    assert_eq!(json["status"]["phase"], "in_progress");
+    assert_eq!(json["status"]["from"], "1.8.1");
+    assert_eq!(json["status"]["target"], "1.8.2");
+    assert_eq!(json["status"]["at_unix"], 1_794_000_010);
+    assert_eq!(json["status"]["step"], "pull");
+
+    // A second click while the old in_progress lingers: the NEW marker is
+    // pending again (a stale in_progress must not block it).
+    let marker2 = pkv_sync_server::service::upgrade_signal::UpgradeRequest::new(
+        "1.8.3",
+        1_794_000_020,
+        "admin",
+    )
+    .unwrap();
+    pkv_sync_server::service::upgrade_signal::write_request(&data_dir, &marker2).unwrap();
+    let mut req2 = request(Method::GET, "/admin/upgrade/status", Body::empty());
+    req2.headers_mut()
+        .insert(header::COOKIE, cookie.parse().unwrap());
+    let resp2 = app.oneshot(req2).await.unwrap();
+    assert_eq!(resp2.status(), StatusCode::OK);
+    let json2: serde_json::Value = serde_json::from_str(&read_body(resp2).await).unwrap();
+    assert_eq!(json2["request_pending"]["target_version"], "1.8.3");
+    assert_eq!(json2["request_pending"]["requested_at_unix"], 1_794_000_020);
+    assert_eq!(json2["status"]["target"], "1.8.2");
+    assert_eq!(json2["status"]["step"], "pull");
+}

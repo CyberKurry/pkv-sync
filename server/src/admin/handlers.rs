@@ -25,6 +25,7 @@ use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
+use axum::Json;
 use axum::Router;
 use chrono::{NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
@@ -82,6 +83,7 @@ pub fn router() -> Router<AppState> {
         .route("/admin/logout", post(logout))
         .route("/admin", get(dashboard))
         .route("/admin/upgrade/request", post(request_upgrade_form))
+        .route("/admin/upgrade/status", get(upgrade_status_json))
         .route("/admin/users", get(users_page).post(create_user_form))
         .route("/admin/users/:id", get(user_detail))
         .route("/admin/users/:id/password", post(reset_password_form))
@@ -744,6 +746,26 @@ async fn dashboard(
         sync_status_state,
         recent_activities,
     }))
+}
+
+/// Poll target for the admin panel's upgrade progress widget: whether a
+/// written marker still awaits pickup, plus the updater's last status
+/// record (either side may be absent). Read-only GET — the CSRF middleware
+/// deliberately skips safe methods; session auth still applies.
+#[derive(serde::Serialize)]
+struct UpgradeStatusResponse {
+    request_pending: Option<crate::service::upgrade_signal::UpgradeRequest>,
+    status: Option<crate::service::upgrade_status::UpgradeStatus>,
+}
+
+async fn upgrade_status_json(
+    State(state): State<AppState>,
+    _session: AdminSession,
+) -> Json<UpgradeStatusResponse> {
+    Json(UpgradeStatusResponse {
+        request_pending: crate::service::upgrade_status::request_pending(&state.data_dir),
+        status: crate::service::upgrade_status::read_status(&state.data_dir),
+    })
 }
 
 /// One-click "Upgrade now": if update-check has found a newer stable release,
