@@ -16,11 +16,47 @@ interface ConflictFileReader {
 
 type ConflictPairKind = "remote_copy" | "merge_markers";
 
-export function isConflictPath(path: string): boolean {
+/**
+ * The ONE grammar every conflict-sidecar name follows (single producer,
+ * R13-1/R13-2 audit):
+ *
+ *   <base>.conflict-YYYY-MM-DD-HHMMSS-<device>[.<ext>]
+ *   <base>.conflict-YYYY-MM-DD-HHMMSS-<nonce8>-<device>[.<ext>]
+ *
+ * The nonce segment is ALWAYS emitted by `conflictPath` since the R13-2
+ * fix (a plugin reload used to lose the in-memory collision map, so two
+ * same-second sidecars overwrote each other across reloads); the segment
+ * stays OPTIONAL when parsing because sidecars written before that fix —
+ * and sidecars written by other PKV Sync versions — lack it. Device names
+ * are `safeDeviceName` output ([A-Za-z0-9_-]) or the literal "remote";
+ * the nonce is 8 chars of [A-Za-z0-9_-]. Neither contains a dot, so the
+ * extension is unambiguously "everything after the last dot".
+ */
+const SIDECAR_RE =
+  /^(.+)\.conflict-(\d{4})-(\d{2})-(\d{2})-(\d{6})-(?:([A-Za-z0-9]{8})-)?([A-Za-z0-9_-]+)(\.[^/.]+)?$/;
+
+/** Parsed sidecar name; `nonce` is null for pre-nonce legacy sidecars. */
+interface ParsedSidecar {
+  originalPath: string;
+  nonce: string | null;
+  device: string;
+}
+
+export function parseConflictPath(path: string): ParsedSidecar | null {
   const name = path.split("/").pop() ?? path;
-  return /\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-[^/]+(?:\.[^/.]+)?$/.test(
-    name
-  );
+  const slash = path.lastIndexOf("/");
+  const dir = slash >= 0 ? path.slice(0, slash + 1) : "";
+  const m = name.match(SIDECAR_RE);
+  if (!m) return null;
+  return {
+    originalPath: `${dir}${m[1]}${m[8] ?? ""}`,
+    nonce: m[6] ?? null,
+    device: m[7]
+  };
+}
+
+export function isConflictPath(path: string): boolean {
+  return parseConflictPath(path) !== null;
 }
 
 export function listConflictFiles(vault: ConflictFileVault): TFile[] {
@@ -38,11 +74,7 @@ export async function deleteConflictFiles(
 }
 
 export function originalPathFor(conflictPath: string): string | null {
-  const m = conflictPath.match(
-    /^(.+)\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-[A-Za-z0-9_-]+(\.[^/.]+)?$/
-  );
-  if (!m) return null;
-  return `${m[1]}${m[2] ?? ""}`;
+  return parseConflictPath(conflictPath)?.originalPath ?? null;
 }
 
 /**
@@ -66,11 +98,9 @@ export function originalPathFor(conflictPath: string): string | null {
 export type SidecarRole = "local" | "remote";
 
 export function sidecarRoleFor(conflictPath: string): SidecarRole {
-  const name = conflictPath.split("/").pop() ?? conflictPath;
-  const m = name.match(
-    /\.conflict-\d{4}-\d{2}-\d{2}-\d{6}-([A-Za-z0-9_-]+)(?:\.[^/.]+)?$/
-  );
-  return m?.[1] === "remote" ? "remote" : "local";
+  return parseConflictPath(conflictPath)?.device === "remote"
+    ? "remote"
+    : "local";
 }
 
 export interface ConflictPair {

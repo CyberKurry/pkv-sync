@@ -60,3 +60,27 @@ describe("R12-4b same-second conflict collision", () => {
     expect(new Set(contents).size).toBe(2);
   });
 });
+
+describe("R13-2 cross-reload same-second collision", () => {
+  it("keeps both sidecars when the engine is rebuilt inside the same second", async () => {
+    // Red for the old fix: the in-memory collision map died with the
+    // engine, so a reload inside the same second overwrote the first
+    // sidecar. The always-on nonce makes the paths unique regardless.
+    const first = makeEngine();
+    const a = textFile("note.md");
+    a.content_inline = "content-from-before-reload";
+    await first.writeRemoteConflict(a, "commit-a");
+
+    const second = makeEngine(); // fresh engine generation = plugin reload
+    const b = textFile("note.md");
+    b.content_inline = "content-from-after-reload";
+    await second.writeRemoteConflict(b, "commit-b");
+
+    const paths = [
+      ...Object.keys(first.written),
+      ...Object.keys(second.written)
+    ].filter((p) => p.includes("conflict-"));
+    expect(paths.length).toBe(2);
+    expect(new Set(paths).size).toBe(2);
+  });
+});

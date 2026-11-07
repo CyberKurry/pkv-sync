@@ -929,16 +929,12 @@ export class SyncEngine {
     this.throwIfAborted();
     const key = `${file.path}\u0000remote\u0000${atCommit}`;
     if (this.sidecarAlreadyWritten(key)) return;
-    let cpath = conflictPath(file.path, "remote");
-    // R12-4b: conflictPath stamps seconds; two same-path conflicts from
-    // DIFFERENT commits inside one second would collide and the second
-    // write would overwrite the first sidecar. Disambiguate against every
-    // sidecar this pass already wrote (mirrors the server's nonce).
-    if (this.writtenConflictSidecars.has(`sidecar\u0000${cpath}`)) {
-      const nonce = Math.random().toString(36).slice(2, 8);
-      cpath = nonceSuffix(cpath, nonce);
-    }
-    this.writtenConflictSidecars.set(`sidecar\u0000${cpath}`, cpath);
+    // R13-2: conflictPath now carries an always-on 8-char nonce (matching
+    // the server's sidecar grammar), so two same-path conflicts from
+    // different commits inside one second are unique by construction —
+    // including across plugin reloads, which the previous in-memory
+    // collision map could not cover.
+    const cpath = conflictPath(file.path, "remote");
     if (file.file_type === "text") {
       const content =
         file.content_inline ??
@@ -1136,19 +1132,6 @@ function isLocalDeleted(
   return !local && !!lastSyncedHash;
 }
 
-/**
- * R12-4b: append a short nonce before the extension of a conflict sidecar
- * path (`note.conflict-...-remote-abc123.md`), used only when two
- * same-second conflicts for one path would otherwise overwrite each other.
- */
-function nonceSuffix(path: string, nonce: string): string {
-  const slash = path.lastIndexOf("/");
-  const file = slash >= 0 ? path.slice(slash + 1) : path;
-  const dir = slash >= 0 ? path.slice(0, slash + 1) : "";
-  const dot = file.lastIndexOf(".");
-  if (dot <= 0) return `${dir}${file}-${nonce}`;
-  return `${dir}${file.slice(0, dot)}-${nonce}${file.slice(dot)}`;
-}
 
 function isLocalDirty(
   local: LocalFileSnapshot | undefined,
