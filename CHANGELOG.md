@@ -9,6 +9,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin conflict sidecars: the name grammar had three hand-rolled
+  parsers that disagreed (a sidecar one accepted, another refused to
+  parse — invisible in the conflict UI), and the same-second collision
+  nonce lived only in engine memory, so two sidecars from different
+  commits in one second still overwrote each other across a plugin
+  reload. Sidecar names now always carry an 8-char nonce (matching the
+  server's grammar), parsing is a single producer, and legacy
+  nonce-less sidecars stay visible.
 - Docker updater path: "Upgrade now" silently did nothing after the
   first invocation. Docker has no file-appearance trigger, so the
   `restart: "no"` oneshot consumed at most one request and every later
