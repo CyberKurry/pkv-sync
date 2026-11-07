@@ -15,9 +15,14 @@
   <a href="{{ update.release_url }}" target="_blank" rel="noopener">
     {{ t.update_release_notes }}<svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-right"></use></svg>
   </a>
-  <form method="post" action="/admin/upgrade/request" class="update-upgrade">
+  <form method="post" action="/admin/upgrade/request" class="update-upgrade"
+        data-status-url="/admin/upgrade/status"
+        {# askama escapes the JSON's quotes; the browser decodes them when
+           parsing the attribute, so dataset.upgradeI18n is valid JSON #}
+        data-upgrade-i18n="{{ upgrade_i18n_json }}"
+        {% if upgrade_poll_active %}data-upgrade-poll="1"{% endif %}>
     <button type="submit">{{ t.upgrade_now_button }}</button>
-    <span class="update-upgrade-hint">{{ t.upgrade_updater_hint }}</span>
+    <span class="update-upgrade-hint" data-upgrade-status>{{ t.upgrade_updater_hint }}</span>
   </form>
 </section>
 {% endif %}

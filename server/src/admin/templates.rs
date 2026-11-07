@@ -49,6 +49,15 @@ pub struct DashboardTemplate {
     /// upgrade-status.json (empty when no updater has run yet) — lets an
     /// operator tell "request written" from "applied / refused / failed".
     pub upgrade_last_result: String,
+    /// Localized strings for the upgrade progress widget, pre-serialized
+    /// by the handler (serde_json is the single JSON producer; askama's
+    /// HTML escaping inside the double-quoted attribute round-trips to the
+    /// exact JSON string when the browser parses the attribute).
+    pub upgrade_i18n_json: String,
+    /// True when a request awaits pickup or the updater reported
+    /// in_progress: the inline script starts polling on page load instead
+    /// of waiting for a fresh submit.
+    pub upgrade_poll_active: bool,
     /// Live count of SSE subscribers across all vaults.
     pub sse_subscribers: usize,
     /// Localised "X ago" string for the most recent sync activity (push /
@@ -391,6 +400,8 @@ mod tests {
     #[test]
     fn dashboard_template_renders() {
         let html = DashboardTemplate {
+            upgrade_i18n_json: String::new(),
+            upgrade_poll_active: false,
             t: AdminText::en(),
             username: "admin".into(),
             users: 1,
@@ -441,8 +452,70 @@ mod tests {
     }
 
     #[test]
+    fn dashboard_template_renders_upgrade_widget_hooks() {
+        let html = DashboardTemplate {
+            upgrade_i18n_json: serde_json::to_string(
+                &crate::admin::i18n::UpgradeProgressText::for_html_lang("zh-CN"),
+            )
+            .unwrap(),
+            upgrade_poll_active: true,
+            t: AdminText::en(),
+            username: "admin".into(),
+            users: 1,
+            vaults: 2,
+            cpu_percent: 3.0,
+            cpu_display: "3".into(),
+            cpu_cores_display: "1 core".into(),
+            memory_display: "10 MB".into(),
+            memory_total_display: "20 MB".into(),
+            disk_used_display: "1 GB".into(),
+            disk_total_display: "2 GB".into(),
+            uptime_display: "5s".into(),
+            update_status: Some(crate::service::update_check::UpdateStatus {
+                latest_version: "1.8.2".into(),
+                current_version: "1.8.1".into(),
+                release_url: "https://example.com/r".into(),
+                notes_excerpt: String::new(),
+            }),
+            current_version: env!("CARGO_PKG_VERSION"),
+            last_update_check_display: String::new(),
+            upgrade_last_result: String::new(),
+            sse_subscribers: 0,
+            last_sync_activity_display: String::new(),
+            sync_status_state: "quiet",
+            recent_activities: vec![],
+        }
+        .render()
+        .unwrap();
+        // The form carries the poll target, the auto-poll marker and the
+        // pre-serialized strings.
+        assert!(html.contains("data-status-url=\"/admin/upgrade/status\""));
+        assert!(html.contains("data-upgrade-poll=\"1\""));
+        // askama escapes the JSON's double quotes inside the attribute; the
+        // browser decodes them back before the script JSON.parses.
+        assert!(
+            html.contains("data-upgrade-i18n=\"{&quot;submitting&quot;"),
+            "attribute must hold HTML-escaped JSON"
+        );
+        // Round-trip: unescape and parse exactly like a browser would.
+        let marker = "data-upgrade-i18n=\"";
+        let attr_start = html.find(marker).expect("i18n attribute") + marker.len();
+        let attr_end = html[attr_start..].find('"').expect("attr end") + attr_start;
+        let decoded = html[attr_start..attr_end]
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&");
+        let parsed: serde_json::Value = serde_json::from_str(&decoded).unwrap();
+        assert!(parsed["submitting"].as_str().unwrap().contains("正在提交"));
+    }
+
+    #[test]
     fn dashboard_template_renders_update_banner() {
         let html = DashboardTemplate {
+            upgrade_i18n_json: String::new(),
+            upgrade_poll_active: false,
             t: AdminText::en(),
             username: "admin".into(),
             users: 1,
@@ -711,6 +784,8 @@ mod tests {
     #[test]
     fn dashboard_template_uses_lucide_sprite_and_mobile_toggle() {
         let html = DashboardTemplate {
+            upgrade_i18n_json: String::new(),
+            upgrade_poll_active: false,
             t: AdminText::en(),
             username: "admin".into(),
             users: 1,
@@ -1337,6 +1412,8 @@ mod tests {
     #[test]
     fn admin_shell_footer_uses_version_not_browser_clock() {
         let html = DashboardTemplate {
+            upgrade_i18n_json: String::new(),
+            upgrade_poll_active: false,
             t: AdminText::en(),
             username: "admin".into(),
             users: 1,

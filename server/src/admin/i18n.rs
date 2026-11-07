@@ -296,6 +296,96 @@ impl AdminLang {
     }
 }
 
+/// Localized strings for the dashboard's upgrade progress widget,
+/// serialized into a `data-*` attribute for the small inline script.
+/// Deliberately separate from the big AdminText: only these few keys are
+/// embedded into the page as JSON.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UpgradeProgressText {
+    pub submitting: &'static str,
+    pub waiting_updater: &'static str,
+    pub pulling: &'static str,
+    pub recreating: &'static str,
+    pub health_check: &'static str,
+    pub done: &'static str,
+    /// Carries a `{reason}` placeholder the script substitutes with the
+    /// updater's machine-readable refusal/failure reason.
+    pub failed_with_reason: &'static str,
+}
+
+impl UpgradeProgressText {
+    /// Strings for the detected admin language (falls back to English).
+    pub fn for_html_lang(lang: &str) -> Self {
+        match AdminLang::parse(lang) {
+            Some(AdminLang::En) | None => Self::en(),
+            Some(AdminLang::ZhCn) => Self::zh_cn(),
+            Some(AdminLang::ZhHant) => Self::zh_hant(),
+            Some(AdminLang::Ja) => Self::ja(),
+            Some(AdminLang::Ko) => Self::ko(),
+        }
+    }
+
+    fn en() -> Self {
+        Self {
+            submitting: "Submitting upgrade request…",
+            waiting_updater: "Request recorded; waiting for the updater…",
+            pulling: "Pulling the new version…",
+            recreating: "Recreating the service…",
+            health_check: "Running health checks…",
+            done: "Upgrade applied; reloading…",
+            failed_with_reason: "Upgrade failed: {reason}",
+        }
+    }
+
+    fn zh_cn() -> Self {
+        Self {
+            submitting: "正在提交升级请求……",
+            waiting_updater: "已记录请求，等待升级器处理……",
+            pulling: "正在拉取新版本……",
+            recreating: "正在重建服务……",
+            health_check: "正在执行健康检查……",
+            done: "升级完成，正在刷新……",
+            failed_with_reason: "升级失败：{reason}",
+        }
+    }
+
+    fn zh_hant() -> Self {
+        Self {
+            submitting: "正在提交升級請求……",
+            waiting_updater: "已記錄請求，等待升級器處理……",
+            pulling: "正在提取新版本……",
+            recreating: "正在重建服務……",
+            health_check: "正在執行健康檢查……",
+            done: "升級完成，正在重新整理……",
+            failed_with_reason: "升級失敗：{reason}",
+        }
+    }
+
+    fn ja() -> Self {
+        Self {
+            submitting: "リクエストを送信しています…",
+            waiting_updater: "リクエストを記録しました。アップデーターを待っています…",
+            pulling: "新しいバージョンを取得しています…",
+            recreating: "サービスを再作成しています…",
+            health_check: "ヘルスチェックを実行しています…",
+            done: "アップグレードが完了しました。再読み込みします…",
+            failed_with_reason: "アップグレードに失敗しました：{reason}",
+        }
+    }
+
+    fn ko() -> Self {
+        Self {
+            submitting: "요청을 제출하는 중…",
+            waiting_updater: "요청이 기록되었습니다. 업데이터를 기다리는 중…",
+            pulling: "새 버전을 가져오는 중…",
+            recreating: "서비스를 재생성하는 중…",
+            health_check: "상태 확인을 실행하는 중…",
+            done: "업그레이드가 완료되어 새로고침하는 중…",
+            failed_with_reason: "업그레이드 실패: {reason}",
+        }
+    }
+}
+
 impl AdminText {
     pub fn en() -> Self {
         Self {

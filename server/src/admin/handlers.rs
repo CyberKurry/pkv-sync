@@ -717,6 +717,13 @@ async fn dashboard(
     } else {
         "quiet"
     };
+    let t_upgrade = crate::admin::i18n::UpgradeProgressText::for_html_lang(t.html_lang);
+    let upgrade_i18n_json =
+        serde_json::to_string(&t_upgrade).expect("UpgradeProgressText serializes infallibly");
+    let upgrade_poll_active = upgrade_last
+        .as_ref()
+        .is_some_and(|st| st.phase == crate::service::upgrade_status::UpgradePhase::InProgress)
+        || crate::service::upgrade_status::request_pending(&state.data_dir).is_some();
     Ok(render_html(DashboardTemplate {
         disk_used_display: crate::human::format_bytes(metrics.disk_used_bytes),
         disk_total_display: crate::human::format_bytes(metrics.disk_total_bytes),
@@ -740,6 +747,8 @@ async fn dashboard(
             Some(st) => crate::admin::system::format_upgrade_last_result(st, t.html_lang),
             None => String::new(),
         },
+        upgrade_i18n_json,
+        upgrade_poll_active,
         last_update_check_display,
         sse_subscribers,
         last_sync_activity_display,
