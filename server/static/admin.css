@@ -1948,6 +1948,16 @@ textarea {
     color: var(--pkv-ink-mute);
 }
 
+.update-upgrade button[disabled] {
+    opacity: 0.6;
+    cursor: default;
+    box-shadow: none;
+}
+
+.update-upgrade [data-upgrade-status] {
+    font-weight: 600;
+}
+
 /* =====================================================================
  * 15. Login & Setup Screens
  * =================================================================== */

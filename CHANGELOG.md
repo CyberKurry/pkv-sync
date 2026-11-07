@@ -9,6 +9,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Added
 
+- Live upgrade progress in the admin panel: "Upgrade now" disables the
+  button on submit and the dashboard polls the new
+  `GET /admin/upgrade/status` endpoint every 2 seconds (self-scheduling
+  timeout, survives the server restart mid-upgrade), showing the
+  updater's current stage — pulling, recreating, health checks — and
+  reloading on the terminal outcome. Polling also starts on page load
+  when a request is pending or an upgrade is in progress. The status
+  endpoint reports whether a marker awaits pickup plus the updater's
+  last record (phase, from/target versions, reason, step).
 - Upgrade progress steps: both updaters record a coarse `step`
   (`pull` / `recreate` / `health`) in `upgrade-status.json` while an
   upgrade is in progress, so the admin panel can show which stage is

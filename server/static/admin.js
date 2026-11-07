@@ -185,4 +185,119 @@
       showErrorDialog(errorNotice.dataset.errorDialogTitle || errorNotice.textContent);
     }
   });
+
+  // ---- Upgrade progress widget -------------------------------------
+  // The "Upgrade now" form only writes a marker for the privileged
+  // updater; this widget gives the click feedback: disable the button,
+  // then poll GET /admin/upgrade/status (read-only, CSRF-free) every 2s
+  // with a self-scheduling timeout (no re-entrant intervals) until a
+  // terminal phase, mirroring Gitea's migration-page pattern. Network
+  // errors keep polling — the server restarts mid-upgrade and 502s are
+  // expected. The server decides when polling starts without a submit
+  // (data-upgrade-poll): a request pending or an in_progress status must
+  // survive a page reload.
+  function initUpgradeWidget() {
+    var form = document.querySelector("form.update-upgrade[data-status-url]");
+    if (!form) return;
+    var button = form.querySelector("button[type=submit]");
+    var hint = form.querySelector("[data-upgrade-status]");
+    var url = form.getAttribute("data-status-url");
+    var strings = {};
+    try {
+      strings = JSON.parse(form.getAttribute("data-upgrade-i18n") || "{}") || {};
+    } catch (err) {
+      strings = {};
+    }
+
+    function setStatus(text) {
+      if (hint) hint.textContent = text;
+    }
+
+    var timer = null;
+    function scheduleNext() {
+      if (timer !== null) return;
+      timer = window.setTimeout(function () {
+        timer = null;
+        poll();
+      }, 2000);
+    }
+
+    function poll() {
+      fetch(url)
+        .then(function (resp) {
+          if (!resp.ok) {
+            scheduleNext();
+            return undefined;
+          }
+          return resp.json().then(handleStatus, scheduleNext);
+        })
+        .catch(scheduleNext);
+    }
+
+    function handleStatus(data) {
+      var pending = data && data.request_pending;
+      var status = data && data.status;
+      if (status && status.phase === "in_progress") {
+        if (status.step === "pull") setStatus(strings.pulling || strings.waiting_updater || "");
+        else if (status.step === "recreate")
+          setStatus(strings.recreating || strings.waiting_updater || "");
+        else if (status.step === "health")
+          setStatus(strings.health_check || strings.waiting_updater || "");
+        else setStatus(strings.waiting_updater || "");
+        scheduleNext();
+        return;
+      }
+      if (
+        status &&
+        (status.phase === "success" || status.phase === "refused" || status.phase === "failed")
+      ) {
+        if (status.phase === "success") {
+          setStatus(strings.done || "");
+        } else {
+          setStatus(
+            (strings.failed_with_reason || "").replace("{reason}", status.reason || "")
+          );
+        }
+        // Terminal: the page must reflect the outcome server-side.
+        window.location.reload();
+        return;
+      }
+      if (pending) {
+        setStatus(strings.waiting_updater || "");
+        scheduleNext();
+        return;
+      }
+      // Nothing in flight (e.g. a stale marker cleared elsewhere): stop quietly.
+    }
+
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (button) button.disabled = true;
+      setStatus(strings.submitting || "");
+      fetch(form.action, { method: "POST" })
+        .then(function (resp) {
+          if (!resp.ok) {
+            if (button) button.disabled = false;
+            return;
+          }
+          setStatus(strings.waiting_updater || strings.submitting || "");
+          poll();
+        })
+        .catch(function () {
+          if (button) button.disabled = false;
+        });
+    });
+
+    if (form.getAttribute("data-upgrade-poll") === "1") {
+      poll();
+    }
+  }
+
+  // The script tag sits in <head> without defer: wait for the DOM when it
+  // is still parsing, run immediately otherwise (tests, async loading).
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initUpgradeWidget);
+  } else {
+    initUpgradeWidget();
+  }
 })();
