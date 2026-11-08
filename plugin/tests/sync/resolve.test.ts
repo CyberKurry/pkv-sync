@@ -106,6 +106,24 @@ describe("acceptLocal", () => {
     expect(vault.created).toHaveLength(0);
     expect(vault.fileManager.trashed).toContain(pair.conflictPath);
   });
+
+  it("trashes a re-delivered original for a remote-role sidecar (R14-M2)", async () => {
+    // A delete-rejected conflict has the pull re-deliver the file at the
+    // original path; "keep local" means the user's deletion wins, so that
+    // copy must leave the disk. The old code looked the file up and
+    // discarded the result — the file survived with no index entry, and
+    // the next scan pushed it back, inverting the verdict.
+    const pair = conflictPair("remote_copy", "remote");
+    const vault = new FakeVault({
+      originalExists: true,
+      conflictContent: "remote edit"
+    });
+    await acceptLocal(host(vault), pair);
+    expect(vault.modified).toHaveLength(0);
+    expect(vault.created).toHaveLength(0);
+    expect(vault.fileManager.trashed).toContain("note.md");
+    expect(vault.fileManager.trashed).toContain(pair.conflictPath);
+  });
 });
 
 describe("acceptRemote", () => {

@@ -27,6 +27,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin conflict resolution: "keep my deletion" on a delete-vs-remote-edit
+  conflict now also removes the file copy the pull had re-delivered at
+  the original path. The resolve handler looked the file up and
+  discarded the result, so the copy survived with no index entry and the
+  next scan pushed it back to the server — silently inverting the
+  user's verdict (R14-M2).
 - Admin panel: the upgrade progress widget treated a terminal
   `upgrade-status.json` record as final even while a fresh request was
   still waiting for the updater (the marker is only removed after the

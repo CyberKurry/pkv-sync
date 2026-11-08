@@ -51,7 +51,14 @@ export async function acceptLocal(
     const localContent = await host.vault.read(pair.conflictFile);
     await writeOriginal(host.vault, pair, localContent);
   } else {
-    await host.vault.getAbstractFileByPath(pair.originalPath);
+    // R14-M2: a delete-rejected conflict has the pull re-deliver the
+    // remote copy at the original path — "keep local" (the deletion
+    // wins) must remove it, or the next scan pushes it right back and
+    // inverts the user's verdict. Nothing to do when it is already gone.
+    const original = host.vault.getAbstractFileByPath(pair.originalPath);
+    if (isTFile(original)) {
+      await host.fileManager.trashFile(original);
+    }
   }
   await host.fileManager.trashFile(pair.conflictFile);
 }
