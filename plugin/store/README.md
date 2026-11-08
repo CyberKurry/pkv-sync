@@ -12,13 +12,12 @@ Self-hosted, Git-backed synchronization for Obsidian.
 
 ## Current release
 
-PKV Sync 1.7.3 fixes the built-in update check that always reported "up to
-date" when using the GitHub source: it now reads the plugin mirror releases
-and reports release-shape errors instead of hiding them. Settings-tab
-operations are fenced to the connection they were issued on, the retry
-countdown is computed when read, and four Dependabot rustls advisories are
-resolved. Releases now publish the individual plugin files with sha256
-digests, so in-app self-updates verify end to end.
+PKV Sync 1.9.0 fixes mixed realtime events so notes and attachments from the
+same push all arrive, supports case-only renames through normal sync, and keeps
+confirmed deletions from being uploaded again. Filenames that would alias after
+server decoding or fail portable path rules stay local. The server adds admin
+Markdown preview with a source tab and live upgrade progress. Upgrade the server
+and plugin together to use the complete release.
 
 ## What it is
 

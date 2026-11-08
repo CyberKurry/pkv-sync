@@ -2,7 +2,7 @@
 
 English | [简体中文](./user-manual.zh-CN.md) | [繁體中文](./user-manual.zh-Hant.md) | [日本語](./user-manual.ja.md) | [한국어](./user-manual.ko.md)
 
-Document version: v1.8.1.
+Document version: v1.9.0.
 
 This manual is for Obsidian users who connect to an existing PKV Sync server.
 Ask your server administrator for the server share URL and an account or invite
@@ -89,12 +89,14 @@ conflict files.
 PKV Sync runs inside Obsidian and syncs the current vault:
 
 - Local file changes are pushed after a short debounce interval.
-- Remote changes are polled periodically.
+- Remote changes arrive through Server-Sent Events (SSE), with periodic polling as a fallback.
 - Manual sync is available from the settings page and command palette.
 - Relevant file create/modify/delete events schedule a sync.
 - Window blur can trigger a sync.
 - On startup, unsynced local changes are detected from the vault contents and
   the local sync index.
+
+For portable filenames, the plugin leaves Windows-reserved names, colons, and components ending in a dot or space out of sync on every platform. Names that would change under server percent-decoding, such as `a%41.md`, also stay local to prevent aliases from overwriting one another. A case-only rename can sync when the same push deletes the old spelling and writes the new spelling; two simultaneously existing case variants remain rejected. MCP `move_file` still rejects case-only renames.
 
 Keep Obsidian open while large attachments upload. The plugin reads the server
 configuration after connecting and uses the server-provided text extension list

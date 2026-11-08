@@ -7,40 +7,24 @@ The name is **PKV Sync**: **PKV** is the initialism of **Personal Knowledge Vaul
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.8.1.
+Document version: v1.9.0.
 
 English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## Status
 
-PKV Sync 1.8.1 hardens two operational paths found in review. The
-Docker self-updater is now a resident watcher: "Upgrade now" previously
-consumed at most one request (the oneshot container exited and nothing
-ever re-armed), stale upgrade requests older than 30 minutes are refused
-instead of applied, and every attempt is recorded in
-`upgrade-status.json` with the last outcome shown in the admin panel.
-Conflict sidecar names now always carry a uniqueness nonce (matching the
-server's grammar) — two same-second sidecars can no longer overwrite each
-other across a plugin reload, and the conflict UI parses one grammar
-instead of three that disagreed. On the 1.8.0 feature release — the MCP
-edit surface — the highlights were:
-anchored editing (`edit_file`: heading subtrees, block ids, ordered
-literal edits, behind the same dry-run/CAS/hash-guard pipeline),
-inbound-link context (`backlinks` with line numbers, snippets, and raw
-link text), and a link-maintaining `move_file`: by default every inbound
-wikilink, embed, Markdown link, and frontmatter property link is
-rewritten in the same commit — identity-preserving, with automatic
-content-hash guards so a concurrent edit aborts the whole move instead
-of being overwritten. `read_file` learns a token-disciplined `concise`
-mode, `list_files` an explicit `limit`; bounded responses always disclose
-their truncation. Case-only renames are refused, and business failures
-now answer as `isError` results the model can act on. The 1.8.0 line
-also hardens the link scanner against hostile documents (a crafted
-link flood can no longer stall scans — work is budgeted and degrades
-honestly) and pins `move_file` to one commit, so the default empty
-`parent_commit` resolves the current head and concurrent edits can
-never receive stale patches.
+PKV Sync 1.9.0 adds a readable Markdown preview to the admin vault browser,
+with a source tab, collapsed document properties, and improved file-list and
+document layouts. The preview filters active HTML and shows images as explicit
+links. The dashboard also displays live upgrade stages and resumes progress
+tracking across a server restart.
 
+This release fixes mixed realtime events losing non-inline siblings, restores
+case-only renames through normal sync, and keeps a resolved deletion from being
+re-uploaded. The plugin filters filenames that would collide after server
+decoding or fail portable path rules. MCP moves now maintain a moved note's own
+links from its final directory, and Docker updater discovery supports custom
+container names. See the release history for the complete fixes.
 
 ## Features
 

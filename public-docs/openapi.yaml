@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PKV Sync API
-  version: 1.8.1
+  version: 1.9.0
   license:
     name: AGPL-3.0-only
   contact:
@@ -481,6 +481,7 @@ components:
         propertyName: kind
     TextPushChange:
       type: object
+      description: Text whose entire body parses as the server's blob-pointer representation is rejected with HTTP 400 (invalid_text). Use the blob upload flow for binary content.
       required: [kind, path, content]
       properties:
         kind:

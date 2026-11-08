@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-08
+
 ### Added
 
 - Admin vault browser: Markdown files open in a sanitized preview with a
