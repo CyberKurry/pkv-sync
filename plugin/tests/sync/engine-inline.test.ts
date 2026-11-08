@@ -142,7 +142,11 @@ describe("SyncEngine inline apply dirty detection", () => {
       .applyInlineText("note.md", "remote content", "c1");
 
     expect(vault.writes.get("note.md")).toBe("remote content");
-    expect(index.saved?.lastSyncedCommit).toBe("c1");
+    // R14-H1: the per-change apply no longer advances the head — the SSE
+    // loop advances it once per event (a fallback pull from ev.parent must
+    // still be able to reach this commit's siblings). The file's hash is
+    // recorded, so a same-commit re-delivery via pull reads as clean.
+    expect(index.saved?.lastSyncedCommit).toBe("c0");
     expect(index.saved?.files["note.md"]?.lastSyncedHash).toBe(await sha256Text("remote content"));
     expect(cleanHash).toBeTypeOf("string");
   });

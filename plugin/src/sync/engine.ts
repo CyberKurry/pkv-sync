@@ -1017,7 +1017,16 @@ export class SyncEngine {
       // must still stop the write (M-10 per-file granularity).
       this.throwIfAborted();
       await this.opts.vault.writeText(path, content);
-      return markSynced(index, commit, [snapshot]);
+      // R14-H1: record the file WITHOUT advancing the head. The server's
+      // pull is a tree-state diff — since === head returns empty — so an
+      // inline apply that advanced lastSyncedCommit past its still-unapplied
+      // siblings (text_ref/blob in the SAME event) stranded them forever.
+      // The SSE loop advances the head once, at event level, only when the
+      // whole event applied; a fallback pull then runs from ev.parent and
+      // the tree diff re-delivers everything in range (already-applied
+      // inline files re-apply as clean no-ops). Same discipline the push
+      // path adopted for partial batches (markFilesSynced there).
+      return markFilesSynced(index, [snapshot]);
     });
   }
 
@@ -1073,7 +1082,11 @@ export class SyncEngine {
       // granularity): re-check before the trash.
       this.throwIfAborted();
       await this.opts.vault.trash(path);
-      return markDeleted(index, commit, [path]);
+      // R14-H1: same event-level discipline as applyInlineText — drop the
+      // index entry WITHOUT advancing the head; the SSE loop advances once
+      // the whole event applied, and a fallback pull from ev.parent covers
+      // the siblings this delete did not touch.
+      return markFilesDeleted(index, [path]);
     });
   }
 

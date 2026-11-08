@@ -27,6 +27,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin realtime sync: a mixed SSE event (one push batch carrying an
+  inline note plus a binary attachment, or notes over the inline budget)
+  stranded every non-inline sibling permanently — the inline apply
+  advanced the index head to the event's commit, and the fallback pull
+  (a server-side tree diff where `since == head` returns nothing) could
+  never reach the stratum below it. Inline applies and deletes now record
+  per-file state WITHOUT advancing the head; the head advances once, at
+  event level, only when the whole event applied, and a fallback pull
+  runs from the event's parent so the tree diff re-delivers the full
+  range (R14-H1).
 - Docker updater: discover the running image via Compose canonical labels
   (`com.docker.compose.project`/`service`, `oneoff=False` first) instead of
   the default container-name shape — deployments that pin `container_name:`
