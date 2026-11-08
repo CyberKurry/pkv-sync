@@ -19,7 +19,7 @@ describe("saveSettings surfaces write failures (R8-4)", () => {
   });
 
   it("shows a localized notice and rethrows when the write fails", async () => {
-    const h = createMigrationHarness({});
+    const h = createMigrationHarness({ settings: { language: "en" } });
     h.setSave(async () => {
       throw new Error("ENOSPC: no space left on device");
     });
@@ -39,7 +39,7 @@ describe("saveSettings surfaces write failures (R8-4)", () => {
   });
 
   it("no notice on a successful save", async () => {
-    const h = createMigrationHarness({});
+    const h = createMigrationHarness({ settings: { language: "en" } });
     const plugin = h.plugin as unknown as PKVSyncPlugin;
     await plugin.saveSettings({ rebuild: false });
     expect(notices).toEqual([]);
@@ -52,7 +52,7 @@ describe("saveSettingsPatch surfaces write failures (R9-5)", () => {
   });
 
   it("shows a localized notice and rethrows when the patch write fails", async () => {
-    const h = createMigrationHarness({});
+    const h = createMigrationHarness({ settings: { language: "en" } });
     h.setSave(async () => {
       throw new Error("EACCES: permission denied");
     });
@@ -83,7 +83,7 @@ describe("saveSettingsPatch surfaces write failures (R9-5)", () => {
     // right after setting status "connected"; a throw there would rewrite
     // a successful pass into an error status. Bookkeeping writes report
     // the failure (notice) but resolve.
-    const h = createMigrationHarness({});
+    const h = createMigrationHarness({ settings: { language: "en" } });
     h.setSave(async () => {
       throw new Error("EROFS: read-only file system");
     });
@@ -103,7 +103,7 @@ describe("saveSettingsPatch surfaces write failures (R9-5)", () => {
     // status "connected"; a throw there rewrites a successful pass into an
     // error status. The write failure must be visible (notice) but not
     // fail the pass.
-    const h = createMigrationHarness({});
+    const h = createMigrationHarness({ settings: { language: "en" } });
     h.setSave(async () => {
       throw new Error("EROFS: read-only file system");
     });
