@@ -177,8 +177,8 @@ describe("SSE mixed events must not strand sibling changes (R14-H1)", () => {
     // the tree-diff can never cross.
     await vi.waitFor(() => {
       expect(vault.binaryWrites.get("b.png")).toBeDefined();
+      expect(index.idx.lastSyncedCommit).toBe("c1");
     });
-    expect(index.idx.lastSyncedCommit).toBe("c1");
     // The fallback pull covered the event's whole range: it pulled from
     // the parent, not from the already-applied commit.
     const sinceArgs = pull.mock.calls.map((call) => call[1]);
@@ -251,8 +251,8 @@ describe("SSE mixed events must not strand sibling changes (R14-H1)", () => {
     });
     await vi.waitFor(() => {
       expect(vault.writes.get("b.md")).toBe("beta");
+      expect(index.idx.lastSyncedCommit).toBe("c1");
     });
-    expect(index.idx.lastSyncedCommit).toBe("c1");
     expect(pull.mock.calls.map((call) => call[1])).toContain("c0");
   });
 });
