@@ -601,11 +601,14 @@ describe("shouldSyncPath", () => {
     expect(shouldSyncPath("a%252Fb.md")).toBe(false);
     // Case-insensitive hex.
     expect(shouldSyncPath("a%2fb.md")).toBe(false);
-    // Escapes that encode CHARACTERS (not structure) stay acceptable:
-    // a unicode filename arriving percent-encoded must keep syncing.
-    expect(shouldSyncPath("%E6%96%87%E5%AD%97.md")).toBe(true);
-    expect(shouldSyncPath("%E6%96%87/note.md")).toBe(true);
-    expect(shouldSyncPath("folder%20name/note.md")).toBe(true);
+    // R14-M1 supersedes the old accept-rule here: ANY literal whose
+    // fixed-point decode differs from itself folds onto the decoded
+    // name server-side (the server stores the decode), so character
+    // escapes are refused at scan time too — the decoded spelling is
+    // the one that syncs.
+    expect(shouldSyncPath("%E6%96%87%E5%AD%97.md")).toBe(false);
+    expect(shouldSyncPath("%E6%96%87/note.md")).toBe(false);
+    expect(shouldSyncPath("folder%20name/note.md")).toBe(false);
     // A literal percent without any escape shape is an ordinary name.
     expect(shouldSyncPath("100%.md")).toBe(true);
   });

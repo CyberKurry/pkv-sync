@@ -27,6 +27,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin scan filter: Windows-unsafe filename components (DOS device
+  names like `aux.md`/`com1.md` with or without extensions, components
+  containing a colon, trailing dots or spaces) are refused at scan
+  time, mirroring the server's all-platform rule. Previously such files
+  were pushed into a deterministic 400 `invalid_path` on every pass,
+  wedging the whole vault's push stream (the same no-quarantine
+  mechanism as the case-rename bug); they now simply stay local
+  (R14-M3).
 - Plugin scan filter: a local file whose name contains a literal
   percent-escape (`a%41.md`) is now refused for syncing. The server
   stores every pushed path at its fixed-point decode (`aA.md`), so the
