@@ -164,6 +164,11 @@ pub trait RuntimeConfigRepo: Send + Sync {
         enabled: bool,
         interval_seconds: u64,
     ) -> Result<(), sqlx::Error>;
+    /// Drop the `updated_by` attribution for a user about to be deleted.
+    /// `runtime_config.updated_by` is the schema's only users FK without
+    /// an ON DELETE action, so the delete flow must clear it first or the
+    /// FK constraint turns the deletion into a sticky 500 (R14-M8).
+    async fn clear_updated_by(&self, user_id: &str) -> Result<(), sqlx::Error>;
 }
 
 pub struct SqliteRuntimeConfigRepo {
@@ -314,6 +319,14 @@ impl RuntimeConfigRepo for SqliteRuntimeConfigRepo {
             .fetch_all(&self.pool)
             .await?;
         Ok(runtime_config_from_rows(rows))
+    }
+
+    async fn clear_updated_by(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE runtime_config SET updated_by = NULL WHERE updated_by = ?")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     async fn set_admin_settings(

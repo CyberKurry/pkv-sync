@@ -2052,3 +2052,74 @@ async fn upgrade_status_reports_pending_marker_and_live_status() {
     assert_eq!(json2["status"]["target"], "1.8.2");
     assert_eq!(json2["status"]["step"], "pull");
 }
+
+#[tokio::test]
+async fn admin_delete_user_clears_runtime_config_updated_by() {
+    // R14-M8: runtime_config.updated_by is the schema's ONLY users FK
+    // without an ON DELETE action (FKs are enforced per connection), so
+    // deleting an admin who ever saved a runtime setting failed on the
+    // FK constraint AFTER their vaults were already gone — a sticky
+    // 500 that only manual SQL could undo. The delete flow now clears
+    // the attribution first (same NULL the update-check seeding writes).
+    let (app, state, _dir) = app_with_state().await;
+    let cookie = login_cookie(&app).await;
+    let a_id = first_admin_user_id(&app, &cookie).await;
+
+    // Admin B with a device token drives the JSON API delete.
+    let b = state
+        .users
+        .create(NewUser {
+            username: "b".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
+    let b_token = token::generate();
+    state
+        .tokens
+        .create(NewToken {
+            user_id: &b.id,
+            token_hash: &token::hash(&b_token),
+            device_id: "dev-b",
+            device_name: "b-desktop",
+        })
+        .await
+        .unwrap();
+
+    // A saved a runtime setting at some point (updated_by = A).
+    sqlx::query(
+        "INSERT INTO runtime_config (key, value, updated_at, updated_by)
+         VALUES ('registration_mode', 'invite_only', 1, ?)
+         ON CONFLICT(key) DO UPDATE SET updated_by = excluded.updated_by",
+    )
+    .bind(&a_id)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let mut req = request(
+        Method::DELETE,
+        &format!("/api/admin/users/{a_id}"),
+        Body::empty(),
+    );
+    req.headers_mut()
+        .insert(header::USER_AGENT, "PKVSync-Plugin/0.1.0".parse().unwrap());
+    req.headers_mut().insert(
+        "x-pkvsync-deployment-key",
+        "k_test_admin_web".parse().unwrap(),
+    );
+    req.headers_mut().insert(
+        header::AUTHORIZATION,
+        format!("Bearer {b_token}").parse().unwrap(),
+    );
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(state.users.find_by_id(&a_id).await.unwrap().is_none());
+    let (updated_by,): (Option<String>,) =
+        sqlx::query_as("SELECT updated_by FROM runtime_config WHERE key = 'registration_mode'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(updated_by, None);
+}

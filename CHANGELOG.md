@@ -27,6 +27,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Admin API: deleting an admin who had ever saved a runtime setting
+  failed with a sticky 500 — `runtime_config.updated_by` is the schema's
+  only `users` foreign key without an `ON DELETE` action, and the
+  constraint tripped after the user's vaults were already gone. The
+  delete flow now clears the attribution first (the same NULL the
+  update-check seeding writes), so the deletion completes (R14-M8).
 - Plugin scan filter: Windows-unsafe filename components (DOS device
   names like `aux.md`/`com1.md` with or without extensions, components
   containing a colon, trailing dots or spaces) are refused at scan

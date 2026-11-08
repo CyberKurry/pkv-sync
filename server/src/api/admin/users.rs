@@ -2,7 +2,9 @@ use crate::admin::password::hash_admin_password;
 use crate::admin::session;
 use crate::api::error::ApiError;
 use crate::auth::AdminUser;
-use crate::db::repos::{NewUser, TokenRepo, TokenRow, User, UserRepo, VaultRepo};
+use crate::db::repos::{
+    NewUser, RuntimeConfigRepo, TokenRepo, TokenRow, User, UserRepo, VaultRepo,
+};
 use crate::service::auth::validate_username;
 use crate::service::AppState;
 use axum::extract::{Path, State};
@@ -177,6 +179,12 @@ async fn remove(
     for vault in vaults {
         crate::service::vault::delete_vault_for_user(&state, &id, &vault.id).await?;
     }
+    // R14-M8: runtime_config.updated_by is the schema's only users FK
+    // without an ON DELETE action — leave the attribution in place and
+    // the users.delete below trips the constraint AFTER the vaults are
+    // already gone: a sticky 500 only manual SQL could undo. Clear it
+    // first (the same NULL the update-check seeding writes).
+    state.runtime_cfg_repo.clear_updated_by(&id).await?;
     state.users.delete(&id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
