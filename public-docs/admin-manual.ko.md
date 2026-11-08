@@ -261,10 +261,12 @@ PKV_HOST_DIR=$(pwd) docker compose -f docker-compose.yml \
 ```
 
 `PKV_HOST_DIR`에는 배포 디렉터리(`docker-compose.yml`이 있는 디렉터리)의 절대 경로를 지정합니다. 업데이터는 자체 컨테이너 안에서 compose를 실행하므로 이 경로를 스스로 찾을 수 없습니다. Docker에는 「파일 생성」트리거가 없으므로 업데이터 컨테이너는 **상시 실행**되며 요청 marker를 폴링합니다(유휴 비용: `PKV_UPDATER_POLL`초마다 stat 1회, 기본 30. 환경 변수로 재정의 가능). `PKV_UPDATER_MAX_AGE`초(기본 1800)보다 오래된 요청은 그대로 적용하지 않고 만료된 것으로 거부됩니다. 업데이터는 지정된 `X.Y.Z` 이미지를 풀고 `pkv-sync`를 다시 만들고 헬스 체크하며,
-실패하면 실행 중이던 태그로 다시 고정합니다. 시도마다 `data/upgrade-status.json`에 기록되며 관리 패널에 최근 결과(적용됨/거부됨/실패)가 표시되어 「요청이 버려짐」과 「적용됨」을 구분할 수 있습니다. 대안으로 [Watchtower](https://containrrr.dev/watchtower/)
+실패하면 실행 중이던 태그로 다시 고정합니다. 시도마다 `data/upgrade-status.json`에 기록되며 관리 패널에 최근 결과(적용됨/거부됨/실패)가 표시되어 「요청이 버려짐」과 「적용됨」을 구분할 수 있습니다. 실행 중인 이미지는 Compose 표준 레이블(project + service)로 식별하므로 `container_name:`을 고정한 배포도 올바르게 처리되며, 기본 `<project>-<service>-<n>` 이름 형태는 폴백으로 남습니다. 대안으로 [Watchtower](https://containrrr.dev/watchtower/)
 나 compose-updater 같은 서드파티 도구를 `pkv-sync` 컨테이너로 향하게 할 수도
 있지만, 이들은 클릭 한 번으로 지정한 고정 버전을 따르지 않고 일정에 따라
 `:latest`를 폴링한다는 점에 유의하세요.
+
+업데이터가 동작하는 동안에는 대략적인 단계(`pull`, `recreate`, `health`)도 `upgrade-status.json`에 기록되며, 관리 패널이 이를 실시간으로 표시합니다. 요청을 제출하면 버튼이 비활성화되고, 읽기 전용 `GET /admin/upgrade/status` 엔드포인트를 2초마다 폴링합니다 — 재시작 자체를 가로질러 예상된 5xx 응답을 견디면서 현재 단계를 보여주고, 업그레이드가 종단 상태(적용됨, 거부됨, 실패)에 도달하면 페이지를 다시 불러옵니다. 요청이 아직 대기 중이거나 업그레이드가 진행 중이면 페이지를 불러올 때 폴링을 시작합니다. 이 엔드포인트는 null이 가능한 두 필드를 반환합니다: `request_pending`(업데이터가 가져가길 기다리는 마커)와 `status`(업데이터의 최근 기록: phase, from/target 버전, reason, step). JavaScript가 없어도 패널은 최근 결과를 렌더링하고 업그레이드 자체는 정상적으로 완료됩니다. 없는 것은 실시간 진행 표시뿐입니다.
 
 업그레이드 중에는 짧은 재시작 중단이 예상됩니다. 클라이언트는 자동으로 다시
 연결됩니다.

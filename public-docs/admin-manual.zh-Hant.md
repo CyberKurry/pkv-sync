@@ -254,9 +254,11 @@ PKV_HOST_DIR=$(pwd) docker compose -f docker-compose.yml \
 ```
 
 `PKV_HOST_DIR` 必須是部署目錄（即包含 `docker-compose.yml` 的目錄）的絕對路徑；更新器在自己的容器內執行 compose，無法自行發現該路徑。Docker 沒有「檔案出現」觸發原語，因此更新器容器會**常駐**輪詢請求 marker（空閒成本：每 `PKV_UPDATER_POLL` 秒一次 stat，預設 30；可透過環境變數覆寫）。超過 `PKV_UPDATER_MAX_AGE` 秒（預設 1800）的請求會被視為過期而拒絕，而不是照樣應用。更新器會拉取指定的 `X.Y.Z` 映像、重建 `pkv-sync`、對它做健康檢查，並在失敗時
-把標籤重新釘回原先執行的版本；每次嘗試都會記錄到 `data/upgrade-status.json`，管理面板會顯示最近一次結果（已應用／已拒絕／失敗），由此可以區分「請求被丟棄」與「已應用」。另一個做法是把 [Watchtower](https://containrrr.dev/watchtower/)
+把標籤重新釘回原先執行的版本；每次嘗試都會記錄到 `data/upgrade-status.json`，管理面板會顯示最近一次結果（已應用／已拒絕／失敗），由此可以區分「請求被丟棄」與「已應用」。執行中的映像會透過 Compose 規範 label（project＋service）發現，因此釘選了 `container_name:` 的部署也能正確處理；預設的 `<project>-<service>-<n>` 命名形狀仍作為回退。另一個做法是把 [Watchtower](https://containrrr.dev/watchtower/)
 或 compose-updater 這類第三方工具指向 `pkv-sync` 容器——但請注意它們是照排程
 輪詢 `:latest`，不會遵循一鍵指定的釘選版本。
+
+更新器工作期間還會把粗粒度階段（`pull`、`recreate`、`health`）寫入 `upgrade-status.json`，管理面板會即時呈現：送出請求後按鈕即被停用，面板每 2 秒輪詢一次唯讀的 `GET /admin/upgrade/status` 端點——貫穿服務重啟本身、扛過預期的 5xx 回應——展示目前階段，並在升級到達終態（已應用、已拒絕或失敗）後重新載入頁面。當請求仍在等待拾取或升級正在進行時，頁面載入後也會自動開始輪詢。該端點回傳兩個可空的欄位：`request_pending`（等待更新器拾取的標記）與 `status`（更新器的最近一筆記錄：phase、from/target 版本、reason、step）。沒有 JavaScript 時面板仍會呈現最近一次結果，升級本身照常完成；缺少的只是即時進度。
 
 任何升級過程都會有短暫的重新啟動中斷，這是預期行為；用戶端會自動重連。
 
