@@ -2528,7 +2528,13 @@ async fn build_rewrite_plan(
             }
             let patches = match crate::mcp::link_rewrite::plan_document(
                 &file.text,
-                file.path,
+                // R14-M9: the moved document's own Markdown links must be
+                // planned from its FINAL directory — the pinned scan tree
+                // still reports it at `from`, so a same-directory
+                // self-link was rewritten against the OLD base and landed
+                // broken at the new path. Every other document keeps its
+                // (unmoved) containing path.
+                crate::mcp::link_rewrite::mapped_target(file.path, &from_owned, &to_owned),
                 &file.scan.tokens,
                 index_ref,
                 req_ref,

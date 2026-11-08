@@ -27,6 +27,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- MCP `move_file`: the moved document's own Markdown self-links were
+  rewritten against the OLD directory (the scan tree reports the file
+  at its pre-move path), so moving `n/a.md` containing
+  `[self](./a.md)` to `n/sub/a.md` produced `./sub/a.md` — a link the
+  identity-preserving move itself had broken. The moved file's links
+  are now planned from its final directory (R14-M9).
 - Admin API: deleting an admin who had ever saved a runtime setting
   failed with a sticky 500 — `runtime_config.updated_by` is the schema's
   only `users` foreign key without an `ON DELETE` action, and the

@@ -1647,3 +1647,45 @@ async fn write_files_never_auto_merges_even_when_enabled() {
     assert_eq!(structured(&body)["current_head"], current);
     assert!(structured(&body)["commit"].is_null());
 }
+
+#[tokio::test]
+async fn move_file_regenerates_self_link_from_the_new_directory() {
+    // R14-M9: the moved document's own Markdown self-links were planned
+    // against the OLD containing directory (the pinned scan tree still
+    // holds it at `from`), so `[self](./a.md)` moving n/a.md ->
+    // n/sub/a.md was rewritten to ./sub/a.md — which resolves to
+    // n/sub/sub/a.md from the new location: the identity-preserving
+    // move tool itself manufactured a broken link.
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-move-selflink").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "n/a.md", "[self](./a.md)").await;
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "move_file",
+        json!({
+            "vault_id": vault.id,
+            "parent_commit": head,
+            "from": "n/a.md",
+            "to": "n/sub/a.md"
+        }),
+    )
+    .await;
+
+    let commit = structured(&body)["commit"].as_str().unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let moved = git
+        .read_file(&vault.id, "n/sub/a.md", Some(commit))
+        .await
+        .unwrap()
+        .expect("moved file");
+    let StoredFile::Text { bytes } = moved else {
+        panic!("expected text");
+    };
+    let text = String::from_utf8(bytes).unwrap();
+    // From n/sub/, the same-directory self-link stays "./a.md" — any
+    // other spelling (the bug produced "./sub/a.md") points elsewhere.
+    assert_eq!(text, "[self](./a.md)");
+}
