@@ -666,6 +666,38 @@ async fn admin_can_manage_vaults() {
 }
 
 #[tokio::test]
+async fn admin_markdown_assets_are_local_javascript_with_existing_csp() {
+    let (app, _dir) = app().await;
+    for asset in [
+        "vendor/marked.umd.js",
+        "vendor/purify.min.js",
+        "admin-markdown.js",
+    ] {
+        let resp = app
+            .clone()
+            .oneshot(request(
+                Method::GET,
+                &format!("/admin/static/{asset}"),
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "{asset}");
+        assert_eq!(
+            resp.headers()[header::CONTENT_TYPE],
+            "application/javascript; charset=utf-8"
+        );
+        let csp = resp.headers()[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap();
+        assert!(csp.contains("default-src 'self'"));
+        assert!(csp.contains("img-src 'self' data:"));
+        assert!(!csp.contains("unsafe-inline"));
+        assert!(!read_body(resp).await.is_empty());
+    }
+}
+
+#[tokio::test]
 async fn admin_can_browse_vault_files_history_and_diff_read_only() {
     let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;

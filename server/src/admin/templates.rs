@@ -222,6 +222,19 @@ pub struct VaultFileViewTemplate {
     pub enable_diff_endpoint: bool,
 }
 
+impl VaultFileViewTemplate {
+    fn file_name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or(&self.path)
+    }
+
+    fn markdown(&self) -> bool {
+        !self.binary
+            && self.path.rsplit_once('.').is_some_and(|(_, extension)| {
+                extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
+            })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VaultHistoryEntryView {
     pub commit: String,
@@ -1171,6 +1184,82 @@ mod tests {
         assert!(html.contains("type=\"submit\" name=\"apply_starter\" value=\"1\""));
         assert!(html.contains("/admin/static/lucide-icons.svg#save"));
         assert!(!html.contains("success-gradient"));
+    }
+
+    #[test]
+    fn markdown_views_offer_progressive_preview_and_preserve_escaped_source() {
+        for t in [
+            AdminText::en(),
+            AdminText::zh_cn(),
+            AdminText::zh_hant(),
+            AdminText::ja(),
+            AdminText::ko(),
+        ] {
+            let html = VaultFileViewTemplate {
+                t,
+                vault: VaultBrowserView {
+                    id: "v1".into(),
+                    name: "main".into(),
+                    owner_username: "StingRay".into(),
+                },
+                path: "notes/Guide.MD".into(),
+                at: Some("abc123".into()),
+                size_display: "1 KB".into(),
+                binary: false,
+                content: "# Heading\n<script>alert(1)</script>".into(),
+                truncated: false,
+                history_url: "/history".into(),
+                diff_url: None,
+                enable_diff_endpoint: false,
+            }
+            .render()
+            .unwrap();
+            assert!(html.contains("data-markdown-viewer"));
+            assert!(html.contains("data-markdown-source"));
+            assert!(html.contains("data-markdown-preview"));
+            assert!(html.contains("role=\"tablist\""));
+            assert!(html.contains("<h1>Guide.MD</h1>"));
+            assert!(html.contains("notes/Guide.MD"));
+            assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+            assert!(!html.contains("<script>alert(1)</script>"));
+            for asset in [
+                "vendor/marked.umd.js",
+                "vendor/purify.min.js",
+                "admin-markdown.js",
+            ] {
+                assert!(html.contains(&format!("src=\"/admin/static/{asset}\" defer")));
+            }
+        }
+    }
+
+    #[test]
+    fn plain_text_and_binary_views_do_not_load_markdown_scripts() {
+        for (path, binary) in [("note.txt", false), ("image.md", true)] {
+            let html = VaultFileViewTemplate {
+                t: AdminText::en(),
+                vault: VaultBrowserView {
+                    id: "v1".into(),
+                    name: "main".into(),
+                    owner_username: "admin".into(),
+                },
+                path: path.into(),
+                at: None,
+                size_display: "1 KB".into(),
+                binary,
+                content: "# Plain text".into(),
+                truncated: false,
+                history_url: "/history".into(),
+                diff_url: None,
+                enable_diff_endpoint: false,
+            }
+            .render()
+            .unwrap();
+            assert!(!html.contains("data-markdown-viewer"));
+            assert!(!html.contains("admin-markdown.js"));
+            if !binary {
+                assert!(html.contains("# Plain text"));
+            }
+        }
     }
 
     #[test]

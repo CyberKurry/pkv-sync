@@ -1,7 +1,14 @@
 {% extends "layout.html" %}
-{% block title %}{{ path }} - {{ t.admin_title }}{% endblock %}
+{% block title %}{{ self.file_name() }} - {{ t.admin_title }}{% endblock %}
 {% block nav_vaults %}is-active{% endblock %}
-{% block page_title %}{{ path }}{% endblock %}
+{% block page_title %}{{ self.file_name() }}{% endblock %}
+{% block page_scripts %}
+{% if self.markdown() %}
+<script src="/admin/static/vendor/marked.umd.js" defer></script>
+<script src="/admin/static/vendor/purify.min.js" defer></script>
+<script src="/admin/static/admin-markdown.js" defer></script>
+{% endif %}
+{% endblock %}
 {% block header_actions %}
 <a class="secondary action-button" href="/admin/vaults/{{ vault.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg> {{ t.files }}</a>
 <a class="secondary action-button" href="{{ history_url }}"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#history"></use></svg> {{ t.history }}</a>
@@ -16,9 +23,12 @@
   <div class="panel-header resource-panel-head">
     <div>
       <span class="metric-label">{{ t.path }}</span>
-      <h2>{{ path }}</h2>
+      <h2 class="file-path">{{ path }}</h2>
     </div>
-    <span class="resource-meta">{{ size_display }}</span>
+    <div class="file-resource-meta">
+      <span class="metric-label">{{ t.size }}</span>
+      <span>{{ size_display }}</span>
+    </div>
   </div>
   {% if let Some(commit) = at %}
   <p class="section-note">{{ t.viewing_commit }} <code>{{ commit }}</code></p>
@@ -29,7 +39,26 @@
   {% if truncated %}
   <p class="warning">{{ t.large_file_preview_truncated }}</p>
   {% endif %}
+  {% if self.markdown() %}
+  <div data-markdown-viewer data-properties-label="{{ t.file_properties }}"
+    data-preview-error-text="{{ t.file_preview_error }}" data-image-label="{{ t.file_linked_image }}"
+    data-files-base="/admin/vaults/{{ vault.id }}/files/">
+    <div class="file-view-tabs" data-markdown-tabs role="tablist" aria-label="{{ t.file_view_mode }}" hidden>
+      <button id="file-preview-tab" type="button" role="tab" aria-selected="false" tabindex="-1"
+        aria-controls="file-preview-pane" data-markdown-mode="preview">{{ t.file_preview }}</button>
+      <button id="file-source-tab" type="button" role="tab" aria-selected="true"
+        aria-controls="file-source-pane" data-markdown-mode="source">{{ t.file_source }}</button>
+    </div>
+    <p class="section-note file-preview-error" data-markdown-error role="status" hidden></p>
+    <div id="file-preview-pane" class="markdown-body" data-markdown-preview role="tabpanel"
+      aria-labelledby="file-preview-tab" tabindex="0" hidden></div>
+    <div id="file-source-pane" data-markdown-source-panel role="tabpanel" aria-labelledby="file-source-tab" tabindex="0">
+      <pre class="file-preview" data-markdown-source>{{ content }}</pre>
+    </div>
+  </div>
+  {% else %}
   <pre class="file-preview">{{ content }}</pre>
+  {% endif %}
   {% endif %}
 </section>
 {% endblock %}

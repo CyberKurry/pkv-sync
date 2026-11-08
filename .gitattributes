@@ -4,3 +4,7 @@
 .githooks/* text eol=lf
 *.service text eol=lf
 *.path text eol=lf
+
+# Keep upstream browser assets byte-for-byte for the recorded checksums.
+server/static/vendor/*.js -text
+server/static/vendor/LICENSE* -text -whitespace

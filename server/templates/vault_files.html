@@ -12,11 +12,15 @@
       <span class="metric-label">{{ t.vault }}</span>
       <h2>{{ vault.name }}</h2>
     </div>
-    <span class="resource-meta">{{ vault.owner_username }}</span>
+    <div class="file-resource-meta">
+      <span class="metric-label">{{ t.owner }}</span>
+      <span>{{ vault.owner_username }}</span>
+    </div>
   </div>
   {% if files.is_empty() %}
   <p class="empty-state">{{ t.no_files_in_vault }}</p>
   {% else %}
+  <div class="table-scroll file-table-scroll" role="region" aria-label="{{ t.files }}" tabindex="0">
   <table class="data-table file-table">
     <thead><tr><th>{{ t.path }}</th><th>{{ t.size }}</th><th>{{ t.kind }}</th><th></th></tr></thead>
     <tbody>
@@ -30,6 +34,7 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
   {% endif %}
 </section>
 {% endblock %}

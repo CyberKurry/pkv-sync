@@ -9,6 +9,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Added
 
+- Admin vault browser: Markdown files open in a sanitized preview with a
+  source tab, collapsed YAML properties, read-only tasks, and locally served
+  parsing assets. Images are explicit links; preview failures retain the source.
 - Live upgrade progress in the admin panel: "Upgrade now" disables the
   button on submit and the dashboard polls the new
   `GET /admin/upgrade/status` endpoint every 2 seconds (self-scheduling
@@ -27,6 +30,9 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Admin file list and detail cards: restore header spacing, label owner and
+  size without uppercasing names, wrap long paths, and give rendered documents
+  readable typography with local scrolling for code and tables.
 - Admin dashboard: the CPU card showed ~0% regardless of load — sysinfo
   derives `cpu_usage()` from the delta between two refreshes, and the
   metrics collector refreshed back-to-back (a microsecond window) with

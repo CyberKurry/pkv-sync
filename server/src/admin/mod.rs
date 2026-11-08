@@ -18,13 +18,29 @@ pub async fn admin_css() -> impl IntoResponse {
 }
 
 pub async fn admin_js() -> impl IntoResponse {
+    javascript(include_str!("../../static/admin.js"))
+}
+
+pub async fn admin_markdown_js() -> impl IntoResponse {
+    javascript(include_str!("../../static/admin-markdown.js"))
+}
+
+pub async fn marked_js() -> impl IntoResponse {
+    javascript(include_str!("../../static/vendor/marked.umd.js"))
+}
+
+pub async fn purify_js() -> impl IntoResponse {
+    javascript(include_str!("../../static/vendor/purify.min.js"))
+}
+
+fn javascript(source: &'static str) -> impl IntoResponse {
     (
         StatusCode::OK,
         [(
             header::CONTENT_TYPE,
             "application/javascript; charset=utf-8",
         )],
-        include_str!("../../static/admin.js"),
+        source,
     )
 }
 

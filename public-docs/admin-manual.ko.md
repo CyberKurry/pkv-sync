@@ -136,6 +136,8 @@ Blob 파일은 콘텐츠 주소 지정 방식이며, 가비지 컬렉션이 유�
 
 **Vaults**에서 vault 카드의 **Browse files**를 엽니다. 브라우저는 현재 HEAD 파일을 크기와 텍스트/바이너리 종류와 함께 나열합니다. 파일을 열면 텍스트 파일은 읽기 전용 미리보기를 표시하고 **History** 및 **Diff with previous** 링크를 제공합니다.
 
+Markdown 파일(`.md`, `.markdown`, 대소문자 구분 없음)은 기본으로 「미리 보기」를 표시하며, 「소스」로 전환해 원문을 확인할 수 있습니다. 제목, 목록, 읽기 전용 작업, 인용, 표, 링크, 코드 블록을 지원하고 YAML frontmatter는 접힌 「문서 속성」에 표시합니다. 이미지는 직접 열 수 있는 링크로 표시합니다. 내장 스크립트와 실행 가능한 HTML은 제거합니다. JavaScript가 꺼져 있거나 미리 보기에 실패해도 소스를 읽을 수 있습니다. 다른 텍스트 파일은 소스로 표시합니다. 기록을 보는 동안 vault 내부의 상대 파일 링크는 다른 버전을 지정하지 않은 경우 선택한 commit을 유지합니다.
+
 기록 페이지는 해당 파일의 commit을 나열하고, 각 commit 시점의 파일과 해당 diff로 연결합니다. diff 페이지는 unified diff 행을 추가/삭제/hunk 색상으로 렌더링합니다. 바이너리 파일은 메타데이터만 표시하고 바이너리 diff 내용은 렌더링하지 않습니다. 현재 동기화 필터에서 거부된 경로는 파일 탐색, commit list, history, diff 화면에서 숨겨집니다.
 
 파일, 기록, diff 탐색은 `view_commit`, `view_history`, `view_diff` 활동 행을 기록합니다. Vault rollback controls는 Admin history에서 사용할 수 있습니다. 대상 commit을 확인한 뒤 사용하세요. rollback은 선택한 기록 지점에서 새 vault 상태를 만듭니다.

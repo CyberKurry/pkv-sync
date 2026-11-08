@@ -73,6 +73,18 @@ pub fn router() -> Router<AppState> {
         .route("/admin/static/admin.css", get(crate::admin::admin_css))
         .route("/admin/static/admin.js", get(crate::admin::admin_js))
         .route(
+            "/admin/static/admin-markdown.js",
+            get(crate::admin::admin_markdown_js),
+        )
+        .route(
+            "/admin/static/vendor/marked.umd.js",
+            get(crate::admin::marked_js),
+        )
+        .route(
+            "/admin/static/vendor/purify.min.js",
+            get(crate::admin::purify_js),
+        )
+        .route(
             "/admin/static/lucide-icons.svg",
             get(crate::admin::admin_icons),
         )

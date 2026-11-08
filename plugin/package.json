@@ -14,6 +14,7 @@
     "@vitest/coverage-v8": "^4.1.12",
     "esbuild": "^0.28.1",
     "happy-dom": "^21.0.4",
+    "jsdom": "^28.1.0",
     "obsidian": "1.14.4",
     "postcss": "^8.5.26",
     "tslib": "^2.6.2",

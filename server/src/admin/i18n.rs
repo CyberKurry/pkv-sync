@@ -253,6 +253,12 @@ pub struct AdminText {
     pub binary_diff_preview_unavailable: &'static str,
     pub large_diff_truncated: &'static str,
     pub large_file_preview_truncated: &'static str,
+    pub file_preview: &'static str,
+    pub file_source: &'static str,
+    pub file_view_mode: &'static str,
+    pub file_properties: &'static str,
+    pub file_preview_error: &'static str,
+    pub file_linked_image: &'static str,
 }
 
 impl AdminLang {
@@ -628,6 +634,12 @@ impl AdminText {
             binary_diff_preview_unavailable: "Binary file. Diff preview is not available.",
             large_diff_truncated: "Large diff truncated to keep the page responsive.",
             large_file_preview_truncated: "Large file preview truncated to keep the page responsive.",
+            file_preview: "Preview",
+            file_source: "Source",
+            file_view_mode: "File view mode",
+            file_properties: "Document properties",
+            file_preview_error: "Preview is unavailable. You can read the source below.",
+            file_linked_image: "Image",
         }
     }
 
@@ -871,6 +883,12 @@ impl AdminText {
             binary_diff_preview_unavailable: "二进制文件无法预览 diff。",
             large_diff_truncated: "Diff 较大，已截断以保持页面响应。",
             large_file_preview_truncated: "文件预览较大，已截断以保持页面响应。",
+            file_preview: "预览",
+            file_source: "源码",
+            file_view_mode: "文件查看模式",
+            file_properties: "文档属性",
+            file_preview_error: "预览暂不可用，可在下方查看源码。",
+            file_linked_image: "图片",
         }
     }
 
@@ -1115,6 +1133,12 @@ impl AdminText {
             binary_diff_preview_unavailable: "二進位檔案無法預覽 diff。",
             large_diff_truncated: "Diff 較大，已截斷以保持頁面回應。",
             large_file_preview_truncated: "檔案預覽較大，已截斷以保持頁面回應。",
+            file_preview: "預覽",
+            file_source: "原始碼",
+            file_view_mode: "檔案檢視模式",
+            file_properties: "文件屬性",
+            file_preview_error: "預覽暫時無法使用，可在下方檢視原始碼。",
+            file_linked_image: "圖片",
         }
     }
 
@@ -1361,6 +1385,12 @@ impl AdminText {
             binary_diff_preview_unavailable: "バイナリファイルの diff はプレビューできません。",
             large_diff_truncated: "ページの応答性を保つため、大きな diff は切り詰められました。",
             large_file_preview_truncated: "ページの応答性を保つため、大きなファイルのプレビューは切り詰められました。",
+            file_preview: "プレビュー",
+            file_source: "ソース",
+            file_view_mode: "ファイル表示モード",
+            file_properties: "ドキュメントのプロパティ",
+            file_preview_error: "プレビューを表示できません。以下のソースを確認できます。",
+            file_linked_image: "画像",
         }
     }
 
@@ -1606,6 +1636,12 @@ impl AdminText {
             binary_diff_preview_unavailable: "바이너리 파일은 diff 미리 보기를 사용할 수 없습니다.",
             large_diff_truncated: "페이지 응답성을 유지하기 위해 큰 diff를 잘랐습니다.",
             large_file_preview_truncated: "페이지 응답성을 유지하기 위해 큰 파일 미리 보기를 잘랐습니다.",
+            file_preview: "미리 보기",
+            file_source: "소스",
+            file_view_mode: "파일 보기 모드",
+            file_properties: "문서 속성",
+            file_preview_error: "미리 보기를 사용할 수 없습니다. 아래에서 소스를 확인할 수 있습니다.",
+            file_linked_image: "이미지",
         }
     }
 }

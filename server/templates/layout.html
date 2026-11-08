@@ -6,6 +6,7 @@
   <title>{% block title %}{{ t.admin_title }}{% endblock %}</title>
   <script src="/admin/static/admin.js"></script>
   <link rel="stylesheet" href="/admin/static/admin.css">
+  {% block page_scripts %}{% endblock %}
 </head>
 <body class="admin-body">
   <input id="admin-sidebar-toggle" class="sidebar-toggle" type="checkbox" aria-hidden="true">

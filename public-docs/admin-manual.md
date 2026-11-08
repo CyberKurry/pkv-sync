@@ -186,6 +186,15 @@ current HEAD files with size and text/binary kind. Opening a file shows a
 read-only preview when the file is text, plus links to **History** and **Diff
 with previous**.
 
+Markdown files (`.md` and `.markdown`, case-insensitive) open in **Preview**
+by default. Switch to **Source** to inspect the original text. Preview renders
+headings, lists, read-only tasks, quotes, tables, links, and code blocks;
+YAML frontmatter appears in collapsed **Document properties**. Images appear
+as links you can open explicitly. Embedded scripts and active HTML are removed.
+Without JavaScript, or if preview fails, the source remains readable. Other
+text files stay in source view. Relative vault-file links retain the selected
+historical revision unless the link specifies another revision.
+
 The history page lists commits for that file and links to the file at each
 commit and the corresponding diff. The diff page renders unified diff lines with
 add/delete/hunk coloring. Binary files show metadata and do not render binary
