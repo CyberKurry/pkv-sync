@@ -251,15 +251,32 @@
         status &&
         (status.phase === "success" || status.phase === "refused" || status.phase === "failed")
       ) {
-        if (status.phase === "success") {
-          setStatus(strings.done || "");
-        } else {
-          setStatus(
-            (strings.failed_with_reason || "").replace("{reason}", status.reason || "")
-          );
+        // R14-M7: a terminal record only speaks for the CURRENT request
+        // when it covers it (same target, recorded after the request).
+        // The updater removes the marker only AFTER writing the terminal
+        // record, so a fresh click next to the previous upgrade's
+        // leftover success used to read as "done" — reloading every
+        // poll until the updater picked the marker up (or forever on
+        // retry paths that keep it). A pending request outranks a stale
+        // terminal: keep waiting.
+        var coversPending =
+          !!pending &&
+          status.target === pending.target_version &&
+          status.at_unix >= pending.requested_at_unix;
+        if (!pending || coversPending) {
+          if (status.phase === "success") {
+            setStatus(strings.done || "");
+          } else {
+            setStatus(
+              (strings.failed_with_reason || "").replace("{reason}", status.reason || "")
+            );
+          }
+          // Terminal: the page must reflect the outcome server-side.
+          window.location.reload();
+          return;
         }
-        // Terminal: the page must reflect the outcome server-side.
-        window.location.reload();
+        setStatus(strings.waiting_updater || "");
+        scheduleNext();
         return;
       }
       if (pending) {

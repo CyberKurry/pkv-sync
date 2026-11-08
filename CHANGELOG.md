@@ -27,6 +27,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Admin panel: the upgrade progress widget treated a terminal
+  `upgrade-status.json` record as final even while a fresh request was
+  still waiting for the updater (the marker is only removed after the
+  terminal record is written, and a new click recreates it instantly) —
+  showing "done" and reloading every 2-second poll for the whole pickup
+  window, or indefinitely on updater paths that keep the marker for
+  retry. A pending request now outranks a terminal record unless the
+  record covers it (same target, recorded after the request) (R14-M7).
 - Server: a case-only rename (`todo.md` → `Todo.md`) sent as one push
   batch (delete + upsert — the shape every plugin scan produces, since
   Obsidian emits no rename events) was rejected as a case conflict,

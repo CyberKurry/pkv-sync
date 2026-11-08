@@ -225,4 +225,76 @@ describe("admin upgrade progress widget", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/admin/upgrade/status");
   });
+
+  it("a stale terminal record does not outrank a pending request (R14-M7)", async () => {
+    // The updater only removes the marker AFTER writing the terminal
+    // record, and a fresh click recreates the marker instantly — so a
+    // poll can see the PREVIOUS upgrade's success next to a request the
+    // updater has not picked up yet (Docker polls every 30s). Treating
+    // that stale success as terminal showed "done" and reloaded; the
+    // server re-rendered data-upgrade-poll (marker still pending), the
+    // widget polled again, saw the same stale record and reloaded — a
+    // ~2s reload loop for the whole pickup window (or forever on paths
+    // that keep the marker for retry).
+    const form = buildForm(document);
+    form.setAttribute("data-upgrade-poll", "1");
+    const hint = form.querySelector("[data-upgrade-status]") as HTMLElement;
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          request_pending: {
+            target_version: "1.8.2",
+            requested_at_unix: 200,
+            requested_by: "admin",
+          },
+          status: {
+            phase: "success",
+            from: "1.8.0",
+            target: "1.8.1",
+            at_unix: 100,
+            reason: "",
+            step: "",
+          },
+        }),
+      )
+      .mockResolvedValue(
+        jsonResponse({ request_pending: null, status: null }),
+      );
+
+    bootAdmin();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(hint.textContent).toBe("Request recorded; waiting for the updater…");
+    expect(reloadMock).not.toHaveBeenCalled();
+  });
+
+  it("a terminal record covering the pending request still reloads (R14-M7)", async () => {
+    // The updater writes the terminal record before removing the marker,
+    // so a poll can legitimately see BOTH — same target, recorded after
+    // the request. That IS this request's outcome: reload.
+    const form = buildForm(document);
+    form.setAttribute("data-upgrade-poll", "1");
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        request_pending: {
+          target_version: "1.8.2",
+          requested_at_unix: 100,
+          requested_by: "admin",
+        },
+        status: {
+          phase: "success",
+          from: "1.8.1",
+          target: "1.8.2",
+          at_unix: 150,
+          reason: "",
+          step: "",
+        },
+      }),
+    );
+
+    bootAdmin();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+  });
 });
