@@ -27,6 +27,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Server: pushing a text note whose ENTIRE body parses as a PKV Sync
+  blob-pointer JSON is now refused with 400 `invalid_text`. The store
+  reads any pointer-shaped content back as a blob reference, but no
+  blob was uploaded — every other device's pull then failed on the
+  404 blob download and wedged at that commit until the source was
+  edited. The guard reuses the read side's own judgment
+  (`into_file_for_path`) and covers both the REST and MCP push
+  entries (R14-M4).
 - MCP `move_file`: the moved document's own Markdown self-links were
   rewritten against the OLD directory (the scan tree reports the file
   at its pre-move path), so moving `n/a.md` containing

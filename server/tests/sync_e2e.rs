@@ -286,3 +286,43 @@ async fn push_rejects_file_directory_path_conflicts() {
     let body: serde_json::Value = push.json().await.unwrap();
     assert_eq!(body["error"]["code"], "path_conflict");
 }
+
+#[tokio::test]
+async fn push_rejects_text_whose_whole_body_parses_as_a_blob_pointer() {
+    // R14-M4: decode_file reads ANY pointer-shaped content back as a
+    // BlobPointer (magic for modern pointers, path heuristic for legacy
+    // binary paths). A text note whose entire body happens to be a valid
+    // pointer JSON would store verbatim, upload no blob, and then wedge
+    // EVERY other device's pull at this commit: the blob download 404s
+    // (no blob_refs row) and applyPull aborts before the head advance.
+    let server = start_server_with_seeded_user().await;
+    let client = c();
+    let vault_id = create_vault(&server, "pointer-text").await;
+    let pointer = serde_json::json!({
+        "pkvsync_pointer": 1,
+        "blob": "a".repeat(64),
+        "size": 4,
+        "mime": null
+    })
+    .to_string();
+
+    let push = headers(
+        client.post(format!("http://{}/api/vaults/{vault_id}/push", server.addr)),
+        &server.key,
+    )
+    .bearer_auth(&server.token)
+    .header("idempotency-key", "sync-e2e-pointer-text")
+    .json(&serde_json::json!({
+        "device_name":"test",
+        "changes":[
+            {"kind":"text","path":"doc.md","content": pointer}
+        ]
+    }))
+    .send()
+    .await
+    .unwrap();
+
+    assert_eq!(push.status(), 400);
+    let body: serde_json::Value = push.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "invalid_text");
+}

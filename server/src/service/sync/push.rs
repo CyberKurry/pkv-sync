@@ -364,6 +364,24 @@ async fn push_with_request_metadata_internal(
                 // UTF-8 string, which IS the proof of kind; the extension
                 // list only decides which paths the CLIENT offers as text,
                 // and stale lists must not wedge the whole batch on 400.
+                //
+                // R14-M4: one shape still must refuse: a document whose
+                // ENTIRE body parses as a blob pointer would be stored
+                // verbatim and read back as a BlobPointer (decode_file
+                // applies the magic/path heuristic to every read), yet no
+                // blob was uploaded — every OTHER device's pull would then
+                // 404 on the blob download and wedge at this commit. The
+                // judgment reuses into_file_for_path, the same producer
+                // decode_file uses on the read side.
+                let content_bytes = content.as_bytes();
+                if let Some(pointer) = crate::storage::git::parse_blob_pointer(content_bytes) {
+                    if pointer.into_file_for_path(&p).is_some() {
+                        return Err(ApiError::bad_request(
+                            "invalid_text",
+                            "content parses as a PKV Sync blob pointer; storing it verbatim would read back as an unsatisfiable blob reference on every other device",
+                        ));
+                    }
+                }
                 event_changes.push(text_event_with_budget(&p, &content, &mut inline_budget));
                 git_changes.push(FileChange::upsert_text(p, content.into_bytes()));
             }
