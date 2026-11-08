@@ -27,6 +27,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Server: a case-only rename (`todo.md` → `Todo.md`) sent as one push
+  batch (delete + upsert — the shape every plugin scan produces, since
+  Obsidian emits no rename events) was rejected as a case conflict,
+  permanently wedging the whole vault's push stream with a 400. Both
+  fold checks now exempt the old spelling when the same batch deletes
+  it: the resulting tree holds a single spelling, the same
+  hazard-removal reasoning the delete exemption already documented.
+  Genuine two-spelling hazards are still rejected (R14-H2).
 - Plugin realtime sync: a mixed SSE event (one push batch carrying an
   inline note plus a binary attachment, or notes over the inline budget)
   stranded every non-inline sibling permanently — the inline apply

@@ -1002,7 +1002,16 @@ fn write_tree_contents(
     // which is exactly the hazard this guard exists for.
     let mut folded_edits: std::collections::HashMap<String, &str> =
         std::collections::HashMap::with_capacity(edits.len());
-    for name in edits.keys() {
+    for (name, edit) in edits {
+        // R14-H2: a pure delete cannot add a hazard — the between-edits
+        // check must exempt it for the same reason the against-base check
+        // below does. A case-only rename reaches the server as ONE batch
+        // (delete todo.md + upsert Todo.md — Obsidian has no rename
+        // events), and the resulting tree holds a single spelling;
+        // rejecting the pair here wedged the whole vault's push stream.
+        if matches!(edit.op, Some(EditOp::Delete)) && edit.children.is_empty() {
+            continue;
+        }
         let key = case_fold_key(name);
         match folded_edits.get(key.as_str()) {
             Some(existing) if existing != name => {
@@ -1036,7 +1045,15 @@ fn write_tree_contents(
                     .get(*new_name)
                     .map(|edit| matches!(edit.op, Some(EditOp::Delete)) && edit.children.is_empty())
                     .unwrap_or(false);
-                if op_upserts && !op_deletes {
+                // R14-H2: the base entry is equally harmless when THIS
+                // BATCH deletes it under its own (old) spelling — the
+                // case-rename shape (delete todo.md + upsert Todo.md in
+                // one commit) leaves the tree with a single spelling.
+                let base_deleted_by_batch = edits
+                    .get(base_name)
+                    .map(|edit| matches!(edit.op, Some(EditOp::Delete)) && edit.children.is_empty())
+                    .unwrap_or(false);
+                if op_upserts && !op_deletes && !base_deleted_by_batch {
                     return Err(GitStoreError::PathConflict(format!(
                         "{prefix}{new_name} case-conflicts with existing {prefix}{base_name}"
                     )));
@@ -2499,6 +2516,52 @@ mod tests {
                     path: "todo.md".into(),
                 }],
                 "delete one side",
+            )
+            .await;
+
+        assert!(result.is_ok());
+        let map = store
+            .list_tree_map("v1", result.ok().as_deref())
+            .await
+            .unwrap();
+        assert!(map.contains_key("Todo.md"));
+        assert!(!map.contains_key("todo.md"));
+    }
+
+    #[tokio::test]
+    async fn case_rename_in_one_batch_renames_instead_of_conflicting() {
+        // R14-H2: Obsidian emits no rename events, so a case-only rename
+        // (todo.md -> Todo.md) surfaces on the next scan as a pending
+        // upsert Todo.md plus an index delete of todo.md — BOTH in one
+        // push batch. The between-edits fold check rejected that pair
+        // outright, wedging the entire vault's push stream with a
+        // permanent 400 (split into two batches it worked), even though
+        // the resulting tree holds a single spelling — exactly the
+        // "deletes are exempt, they can only remove the hazard" reason
+        // the against-base check documents for itself.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let base = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::upsert_text("todo.md", b"old")],
+                "seed",
+            )
+            .await
+            .unwrap();
+
+        let result = store
+            .commit_changes(
+                "v1",
+                Some(&base),
+                &[
+                    FileChange::upsert_text("Todo.md", b"new"),
+                    FileChange::Delete {
+                        path: "todo.md".into(),
+                    },
+                ],
+                "case rename",
             )
             .await;
 
