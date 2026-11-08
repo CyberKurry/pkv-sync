@@ -18,8 +18,15 @@ describe("R12-2 invalid-UTF-8 percent escapes are refused on both ends", () => {
     expect(shouldSyncPath("note%E6%96.md")).toBe(false);
   });
 
-  it("still accepts valid multibyte escapes (%E6%96%87 = 文)", () => {
-    expect(shouldSyncPath("%E6%96%87.md")).toBe(true);
+  it("refuses valid multibyte escapes too: they fold onto the decoded name (R14-M1)", () => {
+    // R12-2 pinned this as accepted, but the server stores the DECODED
+    // name (decode_to_fixed_point): a literal %E6%96%87.md syncs under
+    // 文.md — a sibling literally named 文.md then collapses onto the
+    // same server path with independent index keys, and the pull
+    // re-delivers the file under the decoded name. Any literal whose
+    // fixed point differs from itself breaks the 1:1 local↔server path
+    // mapping, so both are refused at scan time now.
+    expect(shouldSyncPath("%E6%96%87.md")).toBe(false);
   });
 
   it("still accepts plain literal percent-free names", () => {

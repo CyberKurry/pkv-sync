@@ -277,7 +277,17 @@ function hasUnsafeDecodedShape(path: string): boolean {
       }
       return false;
     }
-    if (decoded === current) return false;
+    if (decoded === current) {
+      // R14-M1: fixed point reached. The server stores every pushed path
+      // at its fixed-point decode (decode_to_fixed_point, the idempotent
+      // contract), so a literal whose fixed point differs from itself
+      // (`a%41.md` → `aA.md`) maps onto a DIFFERENT server path than the
+      // local key: a sibling with the decoded spelling collapses onto the
+      // same server file with independent index keys — silent mutual
+      // overwrite, no conflict sidecar — and the pull re-delivers the
+      // file under the decoded name. Refuse to sync it at all.
+      return current !== path;
+    }
     current = normalizeSeparators(decoded);
     if (hasEscapedPathSeparator(current)) return true;
     if (!isSafePathShape(current) || hasProtectedRoot(current) || startsWithDotRoot(current)) {

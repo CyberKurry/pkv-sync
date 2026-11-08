@@ -27,6 +27,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin scan filter: a local file whose name contains a literal
+  percent-escape (`a%41.md`) is now refused for syncing. The server
+  stores every pushed path at its fixed-point decode (`aA.md`), so the
+  literal and a sibling spelled with the decoded name collapsed onto
+  one server file with independent index keys — silent mutual overwrite
+  without a conflict sidecar — and the pull re-delivered the file under
+  the decoded name. Valid multibyte escapes (`%E6%96%87.md` → `文.md`)
+  fold the same way and are refused too (supersedes the earlier
+  accept-rule pinned by the invalid-UTF-8 twin test); a bare `%` with
+  no hex digits is not an escape and still syncs (R14-M1).
 - Plugin conflict resolution: "keep my deletion" on a delete-vs-remote-edit
   conflict now also removes the file copy the pull had re-delivered at
   the original path. The resolve handler looked the file up and
