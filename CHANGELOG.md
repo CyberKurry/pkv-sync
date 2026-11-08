@@ -27,6 +27,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Admin panel: the language switcher on `/admin/login` and `/setup` no
+  longer requires an admin session — its only audience is the logged-out
+  visitor, and every click used to land as a bare 401 JSON with the
+  language unchanged. Both route forms now set the whitelisted language
+  cookie and redirect back (the language value stays whitelisted, the
+  redirect target keeps passing the open-redirect guard; GET carries no
+  CSRF scope) (R14-M5).
 - Server: pushing a text note whose ENTIRE body parses as a PKV Sync
   blob-pointer JSON is now refused with 400 `invalid_text`. The store
   reads any pointer-shaped content back as a blob reference, but no

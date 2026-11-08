@@ -324,7 +324,13 @@ async fn language_switch_rejects_dot_segment_next() {
 }
 
 #[tokio::test]
-async fn language_switch_requires_admin_session() {
+async fn language_switch_works_without_an_admin_session() {
+    // R14-M5: the switcher's only audience is logged-OUT visitors — the
+    // /admin/login and /setup pages. Requiring AdminSession turned every
+    // click into a bare 401 JSON. The routes now set the whitelisted
+    // language cookie for anyone (GET is a safe method; the lang value
+    // is whitelisted by AdminLang::parse, the next target by the
+    // open-redirect guard) and redirect back.
     let (app, _dir) = app().await;
 
     for uri in [
@@ -336,7 +342,12 @@ async fn language_switch_requires_admin_session() {
             .oneshot(request(Method::GET, uri, Body::empty()))
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{uri}");
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER, "{uri}");
+        assert_eq!(
+            resp.headers().get(header::LOCATION).unwrap(),
+            "/admin/login",
+            "{uri}"
+        );
         let set_cookie = resp
             .headers()
             .get_all(header::SET_COOKIE)
@@ -344,7 +355,7 @@ async fn language_switch_requires_admin_session() {
             .filter_map(|value| value.to_str().ok())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(!set_cookie.contains("pkv_admin_lang="), "{set_cookie}");
+        assert!(set_cookie.contains("pkv_admin_lang=zh-CN"), "{set_cookie}");
     }
 }
 

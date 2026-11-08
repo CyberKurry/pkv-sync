@@ -269,10 +269,13 @@ pub async fn setup_redirect_middleware(
 async fn set_language(
     Extension(cookie_policy): Extension<AdminCookiePolicy>,
     cookies: Cookies,
-    _session: AdminSession,
     Path(lang): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Redirect {
+    // R14-M5: no AdminSession — the switcher's only audience is the
+    // logged-OUT visitor on /admin/login and /setup. The language value
+    // is whitelisted (AdminLang::parse) and the redirect target by the
+    // open-redirect guard; GET is a safe method, no CSRF scope.
     set_language_cookie(&cookie_policy, &cookies, &lang);
     redirect_to_safe_admin_next(&params)
 }
@@ -280,7 +283,6 @@ async fn set_language(
 async fn set_language_query(
     Extension(cookie_policy): Extension<AdminCookiePolicy>,
     cookies: Cookies,
-    _session: AdminSession,
     Query(params): Query<HashMap<String, String>>,
 ) -> Redirect {
     if let Some(lang) = params.get("lang") {
