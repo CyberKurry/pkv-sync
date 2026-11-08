@@ -27,6 +27,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Admin dashboard: the CPU card showed ~0% regardless of load — sysinfo
+  derives `cpu_usage()` from the delta between two refreshes, and the
+  metrics collector refreshed back-to-back (a microsecond window) with
+  a fresh `System` per page load, so it never converged. The collector
+  now sleeps the library's `MINIMUM_CPU_UPDATE_INTERVAL` between the
+  two samples (it already runs on the blocking pool) (R14-M6).
 - Admin panel: the language switcher on `/admin/login` and `/setup` no
   longer requires an admin session — its only audience is the logged-out
   visitor, and every click used to land as a bare 401 JSON with the

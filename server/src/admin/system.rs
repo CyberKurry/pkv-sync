@@ -21,6 +21,14 @@ struct DiskSample {
 
 pub fn collect(data_dir: &Path) -> SystemMetrics {
     let mut system = System::new_all();
+    // R14-M6: sysinfo's cpu_usage() is the DELTA between two CPU
+    // refreshes — new_all() + a back-to-back refresh_all() measured a
+    // microsecond window and reported ~0% forever (every dashboard load
+    // also built a fresh System, so it never converged). Sleep the
+    // library's own minimum interval between the samples; the caller
+    // runs this inside spawn_blocking, so the wait blocks a pool thread
+    // only.
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
     system.refresh_all();
     let cpu_percent = system.global_cpu_info().cpu_usage();
     let cpu_cores = effective_cpu_cores(system.cpus().len().max(1), detect_cgroup_cpu_quota());
@@ -196,6 +204,39 @@ mod tests {
         let metrics = collect(Path::new("."));
         assert!(metrics.memory_total_mb > 0);
         assert!(metrics.disk_total_bytes > 0);
+    }
+
+    #[test]
+    fn cpu_sampling_waits_the_minimum_interval_between_refreshes() {
+        // R14-M6: sysinfo's cpu_usage() is the DELTA between two CPU
+        // refreshes; new_all() + back-to-back refresh_all() left the
+        // dashboard at ~0% forever (every page load also built a fresh
+        // System, so it never converged). The source contract: build →
+        // sleep(MINIMUM_CPU_UPDATE_INTERVAL) → refresh → read. A
+        // behavioral CPU assertion would be load-dependent and flake on
+        // idle runners, so this pins the structure instead — searching
+        // ONLY inside collect's own body (an unbounded search matches
+        // this test's literals and passes either way, which is no
+        // evidence at all).
+        let source = include_str!("system.rs");
+        let collect_start = source.find("pub fn collect").expect("collect fn");
+        let collect_end = source[collect_start..]
+            .find("\nfn ")
+            .or_else(|| source[collect_start..].find("\nmod tests"))
+            .expect("end of collect")
+            + collect_start;
+        let body = &source[collect_start..collect_end];
+        let first = body.find("new_all()").expect("first refresh (new_all)");
+        let sleep = body
+            .find("MINIMUM_CPU_UPDATE_INTERVAL")
+            .expect("sampling interval");
+        // The second refresh is the first refresh_all() AFTER the sleep
+        // (the comment between them names both calls).
+        let second = body[sleep..].find("refresh_all()").expect("second refresh") + sleep;
+        assert!(
+            first < sleep && sleep < second,
+            "collect must sample, sleep the sysinfo minimum interval, refresh again"
+        );
     }
 
     #[test]
