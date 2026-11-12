@@ -1,7 +1,7 @@
 use crate::storage::blob::is_sha256_hex;
 use crate::storage::text_kind::TextClassifier;
 use async_trait::async_trait;
-use git2::{Delta, DiffFindOptions, ObjectType, Oid, Repository, Signature, Tree};
+use git2::{Delta, DiffFindOptions, ObjectType, Odb, Oid, Repository, Signature, Tree};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1166,13 +1166,15 @@ fn collect_tree_map(
     };
     let commit = repo.find_commit(oid)?;
     let tree = commit.tree()?;
+    let odb = repo.odb()?;
     let mut out = Vec::with_capacity(tree.len());
-    tree_entries_recursive(repo, &tree, "", 0, &mut out)?;
+    tree_entries_recursive(repo, &odb, &tree, "", 0, &mut out)?;
     Ok(out.into_iter().map(|e| (e.path.clone(), e)).collect())
 }
 
 fn tree_entries_recursive(
     repo: &Repository,
+    odb: &Odb<'_>,
     tree: &Tree<'_>,
     prefix: &str,
     depth: usize,
@@ -1192,12 +1194,19 @@ fn tree_entries_recursive(
         };
         match entry.kind() {
             Some(ObjectType::Blob) => {
-                let blob = repo.find_blob(entry.id())?;
-                let pointer = parse_blob_pointer_if_candidate(&blob)
-                    .and_then(|pointer| pointer.into_file_for_path(&path));
+                // 2a (spec §5.2a): read the object HEADER only; blobs over
+                // the pointer cap cannot be pointers, so their content is
+                // never materialized during a tree listing.
+                let (header_size, _) = odb.read_header(entry.id())?;
+                let mut pointer = None;
+                if header_size <= POINTER_BLOB_MAX_BYTES {
+                    let blob = repo.find_blob(entry.id())?;
+                    pointer = parse_blob_pointer_if_candidate(&blob)
+                        .and_then(|pointer| pointer.into_file_for_path(&path));
+                }
                 let size = match &pointer {
                     Some(StoredFile::BlobPointer { size, .. }) => *size,
-                    _ => blob.size() as u64,
+                    _ => header_size as u64,
                 };
                 let blob_hash = match &pointer {
                     Some(StoredFile::BlobPointer { hash, .. }) => Some(hash.clone()),
@@ -1213,7 +1222,7 @@ fn tree_entries_recursive(
             }
             Some(ObjectType::Tree) => {
                 let subtree = repo.find_tree(entry.id())?;
-                tree_entries_recursive(repo, &subtree, &path, depth + 1, out)?;
+                tree_entries_recursive(repo, odb, &subtree, &path, depth + 1, out)?;
             }
             _ => {}
         }
@@ -1311,8 +1320,9 @@ impl GitVaultStore for Git2VaultStore {
             };
             let commit = repo.find_commit(oid)?;
             let tree = commit.tree()?;
+            let odb = repo.odb()?;
             let mut out = Vec::with_capacity(tree.len());
-            tree_entries_recursive(&repo, &tree, "", 0, &mut out)?;
+            tree_entries_recursive(&repo, &odb, &tree, "", 0, &mut out)?;
             Ok(out)
         })
         .await
@@ -1599,6 +1609,74 @@ mod tests {
                 bytes: b"hello".to_vec()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn list_tree_sizes_survive_header_only_walk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("vaults");
+        std::fs::create_dir_all(&root).unwrap();
+        let store = Git2VaultStore::new(root);
+        let changes = vec![
+            // >512B text: the pointer sniff must not need its content.
+            FileChange::upsert_text("big.md", vec![b'x'; 4096]),
+            // <512B text: read for pointer sniffing, correctly rejected.
+            FileChange::upsert_text("small.md", b"plain text".to_vec()),
+            // real pointer: must still be detected with its declared size.
+            FileChange::Upsert {
+                path: "bin.dat".into(),
+                file: StoredFile::BlobPointer {
+                    hash: "a".repeat(64),
+                    size: 987_654,
+                    mime: None,
+                },
+            },
+        ];
+        store
+            .commit_changes("v1", None, &changes, "seed")
+            .await
+            .unwrap();
+        let tree = store.list_tree("v1", None).await.unwrap();
+        let by_path: std::collections::HashMap<&str, &TreeEntry> =
+            tree.iter().map(|e| (e.path.as_str(), e)).collect();
+        assert_eq!(by_path.len(), 3);
+        assert_eq!(by_path["big.md"].size, 4096);
+        assert_eq!(by_path["small.md"].size, b"plain text".len() as u64);
+        let pointer = by_path["bin.dat"];
+        assert!(pointer.is_blob_pointer);
+        assert_eq!(pointer.size, 987_654);
+        assert_eq!(pointer.blob_hash.as_deref(), Some("a".repeat(64).as_str()));
+    }
+
+    /// 2a perf gate (spec §5.2a). Ignored by default: seeds 5k files (~30s).
+    /// Run: cargo test -p pkv-sync-server --lib -- --ignored list_tree_header_walk_perf
+    /// Record BOTH runs (with and without the header cap, i.e. temporarily
+    /// `if true`) in the commit body of the optimization commit.
+    #[tokio::test]
+    #[ignore]
+    async fn list_tree_header_walk_perf() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("vaults");
+        std::fs::create_dir_all(&root).unwrap();
+        let store = Git2VaultStore::new(root);
+        let mut parent: Option<String> = None;
+        for start in (0..5000usize).step_by(2500) {
+            let changes: Vec<FileChange> = (start..start + 2500)
+                .map(|i| {
+                    FileChange::upsert_text(format!("p{}/f{i:05}.md", i / 2500), vec![b'x'; 2048])
+                })
+                .collect();
+            parent = Some(
+                store
+                    .commit_changes("v1", parent.as_deref(), &changes, "seed")
+                    .await
+                    .unwrap(),
+            );
+        }
+        let started = std::time::Instant::now();
+        let tree = store.list_tree("v1", None).await.unwrap();
+        assert_eq!(tree.len(), 5000);
+        println!("list_tree 5k loose: {:?}", started.elapsed());
     }
 
     #[tokio::test]

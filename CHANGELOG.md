@@ -61,6 +61,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
   changes to every device. The deletions are now held and the pass ends
   in an error status; an explicit confirm is the only way through.
 
+### Performance
+
+- Server storage: tree listings no longer materialize every blob's
+  content. `list_tree` (and the tree maps built from it) now reads each
+  blob's object header for its size and only loads the content of blobs
+  at or under the pointer-sniff cap (512 B) to detect blob pointers, so
+  large-vault listings and search get proportionally faster; measured on
+  a 5k-file repo the walk drops from ~580 ms to ~195 ms.
+
 ## [1.9.0] - 2026-11-08
 
 ### Added
