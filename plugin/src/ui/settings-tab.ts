@@ -480,8 +480,8 @@ export class PKVSyncSettingTab extends PluginSettingTab {
   }
 
   private renderPruneSetting(body: HTMLElement): void {
-    // Takes effect on the next engine rebuild (the adapter reads the flag
-    // at construction), like the other vault-behaviour toggles.
+    // Takes effect immediately: the adapter re-reads the switch on every
+    // deletion (hence no engine rebuild is needed).
     const t = this.plugin.text();
     const row = body.createDiv({ cls: "pkv-sync-checkbox-row" });
     const label = row.createEl("label", { cls: "pkv-sync-checkbox-label" });
