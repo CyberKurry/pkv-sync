@@ -20,6 +20,7 @@ export class Notice {
 }
 
 export class Modal {
+  titleEl = createMockElement();
   contentEl = createMockElement();
   modalEl = createMockElement();
 

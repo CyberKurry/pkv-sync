@@ -3,6 +3,7 @@ import { format, type Strings } from "./i18n";
 import { isLoggedIn } from "./settings";
 import { listConflictFiles } from "./sync/conflict-files";
 import { formatUnixSeconds } from "./time";
+import { EmptyScanConfirmModal } from "./ui/empty-scan-confirm";
 import { statusText } from "./ui/status";
 import { SyncStatusModal } from "./ui/sync-modal";
 import { errorToMessage } from "./util";
@@ -44,6 +45,26 @@ export function registerCommands(plugin: PKVSyncPlugin, t: Strings): void {
     id: "manual-sync",
     name: t.manualSyncCommand,
     callback: () => void plugin.syncNowManual()
+  });
+  plugin.addCommand({
+    id: "confirm-empty-vault-deletions",
+    name: t.confirmEmptySyncCommand,
+    callback: () => {
+      const engine = plugin.engine;
+      if (!engine || !isLoggedIn(plugin.settings)) {
+        new Notice(t.noticeNotConfigured);
+        return;
+      }
+      new EmptyScanConfirmModal(
+        plugin.app,
+        t,
+        engine.heldDeletionCount(),
+        () => {
+          engine.allowEmptyScanDeletesOnce();
+          void plugin.syncNowManual();
+        }
+      ).open();
+    }
   });
   plugin.addCommand({
     id: "check-for-updates",

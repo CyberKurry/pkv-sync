@@ -7,6 +7,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- Plugin command "Confirm empty-vault deletions": the explicit escape
+  hatch for the empty-scan breaker. It opens a warning modal reporting
+  how many index entries the last scan held, explains that an empty scan
+  usually means unavailable storage (revoked permissions, unmounted
+  drive) rather than a whole-vault deletion, and only then lets the
+  user push the deletions exactly once (D3).
+
 ### Fixed
 
 - Plugin sync engine: a vault scan that lists zero files against a

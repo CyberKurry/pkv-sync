@@ -199,6 +199,13 @@ export class SyncEngine {
     this.emptyScanOverride = true;
   }
 
+  /** Deletion count held by the breaker on the most recent scan (0 when none). */
+  heldDeletionCount(): number {
+    return this.lastHeldDeletionCount;
+  }
+
+  private lastHeldDeletionCount = 0;
+
   private get aborted(): boolean {
     return this.abortController.signal.aborted;
   }
@@ -430,8 +437,10 @@ export class SyncEngine {
     const override = this.emptyScanOverride;
     this.emptyScanOverride = false;
     if (vaultScannedEmpty && indexHasEntries && !override) {
+      this.lastHeldDeletionCount = deleted.length;
       return { pending, deleted: [], index, emptyScanHeld: true };
     }
+    this.lastHeldDeletionCount = 0;
     return { pending, deleted, index };
   }
 

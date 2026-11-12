@@ -129,6 +129,12 @@ export const en = {
   conflictCopyFailed: "Could not write the conflict copy for {path}: {reason}",
   sseAuthFailed: "Realtime sync stopped: the server rejected the token",
   emptyScanHeld: "Vault scan found no files; deletions held",
+  confirmEmptySyncCommand: "Confirm empty-vault deletions",
+  emptyScanConfirmTitle: "Confirm vault deletions",
+  emptyScanConfirmBody:
+    "The last scan found 0 files while the sync index still holds {count} entries. This usually means storage is unavailable (permissions revoked, drive not mounted) rather than that you deleted everything. Confirming will push these deletions to every device.",
+  emptyScanConfirmAccept: "Push deletions anyway",
+  modalCancel: "Cancel",
   connectedToServer: "Connected to {serverName}",
   changeServer: "Change server",
   loggedIn: "Logged in",

@@ -29,6 +29,7 @@ function makeEngine(opts: {
   scanEmpty: boolean;
   index: LocalIndex;
 }) {
+  const state = { scanEmpty: opts.scanEmpty };
   const push = vi.fn(
     async (
       _vaultId: string,
@@ -41,7 +42,7 @@ function makeEngine(opts: {
   const vault = {
     configDir: ".obsidian",
     scan: async () =>
-      opts.scanEmpty
+      state.scanEmpty
         ? []
         : [ { path: "present.md", hash: "x", size: 1, kind: "text" as const, content: "x" } ],
     exists: () => false,
@@ -63,7 +64,14 @@ function makeEngine(opts: {
     },
     setStatus, labels
   });
-  return { engine, push, setStatus };
+  return {
+    engine,
+    push,
+    setStatus,
+    setScanEmpty: (value: boolean) => {
+      state.scanEmpty = value;
+    }
+  };
 }
 
 describe("SyncEngine empty-scan breaker (D3)", () => {
@@ -94,5 +102,39 @@ describe("SyncEngine empty-scan breaker (D3)", () => {
     expect(changes).toHaveLength(3);
     expect(changes.every((c) => c.kind === "delete")).toBe(true);
     expect(setStatus).toHaveBeenCalledWith("connected");
+  });
+});
+
+describe("SyncEngine empty-scan confirm escape hatch (D3)", () => {
+  beforeEach(() => {
+    vi.mocked(subscribeVaultEvents).mockReset();
+    vi.stubGlobal("window", globalThis);
+  });
+
+  it("reports the held deletion count after a held pass", async () => {
+    const { engine } = makeEngine({ scanEmpty: true, index: makeIndex(3) });
+    await engine.syncNow();
+    expect(engine.heldDeletionCount()).toBe(3);
+  });
+
+  it("resets the held count to 0 after a non-held pass", async () => {
+    const { engine, setScanEmpty } = makeEngine({
+      scanEmpty: true,
+      index: makeIndex(3)
+    });
+    await engine.syncNow();
+    expect(engine.heldDeletionCount()).toBe(3);
+    setScanEmpty(false);
+    await engine.syncNow();
+    expect(engine.heldDeletionCount()).toBe(0);
+  });
+
+  it("applies the one-shot override exactly once: the next pass holds again", async () => {
+    const { engine, push } = makeEngine({ scanEmpty: true, index: makeIndex(3) });
+    engine.allowEmptyScanDeletesOnce();
+    await engine.syncNow();
+    await engine.syncNow();
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(engine.heldDeletionCount()).toBe(3);
   });
 });

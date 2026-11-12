@@ -125,6 +125,12 @@ export const zhHant = {
   conflictCopyFailed: "無法為 {path} 寫入衝突副本：{reason}",
   sseAuthFailed: "即時同步已停止：伺服器拒絕了該權杖",
   emptyScanHeld: "庫掃描未發現檔案，刪除已暫緩",
+  confirmEmptySyncCommand: "確認空庫刪除並同步",
+  emptyScanConfirmTitle: "確認同步整庫刪除",
+  emptyScanConfirmBody:
+    "最近一次掃描發現 0 個檔案，但同步索引中仍有 {count} 條記錄。這通常意味著儲存不可用（權限被收回、磁碟未掛載），而不是你刪除了所有內容。確認後這些刪除將同步到所有裝置。",
+  emptyScanConfirmAccept: "仍要同步刪除",
+  modalCancel: "取消",
   connectedToServer: "已連線到「{serverName}」",
   changeServer: "變更伺服器",
   loggedIn: "已登入",

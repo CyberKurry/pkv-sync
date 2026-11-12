@@ -125,6 +125,12 @@ export const zh = {
   conflictCopyFailed: "无法为 {path} 写入冲突副本：{reason}",
   sseAuthFailed: "实时同步已停止：服务器拒绝了该令牌",
   emptyScanHeld: "库扫描未发现文件，删除已暂缓",
+  confirmEmptySyncCommand: "确认空库删除并同步",
+  emptyScanConfirmTitle: "确认同步整库删除",
+  emptyScanConfirmBody:
+    "最近一次扫描发现 0 个文件，但同步索引中仍有 {count} 条记录。这通常意味着存储不可用（权限被收回、磁盘未挂载），而不是你删除了所有内容。确认后这些删除将同步到所有设备。",
+  emptyScanConfirmAccept: "仍要同步删除",
+  modalCancel: "取消",
   connectedToServer: "已连接到 {serverName}",
   changeServer: "修改服务器",
   loggedIn: "已登录",

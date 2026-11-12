@@ -136,6 +136,12 @@ export const ko = {
   conflictCopyFailed: "{path}의 충돌 사본을 작성하지 못했습니다: {reason}",
   sseAuthFailed: "실시간 동기화가 중지되었습니다: 서버가 토큰을 거부했습니다",
   emptyScanHeld: "볼트 스캔에서 파일을 찾지 못해 삭제를 보류함",
+  confirmEmptySyncCommand: "빈 볼트 삭제를 확인하고 동기화",
+  emptyScanConfirmTitle: "볼트 전체 삭제 확인",
+  emptyScanConfirmBody:
+    "최근 스캔에서 파일이 0개인데 동기화 인덱스에는 {count}개 항목이 남아 있습니다. 이는 보통 모두 삭제했다는 뜻이 아니라 저장소를 사용할 수 없음(권한 회수, 디스크 미마운트)을 의미합니다. 확인하면 이 삭제를 모든 기기에 동기화합니다.",
+  emptyScanConfirmAccept: "그래도 삭제 동기화",
+  modalCancel: "취소",
   connectedToServer: "「{serverName}」에 연결되었습니다",
   changeServer: "서버 변경",
   loggedIn: "로그인됨",

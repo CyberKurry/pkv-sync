@@ -128,6 +128,12 @@ export const ja = {
   conflictCopyFailed: "競合コピーを書き込めませんでした（{path}）：{reason}",
   sseAuthFailed: "リアルタイム同期を停止しました：サーバーがトークンを拒否しました",
   emptyScanHeld: "Vault スキャンでファイルが見つからず、削除を保留中です",
+  confirmEmptySyncCommand: "空の Vault の削除を確認して同期",
+  emptyScanConfirmTitle: "Vault 全件削除の確認",
+  emptyScanConfirmBody:
+    "直近のスキャンでファイルが 0 件なのに、同期インデックスには {count} 件残っています。多くの場合、削除ではなくストレージ利用不可（権限失効、ドライブ未マウント）を意味します。確認するとこれらの削除を全デバイスへ同期します。",
+  emptyScanConfirmAccept: "それでも削除を同期",
+  modalCancel: "キャンセル",
   connectedToServer: "{serverName} に接続しました",
   changeServer: "サーバーを変更",
   loggedIn: "ログインしました",
