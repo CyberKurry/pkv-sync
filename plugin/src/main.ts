@@ -83,6 +83,7 @@ import {
   type PluginUpdateStatus
 } from "./services/update-check";
 import { errorToMessage, isTextPath } from "./util";
+import { engineStartAllowed } from "./workspace-readiness";
 
 type CompletionState = "old_safe" | "new_committed" | "disk_uncertain";
 
@@ -217,10 +218,16 @@ export default class PKVSyncPlugin extends Plugin {
     );
     this.updateStatus();
     this.addSettingTab(new PKVSyncSettingTab(this.app, this));
-    this.registerVaultWatchers();
     registerCommands(this, t);
     this.registerHistoryFileMenu();
-    this.rebuildSyncEngine();
+    // 0b: the vault file index is built AFTER plugin onload() runs; defer
+    // engine start and vault watchers until the first enumeration finished
+    // (obsidian.d.ts documents that vault 'create' fires for every existing
+    // file on load unless handlers are registered inside onLayoutReady).
+    this.app.workspace.onLayoutReady(() => {
+      this.registerVaultWatchers();
+      this.rebuildSyncEngine();
+    });
     this.scheduleUpdateChecks();
   }
 
@@ -713,6 +720,10 @@ export default class PKVSyncPlugin extends Plugin {
 
   private rebuildSyncEngine(): void {
     if (this.persistenceRecoveryRequired) return;
+    // 0b: never start an engine before the vault's first enumeration
+    // finished; the queued onLayoutReady callback is the only starter
+    // during boot (spec §3.4).
+    if (!engineStartAllowed(this.app.workspace)) return;
     // R8-3: a rebuild replaces the engine (and its generation guard);
     // the remembered engine status belongs to the old engine.
     this.statusEl?.clearEngineStatus();

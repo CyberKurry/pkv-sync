@@ -135,7 +135,13 @@ export function createMigrationHarness(
   plugin.persistenceRecoveryRequired = false;
   (
     plugin as unknown as { app: unknown }
-  ).app = { vault: new MigrationFakeVault(options.files ?? []) };
+  ).app = {
+    vault: new MigrationFakeVault(options.files ?? []),
+    // 0b: every flow this harness exercises (account refresh, connection
+    // accept, migration commit/recovery) runs after the workspace layout
+    // is ready in a live session, so the readiness gate must be open.
+    workspace: { layoutReady: true }
+  };
   (
     plugin as unknown as { authStore: { save(value: unknown): void } }
   ).authStore = { save: () => undefined };

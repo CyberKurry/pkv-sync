@@ -18,6 +18,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin startup: the sync engine start and vault watchers are deferred
+  until the workspace layout is ready. Obsidian initializes community
+  plugins before enumerating vault files, so a first pass started from
+  onload() could observe an empty vault; deferring also stops the vault
+  'create' event from firing for every existing file during boot.
 - Plugin confirm command: the confirmed empty-vault deletion override
   is now scoped to the whole sync pass. It used to be consumed by the
   first scan classification, so a push that hit a head-mismatch retry
