@@ -2,7 +2,7 @@ import { Notice, TFile, TFolder, type App, type FileManager, type Vault } from "
 import { isConflictPath } from "./conflict-files";
 import { sha256Bytes, sha256TextWithLength } from "./hash";
 import type { LocalFileSnapshot, LocalIndex } from "./types";
-import { format, strings } from "../i18n";
+import { format, type Strings } from "../i18n";
 import { debugLog, isTextPath } from "../util";
 
 const SCAN_SNAPSHOT_BATCH_SIZE = 8;
@@ -37,9 +37,18 @@ export class ObsidianVaultAdapter implements VaultAdapter {
   private readonly fileManager: FileManager;
   private pruneNotified = false;
 
+  /**
+   * Both flags are LIVE callbacks, not constructor-captured values: the
+   * settings toggle saves with rebuild:false, so the running engine's
+   * adapter must re-read the switch on every trash() (a captured boolean
+   * stayed stale until the next engine rebuild), and the Notice must
+   * follow the plugin's configured language like every other notice
+   * (plugin.text()), not the navigator locale.
+   */
   constructor(
     host: VaultHost,
-    private readonly pruneEmptyParents: boolean
+    private readonly pruneEnabled: () => boolean,
+    private readonly labels: () => Strings
   ) {
     this.vault = host.vault;
     this.fileManager = host.fileManager;
@@ -102,7 +111,7 @@ export class ObsidianVaultAdapter implements VaultAdapter {
     // file delete that just happened through the same call.
     if (!file) return;
     await this.fileManager.trashFile(file);
-    if (this.pruneEmptyParents) await this.pruneEmptyParentsOf(safePath);
+    if (this.pruneEnabled()) await this.pruneEmptyParentsOf(safePath);
   }
 
   exists(path: string): boolean {
@@ -197,6 +206,17 @@ export class ObsidianVaultAdapter implements VaultAdapter {
    * vault cache does not list dot-entries, so a folder holding only
    * `.nomedia` looks empty there. Never throws: the file delete above
    * already happened and the caller must be able to record it (spec §4.4).
+   *
+   * Walk consistency: trashFile awaits the physical rename and Obsidian
+   * reconciles its cache per adapter operation, so listing the PARENT on
+   * the next iteration already reflects the child folder's removal.
+   *
+   * M-10 exemption (deliberate): the engine discipline checks
+   * throwIfAborted() before every vault write/delete, but this walk runs
+   * unsupervised after the last check. Acceptable because it stops at the
+   * first non-empty parent, touches only folders that are already empty,
+   * follows the user's deletion preference (trash by default, so
+   * recoverable), and folders never enter the sync index.
    */
   private async pruneEmptyParentsOf(filePath: string): Promise<void> {
     try {
@@ -221,7 +241,7 @@ export class ObsidianVaultAdapter implements VaultAdapter {
     // one Notice per adapter lifetime points at the setting to disable it.
     if (this.pruneNotified) return;
     this.pruneNotified = true;
-    new Notice(format(strings().firstPruneNotice, { path: dir }));
+    new Notice(format(this.labels().firstPruneNotice, { path: dir }));
   }
 }
 

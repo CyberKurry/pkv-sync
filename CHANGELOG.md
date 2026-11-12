@@ -13,7 +13,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
   default) with a first-run notice: the first time the sync engine
   prunes an emptied folder, one Notice names the folder and points at
   the setting, so the tree reorganization is never silent; further
-  prunes stay quiet. The checkbox lives next to the history UI toggle.
+  prunes stay quiet. The checkbox lives next to the history UI toggle,
+  takes effect immediately on the running engine (the adapter re-reads
+  the switch on every deletion), and the notice follows the configured
+  plugin language like every other notice.
 - Plugin command "Confirm empty-vault deletions": the explicit escape
   hatch for the empty-scan breaker. It opens a warning modal reporting
   how many index entries the last scan held, explains that an empty scan

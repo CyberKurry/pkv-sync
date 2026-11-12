@@ -61,7 +61,10 @@ export class SyncOrchestrator {
       extraExcludeGlobs: this.plugin.settings.extraExcludeGlobs,
       vault: new ObsidianVaultAdapter(
         this.plugin.app,
-        this.plugin.settings.pruneEmptyFolders
+        // Live reads: the toggle saves with rebuild:false, so the running
+        // engine must see the current value without waiting for a rebuild.
+        () => this.plugin.settings.pruneEmptyFolders,
+        () => this.plugin.text()
       ),
       api: new SyncApi(this.plugin.api()),
       index: {

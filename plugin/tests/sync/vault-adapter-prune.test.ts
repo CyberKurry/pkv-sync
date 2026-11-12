@@ -10,6 +10,7 @@ import type { LocalIndex } from "../../src/sync/types";
 import { ObsidianVaultAdapter, type VaultHost } from "../../src/sync/vault-adapter";
 import { TFile, TFolder } from "obsidian";
 import { notices } from "../mocks/obsidian";
+import { strings, type Strings } from "../../src/i18n";
 
 vi.mock("../../src/api/events-client", () => ({
   subscribeVaultEvents: vi.fn(),
@@ -86,17 +87,25 @@ class PruneFakeFileManager {
   }
 }
 
-function makeAdapter(prune = true) {
+function makeAdapter(prune = true, labels: () => Strings = () => strings()) {
   const vault = new PruneFakeVault();
   const fm = new PruneFakeFileManager(vault);
   const host = {
     vault: vault as unknown as VaultHost["vault"],
     fileManager: fm as unknown as VaultHost["fileManager"]
   };
+  // The switch is a mutable holder so tests can flip it on a LIVE adapter,
+  // mirroring how the orchestrator reads plugin.settings on every trash().
+  const flags = { prune };
   return {
-    adapter: new ObsidianVaultAdapter(host as VaultHost, prune),
+    adapter: new ObsidianVaultAdapter(
+      host as VaultHost,
+      () => flags.prune,
+      labels
+    ),
     vault,
-    fm
+    fm,
+    flags
   };
 }
 
@@ -168,6 +177,26 @@ describe("empty-folder prune (spec §4)", () => {
     expect(fm.trashed).toEqual(["vault-config/plugins/x.md"]);
   });
 
+  it("keeps a custom config dir folder that directly holds the deleted file", async () => {
+    // isUnderConfigDir equality branch: the config folder itself empties
+    // but must be kept (regression lock - passes against correct guards).
+    const { adapter, vault, fm } = makeAdapter();
+    vault.configDir = "cfg";
+    seed(vault, "cfg/note.md");
+    await adapter.trash("cfg/note.md");
+    expect(fm.trashed).toEqual(["cfg/note.md"]);
+  });
+
+  it("prunes nothing above the default config dir (allowlisted sync shape)", async () => {
+    // .obsidian paths are allowlisted for config sync; a deleted theme
+    // must not prune .obsidian/themes or .obsidian (dot-root guard).
+    // Regression lock - passes against correct guards.
+    const { adapter, vault, fm } = makeAdapter();
+    seed(vault, ".obsidian/themes/x.css");
+    await adapter.trash(".obsidian/themes/x.css");
+    expect(fm.trashed).toEqual([".obsidian/themes/x.css"]);
+  });
+
   it("silently stops when the emptied parent is missing from the vault cache", async () => {
     const { adapter, vault, fm } = makeAdapter();
     seed(vault, "X/note.md");
@@ -212,6 +241,21 @@ describe("empty-folder prune (spec §4)", () => {
     expect(fm.trashed).toEqual(["A/B/note.md"]);
     expect(notices).toHaveLength(0);
   });
+
+  it("reads the prune switch live without an engine rebuild", async () => {
+    // The toggle saves with rebuild:false, so the RUNNING adapter must see
+    // the current value on every trash() - not a constructor-captured
+    // boolean (worst case: the user disables it right after a prune and
+    // the next pass prunes anyway).
+    const { adapter, vault, fm, flags } = makeAdapter();
+    seed(vault, "A/x.md");
+    seed(vault, "B/y.md");
+    await adapter.trash("A/x.md");
+    expect(fm.trashed).toEqual(["A/x.md", "A"]);
+    flags.prune = false;
+    await adapter.trash("B/y.md");
+    expect(fm.trashed).toEqual(["A/x.md", "A", "B/y.md"]);
+  });
 });
 
 describe("first-prune notice (spec §4.5)", () => {
@@ -234,6 +278,17 @@ describe("first-prune notice (spec §4.5)", () => {
     // A later prune on the same adapter instance stays silent.
     await adapter.trash("A/C/x.md");
     expect(notices).toHaveLength(1);
+  });
+
+  it("renders the Notice through the injected labels, not navigator language", async () => {
+    // Every other user-visible notice goes through plugin.text()
+    // (strings(settings.language)); the adapter must take its string the
+    // same way instead of falling back to the browser locale.
+    const custom = { firstPruneNotice: "PRUNED {path}" } as Strings;
+    const { adapter, vault } = makeAdapter(true, () => custom);
+    seed(vault, "A/B/note.md");
+    await adapter.trash("A/B/note.md");
+    expect(notices).toEqual(["PRUNED A/B"]);
   });
 });
 

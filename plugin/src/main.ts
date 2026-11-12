@@ -1090,8 +1090,13 @@ export default class PKVSyncPlugin extends Plugin {
   private async hasUnsyncedLocalChanges(path: string): Promise<boolean> {
     try {
       const index = await this.loadSyncIndex();
-      // Snapshot-only usage (never trashes): pruning is off here.
-      const adapter = new ObsidianVaultAdapter(this.app, false);
+      // Snapshot-only usage (never trashes): pruning is permanently off
+      // here and the labels callback is never read.
+      const adapter = new ObsidianVaultAdapter(
+        this.app,
+        () => false,
+        () => strings()
+      );
       const lastSyncedHash = index.files[path]?.lastSyncedHash;
       let snapshot;
       try {
