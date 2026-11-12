@@ -108,6 +108,13 @@ export default class PKVSyncPlugin extends Plugin {
   updateDelayTimer: number | null = null;
   updateIntervalTimer: number | null = null;
   private serverCapabilities: ServerCapabilities | null = null;
+  /**
+   * Set by onunload() when the plugin goes away before the workspace
+   * layout is ready. The workspace owns the onLayoutReady queue and it
+   * returns no EventRef, so the queued startup callback can still fire
+   * on an unloaded plugin and must bail out.
+   */
+  private unloadedBeforeLayout = false;
   serverPushLimits: Readonly<PushLimits> = LEGACY_PUSH_LIMITS;
   /**
    * Set when a local write could not be confirmed on disk. Every entry point
@@ -225,6 +232,8 @@ export default class PKVSyncPlugin extends Plugin {
     // (obsidian.d.ts documents that vault 'create' fires for every existing
     // file on load unless handlers are registered inside onLayoutReady).
     this.app.workspace.onLayoutReady(() => {
+      // The workspace owns the onLayoutReady queue; it may fire after this plugin was unloaded (0b review)
+      if (this.unloadedBeforeLayout) return;
       this.registerVaultWatchers();
       this.rebuildSyncEngine();
     });
@@ -232,6 +241,7 @@ export default class PKVSyncPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.unloadedBeforeLayout = true;
     this.orchestrator.dispose();
   }
 
