@@ -18,6 +18,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin sync: folders emptied by a remote delete are now pruned. When a
+  pulled deletion removes the last file under a path, the emptied parent
+  folders used to linger on every client. The delete now walks the parent
+  chain upward (stopping at the first non-empty folder) and trashes each
+  emptied folder through the same "deleted files" preference as the file
+  itself. Emptiness is read from the real filesystem, so a folder that
+  still holds dot-entries like `.nomedia` is kept; dot-root chains and the
+  config folder are never pruned; and a prune failure never fails the
+  sync pass.
 - Plugin startup: the sync engine start and vault watchers are deferred
   until the workspace layout is ready. Obsidian initializes community
   plugins before enumerating vault files, so a first pass started from

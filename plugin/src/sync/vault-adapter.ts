@@ -2,7 +2,7 @@ import { TFile, TFolder, type App, type FileManager, type Vault } from "obsidian
 import { isConflictPath } from "./conflict-files";
 import { sha256Bytes, sha256TextWithLength } from "./hash";
 import type { LocalFileSnapshot, LocalIndex } from "./types";
-import { isTextPath } from "../util";
+import { debugLog, isTextPath } from "../util";
 
 const SCAN_SNAPSHOT_BATCH_SIZE = 8;
 
@@ -34,8 +34,12 @@ export interface VaultScanOptions {
 export class ObsidianVaultAdapter implements VaultAdapter {
   private readonly vault: Vault;
   private readonly fileManager: FileManager;
+  private pruneNotified = false;
 
-  constructor(host: VaultHost) {
+  constructor(
+    host: VaultHost,
+    private readonly pruneEmptyParents: boolean
+  ) {
     this.vault = host.vault;
     this.fileManager = host.fileManager;
   }
@@ -91,8 +95,13 @@ export class ObsidianVaultAdapter implements VaultAdapter {
     const safePath = requireSafeVaultPath(path);
     const file = this.vault.getAbstractFileByPath(safePath);
     // FileManager honours the user's "deleted files" preference (system or
-    // local trash); Vault#trash is deprecated in favour of it.
-    if (file) await this.fileManager.trashFile(file);
+    // local trash); Vault#trash is deprecated in favour of it. D1: folders
+    // reuse the SAME entry point as files (spec §4.3) — under a
+    // "delete permanently" preference this is no more destructive than the
+    // file delete that just happened through the same call.
+    if (!file) return;
+    await this.fileManager.trashFile(file);
+    if (this.pruneEmptyParents) await this.pruneEmptyParentsOf(safePath);
   }
 
   exists(path: string): boolean {
@@ -179,6 +188,35 @@ export class ObsidianVaultAdapter implements VaultAdapter {
         await this.vault.createFolder(current);
       }
     }
+  }
+
+  /**
+   * Best effort: a delete may have emptied the parent chain. Emptiness is
+   * read from the filesystem (adapter.list), never TFolder.children — the
+   * vault cache does not list dot-entries, so a folder holding only
+   * `.nomedia` looks empty there. Never throws: the file delete above
+   * already happened and the caller must be able to record it (spec §4.4).
+   */
+  private async pruneEmptyParentsOf(filePath: string): Promise<void> {
+    try {
+      let dir = parentOf(filePath);
+      while (dir !== null) {
+        if (startsWithDotRoot(dir) || isUnderConfigDir(dir, this.vault.configDir)) return;
+        const folder = this.vault.getAbstractFileByPath(dir);
+        if (!(folder instanceof TFolder)) return;
+        const listed = await this.vault.adapter.list(dir);
+        if (listed.files.length > 0 || listed.folders.length > 0) return;
+        await this.fileManager.trashFile(folder);
+        this.notifyFirstPrune(dir);
+        dir = parentOf(dir);
+      }
+    } catch (error) {
+      debugLog("[pkv-sync] empty-folder prune skipped:", error);
+    }
+  }
+
+  private notifyFirstPrune(_dir: string): void {
+    // Task 6 fills this in (D2 first-prune Notice).
   }
 }
 
@@ -311,6 +349,15 @@ function hasProtectedSegment(path: string): boolean {
 
 function startsWithDotRoot(path: string): boolean {
   return path.split("/", 1)[0].startsWith(".");
+}
+
+function parentOf(path: string): string | null {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? null : path.slice(0, slash);
+}
+
+function isUnderConfigDir(dir: string, configDir: string): boolean {
+  return dir === configDir || dir.startsWith(`${configDir}/`);
 }
 
 /**

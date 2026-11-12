@@ -35,7 +35,8 @@ export async function restoreFileToCommit(
   }
 
   const existed = ctx.app.vault.getAbstractFileByPath(ctx.path) !== null;
-  const adapter = new ObsidianVaultAdapter(ctx.app);
+  // Write-only usage (never trashes): pruning is off here.
+  const adapter = new ObsidianVaultAdapter(ctx.app, false);
   try {
     if (historical.kind === "text") {
       await adapter.writeText(ctx.path, historical.text);
