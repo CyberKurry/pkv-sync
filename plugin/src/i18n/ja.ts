@@ -179,6 +179,9 @@ export const ja = {
   defaultIosDevice: "iOS デバイス",
   defaultDesktopDevice: "デスクトップ",
   enableHistoryUi: "履歴と差分の UI を有効化",
+  pruneEmptyFolders: "リモート削除で空になったフォルダを整理",
+  firstPruneNotice:
+    "PKV Sync が空のフォルダ {path} を削除しました（設定で無効化できます）",
   showFileHistoryCommand: "ファイル履歴を表示",
   showVaultHistoryCommand: "Vault 履歴を表示",
   fileHistoryMenu: "PKV Sync: ファイル履歴",

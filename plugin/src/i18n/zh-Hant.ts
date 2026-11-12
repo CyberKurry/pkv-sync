@@ -176,6 +176,8 @@ export const zhHant = {
   defaultIosDevice: "iOS 裝置",
   defaultDesktopDevice: "桌面裝置",
   enableHistoryUi: "開啟歷史與差異介面",
+  pruneEmptyFolders: "回收被遠端刪除清空的目錄",
+  firstPruneNotice: "PKV Sync 已回收空目錄 {path}（可在設定中關閉）",
   showFileHistoryCommand: "檢視檔案歷史",
   showVaultHistoryCommand: "檢視筆記庫歷史",
   fileHistoryMenu: "PKV Sync：檔案歷史",

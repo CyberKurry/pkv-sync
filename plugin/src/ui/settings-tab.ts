@@ -151,6 +151,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       t.createVault,
       t.vaultSyncAllowlist,
       t.enableHistoryUi,
+      t.pruneEmptyFolders,
       t.syncNowButton,
       t.conflictFiles,
       t.deleteConflictsButton,
@@ -434,6 +435,7 @@ export class PKVSyncSettingTab extends PluginSettingTab {
       body.empty();
       this.renderUserCard(body, me);
       this.renderHistorySetting(body);
+      this.renderPruneSetting(body);
       this.renderVaults(body, me.vaults);
       this.renderConflictCleanup(body);
       this.renderDevices(body, tokens);
@@ -473,6 +475,21 @@ export class PKVSyncSettingTab extends PluginSettingTab {
     label.createSpan({ text: t.enableHistoryUi });
     input.addEventListener("change", () => {
       this.plugin.settings.enableHistoryUi = input.checked;
+      void this.plugin.saveSettings({ rebuild: false });
+    });
+  }
+
+  private renderPruneSetting(body: HTMLElement): void {
+    // Takes effect on the next engine rebuild (the adapter reads the flag
+    // at construction), like the other vault-behaviour toggles.
+    const t = this.plugin.text();
+    const row = body.createDiv({ cls: "pkv-sync-checkbox-row" });
+    const label = row.createEl("label", { cls: "pkv-sync-checkbox-label" });
+    const input = label.createEl("input", { type: "checkbox" });
+    input.checked = this.plugin.settings.pruneEmptyFolders;
+    label.createSpan({ text: t.pruneEmptyFolders });
+    input.addEventListener("change", () => {
+      this.plugin.settings.pruneEmptyFolders = input.checked;
       void this.plugin.saveSettings({ rebuild: false });
     });
   }

@@ -187,6 +187,9 @@ export const ko = {
   defaultIosDevice: "iOS 기기",
   defaultDesktopDevice: "데스크톱",
   enableHistoryUi: "기록 및 차이 비교 UI 사용",
+  pruneEmptyFolders: "원격 삭제로 비어진 폴더 정리",
+  firstPruneNotice:
+    "PKV Sync가 빈 폴더 {path}를 정리했습니다(설정에서 끌 수 있음)",
   showFileHistoryCommand: "파일 기록 보기",
   showVaultHistoryCommand: "Vault 기록 보기",
   fileHistoryMenu: "PKV Sync: 파일 기록",

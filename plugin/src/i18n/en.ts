@@ -180,6 +180,9 @@ export const en = {
   defaultIosDevice: "iOS device",
   defaultDesktopDevice: "Desktop",
   enableHistoryUi: "Enable history and diff UI",
+  pruneEmptyFolders: "Prune folders emptied by remote deletions",
+  firstPruneNotice:
+    "PKV Sync removed empty folder {path} (disable in settings)",
   showFileHistoryCommand: "Show file history",
   showVaultHistoryCommand: "Show vault history",
   fileHistoryMenu: "PKV Sync: File history",

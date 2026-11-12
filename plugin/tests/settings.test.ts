@@ -24,6 +24,7 @@ describe("settings", () => {
     expect(settings.pollIntervalSeconds).toBe(60);
     expect(settings.debounceMs).toBe(250);
     expect(settings.enableHistoryUi).toBe(true);
+    expect(settings.pruneEmptyFolders).toBe(true);
   });
 
   it("generates plugin device ids with the dev prefix", () => {
@@ -36,6 +37,7 @@ describe("settings", () => {
       debounceMs: Number.NaN,
       lastSyncSuccessAt: Number.NaN,
       checkForUpdates: "yes",
+      pruneEmptyFolders: "no",
       updateSource: "other",
       themeMode: "neon",
       lastUpdateCheckAt: Number.NaN,
@@ -46,6 +48,7 @@ describe("settings", () => {
     expect(settings.debounceMs).toBe(250);
     expect(settings.lastSyncSuccessAt).toBeNull();
     expect(settings.checkForUpdates).toBe(true);
+    expect(settings.pruneEmptyFolders).toBe(true);
     expect(settings.updateSource).toBe("server");
     expect(settings.themeMode).toBe("auto");
     expect(settings.lastUpdateCheckAt).toBeNull();

@@ -59,7 +59,10 @@ export class SyncOrchestrator {
       deviceName: this.plugin.settings.deviceName,
       textExtensions,
       extraExcludeGlobs: this.plugin.settings.extraExcludeGlobs,
-      vault: new ObsidianVaultAdapter(this.plugin.app, true),
+      vault: new ObsidianVaultAdapter(
+        this.plugin.app,
+        this.plugin.settings.pruneEmptyFolders
+      ),
       api: new SyncApi(this.plugin.api()),
       index: {
         loadIndex: () => this.plugin.loadSyncIndex(scopeKey),

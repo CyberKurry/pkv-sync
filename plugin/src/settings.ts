@@ -36,6 +36,7 @@ export interface PKVSyncSettings {
   themeMode: PluginThemeMode;
   timezone: string;
   enableHistoryUi: boolean;
+  pruneEmptyFolders: boolean;
   serverUrl: string;
   deploymentKey: string;
   token: string;
@@ -60,6 +61,7 @@ export const DEFAULT_SETTINGS: PKVSyncSettings = {
   themeMode: "auto",
   timezone: "Asia/Shanghai",
   enableHistoryUi: true,
+  pruneEmptyFolders: true,
   serverUrl: "",
   deploymentKey: "",
   token: "",
@@ -93,6 +95,9 @@ export function normalizeSettings(
   if (!settings.timezone) settings.timezone = DEFAULT_SETTINGS.timezone;
   if (typeof settings.enableHistoryUi !== "boolean") {
     settings.enableHistoryUi = DEFAULT_SETTINGS.enableHistoryUi;
+  }
+  if (typeof settings.pruneEmptyFolders !== "boolean") {
+    settings.pruneEmptyFolders = DEFAULT_SETTINGS.pruneEmptyFolders;
   }
   if (typeof settings.checkForUpdates !== "boolean") {
     settings.checkForUpdates = DEFAULT_SETTINGS.checkForUpdates;

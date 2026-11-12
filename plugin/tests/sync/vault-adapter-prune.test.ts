@@ -9,6 +9,7 @@ import { sha256Text } from "../../src/sync/hash";
 import type { LocalIndex } from "../../src/sync/types";
 import { ObsidianVaultAdapter, type VaultHost } from "../../src/sync/vault-adapter";
 import { TFile, TFolder } from "obsidian";
+import { notices } from "../mocks/obsidian";
 
 vi.mock("../../src/api/events-client", () => ({
   subscribeVaultEvents: vi.fn(),
@@ -120,6 +121,7 @@ function seed(vault: PruneFakeVault, path: string, hidden = false) {
 
 describe("empty-folder prune (spec §4)", () => {
   beforeEach(() => {
+    notices.length = 0;
     // debugLog (used by the prune error path, like every engine error path)
     // reads window.process.env; the node test environment has no window.
     vi.stubGlobal("window", globalThis);
@@ -208,6 +210,30 @@ describe("empty-folder prune (spec §4)", () => {
     seed(vault, "A/B/note.md");
     await adapter.trash("A/B/note.md");
     expect(fm.trashed).toEqual(["A/B/note.md"]);
+    expect(notices).toHaveLength(0);
+  });
+});
+
+describe("first-prune notice (spec §4.5)", () => {
+  beforeEach(() => {
+    notices.length = 0;
+    vi.stubGlobal("window", globalThis);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fires exactly once, naming the first pruned folder", async () => {
+    const { adapter, vault } = makeAdapter();
+    seed(vault, "A/B/note.md");
+    seed(vault, "A/C/x.md");
+    await adapter.trash("A/B/note.md");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("A/B");
+    // A later prune on the same adapter instance stays silent.
+    await adapter.trash("A/C/x.md");
+    expect(notices).toHaveLength(1);
   });
 });
 

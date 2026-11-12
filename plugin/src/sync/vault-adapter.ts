@@ -1,7 +1,8 @@
-import { TFile, TFolder, type App, type FileManager, type Vault } from "obsidian";
+import { Notice, TFile, TFolder, type App, type FileManager, type Vault } from "obsidian";
 import { isConflictPath } from "./conflict-files";
 import { sha256Bytes, sha256TextWithLength } from "./hash";
 import type { LocalFileSnapshot, LocalIndex } from "./types";
+import { format, strings } from "../i18n";
 import { debugLog, isTextPath } from "../util";
 
 const SCAN_SNAPSHOT_BATCH_SIZE = 8;
@@ -215,8 +216,12 @@ export class ObsidianVaultAdapter implements VaultAdapter {
     }
   }
 
-  private notifyFirstPrune(_dir: string): void {
-    // Task 6 fills this in (D2 first-prune Notice).
+  private notifyFirstPrune(dir: string): void {
+    // D2: the prune reorganizes the user's folder tree without them asking;
+    // one Notice per adapter lifetime points at the setting to disable it.
+    if (this.pruneNotified) return;
+    this.pruneNotified = true;
+    new Notice(format(strings().firstPruneNotice, { path: dir }));
   }
 }
 
