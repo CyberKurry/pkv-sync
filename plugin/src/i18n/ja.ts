@@ -127,6 +127,7 @@ export const ja = {
   conflictNotice: "PKV Sync の競合: {path}",
   conflictCopyFailed: "競合コピーを書き込めませんでした（{path}）：{reason}",
   sseAuthFailed: "リアルタイム同期を停止しました：サーバーがトークンを拒否しました",
+  emptyScanHeld: "Vault スキャンでファイルが見つからず、削除を保留中です",
   connectedToServer: "{serverName} に接続しました",
   changeServer: "サーバーを変更",
   loggedIn: "ログインしました",

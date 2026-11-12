@@ -676,7 +676,10 @@ describe("Sync convergence scenarios", () => {
     // B modifies
     editFile(B, "note.md", "B-modified");
 
-    // A syncs (pushes delete)
+    // A syncs (pushes delete). D3: deleting the only file leaves a
+    // zero-file scan against a populated index — arm the explicit
+    // confirm so the delete may push.
+    A.engine.allowEmptyScanDeletesOnce();
     await sync(A);
 
     // B syncs (pushes modification — server sees A's delete, keeps B's content)

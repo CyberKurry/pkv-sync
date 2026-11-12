@@ -723,6 +723,9 @@ describe("SyncEngine pull", () => {
       setStatus: vi.fn()
     });
 
+    // D3: deleting the only file leaves a zero-file scan against a
+    // populated index — arm the explicit confirm so the delete may push.
+    engine.allowEmptyScanDeletesOnce();
     await engine.syncNow();
 
     // In push-first flow: delete is pushed first, then pull brings back the
@@ -1561,6 +1564,9 @@ describe("SyncEngine pull", () => {
       setStatus: vi.fn()
     });
 
+    // D3: deleting the only file leaves a zero-file scan against a
+    // populated index — arm the explicit confirm so the delete may push.
+    engine.allowEmptyScanDeletesOnce();
     // First pass: B's delete went out with ifMatch=c0, the server
     // auto-merged and REJECTED it; the pull reports a.md modified.
     // Server verdict shape: the rejected delete keeps the index entry,

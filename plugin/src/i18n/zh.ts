@@ -124,6 +124,7 @@ export const zh = {
   conflictNotice: "PKV Sync 冲突：{path}",
   conflictCopyFailed: "无法为 {path} 写入冲突副本：{reason}",
   sseAuthFailed: "实时同步已停止：服务器拒绝了该令牌",
+  emptyScanHeld: "库扫描未发现文件，删除已暂缓",
   connectedToServer: "已连接到 {serverName}",
   changeServer: "修改服务器",
   loggedIn: "已登录",

@@ -128,6 +128,7 @@ export const en = {
   conflictNotice: "PKV Sync conflict: {path}",
   conflictCopyFailed: "Could not write the conflict copy for {path}: {reason}",
   sseAuthFailed: "Realtime sync stopped: the server rejected the token",
+  emptyScanHeld: "Vault scan found no files; deletions held",
   connectedToServer: "Connected to {serverName}",
   changeServer: "Change server",
   loggedIn: "Logged in",

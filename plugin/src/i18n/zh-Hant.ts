@@ -124,6 +124,7 @@ export const zhHant = {
   conflictNotice: "PKV Sync 衝突：{path}",
   conflictCopyFailed: "無法為 {path} 寫入衝突副本：{reason}",
   sseAuthFailed: "即時同步已停止：伺服器拒絕了該權杖",
+  emptyScanHeld: "庫掃描未發現檔案，刪除已暫緩",
   connectedToServer: "已連線到「{serverName}」",
   changeServer: "變更伺服器",
   loggedIn: "已登入",

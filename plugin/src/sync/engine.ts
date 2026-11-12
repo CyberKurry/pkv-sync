@@ -42,6 +42,8 @@ interface PendingScan {
   pending: LocalFileSnapshot[];
   deleted: string[];
   index: LocalIndex;
+  /** D3: the breaker held every local deletion this pass (spec §3.4). */
+  emptyScanHeld?: boolean;
 }
 
 export interface IndexPersistence {
@@ -107,6 +109,7 @@ export interface SyncEngineOptions {
     | "conflictNotice"
     | "conflictCopyFailed"
     | "sseAuthFailed"
+    | "emptyScanHeld"
   >;
   onSyncSuccess?(): void | Promise<void>;
   vaultSettingsReader?: (vaultId: string) => Promise<VaultSettings>;
@@ -183,6 +186,17 @@ export class SyncEngine {
   /** Cancel any in-flight sync pass and future event handling (M-10). */
   abort(): void {
     this.abortController.abort();
+  }
+
+  /**
+   * D3 breaker escape hatch (spec §3.4): set by the explicit "confirm
+   * empty-vault deletions" command. Consumed by the NEXT scan pass only —
+   * a held pass must never stay overrideable forever by accident.
+   */
+  private emptyScanOverride = false;
+
+  allowEmptyScanDeletesOnce(): void {
+    this.emptyScanOverride = true;
   }
 
   private get aborted(): boolean {
@@ -371,6 +385,7 @@ export class SyncEngine {
     pending: LocalFileSnapshot[];
     deleted: string[];
     index: LocalIndex;
+    emptyScanHeld?: boolean;
   }> {
     const index = await this.opts.index.loadIndex();
     const current = await this.opts.vault.scan(this.opts.textExtensions, index, {
@@ -404,6 +419,19 @@ export class SyncEngine {
     const deleted = Object.keys(index.files).filter(
       (p) => !currentPaths.has(p) && pathAccepted(p) && shouldSyncPath(p)
     );
+    // D3 (spec §3.4): a scan that lists ZERO files against a populated
+    // index means "the vault looks empty", not "the user deleted
+    // everything" — cold-start cache, revoked storage permission, an
+    // unmounted drive. Pushing would broadcast a whole-vault deletion
+    // (verified: this exact shape pushes N delete changes today). Hold
+    // every deletion; the explicit confirm command is the only way through.
+    const vaultScannedEmpty = current.length === 0;
+    const indexHasEntries = Object.keys(index.files).length > 0;
+    const override = this.emptyScanOverride;
+    this.emptyScanOverride = false;
+    if (vaultScannedEmpty && indexHasEntries && !override) {
+      return { pending, deleted: [], index, emptyScanHeld: true };
+    }
     return { pending, deleted, index };
   }
 
@@ -433,6 +461,7 @@ export class SyncEngine {
 
       // ① scan BEFORE any pull
       const scan = await this.scanPending();
+      const emptyScanHeld = scan.emptyScanHeld === true;
       this.throwIfAborted();
 
       // ② push-first: send pending changes before pulling
@@ -448,8 +477,14 @@ export class SyncEngine {
       await this.pullIfChanged();
 
       this.throwIfAborted();
-      this.opts.setStatus("connected");
-      await this.opts.onSyncSuccess?.();
+      if (emptyScanHeld) {
+        // A held pass is not a successful sync: keep the warning visible
+        // and do not refresh "last synced" (spec §3.4).
+        this.opts.setStatus("error", (this.opts.labels ?? strings()).emptyScanHeld);
+      } else {
+        this.opts.setStatus("connected");
+        await this.opts.onSyncSuccess?.();
+      }
     } catch (error) {
       if (error instanceof SyncAbortedError) {
         // Expected cancellation (generation replaced). No status change:

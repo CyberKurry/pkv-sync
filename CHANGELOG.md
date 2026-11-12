@@ -7,6 +7,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Plugin sync engine: a vault scan that lists zero files against a
+  populated sync index no longer broadcasts a whole-vault deletion.
+  Cold-start caches, revoked storage permissions, or unmounted drives
+  used to read as "the user deleted everything" and push N delete
+  changes to every device. The deletions are now held and the pass ends
+  in an error status; an explicit confirm is the only way through (D3).
+
 ## [1.9.0] - 2026-11-08
 
 ### Added

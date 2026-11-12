@@ -135,6 +135,7 @@ export const ko = {
   conflictNotice: "PKV Sync 충돌: {path}",
   conflictCopyFailed: "{path}의 충돌 사본을 작성하지 못했습니다: {reason}",
   sseAuthFailed: "실시간 동기화가 중지되었습니다: 서버가 토큰을 거부했습니다",
+  emptyScanHeld: "볼트 스캔에서 파일을 찾지 못해 삭제를 보류함",
   connectedToServer: "「{serverName}」에 연결되었습니다",
   changeServer: "서버 변경",
   loggedIn: "로그인됨",
