@@ -158,6 +158,21 @@ export class SyncEngine {
    */
   private pushBatcherInstance: PushBatcher | null = null;
   private oversizedProbeRequested = false;
+  /**
+   * D3 breaker escape hatch (spec §3.4): set by the explicit "confirm
+   * empty-vault deletions" command. Consumed by the NEXT sync pass only —
+   * a held pass must never stay overrideable forever by accident.
+   */
+  private emptyScanOverride = false;
+  /**
+   * The override value lifted for the pass currently in flight: every
+   * scanPendingFrom classification inside one pass — including the 409
+   * head-mismatch retry's trailing reclassification — shares it, so a
+   * confirmed pass cannot be split into an override half and a held half.
+   */
+  private passOverride = false;
+  /** Deletions held by the breaker on the most recent completed classification. */
+  private lastHeldDeletionCount = 0;
 
   constructor(private opts: SyncEngineOptions) {
     if (!opts.vaultId.trim()) throw new Error("SyncEngine requires a non-empty vaultId");
@@ -188,23 +203,18 @@ export class SyncEngine {
     this.abortController.abort();
   }
 
-  /**
-   * D3 breaker escape hatch (spec §3.4): set by the explicit "confirm
-   * empty-vault deletions" command. Consumed by the NEXT scan pass only —
-   * a held pass must never stay overrideable forever by accident.
-   */
-  private emptyScanOverride = false;
-
+  /** Arm the D3 escape hatch (spec §3.4) for the next sync pass. */
   allowEmptyScanDeletesOnce(): void {
     this.emptyScanOverride = true;
   }
 
-  /** Deletion count held by the breaker on the most recent scan (0 when none). */
+  /**
+   * Deletions held by the breaker on the most recent completed
+   * classification (0 when none).
+   */
   heldDeletionCount(): number {
     return this.lastHeldDeletionCount;
   }
-
-  private lastHeldDeletionCount = 0;
 
   private get aborted(): boolean {
     return this.abortController.signal.aborted;
@@ -388,12 +398,7 @@ export class SyncEngine {
     this.unsubscribeEvents = null;
   }
 
-  async scanPending(): Promise<{
-    pending: LocalFileSnapshot[];
-    deleted: string[];
-    index: LocalIndex;
-    emptyScanHeld?: boolean;
-  }> {
+  async scanPending(): Promise<PendingScan> {
     const index = await this.opts.index.loadIndex();
     const current = await this.opts.vault.scan(this.opts.textExtensions, index, {
       retainPayload: false
@@ -434,9 +439,13 @@ export class SyncEngine {
     // every deletion; the explicit confirm command is the only way through.
     const vaultScannedEmpty = current.length === 0;
     const indexHasEntries = Object.keys(index.files).length > 0;
-    const override = this.emptyScanOverride;
-    this.emptyScanOverride = false;
-    if (vaultScannedEmpty && indexHasEntries && !override) {
+    if (
+      vaultScannedEmpty &&
+      indexHasEntries &&
+      // nothing classifiable as a deletion: holding would only pin an error status
+      deleted.length > 0 &&
+      !this.passOverride
+    ) {
       this.lastHeldDeletionCount = deleted.length;
       return { pending, deleted: [], index, emptyScanHeld: true };
     }
@@ -466,6 +475,12 @@ export class SyncEngine {
     try {
       this.throwIfAborted();
       this.opts.setStatus("syncing");
+      // D3: lift the armed confirm into a pass-scoped value BEFORE the
+      // first classification runs, so every scanPendingFrom call in this
+      // pass (the 409 head-mismatch retry's reclassification included)
+      // honors the same decision instead of re-holding halfway through.
+      this.passOverride = this.emptyScanOverride;
+      this.emptyScanOverride = false;
       await this.refreshVaultSettings();
 
       // ① scan BEFORE any pull
@@ -509,6 +524,10 @@ export class SyncEngine {
         );
       }
       throw error;
+    } finally {
+      // An aborted/replaced pass must not leak its pass-scoped override
+      // into a later pass of this engine.
+      this.passOverride = false;
     }
   }
 

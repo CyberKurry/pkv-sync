@@ -14,16 +14,26 @@ and this project adheres to semantic versioning starting at v1.0.0.
   how many index entries the last scan held, explains that an empty scan
   usually means unavailable storage (revoked permissions, unmounted
   drive) rather than a whole-vault deletion, and only then lets the
-  user push the deletions exactly once (D3).
+  user push the deletions exactly once.
 
 ### Fixed
 
+- Plugin confirm command: the confirmed empty-vault deletion override
+  is now scoped to the whole sync pass. It used to be consumed by the
+  first scan classification, so a push that hit a head-mismatch retry
+  inside the same pass re-held the deletions while the pass still
+  reported success — the user's confirmation was spent with no effect.
+  Every classification in a pass now shares the pass-level decision;
+  an empty-scan pass with nothing classifiable as a deletion no longer
+  pins a perpetual "deletions held" status; and the confirm modal
+  re-resolves the engine before arming so a replaced generation cannot
+  receive a stale confirmation.
 - Plugin sync engine: a vault scan that lists zero files against a
   populated sync index no longer broadcasts a whole-vault deletion.
   Cold-start caches, revoked storage permissions, or unmounted drives
   used to read as "the user deleted everything" and push N delete
   changes to every device. The deletions are now held and the pass ends
-  in an error status; an explicit confirm is the only way through (D3).
+  in an error status; an explicit confirm is the only way through.
 
 ## [1.9.0] - 2026-11-08
 

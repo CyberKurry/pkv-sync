@@ -60,7 +60,15 @@ export function registerCommands(plugin: PKVSyncPlugin, t: Strings): void {
         t,
         engine.heldDeletionCount(),
         () => {
-          engine.allowEmptyScanDeletesOnce();
+          // The modal can outlive the engine generation it was opened
+          // against (rebuild/invalidate, M-10): re-resolve and never arm
+          // a confirmation onto a different or missing engine.
+          const current = plugin.engine;
+          if (!current || current !== engine) {
+            new Notice(t.noticeNotConfigured);
+            return;
+          }
+          current.allowEmptyScanDeletesOnce();
           void plugin.syncNowManual();
         }
       ).open();

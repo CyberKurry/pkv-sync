@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../src/api/client";
 import { subscribeVaultEvents } from "../../src/api/events-client";
 import { SyncEngine, type SyncEngineOptions } from "../../src/sync/engine";
-import type { LocalIndex } from "../../src/sync/types";
+import { sha256Text } from "../../src/sync/hash";
+import type { LocalFileSnapshot, LocalIndex } from "../../src/sync/types";
 
 vi.mock("../../src/api/events-client", () => ({
   subscribeVaultEvents: vi.fn(),
@@ -28,6 +30,9 @@ function makeIndex(count: number): LocalIndex {
 function makeEngine(opts: {
   scanEmpty: boolean;
   index: LocalIndex;
+  extraExcludeGlobs?: string[];
+  scanFiles?: LocalFileSnapshot[];
+  pullImpl?: () => Promise<unknown>;
 }) {
   const state = { scanEmpty: opts.scanEmpty };
   const push = vi.fn(
@@ -39,21 +44,40 @@ function makeEngine(opts: {
     ) => ({ new_commit: "c1" })
   );
   const setStatus = vi.fn();
+  const onSyncSuccess = vi.fn();
+  const pull = vi.fn(
+    opts.pullImpl ??
+      (async () => ({ from: "c1", to: "c1", added: [], modified: [], deleted: [] }))
+  );
+  /** Written files become scan-visible so a restoring pull un-empties the vault. */
+  const files = new Map<string, LocalFileSnapshot>();
+  const fallbackScan = (): LocalFileSnapshot[] =>
+    opts.scanFiles ?? [
+      { path: "present.md", hash: "x", size: 1, kind: "text", content: "x" }
+    ];
   const vault = {
     configDir: ".obsidian",
     scan: async () =>
-      state.scanEmpty
-        ? []
-        : [ { path: "present.md", hash: "x", size: 1, kind: "text" as const, content: "x" } ],
-    exists: () => false,
-    trash: vi.fn()
+      files.size > 0 ? [...files.values()] : state.scanEmpty ? [] : fallbackScan(),
+    exists: (path: string) => files.has(path),
+    trash: vi.fn(),
+    writeText: async (path: string, content: string): Promise<void> => {
+      files.set(path, {
+        path,
+        hash: await sha256Text(content),
+        size: content.length,
+        kind: "text",
+        content
+      });
+    }
   };
   const engine = new SyncEngine({
     vaultId: "v", deviceName: "d",
     textExtensions: new Set(["md"]),
+    extraExcludeGlobs: opts.extraExcludeGlobs,
     vault: vault as unknown as SyncEngineOptions["vault"],
     api: {
-      pull: vi.fn(async () => ({ from: "c1", to: "c1", added: [], modified: [], deleted: [] })),
+      pull,
       uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
       uploadBlob: vi.fn(), push,
       downloadBlob: vi.fn(), downloadTextFile: vi.fn()
@@ -62,12 +86,14 @@ function makeEngine(opts: {
       loadIndex: async () => opts.index,
       updateIndex: async () => undefined
     },
-    setStatus, labels
+    setStatus, labels, onSyncSuccess
   });
   return {
     engine,
     push,
+    pull,
     setStatus,
+    onSyncSuccess,
     setScanEmpty: (value: boolean) => {
       state.scanEmpty = value;
     }
@@ -136,5 +162,100 @@ describe("SyncEngine empty-scan confirm escape hatch (D3)", () => {
     await engine.syncNow();
     expect(push).toHaveBeenCalledTimes(1);
     expect(engine.heldDeletionCount()).toBe(3);
+  });
+});
+
+describe("SyncEngine empty-scan breaker review fixes", () => {
+  beforeEach(() => {
+    vi.mocked(subscribeVaultEvents).mockReset();
+    vi.stubGlobal("window", globalThis);
+  });
+
+  it("keeps the confirmed override alive across a 409 head-mismatch retry in the same pass", async () => {
+    const { engine, push, setStatus } = makeEngine({
+      scanEmpty: true,
+      index: makeIndex(3)
+    });
+    push.mockRejectedValueOnce(
+      new ApiError(409, "head_mismatch", "server head moved")
+    );
+    engine.allowEmptyScanDeletesOnce();
+    await engine.syncNow();
+    // The first push was rejected 409; the retry reclassifies and must
+    // still honor the confirmation — the override is pass-scoped.
+    expect(push).toHaveBeenCalledTimes(2);
+    const retryChanges = push.mock.calls[1][2] as { kind: string }[];
+    expect(retryChanges).toHaveLength(3);
+    expect(retryChanges.every((c) => c.kind === "delete")).toBe(true);
+    expect(setStatus).toHaveBeenCalledWith("connected");
+  });
+
+  it("counts the scan PRE-matcher: an excluded-but-scanned file keeps the breaker off", async () => {
+    const { engine, push, setStatus, onSyncSuccess } = makeEngine({
+      scanEmpty: false,
+      index: makeIndex(1),
+      extraExcludeGlobs: ["excluded/**"],
+      scanFiles: [
+        { path: "excluded/keep.md", hash: "x", size: 1, kind: "text", content: "x" }
+      ]
+    });
+    await engine.syncNow();
+    // The scan lists one file, but the matcher excludes it — a post-filter
+    // count would see zero and wrongly re-hold the indexed deletion.
+    expect(push).toHaveBeenCalledWith(
+      "v",
+      "c0",
+      [{ kind: "delete", path: "notes/n0.md" }],
+      "d"
+    );
+    expect(setStatus).toHaveBeenCalledWith("connected");
+    expect(onSyncSuccess).toHaveBeenCalled();
+  });
+
+  it("does not fire onSyncSuccess on a held pass, fires it on a normal one", async () => {
+    const held = makeEngine({ scanEmpty: true, index: makeIndex(3) });
+    await held.engine.syncNow();
+    expect(held.onSyncSuccess).not.toHaveBeenCalled();
+
+    const normal = makeEngine({ scanEmpty: false, index: makeIndex(0) });
+    await normal.engine.syncNow();
+    expect(normal.onSyncSuccess).toHaveBeenCalled();
+  });
+
+  it("a held pass whose pull restores content clears the held count and converges", async () => {
+    let pullCalls = 0;
+    const pullImpl = async () => {
+      pullCalls += 1;
+      return pullCalls === 1
+        ? {
+            from: "c0",
+            to: "c1",
+            added: [
+              {
+                path: "restored.md",
+                file_type: "text" as const,
+                size: 8,
+                content_inline: "restored"
+              }
+            ],
+            modified: [],
+            deleted: []
+          }
+        : { from: "c1", to: "c1", added: [], modified: [], deleted: [] };
+    };
+    const { engine, setStatus } = makeEngine({
+      scanEmpty: true,
+      index: makeIndex(3),
+      pullImpl
+    });
+
+    await engine.syncNow();
+    // The pull's trailing classification saw the restored file, so the
+    // held counter no longer pins a stale count.
+    expect(engine.heldDeletionCount()).toBe(0);
+
+    // With the vault no longer empty, the next pass needs no override.
+    await engine.syncNow();
+    expect(setStatus).toHaveBeenLastCalledWith("connected");
   });
 });
