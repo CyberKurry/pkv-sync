@@ -80,7 +80,7 @@ MCP 规范中的 `Origin` 请求头 DNS-rebinding 检查未在 `/mcp` 上实现�
 
 ## 读取和搜索上限
 
-`search` 最多扫描 5000 个可见 tree 文件——当 vault 的可见文件超过 5000 个时，调用会以 `too many files to search` 失败，而不是只扫描一部分。它最多返回 500 条匹配（默认 100），并在生产环境已读取文本超过 256 MiB 后报错中止。`link_graph` 最多扫描 5000 个可见文本文件，并使用相同的生产环境文本预算，但会返回 `truncated: true` 而不是失败；单文件链接提取上限为 10000 条、失效链接累计上限为 20000 条，触及任一上限都会置 `truncated: true`。`changes_since` 最多返回 5000 条可见变更项。`read_file` 和 `read_file_at_commit` 会在返回前解析 blob pointer；二进制内容以 base64 返回并带有 `encoding: "base64"`，超过 64 MiB 的二进制/blob 响应会被拒绝，而不是被 base64 展开进 JSON。
+`search` 每次调用最多扫描 5000 个可见 tree 文件。更大的 vault 不再报错：响应会携带 `tree_capped: true` 和一个 `next_after` 游标——继续分页即可覆盖其余文件。某一页可能返回零条匹配但 `next_after` 非空；只有 `next_after` 为 null 才表示扫描完成。它最多返回 500 条匹配（默认 100），并在生产环境已读取文本超过 256 MiB 后带着可续扫的游标停止（单个文件超过整个预算时仍会报错）。在持续接收 push 的 vault 上分页时，新增或重命名到排序位于游标之前的路径的文件，对后续页面将不可见——把 `at` 固定到某个 commit 可获得稳定的扫描。`link_graph` 最多扫描 5000 个可见文本文件，并使用相同的生产环境文本预算，但会返回 `truncated: true` 而不是失败；单文件链接提取上限为 10000 条、失效链接累计上限为 20000 条，触及任一上限都会置 `truncated: true`。`changes_since` 最多返回 5000 条可见变更项。`read_file` 和 `read_file_at_commit` 会在返回前解析 blob pointer；二进制内容以 base64 返回并带有 `encoding: "base64"`，超过 64 MiB 的二进制/blob 响应会被拒绝，而不是被 base64 展开进 JSON。
 
 ## 写入工具
 

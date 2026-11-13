@@ -14,6 +14,7 @@ use base64::Engine;
 use rmcp::model::{object, Tool, ToolAnnotations};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::LazyLock;
@@ -1096,14 +1097,18 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     } else if budget_stop {
         match budget_stop_cursor(&last_scanned, &last_consumed_path) {
             Some(stop) => {
-                // Zero-progress guard: an outgoing cursor identical to the
-                // incoming one (already decoded at entry) means this page
-                // re-stopped on the same unread file — only a persistently
-                // lying tree size produces that, and paging would loop
-                // forever re-reading up to a full budget each time. Raise
-                // the old honest error instead. Detection needs an incoming
-                // cursor (page 2 onward); transient races self-heal because
-                // the next page re-lists the tree.
+                // Equal-cursor backstop guarding the sentinel strict-filter
+                // invariant; the real no-progress exit is the None branch
+                // below. Unreachable in current code: the sentinel strict-`>`
+                // stream filter (mirrored by the cap counter) means a
+                // resuming page always advances past the incoming cursor's
+                // file, so an outgoing cursor identical to the incoming one
+                // (path and line) can only appear if that strict filter
+                // regressed to `>=` — and paging would then livelock,
+                // re-reading up to a full budget with no progress each page.
+                // Keep the guard so that regression fails loudly here
+                // instead. Detection needs an incoming cursor (page 2
+                // onward).
                 if cursor.as_ref().is_some_and(|previous| {
                     previous.path == stop.path && previous.line == stop.line
                 }) {
@@ -3053,7 +3058,18 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         tool(
             "search",
-            "Search text files in a vault with case-insensitive substring matching, optionally scoped by path prefix, top-level frontmatter keys, and a pagination cursor. A page may return zero matches with a non-null next_after — keep paging until next_after is null; tree_capped reports that the 5000-file listing window was truncated (resume with next_after).",
+            format!(
+                "Search text files in a vault with case-insensitive substring \
+                 matching, optionally scoped by path prefix, top-level \
+                 frontmatter keys, and a pagination cursor. A page may return \
+                 zero matches with a non-null next_after — keep paging until \
+                 next_after is null; tree_capped reports that the \
+                 {SEARCH_MAX_TREE_FILES}-file listing window was truncated \
+                 (resume with next_after). While paging across an \
+                 actively-synced vault, files added or renamed to a path \
+                 sorting before the cursor become invisible to later pages — \
+                 pin 'at' for a stable walk."
+            ),
             object(serde_json::json!({
                 "type": "object",
                 "required": ["vault_id", "query"],
@@ -3759,7 +3775,7 @@ fn mime_is_text(mime: Option<&str>) -> bool {
 
 fn tool(
     name: &'static str,
-    description: &'static str,
+    description: impl Into<Cow<'static, str>>,
     input_schema: rmcp::model::JsonObject,
 ) -> Tool {
     Tool::new(name, description, input_schema).annotate(

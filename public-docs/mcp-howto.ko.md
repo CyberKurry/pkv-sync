@@ -82,7 +82,7 @@ MCP 사양의 `Origin` 헤더 DNS-rebinding 검사는 `/mcp`에서 의도적으�
 
 ## Read and search limits
 
-`search`는 최대 5000개 visible tree files를 스캔합니다. vault의 visible files가 5000개를 넘으면 일부만 스캔하는 대신 `too many files to search`로 실패합니다. 최대 500 matches(기본 100)를 반환하며, 프로덕션에서는 읽은 text가 256 MiB를 초과하면 오류로 중단합니다. `link_graph`는 최대 5000개 visible text files를 스캔하고 동일한 프로덕션 text budget을 사용하지만, 실패하지 않고 `truncated: true`를 반환합니다. link 추출은 파일당 10000개, broken link는 총 20000개로 제한되며, 어느 한도에 도달하면 `truncated: true`가 설정됩니다. `changes_since`는 최대 5000개 visible change entries를 반환합니다. `read_file`과 `read_file_at_commit`은 응답 전에 blob pointer를 해석합니다. binary 내용은 `encoding: "base64"`와 함께 base64로 반환되며, 64 MiB를 넘는 binary/blob response는 base64로 JSON에 확장되는 대신 거부됩니다.
+`search`는 한 번의 호출에서 최대 5000개 visible tree files를 스캔합니다. 이를 넘는 vault는 더 이상 실패하지 않습니다. 응답은 `tree_capped: true`와 `next_after` 커서를 담고 있으며, 페이지를 계속 넘기면 나머지 파일까지 도달할 수 있습니다. 한 페이지가 matches 0개를 반환하면서 `next_after`가 null이 아닐 수도 있습니다. 스캔이 끝났음을 뜻하는 것은 null인 `next_after`뿐입니다. 최대 500 matches(기본 100)를 반환하며, 프로덕션에서 읽은 text가 256 MiB를 초과하면 재개 가능한 커서와 함께 중단합니다(전체 예산을 넘는 단일 파일은 여전히 오류입니다). push가 활발히 들어오는 vault를 페이지로 넘기는 동안, 커서보다 앞에 정렬되는 경로로 추가되거나 rename된 파일은 이후 페이지에서 보이지 않게 됩니다. 안정적인 스캔을 위해서는 `at`을 commit으로 고정하세요. `link_graph`는 최대 5000개 visible text files를 스캔하고 동일한 프로덕션 text budget을 사용하지만, 실패하지 않고 `truncated: true`를 반환합니다. link 추출은 파일당 10000개, broken link는 총 20000개로 제한되며, 어느 한도에 도달하면 `truncated: true`가 설정됩니다. `changes_since`는 최대 5000개 visible change entries를 반환합니다. `read_file`과 `read_file_at_commit`은 응답 전에 blob pointer를 해석합니다. binary 내용은 `encoding: "base64"`와 함께 base64로 반환되며, 64 MiB를 넘는 binary/blob response는 base64로 JSON에 확장되는 대신 거부됩니다.
 
 ## Write tools
 

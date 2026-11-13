@@ -39,9 +39,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
   defense-in-depth post-read guard (tree entry sizes that lied past the
   pre-read gate) also yields a resumable cursor page instead of a silent
   completion. Only a single file larger than the whole content budget —
-  or a stop cursor that makes no progress between pages (persistently
-  lying tree entry sizes) — still errors, because no progress is
-  possible in those cases.
+  or a stop cursor that makes no progress between pages — still errors,
+  because no progress is possible in those cases.
+- MCP tool metadata: the search tool description now interpolates the
+  actual listing-window cap (`SEARCH_MAX_TREE_FILES`) instead of a
+  hardcoded "5000", and states the concurrent-push stability caveat —
+  files added or renamed to a path sorting before the cursor are
+  invisible to later pages, so pin `at` for a stable walk. The
+  now-unreachable "too many files to search: " entry was removed from
+  the stdio transport's public-error whitelist (the bail it matched was
+  deleted with the old hard cap).
 
 ### Fixed
 

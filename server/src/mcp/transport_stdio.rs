@@ -980,7 +980,6 @@ fn is_public_mcp_tool_error(message: &str) -> bool {
         || EXACT.contains(&message)
         || message.starts_with("blob not found: ")
         || message.starts_with("file exceeds max_file_size of ")
-        || message.starts_with("too many files to search: ")
 }
 
 fn scoped_argument_vault(arguments: &Value) -> Option<&str> {

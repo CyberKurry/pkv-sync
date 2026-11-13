@@ -174,12 +174,18 @@ bearer token gives read and write access to every vault owned by that user.
 
 ## Read and search limits
 
-`search` scans at most 5000 visible tree files — a vault with more than 5000
-visible files makes the call fail with `too many files to search` rather than
-being partially scanned. It returns at most 500 matches (default 100), and
-aborts with an error once it has read more than 256 MiB of text in production.
-`link_graph` scans at most 5000 visible text files with the same production text
-budget, but reports `truncated: true` instead of failing. Link extraction is
+`search` scans at most 5000 visible tree files per call. A larger vault no
+longer fails: the response carries `tree_capped: true` and a `next_after`
+cursor — keep paging to reach the remaining files. A page may return zero
+matches with a non-null `next_after`; only a null `next_after` means the
+walk finished. It returns at most 500 matches (default 100) and stops with
+a resumable cursor once it has read more than 256 MiB of text in production
+(a single file larger than the whole budget still errors). While paging
+across a vault that is actively receiving pushes, files added or renamed to
+a path sorting before the cursor become invisible to later pages — pin `at`
+to a commit for a stable walk. `link_graph` scans at most 5000 visible
+text files with the same production text budget, but reports `truncated: true`
+instead of failing. Link extraction is
 also capped per file (10000 links) and in total for broken links (20000);
 hitting either cap sets `truncated: true`. `changes_since`
 returns at most 5000 visible change entries. `read_file` and

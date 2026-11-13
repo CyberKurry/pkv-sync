@@ -80,7 +80,7 @@ MCP 規範中的 `Origin` 請求頭 DNS-rebinding 檢查未在 `/mcp` 上實作�
 
 ## 讀取和搜尋上限
 
-`search` 最多掃描 5000 個可見 tree 檔案——當 vault 的可見檔案超過 5000 個時，呼叫會以 `too many files to search` 失敗，而不是只掃描一部分。它最多返回 500 條匹配（預設 100），並在生產環境已讀取文字超過 256 MiB 後報錯中止。`link_graph` 最多掃描 5000 個可見文字檔案，並使用相同的生產環境文字預算，但會返回 `truncated: true` 而不是失敗；單檔連結擷取上限為 10000 條、失效連結累計上限為 20000 條，觸及任一上限都會設定 `truncated: true`。`changes_since` 最多返回 5000 條可見變更項目。`read_file` 和 `read_file_at_commit` 會在返回前解析 blob pointer；二進位內容以 base64 返回並帶有 `encoding: "base64"`，超過 64 MiB 的二進位/blob 回應會被拒絕，而不是被 base64 展開進 JSON。
+`search` 每次呼叫最多掃描 5000 個可見 tree 檔案。更大的 vault 不再失敗：回應會攜帶 `tree_capped: true` 和一個 `next_after` 游標——持續分頁即可涵蓋其餘檔案。某一頁可能返回零條匹配但 `next_after` 非 null；只有 `next_after` 為 null 才代表掃描完成。它最多返回 500 條匹配（預設 100），並在生產環境已讀取文字超過 256 MiB 後帶著可續掃的游標停止（單一檔案超過整個預算時仍會報錯）。在持續接收 push 的 vault 上分頁時，新增或重新命名到排序位於游標之前的路徑的檔案，對後續頁面將不可見——把 `at` 固定到某個 commit 可獲得穩定的掃描。`link_graph` 最多掃描 5000 個可見文字檔案，並使用相同的生產環境文字預算，但會返回 `truncated: true` 而不是失敗；單檔連結擷取上限為 10000 條、失效連結累計上限為 20000 條，觸及任一上限都會設定 `truncated: true`。`changes_since` 最多返回 5000 條可見變更項目。`read_file` 和 `read_file_at_commit` 會在返回前解析 blob pointer；二進位內容以 base64 返回並帶有 `encoding: "base64"`，超過 64 MiB 的二進位/blob 回應會被拒絕，而不是被 base64 展開進 JSON。
 
 ## 寫入工具
 
