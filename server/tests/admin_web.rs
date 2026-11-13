@@ -1406,6 +1406,50 @@ async fn settings_page_uses_standard_panel_headers_for_sections() {
 }
 
 #[tokio::test]
+async fn settings_page_renders_connect_link_with_copy_button() {
+    let (app, _dir) = app().await;
+    let session_cookie = login_cookie(&app).await;
+
+    let mut page_req = request(Method::GET, "/admin/settings", Body::empty());
+    page_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let page_resp = app.oneshot(page_req).await.unwrap();
+    assert_eq!(page_resp.status(), StatusCode::OK);
+    let body = read_body(page_resp).await;
+
+    // This app sets public_host, so the link must carry it over https plus
+    // the deployment key (askama escapes & in the value attribute). The
+    // copy button is server-localized through data attributes, never
+    // hardcoded English in admin.js.
+    assert!(body.contains(
+        "value=\"obsidian://pkv-connect?s=https://127.0.0.1:6710&amp;k=k_test_admin_web\""
+    ));
+    assert!(body.contains("data-connect-link"));
+    assert!(body.contains("data-connect-link-btn"));
+    assert!(body.contains("data-label-copied=\"Copied\""));
+    assert!(body.contains(">Copy link</button>"));
+}
+
+#[tokio::test]
+async fn settings_page_connect_link_falls_back_to_bind_addr_without_public_host() {
+    let (app, _state, _dir) = app_with_state_no_public_host().await;
+    let session_cookie = login_cookie_without_origin(&app).await;
+
+    let mut page_req = request(Method::GET, "/admin/settings", Body::empty());
+    page_req
+        .headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    let page_resp = app.oneshot(page_req).await.unwrap();
+    assert_eq!(page_resp.status(), StatusCode::OK);
+    let body = read_body(page_resp).await;
+
+    // Without public_host the link falls back to the loopback bind address
+    // over plain http (the plugin's parseServerUrl permits loopback http).
+    assert!(body.contains("obsidian://pkv-connect?s=http://127.0.0.1:6710&amp;k="));
+}
+
+#[tokio::test]
 async fn settings_post_rejects_update_check_interval_below_one_minute() {
     let (app, state, _dir) = app_with_state().await;
     let session_cookie = login_cookie(&app).await;

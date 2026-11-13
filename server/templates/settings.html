@@ -98,6 +98,8 @@
       <div class="form-grid">
         <label>{{ t.update_check_interval }} <span class="input-with-unit"><input name="update_check_interval_seconds" type="number" min="60" max="2592000" value="{{ cfg.update_check_interval_seconds }}" required><small>{{ t.seconds_short }}</small></span></label>
         <label>{{ t.public_host }} <input type="text" value="{{ t.configured_in_config }}" disabled></label>
+        <label>{{ t.connect_link_title }} <input type="text" value="{{ connect_link }}" readonly data-connect-link></label>
+        <button type="button" class="secondary" data-connect-link-btn data-label-copied="{{ t.connect_link_copied }}">{{ t.copy_connect_link }}</button>
         <label>{{ t.trusted_proxies }} <input type="text" value="{{ t.configured_in_config }}" disabled></label>
       </div>
     </section>

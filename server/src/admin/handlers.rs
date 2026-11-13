@@ -68,6 +68,14 @@ pub struct AdminCookiePolicy {
 #[derive(Clone, Copy)]
 pub struct AdminInsecureHatch(pub bool);
 
+/// Part A1 (spec §6.3.3): the obsidian:// connect link, computed once at
+/// router build. The deployment key never reaches logs (a past release
+/// deliberately stopped writing it into startup logs); the link is only
+/// rendered into the admin settings page, behind an admin session. Set as
+/// a request extension by `build_app`.
+#[derive(Clone)]
+pub struct AdminConnectLink(pub String);
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/admin/static/admin.css", get(crate::admin::admin_css))
@@ -3019,6 +3027,7 @@ async fn delete_invite_form(
 
 async fn settings_page(
     State(state): State<AppState>,
+    Extension(link): Extension<AdminConnectLink>,
     headers: HeaderMap,
     cookies: Cookies,
     _session: AdminSession,
@@ -3031,6 +3040,7 @@ async fn settings_page(
         extra_exclude_globs_display: cfg.extra_exclude_globs.join("\n"),
         cfg,
         git_available: state.git_available,
+        connect_link: link.0,
     }))
 }
 

@@ -13,6 +13,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
   template (host placeholder) after the config.toml snippet, so operators
   can see how the deployment key turns into a one-click plugin connect
   link; the fully computed link lives on the admin settings page.
+- Admin settings (Network section) now show the computed
+  `obsidian://pkv-connect?s=<server>&k=<deployment_key>` connect link in a
+  readonly field with a copy button (localized "Copied" feedback). The
+  link uses `[server].public_host` over https and falls back to the loopback
+  bind address over plain http. The deployment key still never enters
+  logs: the link is computed once at router build and rendered only behind
+  an admin session.
 - Plugin setting "Prune folders emptied by remote deletions" (on by
   default) with a first-run notice: the first time the sync engine
   prunes an emptied folder, one Notice names the folder and points at

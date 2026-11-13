@@ -312,6 +312,9 @@ pub struct SettingsTemplate {
     pub text_extensions_display: String,
     pub extra_exclude_globs_display: String,
     pub git_available: bool,
+    /// Part A1 (spec §6.3.3): the obsidian:// connect link. Rendered only
+    /// here, behind an admin session; never logged.
+    pub connect_link: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1434,6 +1437,7 @@ mod tests {
             text_extensions_display: "md, txt".into(),
             extra_exclude_globs_display: String::new(),
             git_available: true,
+            connect_link: "obsidian://pkv-connect?s=https://unit.test&k=k_test".into(),
         }
         .render()
         .unwrap();
@@ -1479,6 +1483,7 @@ mod tests {
             text_extensions_display: "md, txt".into(),
             extra_exclude_globs_display: String::new(),
             git_available: true,
+            connect_link: "obsidian://pkv-connect?s=https://unit.test&k=k_test".into(),
         }
         .render()
         .unwrap();
@@ -1564,6 +1569,7 @@ mod tests {
             text_extensions_display: "md, txt".into(),
             extra_exclude_globs_display: String::new(),
             git_available: true,
+            connect_link: "obsidian://pkv-connect?s=https://unit.test&k=k_test".into(),
         }
         .render()
         .unwrap();

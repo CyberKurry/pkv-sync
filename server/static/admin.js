@@ -317,4 +317,23 @@
   } else {
     initUpgradeWidget();
   }
+
+  // ---- Connect link copy button (settings page) --------------------
+  // Delegated at the document level so it works no matter when the script
+  // runs. The "Copied" label is server-localized through the data
+  // attribute (dataset pattern, same as the theme buttons); English here
+  // is only a fallback.
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-connect-link-btn]");
+    if (!button) return;
+    var input = document.querySelector("[data-connect-link]");
+    if (!input) return;
+    navigator.clipboard.writeText(input.value).then(function () {
+      var original = button.textContent;
+      button.textContent = button.dataset.labelCopied || "Copied";
+      setTimeout(function () {
+        button.textContent = original;
+      }, 2000);
+    });
+  });
 })();

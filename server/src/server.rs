@@ -110,9 +110,20 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
     // public_host: a hatch deployment is plain HTTP, where a Secure cookie
     // would be dropped by the browser.
     let insecure_hatch = cfg.admin.allow_insecure_admin && cfg.server.public_host.is_none();
+    // Part A1: the connect link is computed once here from config and handed
+    // to the settings page as an extension. The deployment key inside it is
+    // never logged; it is rendered only behind an admin session.
+    let connect_link = crate::config::connect_deep_link(
+        cfg.server.public_host.as_deref(),
+        &cfg.server.bind_addr.to_string(),
+        &cfg.server.deployment_key,
+    );
     let admin_routes = admin::handlers::router()
         .layer(tower_cookies::CookieManagerLayer::new())
         .layer(axum::extract::Extension(admin_cookie_policy))
+        .layer(axum::extract::Extension(admin::handlers::AdminConnectLink(
+            connect_link,
+        )))
         .layer(axum::extract::Extension(
             admin::handlers::AdminInsecureHatch(insecure_hatch),
         ))
