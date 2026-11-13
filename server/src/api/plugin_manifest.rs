@@ -29,6 +29,10 @@ pub struct PluginAssetOrigin {
 
 impl PluginAssetOrigin {
     pub fn from_public_host(public_host: Option<String>) -> Self {
+        // Deliberately NOT converged on config::normalized_public_host: an
+        // explicitly configured http:// origin must be PRESERVED here
+        // (asset URLs follow the operator's scheme), unlike the connect
+        // link and CSRF check which canonicalize to https.
         let origin = public_host
             .map(|host| host.trim().trim_end_matches('/').to_string())
             .filter(|host| !host.is_empty())
