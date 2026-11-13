@@ -230,6 +230,21 @@ pub trait GitVaultStore: Send + Sync {
         vault_id: &str,
         at: Option<&str>,
     ) -> Result<Vec<TreeEntry>, GitStoreError>;
+    /// 2c (spec §5.2c): prefix-scoped listing. The default post-filters a
+    /// full walk; the Git2 implementation prunes subtrees that cannot
+    /// contain the prefix, so a narrow prefix never pays for the whole
+    /// tree. Boundary semantics match `path_under_prefix` in mcp::tools
+    /// ("a" keeps "a" and "a/...", rejects "ab/...").
+    async fn list_tree_under(
+        &self,
+        vault_id: &str,
+        at: Option<&str>,
+        prefix: &str,
+    ) -> Result<Vec<TreeEntry>, GitStoreError> {
+        let mut entries = self.list_tree(vault_id, at).await?;
+        entries.retain(|entry| path_under_prefix(&entry.path, prefix));
+        Ok(entries)
+    }
     async fn read_file(
         &self,
         vault_id: &str,
@@ -1168,7 +1183,7 @@ fn collect_tree_map(
     let tree = commit.tree()?;
     let odb = repo.odb()?;
     let mut out = Vec::with_capacity(tree.len());
-    tree_entries_recursive(repo, &odb, &tree, "", 0, &mut out)?;
+    tree_entries_recursive(repo, &odb, &tree, "", "", 0, &mut out)?;
     Ok(out.into_iter().map(|e| (e.path.clone(), e)).collect())
 }
 
@@ -1177,6 +1192,7 @@ fn tree_entries_recursive(
     odb: &Odb<'_>,
     tree: &Tree<'_>,
     prefix: &str,
+    path_prefix: &str,
     depth: usize,
     out: &mut Vec<TreeEntry>,
 ) -> Result<(), GitStoreError> {
@@ -1187,13 +1203,19 @@ fn tree_entries_recursive(
         let Some(name) = entry.name() else {
             continue;
         };
-        let path = if prefix.is_empty() {
+        let path = if path_prefix.is_empty() {
             name.to_string()
         } else {
-            format!("{prefix}/{name}")
+            format!("{path_prefix}/{name}")
         };
         match entry.kind() {
             Some(ObjectType::Blob) => {
+                // 2c (spec §5.2c): a blob outside the prefix never enters
+                // the output — skip before the header read so a pruned
+                // entry costs nothing.
+                if !path_under_prefix(&path, prefix) {
+                    continue;
+                }
                 // 2a (spec §5.2a): read the object HEADER only; blobs over
                 // the pointer cap cannot be pointers, so their content is
                 // never materialized during a tree listing. Blobs over the
@@ -1226,8 +1248,14 @@ fn tree_entries_recursive(
                 });
             }
             Some(ObjectType::Tree) => {
+                // 2c (spec §5.2c): descend only when the subtree can still
+                // hold prefix matches — an unrelated sibling directory is
+                // never opened.
+                if !subtree_may_contain_prefix(&path, prefix) {
+                    continue;
+                }
                 let subtree = repo.find_tree(entry.id())?;
-                tree_entries_recursive(repo, odb, &subtree, &path, depth + 1, out)?;
+                tree_entries_recursive(repo, odb, &subtree, prefix, &path, depth + 1, out)?;
             }
             _ => {}
         }
@@ -1327,7 +1355,37 @@ impl GitVaultStore for Git2VaultStore {
             let tree = commit.tree()?;
             let odb = repo.odb()?;
             let mut out = Vec::with_capacity(tree.len());
-            tree_entries_recursive(&repo, &odb, &tree, "", 0, &mut out)?;
+            tree_entries_recursive(&repo, &odb, &tree, "", "", 0, &mut out)?;
+            Ok(out)
+        })
+        .await
+        .map_err(|_| GitStoreError::Panic)?
+    }
+
+    /// 2c (spec §5.2c): mirrors `list_tree` but prunes the walk to the
+    /// prefix (subtrees that cannot contain it are never opened, blobs
+    /// outside it never read a header). Sorting is left to callers —
+    /// `search` sorts the entries itself, exactly like `list_tree`.
+    async fn list_tree_under(
+        &self,
+        vault_id: &str,
+        at: Option<&str>,
+        prefix: &str,
+    ) -> Result<Vec<TreeEntry>, GitStoreError> {
+        let p = self.repo_path(vault_id)?;
+        let at = at.map(|s| s.to_string());
+        let prefix = prefix.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Vec<TreeEntry>, GitStoreError> {
+            let repo = Repository::open_bare(&p)?;
+            let oid = match at {
+                Some(h) => Oid::from_str(&h)?,
+                None => main_ref_target(&repo)?.ok_or(GitStoreError::NotFound)?,
+            };
+            let commit = repo.find_commit(oid)?;
+            let tree = commit.tree()?;
+            let odb = repo.odb()?;
+            let mut out = Vec::with_capacity(tree.len());
+            tree_entries_recursive(&repo, &odb, &tree, &prefix, "", 0, &mut out)?;
             Ok(out)
         })
         .await
@@ -1453,6 +1511,26 @@ impl GitVaultStore for Git2VaultStore {
         .await
         .map_err(|_| GitStoreError::Panic)?
     }
+}
+
+/// 2c (spec §5.2c): boundary-exact prefix membership — `path` is the
+/// prefix itself or a child of it. Mirrors `path_under_prefix` in
+/// `mcp::tools` (storage must not depend on the MCP layer); a bare
+/// `starts_with` would admit sibling directories like `ab/` under `a`.
+fn path_under_prefix(path: &str, prefix: &str) -> bool {
+    prefix.is_empty() || path == prefix || path.starts_with(&format!("{prefix}/"))
+}
+
+/// 2c (spec §5.2c): whether a subtree at `path` can still hold paths under
+/// `prefix`. Kept when the subtree is an ancestor of the prefix (the prefix
+/// lives inside it) or itself inside the prefix.
+fn subtree_may_contain_prefix(path: &str, prefix: &str) -> bool {
+    if prefix.is_empty() {
+        return true;
+    }
+    prefix == path
+        || prefix.starts_with(&format!("{path}/"))
+        || path.starts_with(&format!("{prefix}/"))
 }
 
 fn rollback_protection_ref(commit: Oid) -> String {
@@ -1776,6 +1854,45 @@ mod tests {
         assert!(!over.is_blob_pointer);
         assert_eq!(over.size, (POINTER_BLOB_MAX_BYTES + 1) as u64);
         assert_eq!(over.blob_hash, None);
+    }
+
+    // 2c (spec §5.2c): a prefix-scoped walk must prune at directory
+    // boundaries — "a" keeps "a" and "a/..." but never the sibling "ab/",
+    // and an empty prefix degenerates to the full listing.
+    #[tokio::test]
+    async fn list_tree_under_prunes_to_the_prefix_boundary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("vaults");
+        std::fs::create_dir_all(&root).unwrap();
+        let store = Git2VaultStore::new(root);
+        let changes = vec![
+            FileChange::upsert_text("a/one.md", b"1".to_vec()),
+            FileChange::upsert_text("a/sub/two.md", b"2".to_vec()),
+            FileChange::upsert_text("ab/three.md", b"3".to_vec()), // sibling, NOT under "a"
+            FileChange::upsert_text("b/four.md", b"4".to_vec()),
+            FileChange::upsert_text("root.md", b"5".to_vec()),
+        ];
+        store
+            .commit_changes("v1", None, &changes, "seed")
+            .await
+            .unwrap();
+
+        let under_a = store.list_tree_under("v1", None, "a").await.unwrap();
+        let paths: Vec<&str> = under_a.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(paths, vec!["a/one.md", "a/sub/two.md"]);
+
+        let under_all = store.list_tree_under("v1", None, "").await.unwrap();
+        assert_eq!(under_all.len(), 5);
+
+        // File-level boundary: "ab/" is pruned by the TREE arm already, so
+        // the BLOB arm's own boundary is only observable on a raw-string
+        // prefix of a file name — "roo" must not admit "root.md", and an
+        // exact path must admit itself.
+        let under_roo = store.list_tree_under("v1", None, "roo").await.unwrap();
+        assert!(under_roo.is_empty());
+        let exact = store.list_tree_under("v1", None, "root.md").await.unwrap();
+        let paths: Vec<&str> = exact.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(paths, vec!["root.md"]);
     }
 
     /// 2a benchmark (spec §5.2a): reproduces the header-walk speedup on a

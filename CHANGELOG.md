@@ -92,6 +92,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
   at or under the pointer-sniff cap (512 B) to detect blob pointers;
   measured on a 5k-file repo (debug build, loose objects) the walk drops
   from ~580 ms to ~195 ms.
+- MCP `search` with a `path_prefix`: the tree walk itself is now pruned
+  to the prefix — subtrees that cannot contain it are never opened and
+  blobs outside it never read an object header, so a narrow wiki layer
+  no longer pays for listing the whole vault tree.
 
 ## [1.9.0] - 2026-11-08
 

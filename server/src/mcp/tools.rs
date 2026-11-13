@@ -843,16 +843,21 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         Some(raw) => Some(SearchCursor::decode(raw)?),
         None => None,
     };
-    let tree = git
-        .list_tree(&input.vault_id, input.at.as_deref())
-        .await
-        .map_err(|err| {
-            public_git_read_error(
-                err,
-                input.at.as_deref().unwrap_or("vault head"),
-                input.at.is_some(),
-            )
-        })?;
+    // 2c (spec §5.2c): a non-empty prefix walks only that subtree — a
+    // narrow wiki layer no longer pays for listing the whole vault tree.
+    let tree = if prefix.is_empty() {
+        git.list_tree(&input.vault_id, input.at.as_deref()).await
+    } else {
+        git.list_tree_under(&input.vault_id, input.at.as_deref(), &prefix)
+            .await
+    }
+    .map_err(|err| {
+        public_git_read_error(
+            err,
+            input.at.as_deref().unwrap_or("vault head"),
+            input.at.is_some(),
+        )
+    })?;
     // Sorted tree => the after_path cursor's <= comparison is a code
     // invariant instead of a git storage detail (list_files/link_graph
     // already sort; search joins them).
