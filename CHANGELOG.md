@@ -33,9 +33,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
   with a cursor instead of erroring — a page may now legitimately return
   zero matches with a non-null `next_after` (keep paging until it is
   null). The budget cursor resumes after the last fully scanned file, so
-  runs of no-match files cannot livelock pagination. Only a single file
-  larger than the whole content budget still errors, because no progress
-  is possible in that case.
+  runs of no-match files cannot livelock pagination; the defense-in-depth
+  post-read guard (tree entry sizes that lied past the pre-read gate)
+  also yields a resumable cursor page instead of a silent completion.
+  Only a single file larger than the whole content budget still errors,
+  because no progress is possible in that case.
 
 ### Fixed
 

@@ -961,10 +961,15 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
             // budget into a silent success.
             searched_bytes = searched_bytes.saturating_add(size as usize);
             if searched_bytes > SEARCH_MAX_TOTAL_BYTES {
-                // 2b (spec §5.2b): stop with a cursor instead of erroring.
-                // This fires BEFORE the file's line loop, so `last_scanned`
-                // must NOT advance to it — the next page re-reads it with a
+                // 2b (spec §5.2b): stop with a cursor instead of erroring —
+                // the flag routes the output stage to the budget-stop cursor
+                // path, so this yields a RESUMABLE page (next_after after
+                // the last scanned file), never a silent completion and
+                // never an error while progress is still possible. This
+                // fires BEFORE the file's line loop, so `last_scanned` must
+                // NOT advance to it — the next page re-reads it with a
                 // fresh budget.
+                budget_stop = true;
                 break 'outer;
             }
             // The file's bytes are now fully counted against the budget, so
@@ -6456,7 +6461,7 @@ mod tests {
             &state,
             &user_id,
             SearchInput {
-                vault_id: vault_id,
+                vault_id,
                 query: "needle".into(),
                 at: None,
                 limit: None,
