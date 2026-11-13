@@ -9,6 +9,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Added
 
+- `pkvsyncd genkey` now also prints an `obsidian://pkv-connect` link
+  template (host placeholder) after the config.toml snippet, so operators
+  can see how the deployment key turns into a one-click plugin connect
+  link; the fully computed link lives on the admin settings page.
 - Plugin setting "Prune folders emptied by remote deletions" (on by
   default) with a first-run notice: the first time the sync engine
   prunes an emptied folder, one Notice names the folder and points at

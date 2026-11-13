@@ -57,6 +57,13 @@ fn main() -> anyhow::Result<()> {
             println!();
             println!("[server]");
             println!("deployment_key = \"{key}\"");
+            // genkey has no host context, so this is a template only; the
+            // full link with the real host is rendered on the admin
+            // settings page. The key above is the operator's own terminal
+            // output (genkey exists to print it), never a log line.
+            println!();
+            println!("Connect link template (fill in your server host):");
+            println!("  obsidian://pkv-connect?s=https://<your-server-host>&k={key}");
         }
         Command::User { op } => {
             if let UserOp::Add { username, .. } = &op {

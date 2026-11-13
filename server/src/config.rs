@@ -198,6 +198,28 @@ fn valid_deployment_key(key: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// Part A1 (spec §6.3.3): best-effort obsidian:// connect link. Uses
+/// public_host when configured; otherwise falls back to the loopback bind
+/// address (the plugin's parseServerUrl permits loopback http). Never
+/// logged — the deployment key must not re-enter logs (it is rendered
+/// only on the admin settings page, behind an admin session).
+pub fn connect_deep_link(
+    public_host: Option<&str>,
+    bind_addr: &str,
+    deployment_key: &str,
+) -> String {
+    let server = match public_host {
+        Some(host) if !host.trim().is_empty() => format!(
+            "https://{}",
+            host.trim()
+                .trim_start_matches("https://")
+                .trim_end_matches('/')
+        ),
+        _ => format!("http://{bind_addr}"),
+    };
+    format!("obsidian://pkv-connect?s={server}&k={deployment_key}")
+}
+
 fn valid_update_check_repo(repo: &str) -> bool {
     let Some((owner, name)) = repo.split_once('/') else {
         return false;
@@ -615,5 +637,49 @@ mod tests {
         let f = admin_hatch_config("0.0.0.0:6710", None, false);
         let cfg = Config::load(f.path()).expect("config still loads (warn only)");
         assert!(!cfg.admin.allow_insecure_admin);
+    }
+
+    // ------------------------------------------------------------------
+    // connect_deep_link (Part A1, spec §6.3.3)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn connect_deep_link_uses_public_host_when_set() {
+        let link = connect_deep_link(
+            Some("sync.example.com"),
+            "127.0.0.1:8080",
+            "k_0123456789abcdef0123456789abcdef",
+        );
+        assert_eq!(
+            link,
+            "obsidian://pkv-connect?s=https://sync.example.com&k=k_0123456789abcdef0123456789abcdef"
+        );
+    }
+
+    #[test]
+    fn connect_deep_link_falls_back_to_bind_addr() {
+        let link = connect_deep_link(None, "127.0.0.1:8080", "k_abc");
+        assert_eq!(
+            link,
+            "obsidian://pkv-connect?s=http://127.0.0.1:8080&k=k_abc"
+        );
+    }
+
+    #[test]
+    fn connect_deep_link_normalizes_public_host_scheme_and_trailing_slash() {
+        let link = connect_deep_link(Some("https://sync.example.com/"), "127.0.0.1:8080", "k_abc");
+        assert_eq!(
+            link,
+            "obsidian://pkv-connect?s=https://sync.example.com&k=k_abc"
+        );
+    }
+
+    #[test]
+    fn connect_deep_link_treats_blank_public_host_as_unset() {
+        let link = connect_deep_link(Some("   "), "127.0.0.1:8080", "k_abc");
+        assert_eq!(
+            link,
+            "obsidian://pkv-connect?s=http://127.0.0.1:8080&k=k_abc"
+        );
     }
 }
