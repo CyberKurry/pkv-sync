@@ -221,8 +221,13 @@ pub struct SearchOutput {
 }
 
 /// Exact resume position for `search` pagination. `line` is the 1-based
-/// line number of the last match returned for `path`; the next page resumes
-/// at `line + 1`. Serialised as JSON (paths may contain any byte, so a
+/// line number of the last match returned for `path`; on resume every line
+/// numbered <= `line` in that file is skipped (a comparison, deliberately
+/// not `line + 1` arithmetic — see the sentinel). `line` may also be
+/// `usize::MAX`, a sentinel meaning "skip this whole file; resume after
+/// it": budget/window stops emit it when the last scanned file yielded no
+/// matches, so that file is neither re-materialized nor re-billed on the
+/// next page. Serialised as JSON (paths may contain any byte, so a
 /// separator-joined format would be ambiguous) and treated as opaque by
 /// clients.
 #[derive(Debug, Serialize, Deserialize)]
@@ -863,7 +868,16 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         .filter(|entry| {
             cursor
                 .as_ref()
-                .map(|cursor| entry.path.as_str() >= cursor.path.as_str())
+                .map(|cursor| {
+                    // Mirror the stream filter below (sentinel line = MAX
+                    // skips the cursor's own file) so the cap decision and
+                    // the window it caps stay consistent.
+                    if cursor.line == usize::MAX {
+                        entry.path.as_str() > cursor.path.as_str()
+                    } else {
+                        entry.path.as_str() >= cursor.path.as_str()
+                    }
+                })
                 .unwrap_or(true)
         })
         .take(SEARCH_MAX_TREE_FILES + 1)
@@ -903,7 +917,18 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         .filter(|entry| {
             cursor
                 .as_ref()
-                .map(|cursor| entry.path.as_str() >= cursor.path.as_str())
+                .map(|cursor| {
+                    if cursor.line == usize::MAX {
+                        // Sentinel cursor: the named file was fully
+                        // accounted with no matches, so strict > keeps it
+                        // from being re-materialized and re-billed next
+                        // page. Normal line cursors keep >= (resume inside
+                        // the cursor's own file, after the match line).
+                        entry.path.as_str() > cursor.path.as_str()
+                    } else {
+                        entry.path.as_str() >= cursor.path.as_str()
+                    }
+                })
                 .unwrap_or(true)
         })
         .take(SEARCH_MAX_TREE_FILES);
@@ -915,6 +940,15 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
                 break;
             }
             if entry.is_blob_pointer || !classifier.is_text_path(&entry.path) {
+                // Same rationale as the frontmatter-drop advance below:
+                // a skipped non-text entry is fully accounted for — its
+                // lines can never match and it never touches the content
+                // budget. Advancing the watermark here keeps an
+                // attachments-heavy vault (a leading run of thousands of
+                // non-text files) from draining the whole window with
+                // last_scanned == None, which would emit next_after: null
+                // and silently strand every text file beyond the cap.
+                last_scanned = Some(entry.path);
                 continue;
             }
             candidates.push((
@@ -1056,7 +1090,22 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         last_consumed_path.map(|(path, line)| SearchCursor { path, line }.encode())
     } else if budget_stop {
         match budget_stop_cursor(&last_scanned, &last_consumed_path) {
-            Some(cursor) => Some(cursor),
+            Some(stop) => {
+                // Zero-progress guard: an outgoing cursor identical to the
+                // incoming one (already decoded at entry) means this page
+                // re-stopped on the same unread file — only a persistently
+                // lying tree size produces that, and paging would loop
+                // forever re-reading up to a full budget each time. Raise
+                // the old honest error instead. Detection needs an incoming
+                // cursor (page 2 onward); transient races self-heal because
+                // the next page re-lists the tree.
+                if cursor.as_ref().is_some_and(|previous| {
+                    previous.path == stop.path && previous.line == stop.line
+                }) {
+                    bail!("search content budget exceeded");
+                }
+                Some(stop.encode())
+            }
             // Nothing was fully scanned before the budget died (a single
             // file exceeds the whole budget): no progress is possible,
             // so the old hard error is more honest than a silent stop.
@@ -1064,7 +1113,7 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         }
     } else if tree_capped {
         // The window scanned its cap; files beyond it exist.
-        budget_stop_cursor(&last_scanned, &last_consumed_path)
+        budget_stop_cursor(&last_scanned, &last_consumed_path).map(|stop| stop.encode())
     } else {
         None
     };
@@ -1849,19 +1898,16 @@ fn mcp_path_visible(filter: &SyncPathFilter, path: &str) -> bool {
 fn budget_stop_cursor(
     last_scanned: &Option<String>,
     last_consumed: &Option<(String, usize)>,
-) -> Option<String> {
+) -> Option<SearchCursor> {
     let path = last_scanned.as_ref()?;
     let line = match last_consumed {
         Some((consumed_path, line)) if consumed_path == path => *line,
         _ => usize::MAX,
     };
-    Some(
-        SearchCursor {
-            path: path.clone(),
-            line,
-        }
-        .encode(),
-    )
+    Some(SearchCursor {
+        path: path.clone(),
+        line,
+    })
 }
 
 fn contains_ascii_case_insensitive(haystack: &str, lowercase_needle: &str) -> bool {

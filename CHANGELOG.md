@@ -32,12 +32,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
   through the rest, and content-budget exhaustion likewise stops the page
   with a cursor instead of erroring — a page may now legitimately return
   zero matches with a non-null `next_after` (keep paging until it is
-  null). The budget cursor resumes after the last fully scanned file, so
-  runs of no-match files cannot livelock pagination; the defense-in-depth
-  post-read guard (tree entry sizes that lied past the pre-read gate)
-  also yields a resumable cursor page instead of a silent completion.
-  Only a single file larger than the whole content budget still errors,
-  because no progress is possible in that case.
+  null). The budget cursor resumes after the last fully scanned file —
+  non-text and blob-pointer entries count as scanned, so runs of
+  no-match files and leading runs of non-text attachments can neither
+  livelock pagination nor silently strand text files beyond the cap; the
+  defense-in-depth post-read guard (tree entry sizes that lied past the
+  pre-read gate) also yields a resumable cursor page instead of a silent
+  completion. Only a single file larger than the whole content budget —
+  or a stop cursor that makes no progress between pages (persistently
+  lying tree entry sizes) — still errors, because no progress is
+  possible in those cases.
 
 ### Fixed
 

@@ -341,3 +341,70 @@ async fn search_caps_instead_of_failing_beyond_5000_files() {
         "a capped window must be resumable"
     );
 }
+
+/// 2b quality follow-up (F1/F5): an attachments-heavy vault whose
+/// alphabetically first 5000+ visible files are all non-text must still
+/// page through to the text files beyond the window. The candidate skip
+/// for non-text entries advances the scanned watermark, so page 1 returns
+/// a cursor instead of a silent next_after: null (which per the tool
+/// description tells the client to stop — silently unsearchable text).
+/// This also pins the cap path's page-through: page 2 reaches the file
+/// beyond the window and finds the match.
+#[tokio::test]
+async fn search_capped_window_pages_past_a_leading_non_text_run() {
+    let (state, _tmp) = test_state().await;
+    let owner = create_user(&state, "owner").await;
+    let mut files: Vec<FileChange> = (0..5001)
+        .map(|i| FileChange::upsert_text(format!("attachments/f{i:05}.png"), b"not text".to_vec()))
+        .collect();
+    files.push(FileChange::upsert_text(
+        "notes/target.md",
+        b"find the needle here".to_vec(),
+    ));
+    let vault = seed_vault(&state, &owner, "imgs", files).await;
+
+    let out = search(
+        &state,
+        &owner,
+        SearchInput {
+            vault_id: vault.clone(),
+            query: "needle".into(),
+            at: None,
+            limit: None,
+            path_prefix: None,
+            frontmatter: None,
+            after: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        out.tree_capped,
+        "5002 visible files must cap the window (matches: {:?})",
+        out.matches
+    );
+    assert!(out.matches.is_empty());
+    let next = out
+        .next_after
+        .expect("a window of only non-text files must still advance the cursor");
+
+    // Page 2 must reach past the leading non-text run and find the match.
+    let page2 = search(
+        &state,
+        &owner,
+        SearchInput {
+            vault_id: vault,
+            query: "needle".into(),
+            at: None,
+            limit: None,
+            path_prefix: None,
+            frontmatter: None,
+            after: Some(next),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(page2.matches.len(), 1);
+    assert_eq!(page2.matches[0].path, "notes/target.md");
+    assert!(page2.next_after.is_none(), "the walk finished on page 2");
+}
