@@ -136,6 +136,9 @@ export const en = {
   emptyScanConfirmAccept: "Push deletions anyway",
   modalCancel: "Cancel",
   connectedToServer: "Connected to {serverName}",
+  connectConfirmTitle: "Connect to server",
+  connectConfirmBody:
+    "Connect PKV Sync to {server}? The server address and deployment key from this link will be saved; you still sign in with your own account.",
   changeServer: "Change server",
   loggedIn: "Logged in",
   registeredAndLoggedIn: "Registered and logged in",

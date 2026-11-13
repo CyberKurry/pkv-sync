@@ -65,6 +65,10 @@ import { RestoreConfirmModal } from "./ui/restore-confirm";
 import { RollbackConfirmModal } from "./ui/rollback-confirm-modal";
 import { PKVSyncSettingTab } from "./ui/settings-tab";
 import { SyncStatusModal } from "./ui/sync-modal";
+import {
+  applyConnectDeepLink,
+  ConnectConfirmModal
+} from "./ui/connect-confirm";
 import { addConflictResolveMenuItem } from "./ui/conflict-menu";
 import { ConflictsListModal } from "./ui/conflicts-list-modal";
 import { ConflictResolveModal } from "./ui/conflict-resolve-modal";
@@ -226,6 +230,19 @@ export default class PKVSyncPlugin extends Plugin {
     this.updateStatus();
     this.addSettingTab(new PKVSyncSettingTab(this.app, this));
     registerCommands(this, t);
+    // 3A: obsidian://pkv-connect?s=<server>&k=<deployment key>. Cold-start
+    // links are held by the main process until the renderer finishes, so
+    // registering during onload() is in time (spec §6.3.1). Any web page
+    // can trigger the scheme, so the link only opens a confirm modal and
+    // the flow itself is fenced by parseServerUrl (spec §6.3.2).
+    this.registerObsidianProtocolHandler("pkv-connect", (params) => {
+      const server = typeof params.s === "string" ? params.s : "";
+      const key = typeof params.k === "string" ? params.k : "";
+      if (!server) return;
+      new ConnectConfirmModal(this.app, t, server, key, () =>
+        applyConnectDeepLink(this, t, server, key)
+      ).open();
+    });
     this.registerHistoryFileMenu();
     // 0b: the vault file index is built AFTER plugin onload() runs; defer
     // engine start and vault watchers until the first enumeration finished

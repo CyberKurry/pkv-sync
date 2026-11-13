@@ -9,6 +9,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Added
 
+- Plugin: `obsidian://pkv-connect?s=<server>&k=<deployment key>` deep
+  links (as emitted by the admin settings page) now open an explicit
+  confirm modal showing the target host before anything is written — any
+  web page can trigger the scheme, so the link never connects silently.
+  Confirming mirrors the settings-tab Connect button exactly
+  (commit → verify connection still current → resume, fenced by
+  `parseServerUrl`'s https-off-loopback rules so a hostile link dies
+  before anything is staged); the saved address and deployment key only
+  prefill the connection — sign-in is still done with the user's own
+  account.
 - `pkvsyncd genkey` now also prints an `obsidian://pkv-connect` link
   template (host placeholder) after the config.toml snippet, so operators
   can see how the deployment key turns into a one-click plugin connect

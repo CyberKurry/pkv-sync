@@ -143,6 +143,9 @@ export const ko = {
   emptyScanConfirmAccept: "그래도 삭제 동기화",
   modalCancel: "취소",
   connectedToServer: "「{serverName}」에 연결되었습니다",
+  connectConfirmTitle: "서버에 연결",
+  connectConfirmBody:
+    "PKV Sync를 {server}에 연결할까요? 링크의 서버 주소와 배포 키를 저장합니다. 로그인은 여전히 본인 계정으로 합니다.",
   changeServer: "서버 변경",
   loggedIn: "로그인됨",
   registeredAndLoggedIn: "회원가입 후 로그인되었습니다",

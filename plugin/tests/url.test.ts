@@ -32,6 +32,10 @@ describe("parseServerUrl", () => {
     );
   });
 
+  it("rejects deep-link params pointing at plain http off-loopback", () => {
+    expect(() => parseServerUrl("http://attacker.example", "k_abc")).toThrow();
+  });
+
   it("allows loopback http URLs for local development", () => {
     expect(parseServerUrl("http://127.0.0.1:6710/k_local/")).toEqual({
       serverUrl: "http://127.0.0.1:6710",

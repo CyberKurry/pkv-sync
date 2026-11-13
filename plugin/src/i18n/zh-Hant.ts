@@ -132,6 +132,9 @@ export const zhHant = {
   emptyScanConfirmAccept: "仍要同步刪除",
   modalCancel: "取消",
   connectedToServer: "已連線到「{serverName}」",
+  connectConfirmTitle: "連線到伺服器",
+  connectConfirmBody:
+    "將 PKV Sync 連線到 {server}？將儲存連結中的伺服器位址與部署金鑰；之後仍需用你自己的帳號登入。",
   changeServer: "變更伺服器",
   loggedIn: "已登入",
   registeredAndLoggedIn: "已註冊並登入",

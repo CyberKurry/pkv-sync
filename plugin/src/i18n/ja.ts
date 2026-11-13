@@ -135,6 +135,9 @@ export const ja = {
   emptyScanConfirmAccept: "それでも削除を同期",
   modalCancel: "キャンセル",
   connectedToServer: "{serverName} に接続しました",
+  connectConfirmTitle: "サーバーへ接続",
+  connectConfirmBody:
+    "PKV Sync を {server} に接続しますか？リンク内のサーバーアドレスとデプロイキーを保存します。ログインには引き続き自分のアカウントを使います。",
   changeServer: "サーバーを変更",
   loggedIn: "ログインしました",
   registeredAndLoggedIn: "登録してログインしました",
