@@ -100,6 +100,7 @@
         <label>{{ t.public_host }} <input type="text" value="{{ t.configured_in_config }}" disabled></label>
         <label>{{ t.connect_link_title }} <input type="text" value="{{ connect_link }}" readonly data-connect-link>{% if !public_host_configured %}<small class="hint">{{ t.connect_link_local_hint }}</small>{% endif %}</label>
         <button type="button" class="secondary" data-connect-link-btn data-label-copied="{{ t.connect_link_copied }}">{{ t.copy_connect_link }}</button>
+        {% if let Some(qr) = connect_qr %}<div class="pkv-connect-qr" data-connect-qr>{{ qr|safe }}</div>{% endif %}
         <label>{{ t.trusted_proxies }} <input type="text" value="{{ t.configured_in_config }}" disabled></label>
       </div>
     </section>

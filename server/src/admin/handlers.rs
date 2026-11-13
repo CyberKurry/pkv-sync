@@ -78,6 +78,38 @@ pub struct AdminInsecureHatch(pub bool);
 #[derive(Clone)]
 pub struct AdminConnectLink(pub String, pub bool);
 
+/// Part A2 (spec §6.3.3): QR of the connect link as inline SVG. An inline
+/// <svg> element is DOM content, not an image fetch — unaffected by the
+/// admin CSP (no img-src data: required). Oversized input (DataTooLong)
+/// yields None rather than an error: the QR is enrichment, never a
+/// page-failure mode.
+///
+/// qrcodegen 1.8 ships no SVG helper, so the matrix is drawn with the
+/// path-per-module layout from the crate's own example. The explicit white
+/// plate keeps the code scannable under the dark admin theme (otherwise the
+/// page background would invert the module contrast).
+pub fn connect_qr_svg(link: &str) -> Option<String> {
+    let code = qrcodegen::QrCode::encode_text(link, qrcodegen::QrCodeEcc::Medium).ok()?;
+    const BORDER: i32 = 2;
+    let dimension = code.size() + 2 * BORDER;
+    let mut path = String::new();
+    for y in 0..code.size() {
+        for x in 0..code.size() {
+            if code.get_module(x, y) {
+                path.push_str(&format!("M{},{}h1v1h-1z", x + BORDER, y + BORDER));
+            }
+        }
+    }
+    Some(format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {d} {d}\" \
+         shape-rendering=\"crispEdges\">\
+         <rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>\
+         <path d=\"{p}\" fill=\"#000000\"/></svg>",
+        d = dimension,
+        p = path
+    ))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/admin/static/admin.css", get(crate::admin::admin_css))
@@ -2236,6 +2268,16 @@ mod tests {
     }
 
     #[test]
+    fn connect_qr_svg_renders_and_bails_on_oversized_input() {
+        let svg = connect_qr_svg("obsidian://pkv-connect?s=https://sync.example.com&k=k_abc");
+        assert!(svg.is_some());
+        assert!(svg.unwrap().starts_with("<svg"));
+        // 8 KiB far exceeds any QR payload: DataTooLong must surface as None,
+        // never a panic.
+        assert!(connect_qr_svg(&"x".repeat(8 * 1024)).is_none());
+    }
+
+    #[test]
     fn file_preview_truncates_large_text_on_utf8_boundary() {
         let big = "héllo".repeat(300_000);
         let (binary, content, size, truncated) = file_preview(StoredFile::Text {
@@ -3035,6 +3077,7 @@ async fn settings_page(
     _session: AdminSession,
 ) -> Result<Response, ApiError> {
     let cfg = state.runtime_cfg.snapshot().await;
+    let connect_qr = connect_qr_svg(&link.0);
     // The page embeds the deployment key: no_store keeps it out of any
     // shared/intermediate cache, same as the other key-bearing admin pages.
     Ok(no_store(render_html(SettingsTemplate {
@@ -3046,6 +3089,7 @@ async fn settings_page(
         git_available: state.git_available,
         connect_link: link.0,
         public_host_configured: link.1,
+        connect_qr,
     })))
 }
 

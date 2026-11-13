@@ -1434,6 +1434,11 @@ async fn settings_page_renders_connect_link_with_copy_button() {
     assert!(body.contains("data-connect-link-btn"));
     assert!(body.contains("data-label-copied=\"Copied\""));
     assert!(body.contains(">Copy link</button>"));
+    // A2: the same link renders as an inline SVG QR for mobile scanning.
+    // The SVG is DOM content generated server-side, so it needs no
+    // img-src/data: relaxation under the admin CSP.
+    assert!(body.contains("data-connect-qr"));
+    assert!(body.contains("<svg"));
     // F5: a shareable link needs no loopback hint.
     assert!(!body.contains("This link points at this machine only."));
 }

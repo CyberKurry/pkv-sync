@@ -16,15 +16,25 @@ and this project adheres to semantic versioning starting at v1.0.0.
 - Admin settings (Network section) now show the computed
   `obsidian://pkv-connect?s=<server>&k=<deployment_key>` connect link in a
   readonly field with a copy button (localized "Copied" feedback; falls
-  back to select+copy on non-secure contexts). The link uses
-  `[server].public_host` over https and falls back to the loopback bind
-  address over plain http, with a localized hint when only the loopback
-  link is available. public_host normalization (one `https://`/`http://`
-  scheme strip, trailing slashes, blank → unset) is now one shared helper
-  used by both the connect link and the admin CSRF origin check. The page
-  is served `Cache-Control: no-store` like the other key-bearing admin
-  pages, and the deployment key still never enters logs: the link is
-  computed once at router build and rendered only behind an admin session.
+  back to select+copy on non-secure contexts), plus a QR code of the same
+  link so mobile users can scan instead of typing: Obsidian opens straight
+  from the `obsidian://` scheme. The QR is generated server-side as inline
+  SVG by the new dependency `qrcodegen` (MIT; chosen because it is the
+  only QR crate with zero transitive dependencies — `cargo tree -p
+  qrcodegen` lists the crate alone — and the QR spec is frozen, so its
+  2022 release is complete rather than abandoned). An inline `<svg>`
+  element is DOM content, not an image fetch, so it renders under the
+  admin CSP with no `img-src data:` relaxation, and a link that somehow
+  exceeds QR capacity degrades to no QR rather than a page failure. The
+  link uses `[server].public_host` over https and falls back to the
+  loopback bind address over plain http, with a localized hint when only
+  the loopback link is available. public_host normalization (one
+  `https://`/`http://` scheme strip, trailing slashes, blank → unset) is
+  now one shared helper used by both the connect link and the admin CSRF
+  origin check. The page is served `Cache-Control: no-store` like the
+  other key-bearing admin pages, and the deployment key still never
+  enters logs: the link is computed once at router build and rendered
+  only behind an admin session.
 - Plugin setting "Prune folders emptied by remote deletions" (on by
   default) with a first-run notice: the first time the sync engine
   prunes an emptied folder, one Notice names the folder and points at
