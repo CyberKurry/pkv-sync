@@ -90,7 +90,10 @@ pub struct AdminConnectLink(pub String, pub bool);
 /// page background would invert the module contrast).
 pub fn connect_qr_svg(link: &str) -> Option<String> {
     let code = qrcodegen::QrCode::encode_text(link, qrcodegen::QrCodeEcc::Medium).ok()?;
-    const BORDER: i32 = 2;
+    // ISO/IEC 18004 requires a 4-module quiet zone on every side; the white
+    // plate below is exactly this margin, so the code stays first-scan
+    // reliable on phone screens (small modules + moiré).
+    const BORDER: i32 = 4;
     let dimension = code.size() + 2 * BORDER;
     let mut path = String::new();
     for y in 0..code.size() {
@@ -2269,9 +2272,17 @@ mod tests {
 
     #[test]
     fn connect_qr_svg_renders_and_bails_on_oversized_input() {
-        let svg = connect_qr_svg("obsidian://pkv-connect?s=https://sync.example.com&k=k_abc");
-        assert!(svg.is_some());
-        assert!(svg.unwrap().starts_with("<svg"));
+        let svg =
+            connect_qr_svg("obsidian://pkv-connect?s=https://sync.example.com&k=k_abc").unwrap();
+        assert!(svg.starts_with("<svg"));
+        // Pin the scan-critical properties: the white plate (dark-theme
+        // contrast, doubles as the ISO 18004 quiet zone) and crisp edges.
+        assert!(svg.contains("fill=\"#ffffff\""));
+        assert!(svg.contains("shape-rendering=\"crispEdges\""));
+        // The 59-byte byte-mode link encodes as version 4-M (33 modules);
+        // with the 4-module border the viewBox is 41x41. This pins OUR
+        // border/dimension arithmetic, not the crate's encoder.
+        assert!(svg.contains("viewBox=\"0 0 41 41\""));
         // 8 KiB far exceeds any QR payload: DataTooLong must surface as None,
         // never a panic.
         assert!(connect_qr_svg(&"x".repeat(8 * 1024)).is_none());
