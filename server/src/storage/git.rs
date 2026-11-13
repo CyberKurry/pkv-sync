@@ -1196,8 +1196,13 @@ fn tree_entries_recursive(
             Some(ObjectType::Blob) => {
                 // 2a (spec §5.2a): read the object HEADER only; blobs over
                 // the pointer cap cannot be pointers, so their content is
-                // never materialized during a tree listing.
-                let (header_size, _) = odb.read_header(entry.id())?;
+                // never materialized during a tree listing. Blobs over the
+                // cap also skip libgit2's strict hash verification (content
+                // reads still verify); a listing is not an integrity check.
+                let (header_size, kind) = odb.read_header(entry.id())?;
+                if kind != ObjectType::Blob {
+                    return Err(git2::Error::from_str("tree entry is not a blob").into());
+                }
                 let mut pointer = None;
                 if header_size <= POINTER_BLOB_MAX_BYTES {
                     let blob = repo.find_blob(entry.id())?;
@@ -1648,10 +1653,136 @@ mod tests {
         assert_eq!(pointer.blob_hash.as_deref(), Some("a".repeat(64).as_str()));
     }
 
-    /// 2a perf gate (spec §5.2a). Ignored by default: seeds 5k files (~30s).
-    /// Run: cargo test -p pkv-sync-server --lib -- --ignored list_tree_header_walk_perf
-    /// Record BOTH runs (with and without the header cap, i.e. temporarily
-    /// `if true`) in the commit body of the optimization commit.
+    // F1: production repos are packed (scheduled gc), so the header walk
+    // must hold there too; gc stores the edited blob as a delta against
+    // its first version.
+    #[tokio::test]
+    async fn list_tree_sizes_survive_header_only_walk_when_packed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("vaults");
+        std::fs::create_dir_all(&root).unwrap();
+        let store = Git2VaultStore::new(root);
+        let big: Vec<u8> = b"filler line for the delta-packed blob\n".repeat(64);
+        let changes = vec![
+            FileChange::upsert_text("big.md", big.clone()),
+            FileChange::upsert_text("small.md", b"plain text".to_vec()),
+            FileChange::Upsert {
+                path: "bin.dat".into(),
+                file: StoredFile::BlobPointer {
+                    hash: "a".repeat(64),
+                    size: 987_654,
+                    mime: None,
+                },
+            },
+        ];
+        let c1 = store
+            .commit_changes("v1", None, &changes, "seed")
+            .await
+            .unwrap();
+        let mut edited = big.clone();
+        edited[..6].copy_from_slice(b"EDITED");
+        store
+            .commit_changes(
+                "v1",
+                Some(&c1),
+                &[FileChange::upsert_text("big.md", edited)],
+                "edit",
+            )
+            .await
+            .unwrap();
+        store.gc_prune_unreachable("v1").await.unwrap();
+
+        let pack_dir = tmp
+            .path()
+            .join("vaults")
+            .join("v1")
+            .join("objects")
+            .join("pack");
+        let packed = std::fs::read_dir(&pack_dir).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|ext| ext == "pack")
+        });
+        assert!(packed, "git gc should have packed the repo objects");
+
+        let tree = store.list_tree("v1", None).await.unwrap();
+        let by_path: std::collections::HashMap<&str, &TreeEntry> =
+            tree.iter().map(|e| (e.path.as_str(), e)).collect();
+        assert_eq!(by_path.len(), 3);
+        assert_eq!(by_path["big.md"].size, big.len() as u64);
+        assert_eq!(by_path["small.md"].size, b"plain text".len() as u64);
+        let pointer = by_path["bin.dat"];
+        assert!(pointer.is_blob_pointer);
+        assert_eq!(pointer.size, 987_654);
+        assert_eq!(pointer.blob_hash.as_deref(), Some("a".repeat(64).as_str()));
+    }
+
+    // F6: pin the inclusive side of the 512 B pointer gate; `<` instead
+    // of `<=` would silently drop exactly-512-byte pointers.
+    #[tokio::test]
+    async fn list_tree_pointer_gate_is_inclusive_at_512_bytes() {
+        fn padded_pointer(mime_pad: usize) -> StoredFile {
+            StoredFile::BlobPointer {
+                hash: "a".repeat(64),
+                size: 123_456,
+                mime: Some("m".repeat(mime_pad)),
+            }
+        }
+        let base = encode_file(padded_pointer(0)).unwrap().len();
+        let at_cap = padded_pointer(POINTER_BLOB_MAX_BYTES - base);
+        let over_cap = padded_pointer(POINTER_BLOB_MAX_BYTES + 1 - base);
+        assert_eq!(
+            encode_file(at_cap.clone()).unwrap().len(),
+            POINTER_BLOB_MAX_BYTES
+        );
+        assert_eq!(
+            encode_file(over_cap.clone()).unwrap().len(),
+            POINTER_BLOB_MAX_BYTES + 1
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("vaults");
+        std::fs::create_dir_all(&root).unwrap();
+        let store = Git2VaultStore::new(root);
+        store
+            .commit_changes(
+                "v1",
+                None,
+                &[
+                    FileChange::Upsert {
+                        path: "cap.dat".into(),
+                        file: at_cap,
+                    },
+                    FileChange::Upsert {
+                        path: "over.dat".into(),
+                        file: over_cap,
+                    },
+                ],
+                "seed",
+            )
+            .await
+            .unwrap();
+        let tree = store.list_tree("v1", None).await.unwrap();
+        let by_path: std::collections::HashMap<&str, &TreeEntry> =
+            tree.iter().map(|e| (e.path.as_str(), e)).collect();
+        assert_eq!(by_path.len(), 2);
+        let cap = by_path["cap.dat"];
+        assert!(cap.is_blob_pointer);
+        assert_eq!(cap.size, 123_456);
+        assert_eq!(cap.blob_hash.as_deref(), Some("a".repeat(64).as_str()));
+        let over = by_path["over.dat"];
+        assert!(!over.is_blob_pointer);
+        assert_eq!(over.size, (POINTER_BLOB_MAX_BYTES + 1) as u64);
+        assert_eq!(over.blob_hash, None);
+    }
+
+    /// 2a benchmark (spec §5.2a): reproduces the header-walk speedup on a
+    /// 5k-file repo. Ignored by default: seeding takes ~30s.
+    /// Run: cargo test -p pkv-sync-server --lib -- --ignored list_tree_header_walk_perf -- --nocapture
+    /// To reproduce the pre-optimization baseline, temporarily change the
+    /// header gate in tree_entries_recursive to `if true` and rerun.
     #[tokio::test]
     #[ignore]
     async fn list_tree_header_walk_perf() {
