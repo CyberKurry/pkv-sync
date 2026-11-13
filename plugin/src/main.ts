@@ -239,8 +239,11 @@ export default class PKVSyncPlugin extends Plugin {
       const server = typeof params.s === "string" ? params.s : "";
       const key = typeof params.k === "string" ? params.k : "";
       if (!server) return;
-      new ConnectConfirmModal(this.app, t, server, key, () =>
-        applyConnectDeepLink(this, t, server, key)
+      // Fresh text() per link: the onload-time `t` would keep speaking the
+      // language that was configured at startup after a language change.
+      const cur = this.text();
+      new ConnectConfirmModal(this.app, cur, server, () =>
+        applyConnectDeepLink(this, cur, server, key)
       ).open();
     });
     this.registerHistoryFileMenu();

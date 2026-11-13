@@ -20,11 +20,17 @@ class StubElement {
   private readonly clickListeners: Array<() => void> = [];
   text = "";
   cls = "";
+  disabled = false;
 
   constructor(readonly tag: string) {}
 
   setText(next: string): void {
     this.text = next;
+  }
+
+  empty(): void {
+    this.children = [];
+    this.text = "";
   }
 
   createDiv(options: { cls?: string } = {}): StubElement {
@@ -43,6 +49,8 @@ class StubElement {
   }
 
   click(): void {
+    // Real DOM buttons swallow clicks while disabled.
+    if (this.disabled) return;
     for (const listener of [...this.clickListeners]) listener();
   }
 
@@ -74,14 +82,12 @@ class StubElement {
 
 function openConfirmModal(
   server: string,
-  deploymentKey: string,
   onConfirm: () => void | Promise<void>
 ): ConnectConfirmModal {
   const modal = new ConnectConfirmModal(
     {} as never,
     strings(),
     server,
-    deploymentKey,
     onConfirm
   );
   modal.titleEl = new StubElement("h2") as never;
@@ -93,7 +99,7 @@ function openConfirmModal(
 describe("ConnectConfirmModal (3A)", () => {
   it("renders the target host and only fires on explicit confirm", async () => {
     const onConfirm = vi.fn();
-    const modal = openConfirmModal("https://sync.example.com", "k_abc", onConfirm);
+    const modal = openConfirmModal("https://sync.example.com", onConfirm);
 
     expect(modal.contentEl.textContent).toContain("sync.example.com");
     const buttons = modal.contentEl.querySelectorAll("button");
@@ -105,9 +111,20 @@ describe("ConnectConfirmModal (3A)", () => {
   });
 
   it("falls back to the raw string when the server is not a parseable URL", () => {
-    const modal = openConfirmModal("not a url", "k_abc", () => undefined);
+    const modal = openConfirmModal("not a url", () => undefined);
 
     expect(modal.contentEl.textContent).toContain("not a url");
+  });
+
+  it("fires the confirm flow exactly once for a double click", async () => {
+    const onConfirm = vi.fn();
+    const modal = openConfirmModal("https://sync.example.com", onConfirm);
+    const buttons = modal.contentEl.querySelectorAll("button");
+
+    buttons[0].click();
+    buttons[0].click();
+
+    await vi.waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
   });
 });
 
@@ -180,5 +197,62 @@ describe("applyConnectDeepLink (3A)", () => {
     // resume rebuilds exactly once — the settings-tab Connect sequence.
     expect(h.events).toEqual(["invalidate", "rebuild"]);
     expect(notices).toEqual(["Connected to sync.example.com"]);
+  });
+
+  it("reports a restored data-commit failure with exactly one localized notice", async () => {
+    const h = createMigrationHarness();
+    h.plugin.apiForConnection = PKVSyncPlugin.prototype.apiForConnection;
+    h.setSave(async (next) => {
+      if (h.saveCalls() === 1) h.setDisk(next);
+      else throw new Error("Local disk full");
+    });
+    vi.mocked(requestUrl).mockResolvedValue(
+      response({
+        server_name: "Test",
+        version: "1.7.1",
+        registration: "disabled",
+        max_file_size: 100_000_000,
+        supported_text_extensions: ["md", "canvas"],
+        push_debounce_ms: h.plugin.settings.debounceMs
+      })
+    );
+
+    await applyConnectDeepLink(
+      h.plugin,
+      strings("en"),
+      "https://sync.example.com",
+      "k_abc"
+    );
+
+    // The second save (config mirror) fails and is restored; the catch
+    // must surface the localized reason once — never the internal
+    // data_commit_restored code on top of the gate's own warning. The
+    // single "invalidate" is the identity switch in setConnectionPatch.
+    expect(h.saveCalls()).toBe(2);
+    expect(h.plugin.persistenceRecoveryRequired).toBe(false);
+    expect(h.events).toEqual(["invalidate"]);
+    expect(notices).toEqual([
+      "Could not save local settings. The previous state was restored. Reason: Local disk full"
+    ]);
+  });
+
+  it("shows the localized first-run setup guidance for setup_required", async () => {
+    const h = createMigrationHarness();
+    h.plugin.apiForConnection = PKVSyncPlugin.prototype.apiForConnection;
+    vi.mocked(requestUrl).mockResolvedValue(
+      response(
+        { error: { code: "setup_required", message: "Initial setup required" } },
+        403
+      )
+    );
+
+    await applyConnectDeepLink(
+      h.plugin,
+      strings("en"),
+      "https://sync.example.com",
+      "k_abc"
+    );
+
+    expect(notices).toEqual([strings("en").setupRequiredNotice]);
   });
 });

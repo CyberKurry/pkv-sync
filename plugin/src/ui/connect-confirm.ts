@@ -1,8 +1,11 @@
 import { Notice, type App, Modal } from "obsidian";
+import { ApiError } from "../api/client";
 import type { ConnectionStamp } from "../connection-context";
 import { format, type Strings } from "../i18n";
+import { DataCommitError } from "../plugin-store";
 import { parseServerUrl } from "../url";
 import { errorToMessage } from "../util";
+import { localStateErrorMessage } from "./local-state-error";
 
 /** Part 3A (spec §6.3.2): obsidian://pkv-connect links can be triggered by
  * any web page — never connect silently. Shows the target host and only
@@ -12,7 +15,6 @@ export class ConnectConfirmModal extends Modal {
     app: App,
     private readonly t: Strings,
     private readonly server: string,
-    private readonly deploymentKey: string,
     private readonly onConfirm: () => void | Promise<void>
   ) {
     super(app);
@@ -30,16 +32,26 @@ export class ConnectConfirmModal extends Modal {
       text: format(this.t.connectConfirmBody, { server: host })
     });
     const row = this.contentEl.createDiv();
+    // Confirm-first with Obsidian's mod-cta is intentional: connecting is
+    // the primary action here (the settings page's Connect button wears
+    // the same emphasis), not a destructive step to be de-emphasized.
     const connect = row.createEl("button", {
       text: this.t.connect,
       cls: "mod-cta"
     });
     connect.addEventListener("click", () => {
+      // close() only starts the closing animation; without this the
+      // button stays clickable and a double click runs two connects.
+      connect.disabled = true;
       this.close();
       void this.onConfirm();
     });
     const cancel = row.createEl("button", { text: this.t.modalCancel });
     cancel.addEventListener("click", () => this.close());
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }
 
@@ -64,9 +76,10 @@ export interface ConnectDeepLinkHost {
 /**
  * Part 3A: apply a confirmed obsidian://pkv-connect link. Mirrors the
  * settings-tab Connect button exactly — commit, verify the connection is
- * still current, then resume — so the deep link gains no second code path.
- * parseServerUrl enforces https-off-loopback and shape rules; a hostile
- * link dies there, before anything is staged.
+ * still current, then resume, and report failures with the same localized
+ * notices — so the deep link gains no second code path. parseServerUrl
+ * enforces https-off-loopback and shape rules; a hostile link dies there,
+ * before anything is staged.
  */
 export async function applyConnectDeepLink(
   plugin: ConnectDeepLinkHost,
@@ -97,6 +110,17 @@ export async function applyConnectDeepLink(
     );
   } catch (error) {
     if (stamp && !plugin.isConnectionCurrent(stamp)) return;
+    if (error instanceof DataCommitError) {
+      // Failures that pause sync are reported inside the publication gate.
+      if (error.state === "restored") {
+        new Notice(localStateErrorMessage(error, t));
+      }
+      return;
+    }
+    if (error instanceof ApiError && error.code === "setup_required") {
+      new Notice(t.setupRequiredNotice);
+      return;
+    }
     new Notice(errorToMessage(error));
   }
 }

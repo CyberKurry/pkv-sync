@@ -14,11 +14,14 @@ and this project adheres to semantic versioning starting at v1.0.0.
   confirm modal showing the target host before anything is written — any
   web page can trigger the scheme, so the link never connects silently.
   Confirming mirrors the settings-tab Connect button exactly
-  (commit → verify connection still current → resume, fenced by
+  (commit → verify connection still current → resume, and the same
+  localized failure notices — data-commit recovery warnings, first-run
+  setup guidance — instead of raw internal error codes, fenced by
   `parseServerUrl`'s https-off-loopback rules so a hostile link dies
-  before anything is staged); the saved address and deployment key only
-  prefill the connection — sign-in is still done with the user's own
-  account.
+  before anything is staged); the confirm button is single-shot, so a
+  double click cannot run two connect flows, and the saved address and
+  deployment key only prefill the connection — sign-in is still done
+  with the user's own account.
 - `pkvsyncd genkey` now also prints an `obsidian://pkv-connect` link
   template (host placeholder) after the config.toml snippet, so operators
   can see how the deployment key turns into a one-click plugin connect
