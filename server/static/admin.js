@@ -320,20 +320,40 @@
 
   // ---- Connect link copy button (settings page) --------------------
   // Delegated at the document level so it works no matter when the script
-  // runs. The "Copied" label is server-localized through the data
-  // attribute (dataset pattern, same as the theme buttons); English here
-  // is only a fallback.
+  // runs. The "Copied" label is server-localized through data attributes
+  // (dataset pattern, same as the theme buttons); English here is only a
+  // fallback. The original label is captured ONCE into the dataset so a
+  // second click within the 2s window restores the real label, not
+  // "Copied". Non-secure contexts (plain http on a LAN) and rejected
+  // clipboard writes both fall back to select + execCommand("copy").
+  function restoreConnectLabel(button) {
+    button.textContent = button.dataset.labelOriginal || button.textContent;
+  }
+
   document.addEventListener("click", function (event) {
     var button = event.target.closest("[data-connect-link-btn]");
     if (!button) return;
     var input = document.querySelector("[data-connect-link]");
     if (!input) return;
-    navigator.clipboard.writeText(input.value).then(function () {
-      var original = button.textContent;
+    if (!button.dataset.labelOriginal) {
+      button.dataset.labelOriginal = button.textContent;
+    }
+    function done() {
       button.textContent = button.dataset.labelCopied || "Copied";
       setTimeout(function () {
-        button.textContent = original;
+        restoreConnectLabel(button);
       }, 2000);
-    });
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(input.value).then(done, function () {
+        input.select();
+        document.execCommand("copy");
+        done();
+      });
+    } else {
+      input.select();
+      document.execCommand("copy");
+      done();
+    }
   });
 })();

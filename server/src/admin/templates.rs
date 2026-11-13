@@ -315,6 +315,9 @@ pub struct SettingsTemplate {
     /// Part A1 (spec §6.3.3): the obsidian:// connect link. Rendered only
     /// here, behind an admin session; never logged.
     pub connect_link: String,
+    /// False when the link falls back to the loopback bind address: the
+    /// template then renders the machine-local hint.
+    pub public_host_configured: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1438,6 +1441,7 @@ mod tests {
             extra_exclude_globs_display: String::new(),
             git_available: true,
             connect_link: "obsidian://pkv-connect?s=https://unit.test&k=k_test".into(),
+            public_host_configured: true,
         }
         .render()
         .unwrap();
@@ -1484,6 +1488,7 @@ mod tests {
             extra_exclude_globs_display: String::new(),
             git_available: true,
             connect_link: "obsidian://pkv-connect?s=https://unit.test&k=k_test".into(),
+            public_host_configured: false,
         }
         .render()
         .unwrap();
@@ -1570,6 +1575,7 @@ mod tests {
             extra_exclude_globs_display: String::new(),
             git_available: true,
             connect_link: "obsidian://pkv-connect?s=https://unit.test&k=k_test".into(),
+            public_host_configured: false,
         }
         .render()
         .unwrap();

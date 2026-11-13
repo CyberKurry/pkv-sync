@@ -198,7 +198,25 @@ fn valid_deployment_key(key: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// Part A1 (spec §6.3.3): best-effort obsidian:// connect link. Uses
+/// Canonical public_host normalization, shared with the admin CSRF origin
+/// check (`admin/csrf.rs`): trim, strip ONE `https://`/`http://` scheme
+/// prefix, drop trailing slashes, and treat whatever is left empty as
+/// "unset". A value that is only whitespace or only a scheme therefore
+/// reads as None.
+pub(crate) fn normalized_public_host(public_host: Option<&str>) -> Option<&str> {
+    let trimmed = public_host?.trim();
+    let host = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+        .unwrap_or(trimmed)
+        .trim_end_matches('/');
+    if host.is_empty() {
+        return None;
+    }
+    Some(host)
+}
+
+/// Part A1 (spec §6.3.3): best-effort obsidian://pkv-connect link. Uses
 /// public_host when configured; otherwise falls back to the loopback bind
 /// address (the plugin's parseServerUrl permits loopback http). Never
 /// logged — the deployment key must not re-enter logs (it is rendered
@@ -208,14 +226,9 @@ pub fn connect_deep_link(
     bind_addr: &str,
     deployment_key: &str,
 ) -> String {
-    let server = match public_host {
-        Some(host) if !host.trim().is_empty() => format!(
-            "https://{}",
-            host.trim()
-                .trim_start_matches("https://")
-                .trim_end_matches('/')
-        ),
-        _ => format!("http://{bind_addr}"),
+    let server = match normalized_public_host(public_host) {
+        Some(host) => format!("https://{host}"),
+        None => format!("http://{bind_addr}"),
     };
     format!("obsidian://pkv-connect?s={server}&k={deployment_key}")
 }
@@ -681,5 +694,56 @@ mod tests {
             link,
             "obsidian://pkv-connect?s=http://127.0.0.1:8080&k=k_abc"
         );
+    }
+
+    #[test]
+    fn connect_deep_link_normalizes_http_prefixed_public_host() {
+        // F2: an `http://`-prefixed public_host must strip the scheme once
+        // and serve the canonical https origin (same semantics as the CSRF
+        // origin check), not print `https://http://...`.
+        let link = connect_deep_link(Some("http://sync.example.com"), "127.0.0.1:8080", "k_abc");
+        assert_eq!(
+            link,
+            "obsidian://pkv-connect?s=https://sync.example.com&k=k_abc"
+        );
+    }
+
+    #[test]
+    fn connect_deep_link_falls_back_when_public_host_is_only_a_scheme() {
+        // F2: degenerate `"https://"` used to produce `s=https://&k=...`;
+        // empty-after-normalization counts as unset → bind-addr fallback.
+        let link = connect_deep_link(Some("https://"), "127.0.0.1:8080", "k_abc");
+        assert_eq!(
+            link,
+            "obsidian://pkv-connect?s=http://127.0.0.1:8080&k=k_abc"
+        );
+    }
+
+    #[test]
+    fn normalized_public_host_strips_scheme_once_and_treats_blank_as_unset() {
+        // F2: the shared helper converging config.rs with the CSRF origin
+        // check (`admin/csrf.rs`). One scheme strip, trailing slashes off,
+        // empty-after-strip is "unset".
+        assert_eq!(
+            normalized_public_host(Some(" https://example.test/ ")),
+            Some("example.test")
+        );
+        assert_eq!(
+            normalized_public_host(Some("http://example.test")),
+            Some("example.test")
+        );
+        assert_eq!(
+            normalized_public_host(Some("example.test")),
+            Some("example.test")
+        );
+        // Single strip: a double-prefixed value keeps its inner prefix
+        // (garbage in, garbage out — but never double-stripped).
+        assert_eq!(
+            normalized_public_host(Some("https://https://x")),
+            Some("https://x")
+        );
+        assert_eq!(normalized_public_host(Some("https://")), None);
+        assert_eq!(normalized_public_host(Some("   ")), None);
+        assert_eq!(normalized_public_host(None), None);
     }
 }

@@ -69,12 +69,14 @@ pub struct AdminCookiePolicy {
 pub struct AdminInsecureHatch(pub bool);
 
 /// Part A1 (spec §6.3.3): the obsidian:// connect link, computed once at
-/// router build. The deployment key never reaches logs (a past release
-/// deliberately stopped writing it into startup logs); the link is only
-/// rendered into the admin settings page, behind an admin session. Set as
-/// a request extension by `build_app`.
+/// router build, plus whether public_host was configured (false means the
+/// link points at the loopback bind address and is machine-local only).
+/// The deployment key never reaches logs (a past release deliberately
+/// stopped writing it into startup logs); the link is only rendered into
+/// the admin settings page, behind an admin session. Set as a request
+/// extension by `build_app`.
 #[derive(Clone)]
-pub struct AdminConnectLink(pub String);
+pub struct AdminConnectLink(pub String, pub bool);
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -3033,7 +3035,9 @@ async fn settings_page(
     _session: AdminSession,
 ) -> Result<Response, ApiError> {
     let cfg = state.runtime_cfg.snapshot().await;
-    Ok(render_html(SettingsTemplate {
+    // The page embeds the deployment key: no_store keeps it out of any
+    // shared/intermediate cache, same as the other key-bearing admin pages.
+    Ok(no_store(render_html(SettingsTemplate {
         t: admin_text(&headers, &cookies),
         max_file_size_display: crate::human::format_bytes(cfg.max_file_size),
         text_extensions_display: cfg.text_extensions.join(", "),
@@ -3041,7 +3045,8 @@ async fn settings_page(
         cfg,
         git_available: state.git_available,
         connect_link: link.0,
-    }))
+        public_host_configured: link.1,
+    })))
 }
 
 #[derive(Deserialize)]

@@ -113,16 +113,21 @@ pub fn build_app(state: AppState, cfg: &Config, limiter: LoginRateLimiter) -> Ro
     // Part A1: the connect link is computed once here from config and handed
     // to the settings page as an extension. The deployment key inside it is
     // never logged; it is rendered only behind an admin session.
+    // `public_host_configured` tells the settings page whether the link is
+    // shareable (https public_host) or machine-local (loopback fallback).
     let connect_link = crate::config::connect_deep_link(
         cfg.server.public_host.as_deref(),
         &cfg.server.bind_addr.to_string(),
         &cfg.server.deployment_key,
     );
+    let public_host_configured =
+        crate::config::normalized_public_host(cfg.server.public_host.as_deref()).is_some();
     let admin_routes = admin::handlers::router()
         .layer(tower_cookies::CookieManagerLayer::new())
         .layer(axum::extract::Extension(admin_cookie_policy))
         .layer(axum::extract::Extension(admin::handlers::AdminConnectLink(
             connect_link,
+            public_host_configured,
         )))
         .layer(axum::extract::Extension(
             admin::handlers::AdminInsecureHatch(insecure_hatch),

@@ -88,7 +88,7 @@ fn expected_origins(
     // rejected with 403 and a clear log line telling them what to configure.
     let Some(host) = policy
         .and_then(|p| p.public_host.as_deref())
-        .and_then(normalize_public_host)
+        .and_then(|host| crate::config::normalized_public_host(Some(host)))
     else {
         tracing::warn!(
             "admin CSRF rejected: public_host is not configured; set [server].public_host in config.toml"
@@ -101,18 +101,6 @@ fn expected_origins(
         trusted_forwarded_proto(headers, forwarded_from_trusted_proxy).unwrap_or("http")
     };
     Some(vec![format!("{proto}://{host}")])
-}
-
-fn normalize_public_host(public_host: &str) -> Option<&str> {
-    let host = public_host.trim().trim_end_matches('/');
-    if host.is_empty() {
-        return None;
-    }
-    Some(
-        host.strip_prefix("https://")
-            .or_else(|| host.strip_prefix("http://"))
-            .unwrap_or(host),
-    )
 }
 
 fn trusted_forwarded_proto(
@@ -299,16 +287,21 @@ mod tests {
 
     #[test]
     fn normalizes_public_host_scheme_and_trailing_slash() {
+        // F2: converged on the shared `config::normalized_public_host`;
+        // these assertions pin the CSRF-relevant subset here.
         assert_eq!(
-            normalize_public_host(" https://example.test/ "),
+            crate::config::normalized_public_host(Some(" https://example.test/ ")),
             Some("example.test")
         );
         assert_eq!(
-            normalize_public_host("http://example.test"),
+            crate::config::normalized_public_host(Some("http://example.test")),
             Some("example.test")
         );
-        assert_eq!(normalize_public_host("example.test"), Some("example.test"));
-        assert_eq!(normalize_public_host("   "), None);
+        assert_eq!(
+            crate::config::normalized_public_host(Some("example.test")),
+            Some("example.test")
+        );
+        assert_eq!(crate::config::normalized_public_host(Some("   ")), None);
     }
 
     // ------------------------------------------------------------------

@@ -1416,6 +1416,11 @@ async fn settings_page_renders_connect_link_with_copy_button() {
         .insert(header::COOKIE, session_cookie.parse().unwrap());
     let page_resp = app.oneshot(page_req).await.unwrap();
     assert_eq!(page_resp.status(), StatusCode::OK);
+    // F1: the page embeds the deployment key; it must not be cacheable.
+    assert_eq!(
+        page_resp.headers().get(header::CACHE_CONTROL).unwrap(),
+        "no-store"
+    );
     let body = read_body(page_resp).await;
 
     // This app sets public_host, so the link must carry it over https plus
@@ -1429,6 +1434,8 @@ async fn settings_page_renders_connect_link_with_copy_button() {
     assert!(body.contains("data-connect-link-btn"));
     assert!(body.contains("data-label-copied=\"Copied\""));
     assert!(body.contains(">Copy link</button>"));
+    // F5: a shareable link needs no loopback hint.
+    assert!(!body.contains("This link points at this machine only."));
 }
 
 #[tokio::test]
@@ -1442,11 +1449,19 @@ async fn settings_page_connect_link_falls_back_to_bind_addr_without_public_host(
         .insert(header::COOKIE, session_cookie.parse().unwrap());
     let page_resp = app.oneshot(page_req).await.unwrap();
     assert_eq!(page_resp.status(), StatusCode::OK);
+    // F1: same no-store guarantee on the loopback-link variant.
+    assert_eq!(
+        page_resp.headers().get(header::CACHE_CONTROL).unwrap(),
+        "no-store"
+    );
     let body = read_body(page_resp).await;
 
     // Without public_host the link falls back to the loopback bind address
     // over plain http (the plugin's parseServerUrl permits loopback http).
     assert!(body.contains("obsidian://pkv-connect?s=http://127.0.0.1:6710&amp;k="));
+    // F5: the loopback link is machine-local; the page must say so and
+    // point the operator at public_host.
+    assert!(body.contains("This link points at this machine only."));
 }
 
 #[tokio::test]

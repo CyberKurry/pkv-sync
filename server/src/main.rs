@@ -60,10 +60,20 @@ fn main() -> anyhow::Result<()> {
             // genkey has no host context, so this is a template only; the
             // full link with the real host is rendered on the admin
             // settings page. The key above is the operator's own terminal
-            // output (genkey exists to print it), never a log line.
+            // output (genkey exists to print it), never a log line. The
+            // line is DERIVED from connect_deep_link so the shape cannot
+            // drift; the bind argument is a dead placeholder (the
+            // public_host placeholder takes the branch that ignores it).
             println!();
             println!("Connect link template (fill in your server host):");
-            println!("  obsidian://pkv-connect?s=https://<your-server-host>&k={key}");
+            println!(
+                "  {}",
+                pkv_sync_server::config::connect_deep_link(
+                    Some("<your-server-host>"),
+                    "127.0.0.1:8080",
+                    &key
+                )
+            );
         }
         Command::User { op } => {
             if let UserOp::Add { username, .. } = &op {

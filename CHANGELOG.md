@@ -15,11 +15,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
   link; the fully computed link lives on the admin settings page.
 - Admin settings (Network section) now show the computed
   `obsidian://pkv-connect?s=<server>&k=<deployment_key>` connect link in a
-  readonly field with a copy button (localized "Copied" feedback). The
-  link uses `[server].public_host` over https and falls back to the loopback
-  bind address over plain http. The deployment key still never enters
-  logs: the link is computed once at router build and rendered only behind
-  an admin session.
+  readonly field with a copy button (localized "Copied" feedback; falls
+  back to select+copy on non-secure contexts). The link uses
+  `[server].public_host` over https and falls back to the loopback bind
+  address over plain http, with a localized hint when only the loopback
+  link is available. public_host normalization (one `https://`/`http://`
+  scheme strip, trailing slashes, blank → unset) is now one shared helper
+  used by both the connect link and the admin CSRF origin check. The page
+  is served `Cache-Control: no-store` like the other key-bearing admin
+  pages, and the deployment key still never enters logs: the link is
+  computed once at router build and rendered only behind an admin session.
 - Plugin setting "Prune folders emptied by remote deletions" (on by
   default) with a first-run notice: the first time the sync engine
   prunes an emptied folder, one Notice names the folder and points at
