@@ -24,6 +24,19 @@ and this project adheres to semantic versioning starting at v1.0.0.
   drive) rather than a whole-vault deletion, and only then lets the
   user push the deletions exactly once.
 
+### Changed
+
+- MCP `search`: vaults with more than 5000 visible files no longer fail
+  with "too many files to search". The 5000-file listing window is now a
+  cap reported as `tree_capped: true` with a `next_after` cursor to page
+  through the rest, and content-budget exhaustion likewise stops the page
+  with a cursor instead of erroring — a page may now legitimately return
+  zero matches with a non-null `next_after` (keep paging until it is
+  null). The budget cursor resumes after the last fully scanned file, so
+  runs of no-match files cannot livelock pagination. Only a single file
+  larger than the whole content budget still errors, because no progress
+  is possible in that case.
+
 ### Fixed
 
 - Plugin sync: folders emptied by a remote delete are now pruned. When a

@@ -300,25 +300,29 @@ async fn search_finds_case_insensitive_text_matches_and_skips_binary_and_blob_co
     );
 }
 
-#[tokio::test]
-async fn search_rejects_trees_over_safe_file_limit() {
-    let (state, _tmp) = test_state().await;
-    let user_id = create_user(&state, "large").await;
-    let vault = state.vaults.create(&user_id, "main").await.unwrap();
+async fn seed_vault(state: &AppState, owner: &str, name: &str, files: Vec<FileChange>) -> String {
+    let vault = state.vaults.create(owner, name).await.unwrap();
     let git = Git2VaultStore::new(state.default_vault_root());
-    let changes = (0..=5000)
-        .map(|i| FileChange::upsert_text(format!("notes/{i}.md"), b"needle".to_vec()))
-        .collect::<Vec<_>>();
-    git.commit_changes(&vault.id, None, &changes, "large")
+    git.commit_changes(&vault.id, None, &files, "seed")
         .await
         .unwrap();
+    vault.id
+}
 
-    let err = search(
+#[tokio::test]
+async fn search_caps_instead_of_failing_beyond_5000_files() {
+    let (state, _tmp) = test_state().await;
+    let owner = create_user(&state, "owner").await;
+    let files: Vec<FileChange> = (0..5001)
+        .map(|i| FileChange::upsert_text(format!("p/f{i:05}.md"), format!("body {i}").into_bytes()))
+        .collect();
+    let vault = seed_vault(&state, &owner, "big", files).await;
+    let out = search(
         &state,
-        &user_id,
+        &owner,
         SearchInput {
-            vault_id: vault.id,
-            query: "needle".into(),
+            vault_id: vault,
+            query: "zzqxnohitneedle".into(),
             at: None,
             limit: None,
             path_prefix: None,
@@ -327,7 +331,13 @@ async fn search_rejects_trees_over_safe_file_limit() {
         },
     )
     .await
-    .unwrap_err();
-
-    assert!(err.to_string().contains("too many files"));
+    .unwrap();
+    assert!(
+        out.tree_capped,
+        "5001 files must set tree_capped, not error"
+    );
+    assert!(
+        out.next_after.is_some(),
+        "a capped window must be resumable"
+    );
 }

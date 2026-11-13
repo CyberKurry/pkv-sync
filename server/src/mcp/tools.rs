@@ -215,6 +215,9 @@ pub struct SearchOutput {
     /// Opaque cursor to pass as `after` for the next page, or null when the
     /// walk finished. Best-effort snapshot: pin `at` for a stable walk.
     pub next_after: Option<String>,
+    /// The listing window was truncated at SEARCH_MAX_TREE_FILES; more
+    /// files exist — page with next_after to reach them.
+    pub tree_capped: bool,
 }
 
 /// Exact resume position for `search` pagination. `line` is the 1-based
@@ -818,6 +821,7 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         return Ok(SearchOutput {
             matches: Vec::new(),
             next_after: None,
+            tree_capped: false,
         });
     }
 
@@ -849,7 +853,7 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     // already sort; search joins them).
     let mut tree = tree;
     tree.sort_by(|left, right| left.path.cmp(&right.path));
-    // The tree-size gate counts what this call will actually scan: prefix
+    // The tree-size window counts what this call will actually scan: prefix
     // and cursor first, so a big vault with a small wiki layer stays
     // searchable (the Synthesis-Horizon case the filter exists for).
     let visible_count = tree
@@ -864,9 +868,10 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         })
         .take(SEARCH_MAX_TREE_FILES + 1)
         .count();
-    if visible_count > SEARCH_MAX_TREE_FILES {
-        bail!("too many files to search: {}", visible_count);
-    }
+    // 2b (spec §5.2b): the tree window is a CAP, not a hard failure — a
+    // page returns what it scanned plus a cursor; clients page to see the
+    // rest.
+    let tree_capped = visible_count > SEARCH_MAX_TREE_FILES;
 
     let classifier = TextClassifier::default();
     let needle = input.query.to_ascii_lowercase();
@@ -884,6 +889,13 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
     // remaining budget never enters the chunk (H-3).
     let mut exhausted = true;
     let mut last_consumed_path: Option<(String, usize)> = None;
+    // 2b (spec §5.2b): `last_consumed_path` only moves on MATCH lines, so a
+    // budget/window stop cursor built from it livelocks over a run of
+    // no-match files (same cursor forever). `last_scanned` advances after
+    // every file the page fully accounted for, and is what budget/window
+    // stop cursors resume from.
+    let mut last_scanned: Option<String> = None;
+    let mut budget_stop = false;
     let mut iter = tree
         .into_iter()
         .filter(|entry| sync::path_visible_on_read(&filter, &entry.path))
@@ -893,8 +905,9 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
                 .as_ref()
                 .map(|cursor| entry.path.as_str() >= cursor.path.as_str())
                 .unwrap_or(true)
-        });
-    loop {
+        })
+        .take(SEARCH_MAX_TREE_FILES);
+    'outer: loop {
         let mut candidates: Vec<(String, u64)> = Vec::new();
         for entry in iter.by_ref() {
             if matches.len() >= limit {
@@ -918,7 +931,13 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
             (SEARCH_MAX_TOTAL_BYTES.saturating_sub(searched_bytes)) as u64,
         );
         if budget_exhausted {
-            bail!("search content budget exceeded");
+            // 2b (spec §5.2b): the NEXT entry overflows the remaining
+            // budget, but the collected chunk itself fits — scan the chunk,
+            // then stop the page with a cursor. The overflowing entry is
+            // re-read next page against a fresh budget. When the chunk is
+            // empty (a single file exceeds the whole budget) nothing was
+            // scanned and the output stage re-raises the hard error.
+            budget_stop = true;
         }
         if chunk.is_empty() {
             break;
@@ -942,8 +961,21 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
             // budget into a silent success.
             searched_bytes = searched_bytes.saturating_add(size as usize);
             if searched_bytes > SEARCH_MAX_TOTAL_BYTES {
-                bail!("search content budget exceeded");
+                // 2b (spec §5.2b): stop with a cursor instead of erroring.
+                // This fires BEFORE the file's line loop, so `last_scanned`
+                // must NOT advance to it — the next page re-reads it with a
+                // fresh budget.
+                break 'outer;
             }
+            // The file's bytes are now fully counted against the budget, so
+            // every path below — non-text, invalid UTF-8, frontmatter drop,
+            // full line scan, limit stop — has accounted for it as far as
+            // search semantics go: its remaining lines can never match, and
+            // re-reading it on the next page would only re-spend budget.
+            // Advancing the watermark here (before the continues) makes all
+            // non-budget-fatal paths count the file as scanned; only the
+            // budget break above skips it, on purpose.
+            last_scanned = Some(path.clone());
             let Some(StoredFile::Text { bytes }) = file else {
                 continue;
             };
@@ -1006,13 +1038,36 @@ pub async fn search(state: &AppState, user_id: &str, input: SearchInput) -> Resu
         if !exhausted {
             break;
         }
+        if budget_stop {
+            // The chunk above fit the budget; the NEXT entry did not. Stop
+            // the page here — the cursor stage turns `last_scanned` into
+            // the resume point.
+            break 'outer;
+        }
     }
+
+    let next_after = if !exhausted {
+        // limit reached mid-file: resume inside that file (unchanged)
+        last_consumed_path.map(|(path, line)| SearchCursor { path, line }.encode())
+    } else if budget_stop {
+        match budget_stop_cursor(&last_scanned, &last_consumed_path) {
+            Some(cursor) => Some(cursor),
+            // Nothing was fully scanned before the budget died (a single
+            // file exceeds the whole budget): no progress is possible,
+            // so the old hard error is more honest than a silent stop.
+            None => bail!("search content budget exceeded"),
+        }
+    } else if tree_capped {
+        // The window scanned its cap; files beyond it exist.
+        budget_stop_cursor(&last_scanned, &last_consumed_path)
+    } else {
+        None
+    };
 
     Ok(SearchOutput {
         matches,
-        next_after: (!exhausted)
-            .then(|| last_consumed_path.map(|(path, line)| SearchCursor { path, line }.encode()))
-            .flatten(),
+        next_after,
+        tree_capped,
     })
 }
 
@@ -1778,6 +1833,30 @@ pub async fn changes_since(
 /// non-addressable to agents regardless of per-vault read allowlists.
 fn mcp_path_visible(filter: &SyncPathFilter, path: &str) -> bool {
     crate::mcp::link_scan::mcp_visible(filter, path)
+}
+
+/// 2b: cursor for a budget or window stop (spec §5.2b). Resumes AFTER the
+/// last fully scanned file when it yielded no matches (line = MAX skips the
+/// whole file on resume, since `line_number <= first_line` filters every
+/// line), or INSIDE it at the last returned match. Using the match-only
+/// `last_consumed_path` here livelocks: over a run of no-match files the
+/// cursor would never advance.
+fn budget_stop_cursor(
+    last_scanned: &Option<String>,
+    last_consumed: &Option<(String, usize)>,
+) -> Option<String> {
+    let path = last_scanned.as_ref()?;
+    let line = match last_consumed {
+        Some((consumed_path, line)) if consumed_path == path => *line,
+        _ => usize::MAX,
+    };
+    Some(
+        SearchCursor {
+            path: path.clone(),
+            line,
+        }
+        .encode(),
+    )
 }
 
 fn contains_ascii_case_insensitive(haystack: &str, lowercase_needle: &str) -> bool {
@@ -2918,7 +2997,7 @@ static TOOL_DEFINITIONS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         tool(
             "search",
-            "Search text files in a vault with case-insensitive substring matching, optionally scoped by path prefix, top-level frontmatter keys, and a pagination cursor.",
+            "Search text files in a vault with case-insensitive substring matching, optionally scoped by path prefix, top-level frontmatter keys, and a pagination cursor. A page may return zero matches with a non-null next_after — keep paging until next_after is null; tree_capped reports that the 5000-file listing window was truncated (resume with next_after).",
             object(serde_json::json!({
                 "type": "object",
                 "required": ["vault_id", "query"],
@@ -4169,8 +4248,10 @@ mod tests {
             .await
             .unwrap();
 
-        // Unscoped, the same vault still trips the cap.
-        let err = search(
+        // Unscoped, the same vault still trips the cap — since 2b that is a
+        // capped window plus a cursor, not an error. The wiki file sorts
+        // beyond the 5000-entry window, so it is not in this page.
+        let out = search(
             &state,
             &user_id,
             SearchInput {
@@ -4184,11 +4265,13 @@ mod tests {
             },
         )
         .await
-        .unwrap_err();
+        .unwrap();
+        assert!(out.tree_capped, "expected the tree cap, got a full window");
         assert!(
-            err.to_string().contains("too many files to search"),
-            "expected the tree cap, got: {err}"
+            out.next_after.is_some(),
+            "a capped window must be resumable"
         );
+        assert!(out.matches.is_empty());
 
         // Scoped to the wiki layer, the cap counts what the call scans.
         let out = search(
@@ -4206,6 +4289,7 @@ mod tests {
         )
         .await
         .unwrap();
+        assert!(!out.tree_capped);
         assert_eq!(out.matches.len(), 1);
         assert_eq!(out.matches[0].path, "wiki/one.md");
 
@@ -4226,6 +4310,62 @@ mod tests {
         .await
         .unwrap();
         assert!(out.matches.is_empty());
+    }
+
+    /// 2b (spec §5.2b): budget exhaustion must stop the page with a cursor
+    /// that strictly advances, even when NO file ever matches. A cursor
+    /// derived from the match-only `last_consumed_path` livelocks here: it
+    /// stays None over a run of no-match files, so every page would restart
+    /// from the top of the vault. Lives in the inline module because the
+    /// 64 KiB cfg(test) budget is what makes 10 x 16 KiB files trip it.
+    #[tokio::test]
+    async fn search_budget_stop_cursor_strictly_advances() {
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        let git = Git2VaultStore::new(state.default_vault_root());
+        // cfg(test) budget is 64 KiB: 10 files x 16 KiB forces a budget stop
+        // with zero matches anywhere.
+        let files: Vec<FileChange> = (0..10)
+            .map(|i| FileChange::upsert_text(format!("p/f{i:02}.md"), vec![b'.'; 16 * 1024]))
+            .collect();
+        git.commit_changes(&vault_id, None, &files, "seed")
+            .await
+            .unwrap();
+        let mut after: Option<String> = None;
+        let mut previous_path = String::new();
+        for page in 0..20 {
+            let out = search(
+                &state,
+                &user_id,
+                SearchInput {
+                    vault_id: vault_id.clone(),
+                    query: "zzqxnohitneedle".into(),
+                    at: None,
+                    limit: None,
+                    path_prefix: None,
+                    frontmatter: None,
+                    after: after.clone(),
+                },
+            )
+            .await
+            .unwrap();
+            assert!(out.matches.is_empty());
+            let Some(next) = out.next_after else {
+                assert!(
+                    page > 0,
+                    "page 1 must not claim completion with unscanned files"
+                );
+                return;
+            };
+            let decoded: serde_json::Value = serde_json::from_str(&next).unwrap();
+            let path = decoded["path"].as_str().unwrap().to_string();
+            assert!(
+                path > previous_path,
+                "cursor must strictly advance: {path:?} vs {previous_path:?}"
+            );
+            previous_path = path;
+            after = Some(next);
+        }
+        panic!("pagination did not terminate within 20 pages");
     }
 
     /// R4-3: an unsupported filter value must be refused, not silently
@@ -6252,17 +6392,17 @@ mod tests {
         assert!(err.to_string().contains("search content budget exceeded"));
     }
 
-    // H-3 user-visible contract across the budget boundary: with the cfg(test)
-    // budget of 64 KiB, two exact-fit 32 KiB files plus a small third file
-    // containing the query overrun the budget at the third file, and the
-    // request must fail with the budget message. This pins ONLY that
-    // externally visible error, which is byte-identical before and after the
-    // H-3 fix (post-read accumulation vs pre-read gating on tree entry
-    // sizes) — it says nothing about what was materialized. The memory bound
-    // itself is pinned by `search_oversized_entry_never_reaches_a_read_batch`
+    // H-3 user-visible contract across the budget boundary, updated for 2b
+    // (spec §5.2b): with the cfg(test) budget of 64 KiB, two exact-fit
+    // 32 KiB files plus a small third file containing the query overrun
+    // the budget at the third file. The page used to fail with the budget
+    // message; it now stops after the files that fit and returns a cursor
+    // positioned AFTER the last scanned no-match file, so the next page
+    // reaches the file the budget blocked. The memory bound itself is
+    // pinned by `search_oversized_entry_never_reaches_a_read_batch`
     // below (T-2/T-9).
     #[tokio::test]
-    async fn search_budget_overrun_at_next_file_errors() {
+    async fn search_budget_overrun_at_next_file_stops_with_cursor() {
         let (state, user_id, vault_id, _tmp) = state_user_vault().await;
         let git = Git2VaultStore::new(state.default_vault_root());
         git.commit_changes(
@@ -6278,11 +6418,11 @@ mod tests {
         .await
         .unwrap();
 
-        let err = search(
+        let out = search(
             &state,
             &user_id,
             SearchInput {
-                vault_id,
+                vault_id: vault_id.clone(),
                 query: "needle".into(),
                 at: None,
                 limit: None,
@@ -6292,20 +6432,53 @@ mod tests {
             },
         )
         .await
-        .unwrap_err();
+        .unwrap();
 
         assert!(
-            err.to_string().contains("search content budget exceeded"),
-            "expected budget error, got: {err}"
+            out.matches.is_empty(),
+            "nothing in the scanned window matches"
         );
+        assert!(!out.tree_capped);
+        let next = out.next_after.expect("budget stop must be resumable");
+        let decoded: serde_json::Value = serde_json::from_str(&next).unwrap();
+        assert_eq!(
+            decoded["path"], "b.md",
+            "cursor sits on the last scanned file"
+        );
+        assert_eq!(
+            decoded["line"].as_u64(),
+            Some(u64::MAX),
+            "a no-match last scanned file must be skipped whole on resume"
+        );
+
+        // Paging with that cursor reaches the file the budget blocked.
+        let page2 = search(
+            &state,
+            &user_id,
+            SearchInput {
+                vault_id: vault_id,
+                query: "needle".into(),
+                at: None,
+                limit: None,
+                path_prefix: None,
+                frontmatter: None,
+                after: Some(next),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(page2.matches.len(), 1);
+        assert_eq!(page2.matches[0].path, "c.md");
+        assert!(page2.next_after.is_none(), "the walk finished on page 2");
     }
 
     /// T-2: H-3's invariant is a memory bound, not an error message. An entry
     /// larger than the whole content budget must never be handed to
     /// `read_files`, because `read_files` materializes every path it is given
     /// (that is how 64 x 100 MiB reached ~6.4 GiB before the budget fired).
-    /// The user-visible error cannot pin this: post-read accumulation emits
-    /// the same "search content budget exceeded". The read batches themselves
+    /// The page result cannot pin this: since 2b the outcome is a cursor
+    /// either way, whether the oversized entry was gated out pre-read or
+    /// would have tripped the post-read guard. The read batches themselves
     /// are observed through the test-only probe in `storage::git::read_probe`
     /// (see its docs for why a recording `GitVaultStore` decorator cannot be
     /// injected here).
@@ -6325,7 +6498,7 @@ mod tests {
         .await
         .unwrap();
 
-        let err = search(
+        let out = search(
             &state,
             &user_id,
             SearchInput {
@@ -6339,11 +6512,17 @@ mod tests {
             },
         )
         .await
-        .unwrap_err();
-        assert!(
-            err.to_string().contains("search content budget exceeded"),
-            "expected budget error, got: {err}"
-        );
+        .unwrap();
+        // 2b: the page stops with a cursor after the fitting file instead
+        // of erroring; the oversized entry is what the cursor skips past on
+        // the next page. The last scanned file DID match, so the cursor
+        // resumes inside it at the match line.
+        assert_eq!(out.matches.len(), 1);
+        assert_eq!(out.matches[0].path, "small.md");
+        let next = out.next_after.expect("budget stop must be resumable");
+        let decoded: serde_json::Value = serde_json::from_str(&next).unwrap();
+        assert_eq!(decoded["path"], "small.md");
+        assert_eq!(decoded["line"].as_u64(), Some(1));
 
         let oversized_batches = read_probe::batches_containing("zz-oversized.md");
         assert!(
