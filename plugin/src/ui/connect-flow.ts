@@ -13,7 +13,7 @@ import { localStateErrorMessage } from "./local-state-error";
  * interface explicit lets the hostile-link regression run against the
  * real plugin prototype (migration harness) without booting onload().
  */
-export interface ConnectDeepLinkHost {
+export interface ConnectFlowHost {
   setConnectionPatch(patch: {
     serverUrl: string;
     deploymentKey: string;
@@ -44,7 +44,7 @@ export interface ConnectDeepLinkHost {
  * path, exactly as its inline flow did.
  */
 export async function runConnectFlow(
-  host: ConnectDeepLinkHost,
+  host: ConnectFlowHost,
   t: Strings,
   server: string,
   deploymentKey: string,

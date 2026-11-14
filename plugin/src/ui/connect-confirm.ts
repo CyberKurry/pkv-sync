@@ -1,6 +1,6 @@
 import { type App, Modal } from "obsidian";
 import { format, type Strings } from "../i18n";
-import { runConnectFlow, type ConnectDeepLinkHost } from "./connect-flow";
+import { runConnectFlow, type ConnectFlowHost } from "./connect-flow";
 
 /** Part 3A (spec §6.3.2): obsidian://pkv-connect links can be triggered by
  * any web page — never connect silently. Shows the target host and only
@@ -57,7 +57,7 @@ export class ConnectConfirmModal extends Modal {
  * path; the hostile-link regression suite targets this entry point.
  */
 export async function applyConnectDeepLink(
-  plugin: ConnectDeepLinkHost,
+  plugin: ConnectFlowHost,
   t: Strings,
   server: string,
   deploymentKey: string
