@@ -30,6 +30,10 @@ export class EmptyScanConfirmModal extends Modal {
       cls: "mod-warning"
     });
     accept.addEventListener("click", () => {
+      // close() only starts the closing animation; without this the
+      // button stays clickable and a double click fires twice (the
+      // connect confirm modal does the same).
+      accept.disabled = true;
       this.close();
       this.onAccept();
     });

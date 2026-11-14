@@ -98,6 +98,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin empty-vault confirm: the accept button is now single-shot like
+  the connect confirm modal's — it disables itself on the first click,
+  so a double click cannot re-fire the confirmation. Arming was already
+  idempotent and the sync coalesces, so this aligns the two modals'
+  click behavior rather than fixing a double-run.
 - Plugin commands: three commands still read the strings snapshot
   captured at plugin startup, so their text ignored a language change
   until reload — the show-status flash notice, the account-refresh
