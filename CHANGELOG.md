@@ -168,6 +168,10 @@ and this project adheres to semantic versioning starting at v1.0.0.
   to the prefix — subtrees that cannot contain it are never opened and
   blobs outside it never read an object header, so a narrow wiki layer
   no longer pays for listing the whole vault tree.
+- MCP `link_graph` with a `path_prefix`: same pruned walk as `search` —
+  the graph build previously post-filtered a full-vault `list_tree` by
+  the prefix; now the walk itself is scoped to the subtree, so a
+  narrow layer's link graph no longer pays for listing the whole tree.
 
 ## [1.9.0] - 2026-11-08
 

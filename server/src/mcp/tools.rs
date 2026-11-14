@@ -1404,7 +1404,15 @@ pub async fn link_graph(
         Some(prefix) => normalize_mcp_path(prefix)?,
         None => String::new(),
     };
-    let mut tree = git.list_tree(&input.vault_id, input.at.as_deref()).await?;
+    // 2c (spec §5.2c): with a `path_prefix`, walk only that subtree (the
+    // same pruned walk `search` uses) instead of post-filtering a full
+    // vault walk — a narrow wiki layer no longer pays for the whole tree.
+    let mut tree = if prefix.is_empty() {
+        git.list_tree(&input.vault_id, input.at.as_deref()).await?
+    } else {
+        git.list_tree_under(&input.vault_id, input.at.as_deref(), &prefix)
+            .await?
+    };
     tree.sort_by(|left, right| left.path.cmp(&right.path));
 
     let limit = input
