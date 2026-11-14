@@ -98,6 +98,15 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin commands: three commands still read the strings snapshot
+  captured at plugin startup, so their text ignored a language change
+  until reload — the show-status flash notice, the account-refresh
+  success/failure notices (and its status-bar error line), and the
+  empty-vault confirm modal (title, warning body, buttons and its
+  not-configured notices). All command callbacks now read
+  `plugin.text()` at invocation time, matching the rest of the file;
+  command-palette names still register once at startup, as Obsidian
+  requires, so a language change still needs a reload to re-name them.
 - Plugin sync: folders emptied by a remote delete are now pruned. When a
   pulled deletion removes the last file under a path, the emptied parent
   folders used to linger on every client. The delete now walks the parent

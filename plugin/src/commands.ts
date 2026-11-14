@@ -13,17 +13,22 @@ export function registerCommands(plugin: PKVSyncPlugin, t: Strings): void {
   plugin.addCommand({
     id: "show-status",
     name: t.showStatusCommand,
-    callback: () =>
+    callback: () => {
+      // Fresh text() per invocation: the registration-time `t` would keep
+      // speaking the language that was configured at startup.
+      const current = plugin.text();
       new Notice(
         isLoggedIn(plugin.settings)
-          ? t.noticeConnected
-          : t.noticeNotConfigured
-      )
+          ? current.noticeConnected
+          : current.noticeNotConfigured
+      );
+    }
   });
   plugin.addCommand({
     id: "refresh-account",
     name: t.refreshAccountCommand,
     callback: async () => {
+      const current = plugin.text();
       try {
         const stamp = await plugin.captureConnection();
         const me = await plugin.apiForConnection(stamp).me();
@@ -34,10 +39,10 @@ export function registerCommands(plugin: PKVSyncPlugin, t: Strings): void {
         if (!accepted) return;
         await plugin.resumeSyncForCurrentScope(accepted);
         if (!plugin.isConnectionCurrent(accepted)) return;
-        new Notice(format(t.refreshedVaults, { count: me.vaults.length }));
+        new Notice(format(current.refreshedVaults, { count: me.vaults.length }));
       } catch (error) {
         new Notice(errorToMessage(error));
-        plugin.statusEl?.setText(statusText("error", t.refreshFailed, t));
+        plugin.statusEl?.setText(statusText("error", current.refreshFailed, current));
       }
     }
   });
@@ -50,25 +55,29 @@ export function registerCommands(plugin: PKVSyncPlugin, t: Strings): void {
     id: "confirm-empty-vault-deletions",
     name: t.confirmEmptySyncCommand,
     callback: () => {
+      const current = plugin.text();
       const engine = plugin.engine;
       if (!engine || !isLoggedIn(plugin.settings)) {
-        new Notice(t.noticeNotConfigured);
+        new Notice(current.noticeNotConfigured);
         return;
       }
       new EmptyScanConfirmModal(
         plugin.app,
-        t,
+        current,
         engine.heldDeletionCount(),
         () => {
           // The modal can outlive the engine generation it was opened
           // against (rebuild/invalidate, M-10): re-resolve and never arm
-          // a confirmation onto a different or missing engine.
-          const current = plugin.engine;
-          if (!current || current !== engine) {
-            new Notice(t.noticeNotConfigured);
+          // a confirmation onto a different or missing engine. The accept
+          // also fires long after the command ran, so its notice reads
+          // text() again rather than the command-time snapshot.
+          const atAccept = plugin.text();
+          const active = plugin.engine;
+          if (!active || active !== engine) {
+            new Notice(atAccept.noticeNotConfigured);
             return;
           }
-          current.allowEmptyScanDeletesOnce();
+          active.allowEmptyScanDeletesOnce();
           void plugin.syncNowManual();
         }
       ).open();
