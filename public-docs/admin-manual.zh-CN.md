@@ -207,6 +207,8 @@ https://sync.example.com/k_xxx/
 
 请把它视为敏感信息。它不是用户密码，但包含部署密钥，是插件 API 流量的第一道预认证入口。
 
+设置页同时提供可复制的连接链接与同 `obsidian://pkv-connect` 地址的二维码。
+
 ## 升级 PKV Sync
 
 二进制部署可先运行 `pkvsyncd upgrade --dry-run` 预览最新 release、目标资产和旁路写入路径。运行 `pkvsyncd upgrade --yes` 会把校验后的 release 二进制下载到当前可执行文件旁边的 `pkvsyncd.new`（Windows 为 `pkvsyncd.new.exe`）。命令会根据 `SHA256SUMS` 校验 SHA-256，并打印 systemd／手动替换步骤；它不会热替换正在运行的进程。

@@ -54,6 +54,13 @@ https://sync.example.com/k_xxx/
 Open **Settings -> PKV Sync**, paste the share URL, then click **Connect**. If
 the deployment key is embedded in the URL, the plugin fills it automatically.
 
+If the server administrator shares a connect link or QR code (the link looks
+like `obsidian://pkv-connect?s=https://sync.example.com&k=k_xxx`), clicking
+it opens Obsidian, asks you to confirm the server host, and prefills the
+server URL and deployment key automatically. On mobile, scan the QR code
+with the system camera and open the link in Obsidian. You still sign in with
+your own account afterwards.
+
 In 1.7.2, Connect reports setup, deployment-key and network errors for the
 current attempt. A setup-required response asks you to open the server URL in
 a browser first. Errors from superseded attempts are discarded.

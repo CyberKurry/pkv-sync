@@ -295,8 +295,13 @@ the only transport this subcommand serves. It exposes the full toolset:
 `move_file` for history-preserving renames or archival moves. Write tools are
 rate-limited at 60 writes per minute per `(token, vault)`, and a
 `write_files` batch spends one write record. Search requests scan at most
-5000 visible tree files, return at most 500 matches, and abort with an error
-after 256 MiB of searched text in production. `link_graph` scans at most 5000
+5000 visible tree files per call — beyond that the response carries
+`tree_capped: true` with a `next_after` cursor, and pages may return zero
+matches with a non-null cursor (only a null cursor means the walk finished)
+— return at most 500 matches per page, and stop with a resumable cursor
+after 256 MiB of searched text in production (a single file larger than the
+whole budget still errors). Pin `at` for a stable walk while paging an
+actively-synced vault. `link_graph` scans at most 5000
 visible text files with the same production text budget and reports
 `truncated` instead of failing, and `changes_since` returns at most 5000
 visible change entries. Binary/blob read responses above 64 MiB are rejected

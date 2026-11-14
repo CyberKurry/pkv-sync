@@ -259,7 +259,7 @@ pkvsyncd mcp --vault <VAULT-ID> [--token <PKS-TOKEN>]
 
 ### 说明
 
-`stdio` 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC；这个子命令只提供 stdio 一种传输。它暴露完整工具集：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files` 和 `move_file`。`write_files` 适合原子的多页 wiki 编辑，`move_file` 适合保留历史的重命名或归档移动。写入类工具按 `(token, vault)` 限流为每分钟 60 次写入，且一个 `write_files` 批次只消耗一次写入记录。搜索请求最多扫描 5000 个可见 tree 文件、返回 500 条匹配，并在生产环境搜索文本累计超过 256 MiB 后报错中止。`link_graph` 最多扫描 5000 个可见文本文件，并使用同一个生产文本预算，但会返回 `truncated` 而不是失败；`changes_since` 最多返回 5000 条可见变更。超过 64 MiB 的二进制/blob 读取响应会被拒绝，而不是被 base64 展开进 JSON。两个协议时代都可用：旧版 `initialize` 客户端和现代 2026-07-28 客户端，后者包括 `subscriptions/listen`（以 `notifications/cancelled` 终止）。
+`stdio` 模式从 stdin 读取 JSON-RPC，并向 stdout 写入 JSON-RPC；这个子命令只提供 stdio 一种传输。它暴露完整工具集：`list_vaults`、`list_files`、`read_file`、`read_file_at_commit`、`search`、`link_graph`、`changes_since`、`write_file`、`delete_file`、`write_files` 和 `move_file`。`write_files` 适合原子的多页 wiki 编辑，`move_file` 适合保留历史的重命名或归档移动。写入类工具按 `(token, vault)` 限流为每分钟 60 次写入，且一个 `write_files` 批次只消耗一次写入记录。搜索请求每次调用最多扫描 5000 个可见 tree 文件——超出时响应携带 `tree_capped: true` 与 `next_after` 游标，且某一页可能零命中但游标非空（只有游标为 null 才表示遍历完成）；每页最多返回 500 条匹配，生产环境搜索文本累计超过 256 MiB 后以可续游标停止（单个文件超过整个预算仍会报错）。在活跃同步的库上翻页时请固定 `at` 以获得稳定遍历。`link_graph` 最多扫描 5000 个可见文本文件，并使用同一个生产文本预算，但会返回 `truncated` 而不是失败；`changes_since` 最多返回 5000 条可见变更。超过 64 MiB 的二进制/blob 读取响应会被拒绝，而不是被 base64 展开进 JSON。两个协议时代都可用：旧版 `initialize` 客户端和现代 2026-07-28 客户端，后者包括 `subscriptions/listen`（以 `notifications/cancelled` 终止）。
 
 独立 MCP HTTP 模式（`--transport http --bind`）已在本版本移除。MCP HTTP 现在仅内嵌提供：`pkvsyncd serve` 会在主服务端口挂载 `/mcp`，且 `[mcp].embed_in_serve` 默认为 `true`（设为 `false` 可禁用）。原有的独立部署请改为指向主服务的 `/mcp`。
 

@@ -209,6 +209,8 @@ https://sync.example.com/k_xxx/
 
 민감한 정보로 다루세요. 사용자 비밀번호는 아니지만 배포 키를 포함하며 플러그인 API 트래픽의 첫 번째 사전 인증 관문입니다.
 
+설정 페이지에는 복사 가능한 연결 링크와 동일한 `obsidian://pkv-connect` URL의 QR 코드도 표시됩니다.
+
 ## PKV Sync 업그레이드
 
 바이너리 설치에서는 `pkvsyncd upgrade --dry-run`으로 최신 릴리스, 대상 에셋,

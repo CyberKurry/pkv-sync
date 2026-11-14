@@ -207,6 +207,8 @@ https://sync.example.com/k_xxx/
 
 請把它視為敏感資訊。它不是使用者密碼，但包含部署金鑰，是外掛 API 流量的第一道預認證入口。
 
+設定頁同時提供可複製的連線連結與同 `obsidian://pkv-connect` 位址的 QR code。
+
 ## 升級 PKV Sync
 
 二進位安裝請用 `pkvsyncd upgrade --dry-run` 預覽最新發行版、目標資產與並存的

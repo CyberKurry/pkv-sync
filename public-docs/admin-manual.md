@@ -345,6 +345,9 @@ https://sync.example.com/k_xxx/
 Treat it as sensitive. It is not a user password, but it carries the deployment
 key used as the first pre-authentication gate for plugin API traffic.
 
+The settings page also shows a copyable connect link and a QR code of the same
+`obsidian://pkv-connect` URL.
+
 ## Upgrading PKV Sync
 
 For binary installs, use `pkvsyncd upgrade --dry-run` to preview the latest
