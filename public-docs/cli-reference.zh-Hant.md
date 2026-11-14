@@ -74,13 +74,21 @@ pkvsyncd genkey
 
 ### 說明
 
-向 stdout 印出一組以密碼學亂數產生的 `k_*` token。請將該值貼到 `config.toml`，並透過你自有的安全通道分發給外掛／管理端的客戶端。
+向 stdout 印出一組以密碼學亂數產生的 `k_*` token，接著是一段可直接貼上的 `config.toml` 片段，以及一組連線連結範本，展示金鑰如何變成 `obsidian://pkv-connect` URL——其中的主機佔位符請自行填入；完整計算好的連結顯示在管理端設定頁。請將該值貼到 `config.toml`，並透過你自有的安全通道分發給外掛／管理端的客戶端。
 
 ### 範例
 
 ```bash
 pkvsyncd genkey
 # k_3f4a5e6b7c8d9e0f1a2b3c4d5e6f7a8b
+#
+# Paste this into config.toml:
+#
+# [server]
+# deployment_key = "k_3f4a5e6b7c8d9e0f1a2b3c4d5e6f7a8b"
+#
+# Connect link template (fill in your server host):
+#   obsidian://pkv-connect?s=https://<your-server-host>&k=k_3f4a5e6b7c8d9e0f1a2b3c4d5e6f7a8b
 ```
 
 ## pkvsyncd user

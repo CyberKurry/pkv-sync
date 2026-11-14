@@ -2279,7 +2279,7 @@ mod tests {
         // contrast, doubles as the ISO 18004 quiet zone) and crisp edges.
         assert!(svg.contains("fill=\"#ffffff\""));
         assert!(svg.contains("shape-rendering=\"crispEdges\""));
-        // The 59-byte byte-mode link encodes as version 4-M (33 modules);
+        // The 57-byte byte-mode link encodes as version 4-M (33 modules);
         // with the 4-module border the viewBox is 41x41. This pins OUR
         // border/dimension arithmetic, not the crate's encoder.
         assert!(svg.contains("viewBox=\"0 0 41 41\""));

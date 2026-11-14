@@ -84,15 +84,26 @@ pkvsyncd genkey
 
 ### Description
 
-Prints a cryptographically random `k_*` token to stdout. Paste the value
-into `config.toml` and share it with the plugin/admin clients via your own
-secure channel.
+Prints a cryptographically random `k_*` token to stdout, followed by a
+ready-to-paste `config.toml` snippet and a connect-link template that
+shows how the key turns into an `obsidian://pkv-connect` URL — fill in
+your server host; the fully computed link lives on the admin settings
+page. Paste the value into `config.toml` and share it with the
+plugin/admin clients via your own secure channel.
 
 ### Example
 
 ```bash
 pkvsyncd genkey
 # k_3f4a5e6b7c8d9e0f1a2b3c4d5e6f7a8b
+#
+# Paste this into config.toml:
+#
+# [server]
+# deployment_key = "k_3f4a5e6b7c8d9e0f1a2b3c4d5e6f7a8b"
+#
+# Connect link template (fill in your server host):
+#   obsidian://pkv-connect?s=https://<your-server-host>&k=k_3f4a5e6b7c8d9e0f1a2b3c4d5e6f7a8b
 ```
 
 ## pkvsyncd user
