@@ -7,9 +7,6 @@ import {
   type SettingDefinitionItem,
   type SettingDefinitionRender
 } from "obsidian";
-import { ApiError } from "../api/client";
-import type { ConnectionStamp } from "../connection-context";
-import { DataCommitError } from "../plugin-store";
 import type {
   MeResponse,
   ServerConfigResponse,
@@ -26,14 +23,13 @@ import {
   type PluginUpdateSource
 } from "../settings";
 import { listConflictFiles } from "../sync/conflict-files";
+import { runConnectFlow } from "./connect-flow";
 import { DeleteVaultModal } from "./delete-vault-modal";
-import { localStateErrorMessage } from "./local-state-error";
 import {
   formatDetailedUnixSeconds,
   formatRelativeUnixSeconds,
   TIMEZONE_OPTIONS
 } from "../time";
-import { parseServerUrl } from "../url";
 import { errorToMessage } from "../util";
 
 type ButtonVariant = "primary" | "secondary" | "ghost";
@@ -215,38 +211,20 @@ export class PKVSyncSettingTab extends PluginSettingTab {
 
     this.renderUpdates(panel);
     this.renderButton(panel, t.connect, "primary", async () => {
-      let stamp: ConnectionStamp | null = null;
-      try {
-        const parsed = parseServerUrl(serverUrl.value, deploymentKey.value);
-        stamp = await this.plugin.setConnectionPatch({
-          serverUrl: parsed.serverUrl,
-          deploymentKey: parsed.deploymentKey
-        });
-        if (!stamp) return;
-        // allowRebuild=false: resumeSyncForCurrentScope owns the single
-        // rebuild, so an accepted config does not start two engines.
-        const cfg = await this.plugin.refreshServerCapabilities(false, { throwOnFailure: true });
-        if (!cfg || !this.plugin.isConnectionCurrent(stamp)) return;
-        this.cfg = cfg;
-        await this.plugin.resumeSyncForCurrentScope(stamp);
-        if (!this.plugin.isConnectionCurrent(stamp)) return;
-        new Notice(
-          format(t.connectedToServer, { serverName: this.serverHost() })
-        );
-        this.refresh();
-      } catch (error) {
-        if (stamp && !this.plugin.isConnectionCurrent(stamp)) return;
-        if (error instanceof DataCommitError) {
-          // Failures that pause sync are reported inside the publication gate.
-          if (error.state === "restored") new Notice(localStateErrorMessage(error, t));
-          return;
+      // The connect flow itself is shared with the pkv-connect deep link
+      // (connect-flow.ts). The cfg is remembered at the same point the
+      // inline flow did — between the currency guard and the resume — and
+      // the panel re-renders only when the flow completed, as before.
+      const connected = await runConnectFlow(
+        this.plugin,
+        t,
+        serverUrl.value,
+        deploymentKey.value,
+        (cfg) => {
+          this.cfg = cfg;
         }
-        if (error instanceof ApiError && error.code === "setup_required") {
-          new Notice(t.setupRequiredNotice);
-          return;
-        }
-        new Notice(errorToMessage(error));
-      }
+      );
+      if (connected) this.refresh();
     });
     this.renderConflictCleanup(panel);
   }

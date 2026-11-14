@@ -1,11 +1,6 @@
-import { Notice, type App, Modal } from "obsidian";
-import { ApiError } from "../api/client";
-import type { ConnectionStamp } from "../connection-context";
+import { type App, Modal } from "obsidian";
 import { format, type Strings } from "../i18n";
-import { DataCommitError } from "../plugin-store";
-import { parseServerUrl } from "../url";
-import { errorToMessage } from "../util";
-import { localStateErrorMessage } from "./local-state-error";
+import { runConnectFlow, type ConnectDeepLinkHost } from "./connect-flow";
 
 /** Part 3A (spec §6.3.2): obsidian://pkv-connect links can be triggered by
  * any web page — never connect silently. Shows the target host and only
@@ -56,30 +51,10 @@ export class ConnectConfirmModal extends Modal {
 }
 
 /**
- * Narrow slice of PKVSyncPlugin the deep-link connect flow needs. Keeping
- * the interface explicit lets the hostile-link regression run against the
- * real plugin prototype (migration harness) without booting onload().
- */
-export interface ConnectDeepLinkHost {
-  setConnectionPatch(patch: {
-    serverUrl: string;
-    deploymentKey: string;
-  }): Promise<ConnectionStamp | null>;
-  refreshServerCapabilities(
-    allowRebuild?: boolean,
-    options?: { throwOnFailure?: boolean }
-  ): Promise<unknown>;
-  isConnectionCurrent(stamp: ConnectionStamp): boolean;
-  resumeSyncForCurrentScope(expected?: ConnectionStamp): Promise<void>;
-}
-
-/**
- * Part 3A: apply a confirmed obsidian://pkv-connect link. Mirrors the
- * settings-tab Connect button exactly — commit, verify the connection is
- * still current, then resume, and report failures with the same localized
- * notices — so the deep link gains no second code path. parseServerUrl
- * enforces https-off-loopback and shape rules; a hostile link dies there,
- * before anything is staged.
+ * Part 3A: apply a confirmed obsidian://pkv-connect link. Thin wrapper
+ * around the shared connect flow (runConnectFlow, also used by the
+ * settings-tab Connect button) so the deep link gains no second code
+ * path; the hostile-link regression suite targets this entry point.
  */
 export async function applyConnectDeepLink(
   plugin: ConnectDeepLinkHost,
@@ -87,40 +62,5 @@ export async function applyConnectDeepLink(
   server: string,
   deploymentKey: string
 ): Promise<void> {
-  let stamp: ConnectionStamp | null = null;
-  try {
-    const parsed = parseServerUrl(server, deploymentKey);
-    stamp = await plugin.setConnectionPatch({
-      serverUrl: parsed.serverUrl,
-      deploymentKey: parsed.deploymentKey
-    });
-    if (!stamp) return;
-    // allowRebuild=false: resumeSyncForCurrentScope owns the single
-    // rebuild, so an accepted config does not start two engines.
-    const cfg = await plugin.refreshServerCapabilities(false, {
-      throwOnFailure: true
-    });
-    if (!cfg || !plugin.isConnectionCurrent(stamp)) return;
-    await plugin.resumeSyncForCurrentScope(stamp);
-    if (!plugin.isConnectionCurrent(stamp)) return;
-    new Notice(
-      format(t.connectedToServer, {
-        serverName: new URL(parsed.serverUrl).host
-      })
-    );
-  } catch (error) {
-    if (stamp && !plugin.isConnectionCurrent(stamp)) return;
-    if (error instanceof DataCommitError) {
-      // Failures that pause sync are reported inside the publication gate.
-      if (error.state === "restored") {
-        new Notice(localStateErrorMessage(error, t));
-      }
-      return;
-    }
-    if (error instanceof ApiError && error.code === "setup_required") {
-      new Notice(t.setupRequiredNotice);
-      return;
-    }
-    new Notice(errorToMessage(error));
-  }
+  await runConnectFlow(plugin, t, server, deploymentKey);
 }

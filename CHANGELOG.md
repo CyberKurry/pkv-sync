@@ -65,6 +65,13 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Changed
 
+- Plugin internals: the settings-tab Connect button and the confirmed
+  `pkv-connect` deep link now run one shared connect flow
+  (`runConnectFlow`) instead of two byte-identical copies. Pure
+  refactor, no behavior change: the settings tab still remembers the
+  server config at the same point (via the flow's `onConnected` hook),
+  still shows the success notice for the host it just connected to, and
+  both callers' regression suites pass unchanged (zero test edits).
 - MCP `search`: vaults with more than 5000 visible files no longer fail
   with "too many files to search". The 5000-file listing window is now a
   cap reported as `tree_capped: true` with a `next_after` cursor to page
