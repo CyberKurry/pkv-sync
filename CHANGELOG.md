@@ -65,6 +65,11 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Changed
 
+- Storage internals: `list_tree`, `list_tree_under`, and the diff-side
+  tree map now share one resolve-and-walk collector instead of three
+  copies of the same skeleton, so prefix pruning and the pointer/header
+  gates cannot drift between entrances. Pure refactor, no behavior
+  change; all existing tests pass unchanged.
 - Plugin internals: the settings-tab Connect button and the confirmed
   `pkv-connect` deep link now run one shared connect flow
   (`runConnectFlow`) instead of two byte-identical copies. Pure

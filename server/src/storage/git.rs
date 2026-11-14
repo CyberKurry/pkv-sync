@@ -234,7 +234,10 @@ pub trait GitVaultStore: Send + Sync {
     /// full walk; the Git2 implementation prunes subtrees that cannot
     /// contain the prefix, so a narrow prefix never pays for the whole
     /// tree. Boundary semantics match `path_under_prefix` in mcp::tools
-    /// ("a" keeps "a" and "a/...", rejects "ab/...").
+    /// ("a" keeps "a" and "a/...", rejects "ab/..."). The prefix must be
+    /// pre-normalized (no trailing slash or dot segments) — callers like
+    /// `search` normalize via `normalize_mcp_path`; a raw `"a/"` yields an
+    /// empty result, not an error.
     async fn list_tree_under(
         &self,
         vault_id: &str,
@@ -1175,6 +1178,20 @@ fn collect_tree_map(
     repo: &Repository,
     at: Option<&str>,
 ) -> Result<std::collections::BTreeMap<String, TreeEntry>, GitStoreError> {
+    let entries = collect_tree_entries(repo, at, "")?;
+    Ok(entries.into_iter().map(|e| (e.path.clone(), e)).collect())
+}
+
+/// Resolve `at` (or the main ref) to its root tree and walk it once,
+/// pruning to `under_prefix`. The only tree-walk implementation —
+/// `list_tree`, `list_tree_under`, and `collect_tree_map` all delegate
+/// here so prefix pruning and the pointer/header gates cannot drift
+/// between entrances.
+fn collect_tree_entries(
+    repo: &Repository,
+    at: Option<&str>,
+    under_prefix: &str,
+) -> Result<Vec<TreeEntry>, GitStoreError> {
     let oid = match at {
         Some(h) => Oid::from_str(h)?,
         None => main_ref_target(repo)?.ok_or(GitStoreError::NotFound)?,
@@ -1183,16 +1200,16 @@ fn collect_tree_map(
     let tree = commit.tree()?;
     let odb = repo.odb()?;
     let mut out = Vec::with_capacity(tree.len());
-    tree_entries_recursive(repo, &odb, &tree, "", "", 0, &mut out)?;
-    Ok(out.into_iter().map(|e| (e.path.clone(), e)).collect())
+    tree_entries_recursive(repo, &odb, &tree, under_prefix, "", 0, &mut out)?;
+    Ok(out)
 }
 
 fn tree_entries_recursive(
     repo: &Repository,
     odb: &Odb<'_>,
     tree: &Tree<'_>,
-    prefix: &str,
-    path_prefix: &str,
+    under_prefix: &str,
+    dir: &str,
     depth: usize,
     out: &mut Vec<TreeEntry>,
 ) -> Result<(), GitStoreError> {
@@ -1203,17 +1220,17 @@ fn tree_entries_recursive(
         let Some(name) = entry.name() else {
             continue;
         };
-        let path = if path_prefix.is_empty() {
+        let path = if dir.is_empty() {
             name.to_string()
         } else {
-            format!("{path_prefix}/{name}")
+            format!("{dir}/{name}")
         };
         match entry.kind() {
             Some(ObjectType::Blob) => {
                 // 2c (spec §5.2c): a blob outside the prefix never enters
                 // the output — skip before the header read so a pruned
                 // entry costs nothing.
-                if !path_under_prefix(&path, prefix) {
+                if !path_under_prefix(&path, under_prefix) {
                     continue;
                 }
                 // 2a (spec §5.2a): read the object HEADER only; blobs over
@@ -1251,11 +1268,11 @@ fn tree_entries_recursive(
                 // 2c (spec §5.2c): descend only when the subtree can still
                 // hold prefix matches — an unrelated sibling directory is
                 // never opened.
-                if !subtree_may_contain_prefix(&path, prefix) {
+                if !subtree_may_contain_prefix(&path, under_prefix) {
                     continue;
                 }
                 let subtree = repo.find_tree(entry.id())?;
-                tree_entries_recursive(repo, odb, &subtree, prefix, &path, depth + 1, out)?;
+                tree_entries_recursive(repo, odb, &subtree, under_prefix, &path, depth + 1, out)?;
             }
             _ => {}
         }
@@ -1347,16 +1364,7 @@ impl GitVaultStore for Git2VaultStore {
         let at = at.map(|s| s.to_string());
         tokio::task::spawn_blocking(move || -> Result<Vec<TreeEntry>, GitStoreError> {
             let repo = Repository::open_bare(&p)?;
-            let oid = match at {
-                Some(h) => Oid::from_str(&h)?,
-                None => main_ref_target(&repo)?.ok_or(GitStoreError::NotFound)?,
-            };
-            let commit = repo.find_commit(oid)?;
-            let tree = commit.tree()?;
-            let odb = repo.odb()?;
-            let mut out = Vec::with_capacity(tree.len());
-            tree_entries_recursive(&repo, &odb, &tree, "", "", 0, &mut out)?;
-            Ok(out)
+            collect_tree_entries(&repo, at.as_deref(), "")
         })
         .await
         .map_err(|_| GitStoreError::Panic)?
@@ -1377,16 +1385,7 @@ impl GitVaultStore for Git2VaultStore {
         let prefix = prefix.to_string();
         tokio::task::spawn_blocking(move || -> Result<Vec<TreeEntry>, GitStoreError> {
             let repo = Repository::open_bare(&p)?;
-            let oid = match at {
-                Some(h) => Oid::from_str(&h)?,
-                None => main_ref_target(&repo)?.ok_or(GitStoreError::NotFound)?,
-            };
-            let commit = repo.find_commit(oid)?;
-            let tree = commit.tree()?;
-            let odb = repo.odb()?;
-            let mut out = Vec::with_capacity(tree.len());
-            tree_entries_recursive(&repo, &odb, &tree, &prefix, "", 0, &mut out)?;
-            Ok(out)
+            collect_tree_entries(&repo, at.as_deref(), &prefix)
         })
         .await
         .map_err(|_| GitStoreError::Panic)?
