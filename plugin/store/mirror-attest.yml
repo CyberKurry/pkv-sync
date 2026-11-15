@@ -2,7 +2,7 @@
 #
 # The release workflow's `plugin-mirror` job copies this file into the mirror
 # repository as `.github/workflows/attest-release.yml`. It is generated there,
-# never hand-edited (see docs/AI-RULES.md).
+# never hand-edited (see AGENTS.md, which is machine-local and gitignored).
 #
 # Why the attestation has to run *here* and not in the main repository:
 # `actions/attest-build-provenance` publishes the attestation to the repository
