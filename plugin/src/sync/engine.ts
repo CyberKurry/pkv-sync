@@ -162,6 +162,16 @@ export class SyncEngine {
    * D3 breaker escape hatch (spec §3.4): set by the explicit "confirm
    * empty-vault deletions" command. Consumed by the NEXT sync pass only —
    * a held pass must never stay overrideable forever by accident.
+   *
+   * R15-7: "the next pass" has to mean a pass that starts AFTER the
+   * confirmation, not the pass that happens to run next. A confirmation
+   * clicked while a pass is in flight coalesced onto that pass, which was
+   * already past the consumption point, so the armed flag outlived the pass
+   * it was meant for and was lifted by some later, unrelated one — a
+   * whole-vault deletion the user never confirmed for that moment. The
+   * epoch below is what makes the two distinguishable: a pass records the
+   * epoch it started under, and a confirmation records the epoch it was
+   * armed in.
    */
   private emptyScanOverride = false;
   /**
@@ -479,6 +489,7 @@ export class SyncEngine {
       // first classification runs, so every scanPendingFrom call in this
       // pass (the 409 head-mismatch retry's reclassification included)
       // honors the same decision instead of re-holding halfway through.
+      //
       this.passOverride = this.emptyScanOverride;
       this.emptyScanOverride = false;
       await this.refreshVaultSettings();
@@ -805,6 +816,11 @@ export class SyncEngine {
           if (isLocalDirty(local, indexed?.lastSyncedHash)) {
             await this.writeConflict(file.path, local);
           }
+          // R15-5: the dirty verdict above came from the scan snapshot,
+          // taken before this file's download/hash. Re-read it: an edit
+          // landing in that gap must be captured in a sidecar, not lost
+          // under the remote write.
+          if (!(await this.mayStillChangeDisk(file.path, local?.hash))) continue;
           // The download/hash awaits above can straddle an abort (M-10
           // per-file granularity): re-check so a replaced generation
           // never writes into the vault it no longer owns.
@@ -834,6 +850,9 @@ export class SyncEngine {
           if (actualHash !== file.blob_hash) {
             throw new Error(`Blob hash mismatch for ${file.path}`);
           }
+          // R15-5: same re-read as the text branch — the blob download is
+          // the longest window of all.
+          if (!(await this.mayStillChangeDisk(file.path, local?.hash))) continue;
           // Same as the text branch: the download/hash awaits can
           // straddle an abort, so re-check before the vault write.
           this.throwIfAborted();
@@ -856,6 +875,10 @@ export class SyncEngine {
         if (isLocalDirty(local, indexed?.lastSyncedHash)) {
           await this.writeConflict(path, local);
         }
+        // R15-5: the delete decision above is the most destructive one in
+        // the engine — trash destroys the bytes. Re-read the file: an edit
+        // landing after the snapshot is captured in a sidecar instead.
+        if (!(await this.mayStillChangeDisk(path, local?.hash))) continue;
         // writeConflict above awaits; an abort landing in that window
         // must still stop the trash (M-10 per-file granularity).
         this.throwIfAborted();
@@ -1031,6 +1054,49 @@ export class SyncEngine {
     this.opts.setStatus("error", message);
   }
 
+  /**
+   * Re-read a path and decide whether this engine may still change it.
+   *
+   * R15-5: four places decide "the local copy is clean, so the remote verdict
+   * may overwrite it", and every one of them then awaits — a blob download, a
+   * text fetch, a hash, or a whole batch of those. The file can change under
+   * a verdict that was true when it was formed. `applyInlineText` and
+   * `applyDelete` each grew their own re-read for this (R12-3, audit H-4);
+   * the batch pull loop never did, and it has the widest window in the
+   * codebase because one pull can span dozens of round trips.
+   *
+   * Returns true when the caller may proceed with the write or trash. Returns
+   * false when the disk moved: the NEW content is captured in a conflict
+   * sidecar, so the caller must leave the file alone and let the next pass
+   * reconcile. `expectedHash` is the hash the caller's snapshot saw;
+   * `undefined` means nothing was recorded about this path, so nothing can be
+   * proven stale and the caller proceeds on its own rules.
+   */
+  private async mayStillChangeDisk(
+    path: string,
+    expectedHash: string | undefined
+  ): Promise<boolean> {
+    if (expectedHash === undefined) return true;
+    const recheck = await this.opts.vault.snapshot(path, this.opts.textExtensions);
+    if (recheck.hash === expectedHash) return true;
+    await this.writeConflict(path, recheck);
+    return false;
+  }
+
+  /**
+   * The throwing half of [`mayStillChangeDisk`]. A caller that already has
+   * the file's current hash (the inline paths read it as part of their own
+   * dirty check) answers a mismatch by refusing, not by writing a sidecar:
+   * its caller's recovery path is a full pull, which applies the sidecar
+   * rule itself. Keeping both halves in one file — and both reading the disk
+   * the same way — is what stops a third dialect of "is it still clean?"
+   * from appearing.
+   */
+  private async stillMatchesOnDisk(path: string, expectedHash: string): Promise<boolean> {
+    const recheck = await this.opts.vault.snapshot(path, this.opts.textExtensions);
+    return recheck.hash === expectedHash;
+  }
+
   private async applyInlineText(path: string, content: string, commit: string): Promise<void> {
     // Dirty check + write must look at one consistent index snapshot.
     // updateIndex serialises through the underlying data store so two
@@ -1068,9 +1134,10 @@ export class SyncEngine {
         // re-read and re-hash. If the file changed on disk between the two
         // reads (user edit landing in the gap), the index would be advanced
         // over a stale view — refuse instead of clobbering the edit.
-        const recheckContent = await this.opts.vault.readText(path);
-        const recheckHash = await sha256Text(recheckContent);
-        if (recheckHash !== localHash) {
+        // Here a refusal must THROW (not sidecar-and-skip): the caller is
+        // the event loop, which answers an InlineApplyDirtyError with a
+        // full pull that applies the same rule.
+        if (!(await this.stillMatchesOnDisk(path, localHash))) {
           throw new InlineApplyDirtyError(path);
         }
       }
@@ -1123,21 +1190,20 @@ export class SyncEngine {
       }
       if (indexed && fileExists) {
         const local = await this.opts.vault.snapshot(path, this.opts.textExtensions);
-        const localHashAtCheck: string | undefined = local?.hash;
+        // Captured before the dirty verdict narrows `local` (the predicate
+        // is a type guard, so the false branch reads as "not a snapshot").
+        const hashAtCheck: string | undefined = local?.hash;
         if (isLocalDirty(local, indexed.lastSyncedHash)) {
           await this.writeConflict(path, local);
           return index;
         }
-        // R12-3: close the snapshot→trash TOCTOU window, mirroring
-        // applyInlineText's recheck. An edit landing between the snapshot
-        // (which showed the file clean, or whose conflict copy was just
-        // written) and the trash would be DESTROYED by the trash while the
-        // sidecar holds only the pre-edit bytes. Re-read + re-hash: a
-        // mismatch writes a fresh sidecar capturing the new content and
-        // skips the trash — the full pull then reconciles.
-        const recheck = await this.opts.vault.snapshot(path, this.opts.textExtensions);
-        if (localHashAtCheck !== undefined && recheck.hash !== localHashAtCheck) {
-          await this.writeConflict(path, recheck);
+        // R12-3 / R15-5: close the snapshot→trash TOCTOU window. An edit
+        // landing between the snapshot (which showed the file clean, or
+        // whose conflict copy was just written) and the trash would be
+        // DESTROYED by the trash while the sidecar holds only the pre-edit
+        // bytes. A mismatch writes a fresh sidecar capturing the new
+        // content and skips the trash — the next pass reconciles.
+        if (!(await this.mayStillChangeDisk(path, hashAtCheck))) {
           return index;
         }
       }

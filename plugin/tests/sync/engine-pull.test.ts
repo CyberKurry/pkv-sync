@@ -65,6 +65,16 @@ class FakeVault {
     this.deletions.push(path);
     this.files = this.files.filter((file) => file.path !== path);
   }
+
+  /** The real adapter re-reads the file; R15-5 relies on that. */
+  async snapshot(
+    path: string,
+    _textExtensions?: Set<string>
+  ): Promise<LocalFileSnapshot> {
+    const file = this.files.find((entry) => entry.path === path);
+    if (!file) throw new Error(`not found: ${path}`);
+    return file;
+  }
 }
 
 class FakeIndex implements IndexPersistence {
@@ -2076,5 +2086,96 @@ describe("SyncEngine pull", () => {
     // Index advanced to c1 with the remote hash
     expect(idx.saved?.lastSyncedCommit).toBe("c1");
     expect(idx.saved?.files["clean.md"]?.lastSyncedHash).toBe(remoteHash);
+  });
+});
+
+describe("pull re-checks local state before touching the disk (R15-5)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("window", globalThis);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("does not trash a file the user edited while the pull was in flight", async () => {
+    // applyDelete and applyInlineText both re-read and re-hash between their
+    // dirty check and the write (R12-3). The BATCH pull never did, and its
+    // window is the longest of the three: a single pull can span dozens of
+    // network round trips. The dirty verdict below comes from the scan
+    // snapshot taken before any of them.
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": {
+          lastSyncedHash: "clean-hash",
+          lastSyncedAt: 0,
+          kind: "text",
+          size: 4
+        }
+      }
+    });
+    const vault = new FakeVault([
+      { path: "a.md", hash: "clean-hash", size: 4, kind: "text", content: "old" }
+    ]);
+    // A gate the pull itself blocks on, after the scan snapshot is taken.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let gateUsed = false;
+    const api = {
+      state: vi.fn().mockResolvedValue({ current_head: "c1", changed_since: true }),
+      pull: vi.fn().mockResolvedValue({
+        from: "c0",
+        to: "c1",
+        added: [],
+        modified: [
+          { path: "b.md", file_type: "text", size: 3, content_inline: "new" }
+        ],
+        deleted: ["a.md"]
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      // Blocks the FIRST fetched file so we can edit `a.md` on disk after
+      // the snapshot but before the delete branch runs.
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    const run = engine.syncNow();
+    // Give the engine a turn to take its snapshot, then simulate the user
+    // editing a.md (which the remote has deleted) before the trash.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    if (!gateUsed) {
+      gateUsed = true;
+      // The user's edit lands on disk; the index still says clean.
+      vault.files = vault.files.filter((file) => file.path !== "a.md").concat({
+        path: "a.md",
+        hash: await sha256Text("edited after the snapshot"),
+        size: 26,
+        kind: "text",
+        content: "edited after the snapshot"
+      });
+      release();
+    }
+    await run;
+
+    // The edit must survive: the file is trashed only when it is still the
+    // content the snapshot saw. A rejected trash leaves a conflict copy.
+    expect(vault.deletions).not.toContain("a.md");
+    expect(vault.exists("a.md")).toBe(true);
   });
 });

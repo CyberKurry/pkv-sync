@@ -75,6 +75,16 @@ class FakeVault {
     this.files = this.files.filter((f) => f.path !== path);
   }
 
+  /** The real adapter re-reads the file; the R15-5 recheck relies on it. */
+  async snapshot(
+    path: string,
+    _textExtensions?: Set<string>
+  ): Promise<LocalFileSnapshot> {
+    const file = this.files.find((entry) => entry.path === path);
+    if (!file) throw new Error(`not found: ${path}`);
+    return file;
+  }
+
   /** Snapshot of current vault tree (path → content) excluding conflict paths. */
   tree(): Map<string, string> {
     const m = new Map<string, string>();

@@ -65,6 +65,16 @@ class FakeVault {
     this.deletions.push(path);
     this.files = this.files.filter((file) => file.path !== path);
   }
+
+  /** The real adapter re-reads the file; the R15-5 recheck relies on it. */
+  async snapshot(
+    path: string,
+    _textExtensions?: Set<string>
+  ): Promise<LocalFileSnapshot> {
+    const file = this.files.find((entry) => entry.path === path);
+    if (!file) throw new Error(`not found: ${path}`);
+    return file;
+  }
 }
 
 class FakeIndex implements IndexPersistence {
