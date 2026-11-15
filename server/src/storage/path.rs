@@ -318,6 +318,73 @@ mod tests {
     }
 
     #[test]
+    fn decode_round_budget_boundary_is_pinned_for_both_producers() {
+        // R15-1: the plugin's scan filter (hasUnsafeDecodedShape in
+        // plugin/src/sync/vault-adapter.ts) mirrors THIS function. The two
+        // disagreed at the round budget: the plugin ran 4 rounds and then
+        // accepted, while this side runs 4 rounds plus one final round —
+        // so a chain needing exactly 4 rounds was folded server-side into
+        // a name the client had already classified as "safe to push".
+        //
+        // This table is the contract in one place. The plugin's twin
+        // (plugin/tests/sync/vault-adapter-decode-rounds.test.ts) asserts
+        // the same depths with the same expectations. If either budget
+        // moves, one of the two tables fails and names the drift.
+        let depth_table = [
+            // (input, decode rounds to the fixed point, expected here)
+            ("a%41.md", 1, "aA.md"),
+            ("a%2541.md", 2, "aA.md"),
+            ("a%252541.md", 3, "aA.md"),
+            ("a%25252541.md", 4, "aA.md"),
+            // One more layer than the loop can absorb: the final round
+            // still changes it, so it is refused as too deep.
+            ("a%2525252541.md", 5, "PercentEncodingTooDeep"),
+            ("a%252525252541.md", 6, "PercentEncodingTooDeep"),
+        ];
+        for (input, rounds, expected) in depth_table {
+            // Guard the table itself before trusting its verdicts.
+            let mut current = input.to_string();
+            let mut observed = 0;
+            loop {
+                let next = percent_decode_str(&current)
+                    .decode_utf8()
+                    .unwrap()
+                    .to_string();
+                if next == current {
+                    break;
+                }
+                current = next;
+                observed += 1;
+            }
+            assert_eq!(observed, rounds, "decode depth of {input:?} drifted");
+
+            let verdict = match normalize(input) {
+                Ok(decoded) => decoded,
+                Err(PathError::PercentEncodingTooDeep) => "PercentEncodingTooDeep".to_string(),
+                Err(other) => format!("unexpected: {other:?}"),
+            };
+            assert_eq!(verdict, expected, "verdict for {input:?} drifted");
+        }
+    }
+
+    #[test]
+    fn a_malformed_tail_after_one_decode_round_does_not_stop_the_fold() {
+        // R15-1's second producer divergence: `decodeURIComponent` THROWS
+        // on a malformed tail, while percent_decode_str leaves the bad
+        // triplet alone and keeps folding the rest of the path. The plugin
+        // must not read "threw" as "nothing left to decode" once a round
+        // has already changed the value — the server's answer is the truth.
+        //
+        // `a%25zz.md` decodes in round 1 to `a%zz.md`; `%zz` is not an
+        // escape, so the fold stops there and the path is stored under the
+        // literal `a%zz.md` — a DIFFERENT server path than the local key,
+        // which is why the plugin must refuse (R14-M1's folding rule), not
+        // simply keep it syncable.
+        assert_eq!(normalize("a%25zz.md").unwrap(), "a%zz.md");
+        assert_ne!(normalize("a%25zz.md").unwrap(), "a%25zz.md");
+    }
+
+    #[test]
     fn normalize_is_idempotent_on_accepted_paths() {
         // `%2F` no longer appears here: R10-1 rejects escapes that would
         // decode into a path separator, so the whole-path-encoded wire
