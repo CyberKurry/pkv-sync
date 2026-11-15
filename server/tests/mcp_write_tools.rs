@@ -1689,3 +1689,151 @@ async fn move_file_regenerates_self_link_from_the_new_directory() {
     // other spelling (the bug produced "./sub/a.md") points elsewhere.
     assert_eq!(text, "[self](./a.md)");
 }
+
+/// R15-9a: `expected_hashes` is a per-path content oracle, and it was the
+/// ONLY path-taking MCP entry that did not consult the visibility producer.
+/// `read_file` answers `not_found` for `.obsidian/workspace.json` while this
+/// guard echoed the real sha256 back in `actual=`, plus `actual=null` as an
+/// existence test and `actual=binary-pointer` as a type test — and dry-run
+/// served it without consuming write quota, so it could be queried without
+/// limit.
+#[tokio::test]
+async fn expected_hashes_does_not_leak_a_hidden_paths_content() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-hash-oracle").await;
+    // Create through the service so the vault carries the DEFAULT starter
+    // allowlist — `.obsidian/app.json` is deliberately syncable (the user's
+    // editor settings travel between devices) while being hidden from
+    // agents. That combination is what makes this an oracle: the file is
+    // legitimately in the repo and genuinely off-limits to MCP.
+    let vault = pkv_sync_server::service::vault::create_vault(&state, &user.user_id, "main")
+        .await
+        .unwrap();
+    let hidden_head = seed_text(
+        &state,
+        &user,
+        &vault.id,
+        None,
+        ".obsidian/app.json",
+        "{\"secret\":\"layout\"}",
+    )
+    .await;
+    let head = seed_text(
+        &state,
+        &user,
+        &vault.id,
+        Some(&hidden_head),
+        "note.md",
+        "public",
+    )
+    .await;
+
+    // Same call, twice: once for a path that exists but is hidden, once for
+    // a path that does not exist at all. The answers must be byte-identical
+    // apart from the path the caller itself supplied.
+    let hidden = post_tool(
+        state.clone(),
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "note.md",
+            "content": "new",
+            "parent_commit": head,
+            "dry_run": true,
+            "expected_hashes": { ".obsidian/app.json": "0".repeat(64) }
+        }),
+    )
+    .await;
+    let absent = post_tool(
+        state.clone(),
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "note.md",
+            "content": "new",
+            "parent_commit": head,
+            "dry_run": true,
+            "expected_hashes": { "does/not/exist.md": "0".repeat(64) }
+        }),
+    )
+    .await;
+
+    let hidden_message = tool_business_message(&hidden);
+    let absent_message = tool_business_message(&absent);
+    assert_guards_answer_identically(&hidden_message, ".obsidian/app.json");
+    assert_guards_answer_identically(&absent_message, "does/not/exist.md");
+    assert_eq!(
+        hidden_message.replace(".obsidian/app.json", "<path>"),
+        absent_message.replace("does/not/exist.md", "<path>"),
+        "a hidden path and an absent path must be indistinguishable"
+    );
+    // The guard value the caller sent is echoed back (that is the caller's
+    // own input, not a disclosure); the REAL hash must not appear. Compare
+    // against the actual digest of the hidden content rather than any hex
+    // run, so this assertion says what it means.
+    let real_digest = LocalFsBlobStore::sha256(&Bytes::from_static(b"{\"secret\":\"layout\"}"));
+    assert!(
+        !hidden_message.contains(&real_digest),
+        "the hidden file's real sha256 leaked: {hidden_message}"
+    );
+    let echoed: Vec<&str> = hidden_message
+        .split(|c: char| !c.is_ascii_hexdigit())
+        .filter(|run| run.len() == 64)
+        .collect();
+    assert_eq!(
+        echoed,
+        vec!["0".repeat(64).as_str()],
+        "only the caller's own guard value may appear as a digest: {hidden_message}"
+    );
+}
+
+/// The guard must still REPORT the divergence (a mismatch is not a probe
+/// result), just without distinguishing hidden from absent.
+fn assert_guards_answer_identically(message: &str, path: &str) {
+    assert!(
+        message.starts_with("content_diverged: "),
+        "expected a content_diverged answer, got: {message}"
+    );
+    assert!(
+        message.contains(path),
+        "the caller's own path stays in the message: {message}"
+    );
+    assert!(
+        message.contains("actual=null"),
+        "hidden and absent must both answer actual=null, got: {message}"
+    );
+}
+
+/// R15-17 (companion half): the same guard answers `actual=null` for a
+/// missing file, so a caller could pass the literal string "null" and have
+/// "the file must not exist" silently satisfied. Guard values must be
+/// sha256 hex.
+#[tokio::test]
+async fn expected_hashes_rejects_a_non_sha256_guard_value() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-hash-guard").await;
+    let vault = state.vaults.create(&user.user_id, "main").await.unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "note.md", "old").await;
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "note.md",
+            "content": "new",
+            "parent_commit": head,
+            "dry_run": true,
+            "expected_hashes": { "absent.md": "null" }
+        }),
+    )
+    .await;
+    let message = tool_business_message(&body);
+    assert!(
+        message.starts_with("invalid_path:") && message.contains("sha256"),
+        "a non-sha256 guard value must be refused by name, got: {message}"
+    );
+}

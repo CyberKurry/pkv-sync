@@ -573,8 +573,18 @@ use crate::mcp::link_scan::sha256_hex;
 /// parent_commit CAS protects the vault as a whole, and this protects the
 /// individual file the agent is editing from a concurrent human edit that
 /// already landed in the same commit window.
+///
+/// R15-9a: this is a PER-PATH CONTENT ORACLE, and it was the only
+/// path-taking MCP entry that skipped the visibility producer. Every other
+/// surface (`read_file`, `edit_file`, `move_file`, `link_graph`,
+/// `changes_since`, `backlinks`) answers "not addressable" for a hidden
+/// path; this one answered with that path's real sha256, plus `actual=null`
+/// as an existence test and `actual=binary-pointer` as a type test — and
+/// dry-run served it without consuming write quota. The two rows it
+/// distinguishes (exists-but-hidden, does-not-exist) must be one answer.
 async fn verify_expected_hashes(
     state: &AppState,
+    user: &AuthenticatedUser,
     vault_id: &str,
     at: Option<&str>,
     expected: Option<&std::collections::HashMap<String, String>>,
@@ -582,6 +592,22 @@ async fn verify_expected_hashes(
     let Some(expected) = expected else {
         return Ok(());
     };
+    // Visibility is ONE producer (mcp_visible), shared with the graph,
+    // history and other mutating tools. Resolved once per call, and only
+    // when there is something to guard.
+    let filter = sync::vault_path_filter(state, vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    if expected.keys().next().is_some() {
+        // Ownership first, exactly like ensure_path_visible_for_sync_api: a
+        // stranger's vault id must never answer from that vault's
+        // configuration. The write tools' own preflight has already run for
+        // the real call; this keeps the guard's answer non-distinguishing
+        // even when the guard is reached first (dry-run).
+        crate::service::vault::ensure_user_vault(state, &user.user_id, vault_id)
+            .await
+            .map_err(api_error_to_anyhow)?;
+    }
     let git = state.git_store();
     // Deterministic order so a multi-path mismatch always reports the same
     // path (and the tests can pin it).
@@ -589,22 +615,38 @@ async fn verify_expected_hashes(
     paths.sort();
     for path in paths {
         let want = &expected[path];
-        let actual = match git
-            .read_file(vault_id, path, at)
-            .await
-            .map_err(git_error_to_anyhow)?
-        {
-            Some(StoredFile::Text { bytes }) => sha256_hex(&bytes),
-            Some(StoredFile::BlobPointer { .. }) => {
-                // Binary payloads are stored out of band; their bytes are
-                // what a caller cannot have hashed from a `read_file` text
-                // body, so a guard on one is refused outright rather than
-                // silently accepted.
-                bail!(
-                    "content_diverged: path={path} expected={want} actual=binary-pointer (binary files cannot be guarded by content hash)"
-                );
+        // R15-17: the guard value must be a sha256. Without this a caller
+        // could send the literal "null" (the missing-file answer) and have
+        // "the file must not exist" silently satisfied.
+        anyhow::ensure!(
+            crate::storage::blob::is_sha256_hex(want),
+            "invalid_path: expected_hashes value for '{path}' must be a 64-character sha256 hex digest"
+        );
+        // Hidden and absent answer the SAME thing. Answering "the real
+        // hash" or "binary" for a path the caller may not read is what made
+        // this an oracle; `null` is the shape `read_file`'s `not_found`
+        // corresponds to here.
+        let visible = mcp_path_visible(&filter, &normalize_mcp_path(path.clone())?);
+        let actual = if !visible {
+            "null".to_string()
+        } else {
+            match git
+                .read_file(vault_id, path, at)
+                .await
+                .map_err(git_error_to_anyhow)?
+            {
+                Some(StoredFile::Text { bytes }) => sha256_hex(&bytes),
+                Some(StoredFile::BlobPointer { .. }) => {
+                    // Binary payloads are stored out of band; their bytes
+                    // are what a caller cannot have hashed from a
+                    // `read_file` text body, so a guard on one is refused
+                    // outright rather than silently accepted.
+                    bail!(
+                        "content_diverged: path={path} expected={want} actual=binary-pointer (binary files cannot be guarded by content hash)"
+                    );
+                }
+                None => "null".to_string(),
             }
-            None => "null".to_string(),
         };
         if actual != *want {
             bail!("content_diverged: path={path} expected={want} actual={actual}");
@@ -2400,7 +2442,14 @@ async fn move_with_link_rewrite(
     // exactly what the real call checks first; the preview below is
     // derived from the same plan the real call builds.
     if dry {
-        verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+        verify_expected_hashes(
+            state,
+            user,
+            &input.vault_id,
+            at,
+            input.expected_hashes.as_ref(),
+        )
+        .await?;
         let (plan, _guards, links_updated) =
             build_rewrite_plan(state, &input, &from, &to, max_rewrites).await?;
         let mut would_write = vec![WouldWrite {
@@ -2481,7 +2530,7 @@ async fn move_with_link_rewrite(
     for (path, hash) in &hash_guards {
         guards.entry(path.clone()).or_insert_with(|| hash.clone());
     }
-    verify_expected_hashes(state, &input.vault_id, at, Some(&guards)).await?;
+    verify_expected_hashes(state, user, &input.vault_id, at, Some(&guards)).await?;
 
     // Physical changes: Delete(from) + Text(to) + one Text per rewritten
     // file. The source file's own rewrites (self-links) land in Text(to).
@@ -2807,7 +2856,14 @@ async fn move_without_link_rewrite(
         if git.read_file(&input.vault_id, &to, at).await?.is_some() {
             bail!("target_exists: '{to}' already exists");
         }
-        verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+        verify_expected_hashes(
+            state,
+            user,
+            &input.vault_id,
+            at,
+            input.expected_hashes.as_ref(),
+        )
+        .await?;
         return Ok(dry_run_output(
             &input.parent_commit,
             vec![WouldWrite {
@@ -2837,7 +2893,14 @@ async fn move_without_link_rewrite(
     if git.read_file(&input.vault_id, &to, at).await?.is_some() {
         bail!("target_exists: '{to}' already exists");
     }
-    verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+    verify_expected_hashes(
+        state,
+        user,
+        &input.vault_id,
+        at,
+        input.expected_hashes.as_ref(),
+    )
+    .await?;
     let activity_size_bytes = content.len();
 
     apply_preflighted_write_batch(
@@ -2933,7 +2996,14 @@ pub async fn edit_file(
     // The edit is based on THIS read; guard it before generating anything
     // so a concurrent human edit aborts as content_diverged regardless of
     // whether the anchor still matches (MEL-13.6).
-    verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+    verify_expected_hashes(
+        state,
+        user,
+        &input.vault_id,
+        at,
+        input.expected_hashes.as_ref(),
+    )
+    .await?;
 
     // The span scan is only needed by heading/block anchors (host-zone
     // exclusion); a literal edit never consults it (R13-4: don't pay a
@@ -3372,7 +3442,14 @@ async fn apply_write_batch(
             return Ok(conflict);
         }
         let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
-        verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+        verify_expected_hashes(
+            state,
+            user,
+            &input.vault_id,
+            at,
+            input.expected_hashes.as_ref(),
+        )
+        .await?;
         return Ok(dry_run_output(&input.parent_commit, input.would_write));
     }
     if let Some(conflict) =
@@ -3384,7 +3461,14 @@ async fn apply_write_batch(
     // Conflict) and before the push, so a diverged file aborts the batch
     // without consuming the CAS attempt.
     let at = (!input.parent_commit.is_empty()).then_some(input.parent_commit.as_str());
-    verify_expected_hashes(state, &input.vault_id, at, input.expected_hashes.as_ref()).await?;
+    verify_expected_hashes(
+        state,
+        user,
+        &input.vault_id,
+        at,
+        input.expected_hashes.as_ref(),
+    )
+    .await?;
     apply_preflighted_write_batch(state, user, input).await
 }
 
