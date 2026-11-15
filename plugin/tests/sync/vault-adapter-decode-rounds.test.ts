@@ -101,3 +101,72 @@ describe("R15-1 decode depth agrees with the server at every round count", () =>
     expect(shouldSyncPath("%252525252Eobsidian/notes.md")).toBe(false);
   });
 });
+
+/**
+ * R16-H2: `decodeURIComponent` is all-or-nothing — one malformed triplet
+ * makes the WHOLE round throw — while the server's `percent_decode_str`
+ * leaves the bad triplet alone and folds everything else. R15-1 read that
+ * throw as "nothing left to decode", so a value that had already changed
+ * stopped half-folded, the `/ %[0-9a-f]{2} /` probe could not see a `%zz`
+ * tail, and the file was accepted — even though the server stores it under
+ * a different name. That is R14-M1's silent-overwrite shape again, reached
+ * through malformed tails instead of the round budget.
+ *
+ * `percent_decode_str` in Rust, verified against the real implementation:
+ *   normalize("a%25zz.md")  => Ok("a%zz.md")
+ *   normalize("a%25.md")    => Ok("a%.md")
+ *   normalize("a%254zz.md") => Ok("a%4zz.md")
+ *   normalize("x%25%25.md") => Ok("x%%.md")
+ *   normalize("100%.md")    => Ok("100%.md")      // no escape at all
+ */
+describe("R16-H2 malformed tails must not stop the fold", () => {
+  /** The server's tolerant fixed-point decode, ported. */
+  function serverFixedPoint(encoded: string): string {
+    let current = encoded;
+    for (let round = 0; round < 8; round++) {
+      const next = current.replace(/%([0-9a-fA-F]{2})/g, (match, hex) => {
+        try {
+          return decodeURIComponent(match);
+        } catch {
+          // Not a valid UTF-8 sequence on its own — the server's decoder
+          // keeps the triplet verbatim when the byte run is invalid, so
+          // model that by leaving it alone.
+          return match;
+        }
+      });
+      if (next === current) return current;
+      current = next;
+    }
+    return current;
+  }
+
+  const cases = [
+    // [local literal, server fixed point, must the plugin refuse?]
+    ["a%25zz.md", "a%zz.md", true],
+    ["a%25.md", "a%.md", true],
+    ["a%254zz.md", "a%4zz.md", true],
+    ["x%25%25.md", "x%%.md", true],
+    // No escape at all: the server stores it verbatim, so folding is the
+    // identity and the file is perfectly syncable. This is the
+    // over-rejection guard the fix must not break.
+    ["100%.md", "100%.md", false]
+  ] as const;
+
+  it.each(cases)("pins the server fixed point of %s", (literal, serverName) => {
+    // Guard the table itself: if the port ever drifts, the assertions
+    // below stop testing the shape they claim to.
+    expect(serverFixedPoint(literal)).toBe(serverName);
+  });
+
+  it.each(cases)(
+    "agrees with the server about %s",
+    (literal, serverName, mustRefuse) => {
+      // Whenever the server's stored name differs from the local key, two
+      // local files can map onto one server path with no conflict sidecar,
+      // so the plugin must refuse. When it is the identity, refusing would
+      // be an over-rejection of an ordinary filename.
+      expect(serverFixedPoint(literal) === literal).toBe(!mustRefuse);
+      expect(shouldSyncPath(literal)).toBe(!mustRefuse);
+    }
+  );
+});

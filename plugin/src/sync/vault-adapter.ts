@@ -328,7 +328,9 @@ function hasUnsafeDecodedShape(path: string): boolean {
   let current = path;
   for (let i = 0; i < 4; i++) {
     const decoded = decodeRound(current);
-    if (decoded === null) return malformedEscapeRefused(current);
+    // R12-2: a well-formed escape whose bytes are not UTF-8 — the server
+    // answers InvalidUtf8Escape, so the file can never converge.
+    if (decoded === INVALID_UTF8) return true;
     if (decoded === current) {
       // R14-M1: fixed point reached. The server stores every pushed path
       // at its fixed-point decode (decode_to_fixed_point, the idempotent
@@ -354,7 +356,7 @@ function hasUnsafeDecodedShape(path: string): boolean {
   // that wedges the whole vault (R15-2). Same final round as the server,
   // same verdict.
   const final = decodeRound(current);
-  if (final === null) return malformedEscapeRefused(current);
+  if (final === INVALID_UTF8) return true;
   if (final === current) {
     // Stable one round past the budget: the server accepts it and stores
     // it at this fixed point, which is exactly R14-M1's folding shape —
@@ -365,31 +367,58 @@ function hasUnsafeDecodedShape(path: string): boolean {
   return true;
 }
 
-/**
- * One decode round; `null` when the value cannot be decoded as a whole.
- *
- * R15-1: `decodeURIComponent` throws on a malformed triplet ANYWHERE in
- * the value, while the server's `percent_decode_str` leaves the bad
- * triplet untouched and keeps folding the rest (`a%25zz.md` → `a%zz.md`).
- * Treating "threw" as "nothing left to decode" kept files the server
- * stores under a different name — R14-M1's folding bug, one round deeper.
- */
-function decodeRound(value: string): string | null {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return null;
-  }
-}
+/** Sentinel for "this round produced bytes that are not valid UTF-8". */
+const INVALID_UTF8 = Symbol("invalid_utf8");
 
-function malformedEscapeRefused(value: string): boolean {
-  // R12-2: distinguish two throw shapes. A MALFORMED escape pattern
-  // (`%` not followed by valid hex — e.g. the ordinary name `100%.md`)
-  // is not an escape at all; leave it to the literal rules. A
-  // well-formed `%XX` that fails to decode (non-UTF-8 bytes like
-  // `a%FFb.md`, or a mangled tail the server would fold past, like
-  // `a%25zz.md`) is one the server handles differently — refuse it here.
-  return /%[0-9a-f]{2}/i.test(value);
+const HEX_DIGIT = /^[0-9a-fA-F]$/;
+const utf8Encoder = new TextEncoder();
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+/**
+ * One decode round, modelled on the server's `decode_round`.
+ *
+ * R16-H2: `decodeURIComponent` is ALL-OR-NOTHING — a single malformed
+ * triplet makes the whole call throw — while the server's
+ * `percent_decode_str` decodes every well-formed `%XX` to a byte, leaves
+ * the malformed ones verbatim, and only then requires the whole byte
+ * buffer to be valid UTF-8. The difference is not cosmetic: for
+ * `a%25zz.md` the server folds to `a%zz.md` (a DIFFERENT stored path than
+ * the local key) while `decodeURIComponent` throws and the plugin read
+ * that as "nothing left to decode", accepting the file. Two local files
+ * then collide on one server path with no conflict sidecar — R14-M1
+ * again, reached through a malformed tail instead of the round budget.
+ *
+ * Returns:
+ * - the decoded string when the round succeeded (identical to `value`
+ *   when there was nothing to decode),
+ * - [`INVALID_UTF8`] when the bytes are not valid UTF-8 (`a%FFb.md`) —
+ *   the server answers `InvalidUtf8Escape`, so the caller must refuse.
+ */
+function decodeRound(value: string): string | typeof INVALID_UTF8 {
+  const bytes: number[] = [];
+  for (let i = 0; i < value.length; ) {
+    if (
+      value[i] === "%" &&
+      i + 2 < value.length &&
+      HEX_DIGIT.test(value[i + 1]) &&
+      HEX_DIGIT.test(value[i + 2])
+    ) {
+      bytes.push(Number.parseInt(value.slice(i + 1, i + 3), 16));
+      i += 3;
+      continue;
+    }
+    // Copy the whole code point so astral characters survive as one unit.
+    const codePoint = value.codePointAt(i);
+    if (codePoint === undefined) break;
+    const chunk = String.fromCodePoint(codePoint);
+    for (const byte of utf8Encoder.encode(chunk)) bytes.push(byte);
+    i += chunk.length;
+  }
+  try {
+    return strictUtf8Decoder.decode(new Uint8Array(bytes));
+  } catch {
+    return INVALID_UTF8;
+  }
 }
 
 function unsafeDecodedState(value: string): boolean {
