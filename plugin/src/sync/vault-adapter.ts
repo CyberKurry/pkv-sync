@@ -327,20 +327,8 @@ function hasEscapedPathSeparator(path: string): boolean {
 function hasUnsafeDecodedShape(path: string): boolean {
   let current = path;
   for (let i = 0; i < 4; i++) {
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(current);
-    } catch {
-      // R12-2: distinguish two throw shapes. A MALFORMED escape pattern
-      // (`%` not followed by valid hex — e.g. the ordinary name `100%.md`)
-      // is not an escape at all; leave it to the literal rules. A
-      // well-formed `%XX` that decodes into non-UTF-8 bytes (`a%FFb.md`)
-      // is what the server refuses — refuse here too.
-      if (/%[0-9a-f]{2}/i.test(current)) {
-        return true;
-      }
-      return false;
-    }
+    const decoded = decodeRound(current);
+    if (decoded === null) return malformedEscapeRefused(current);
     if (decoded === current) {
       // R14-M1: fixed point reached. The server stores every pushed path
       // at its fixed-point decode (decode_to_fixed_point, the idempotent
@@ -353,12 +341,64 @@ function hasUnsafeDecodedShape(path: string): boolean {
       return current !== path;
     }
     current = normalizeSeparators(decoded);
-    if (hasEscapedPathSeparator(current)) return true;
-    if (!isSafePathShape(current) || hasProtectedRoot(current) || startsWithDotRoot(current)) {
-      return true;
-    }
+    if (unsafeDecodedState(current)) return true;
   }
-  return false;
+  // R15-1: the round budget is exhausted and the value is STILL moving.
+  // The server's twin (decode_to_fixed_point in server/src/storage/path.rs)
+  // runs one final round OUTSIDE its loop: stable → accepted and stored at
+  // the fixed point, still changing → PercentEncodingTooDeep → 400
+  // invalid_path. Returning `false` here meant "acceptable", which was
+  // wrong in both directions: a chain needing exactly 4 rounds was folded
+  // into a sibling-colliding server name (R14-M1's failure, one round
+  // deeper), and a chain needing 5+ was pushed into a deterministic 400
+  // that wedges the whole vault (R15-2). Same final round as the server,
+  // same verdict.
+  const final = decodeRound(current);
+  if (final === null) return malformedEscapeRefused(current);
+  if (final === current) {
+    // Stable one round past the budget: the server accepts it and stores
+    // it at this fixed point, which is exactly R14-M1's folding shape —
+    // so the verdict is the same as reaching the fixed point inside the
+    // loop, not "accepted because the chain ended".
+    return current !== path;
+  }
+  return true;
+}
+
+/**
+ * One decode round; `null` when the value cannot be decoded as a whole.
+ *
+ * R15-1: `decodeURIComponent` throws on a malformed triplet ANYWHERE in
+ * the value, while the server's `percent_decode_str` leaves the bad
+ * triplet untouched and keeps folding the rest (`a%25zz.md` → `a%zz.md`).
+ * Treating "threw" as "nothing left to decode" kept files the server
+ * stores under a different name — R14-M1's folding bug, one round deeper.
+ */
+function decodeRound(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function malformedEscapeRefused(value: string): boolean {
+  // R12-2: distinguish two throw shapes. A MALFORMED escape pattern
+  // (`%` not followed by valid hex — e.g. the ordinary name `100%.md`)
+  // is not an escape at all; leave it to the literal rules. A
+  // well-formed `%XX` that fails to decode (non-UTF-8 bytes like
+  // `a%FFb.md`, or a mangled tail the server would fold past, like
+  // `a%25zz.md`) is one the server handles differently — refuse it here.
+  return /%[0-9a-f]{2}/i.test(value);
+}
+
+function unsafeDecodedState(value: string): boolean {
+  if (hasEscapedPathSeparator(value)) return true;
+  return (
+    !isSafePathShape(value) ||
+    hasProtectedRoot(value) ||
+    startsWithDotRoot(value)
+  );
 }
 
 function hasProtectedRoot(path: string): boolean {
