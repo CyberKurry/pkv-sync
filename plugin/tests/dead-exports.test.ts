@@ -63,11 +63,21 @@ function walk(dir: string): string[] {
   return out;
 }
 
-/** Blank out block comments and line comments, preserving line breaks. */
+/**
+ * Blank out block comments and line comments, preserving line breaks.
+ *
+ * Line comments go FIRST. Running the block-comment pass first lets a `/*`
+ * that appears inside a line comment open a phantom block: a doc comment
+ * legitimately mentions a glob like `.obsidian/plugins/**`, whose `/*`
+ * would then begin a "comment" that swallows every line of real code up to
+ * the next `*` + `/`. That silently deleted a live method call from the
+ * scan and reported its callee as a dead export — a false positive that
+ * only appeared when a comment happened to contain that shape.
+ */
 function stripComments(text: string): string {
   return text
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    .replace(/(^|[^:])\/\/.*$/gm, "$1")
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
 }
 
 interface CollectedExport {
@@ -192,6 +202,31 @@ const FRAMEWORK_CONSUMED = new Set([
   "onload",
   "onunload"
 ]);
+
+describe("stripComments must not swallow live code", () => {
+  it("keeps code that follows a line comment mentioning a /** glob", () => {
+    // A doc comment that names a glob like `.obsidian/plugins/**` contains
+    // the two characters that open a block comment. Running the block pass
+    // first treated that as one, blanking every line up to the next real
+    // `*/` — which deleted a live call from the scan and reported its
+    // callee as dead. The line pass must run first.
+    const source = [
+      "const before = 1;",
+      "// excludes: .obsidian/plugins/** and similar",
+      "const after = 2;",
+      "/* a real block comment */",
+      "const last = 3;"
+    ].join("\n");
+    const stripped = stripComments(source);
+    expect(stripped).toContain("const before = 1;");
+    expect(stripped).toContain("const after = 2;");
+    expect(stripped).toContain("const last = 3;");
+    expect(stripped).not.toContain("excludes:");
+    expect(stripped).not.toContain("a real block comment");
+    // Line breaks are preserved so the masking offsets stay aligned.
+    expect(stripped.split("\n")).toHaveLength(source.split("\n").length);
+  });
+});
 
 describe("plugin dead export cleanup", () => {
   it("every exported identifier is consumed outside its own declaration", () => {
