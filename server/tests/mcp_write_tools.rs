@@ -1837,3 +1837,111 @@ async fn expected_hashes_rejects_a_non_sha256_guard_value() {
         "a non-sha256 guard value must be refused by name, got: {message}"
     );
 }
+
+/// R16-3 / R15-8: the three mutating entry points that CREATE and DELETE
+/// files were the last ones skipping the visibility producer, so an agent
+/// could overwrite `.obsidian/app.json` — which the starter allowlist
+/// legitimately syncs — and then be unable to read back what it wrote.
+#[tokio::test]
+async fn write_tools_refuse_a_hidden_path() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-hidden-write").await;
+    let vault = pkv_sync_server::service::vault::create_vault(&state, &user.user_id, "main")
+        .await
+        .unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "note.md", "public").await;
+
+    for (tool, arguments) in [
+        (
+            "write_file",
+            json!({
+                "vault_id": vault.id,
+                "path": ".obsidian/app.json",
+                "content": "{}",
+                "parent_commit": head
+            }),
+        ),
+        (
+            "delete_file",
+            json!({
+                "vault_id": vault.id,
+                "path": ".obsidian/app.json",
+                "parent_commit": head
+            }),
+        ),
+        (
+            "write_files",
+            json!({
+                "vault_id": vault.id,
+                "parent_commit": head,
+                "writes": [{ "path": ".obsidian/app.json", "content": "{}" }]
+            }),
+        ),
+    ] {
+        let body = post_tool(state.clone(), &raw, tool, arguments).await;
+        let message = tool_business_message(&body);
+        assert!(
+            message.starts_with("invalid_path:") && message.contains("not addressable"),
+            "{tool} must refuse a hidden path, got: {message}"
+        );
+    }
+
+    // Nothing was written: the hidden path still does not exist.
+    let git = Git2VaultStore::new(state.default_vault_root());
+    assert!(git
+        .read_file(&vault.id, ".obsidian/app.json", Some(&head))
+        .await
+        .unwrap()
+        .is_none());
+
+    // The two reasons a path is hidden keep two producers: a path the
+    // vault's filter refuses outright still answers `path_excluded`, which
+    // names the configuration to fix, rather than being folded into this
+    // new refusal.
+    let body = post_tool(
+        state,
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": ".obsidian/workspace.json",
+            "content": "{}",
+            "parent_commit": head
+        }),
+    )
+    .await;
+    let message = tool_business_message(&body);
+    assert!(
+        message.contains("path_excluded"),
+        "a filter-refused path must keep its precise answer, got: {message}"
+    );
+}
+
+/// The guard must not become over-broad: ordinary paths still work through
+/// all three tools.
+#[tokio::test]
+async fn write_tools_still_accept_ordinary_paths() {
+    let (state, _tmp) = test_state().await;
+    let (user, raw) = create_user_with_token(&state, "mcp-ordinary-write").await;
+    let vault = pkv_sync_server::service::vault::create_vault(&state, &user.user_id, "main")
+        .await
+        .unwrap();
+    let head = seed_text(&state, &user, &vault.id, None, "note.md", "one").await;
+
+    let body = post_tool(
+        state.clone(),
+        &raw,
+        "write_file",
+        json!({
+            "vault_id": vault.id,
+            "path": "notes/second.md",
+            "content": "two",
+            "parent_commit": head
+        }),
+    )
+    .await;
+    assert_eq!(
+        body["result"]["isError"], false,
+        "unexpected refusal: {body}"
+    );
+}

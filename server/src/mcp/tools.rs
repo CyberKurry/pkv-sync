@@ -1974,6 +1974,37 @@ fn mcp_path_visible(filter: &SyncPathFilter, path: &str) -> bool {
     crate::mcp::link_scan::mcp_visible(filter, path)
 }
 
+/// The async half of [`mcp_path_visible`]: resolve the vault's filter and
+/// answer for one path, refusing with the same `invalid_path` wording every
+/// other mutating tool uses.
+///
+/// R16-3 / R15-8: `write_file`, `delete_file` and `write_files` were the
+/// last mutating tools that skipped this. The invariant stated above ("hidden
+/// paths stay non-addressable to agents") held everywhere except the three
+/// entry points that CREATE and DELETE files, so an agent could overwrite
+/// `.obsidian/app.json` — which the starter allowlist legitimately syncs —
+/// and then be unable to read back what it had just written.
+async fn ensure_mcp_path_visible(state: &AppState, vault_id: &str, path: &str) -> Result<()> {
+    let filter = sync::vault_path_filter(state, vault_id)
+        .await
+        .map_err(api_error_to_anyhow)?;
+    if mcp_path_visible(&filter, path) {
+        return Ok(());
+    }
+    // Two different reasons hide a path, and they keep two different
+    // producers. A path the vault's sync filter refuses outright is a
+    // statement about the SERVER's configuration, and the push path already
+    // answers it precisely (`path_excluded`, naming the setting to fix) — so
+    // defer instead of replacing a specific answer with a vague one. What is
+    // left is the agent-specific rule this helper exists for: a path the
+    // vault legitimately syncs but no agent may address (an allowlisted
+    // `.obsidian/app.json`).
+    if !filter.path_accepts(path) {
+        return Ok(());
+    }
+    bail!("invalid_path: '{path}' is not addressable through MCP")
+}
+
 /// 2b: cursor for a budget or window stop (spec §5.2b). Resumes AFTER the
 /// last fully scanned file when it yielded no matches (line = MAX skips the
 /// whole file on resume, since `line_number <= first_line` filters every
@@ -2202,6 +2233,7 @@ pub async fn write_file(
     input: WriteFileInput,
 ) -> Result<WriteToolOutput> {
     let path = normalize_mcp_path(input.path)?;
+    ensure_mcp_path_visible(state, &input.vault_id, &path).await?;
     let size_bytes = input.content.len();
     let max_file_size = state.runtime_cfg.max_file_size().await;
     if size_bytes as u64 > max_file_size {
@@ -2234,6 +2266,7 @@ pub async fn delete_file(
     input: DeleteFileInput,
 ) -> Result<WriteToolOutput> {
     let path = normalize_mcp_path(input.path)?;
+    ensure_mcp_path_visible(state, &input.vault_id, &path).await?;
     apply_write_tool(
         state,
         user,
@@ -2272,6 +2305,7 @@ pub async fn write_files(
 
     for write in input.writes {
         let path = normalize_mcp_path(write.path)?;
+        ensure_mcp_path_visible(state, &input.vault_id, &path).await?;
         if !write_paths.insert(path.clone()) {
             bail!("duplicate_path: '{path}' appears more than once");
         }
@@ -2294,6 +2328,7 @@ pub async fn write_files(
     let mut delete_paths = HashSet::new();
     for delete in input.deletes {
         let path = normalize_mcp_path(delete)?;
+        ensure_mcp_path_visible(state, &input.vault_id, &path).await?;
         if write_paths.contains(&path) || !delete_paths.insert(path.clone()) {
             bail!("duplicate_path: '{path}' appears in conflicting batch changes");
         }
@@ -5769,15 +5804,15 @@ mod tests {
         // Asserted structurally because the Git2 store's `list_tree_under`
         // opens its own pruned collector rather than delegating, so a call
         // count is not observable from here.
-        const source: &str = include_str!("tools.rs");
-        let fn_start = source
+        const SOURCE: &str = include_str!("tools.rs");
+        let fn_start = SOURCE
             .find("pub async fn link_graph(")
             .expect("link_graph exists");
-        let fn_end = source[fn_start..]
+        let fn_end = SOURCE[fn_start..]
             .find("// ---- backlinks (MEL-14)")
             .map(|idx| fn_start + idx)
             .expect("backlinks section follows link_graph");
-        let implementation = &source[fn_start..fn_end];
+        let implementation = &SOURCE[fn_start..fn_end];
 
         let guard = implementation
             .find("let resolution_tree = if")
