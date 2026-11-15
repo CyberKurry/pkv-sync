@@ -11,6 +11,14 @@ export const LEGACY_PUSH_LIMITS: Readonly<PushLimits> = Object.freeze({
 export const DEFAULT_PUSH_TARGET_BYTES = 1_048_576;
 export const MAX_413_FAILURES = 16;
 export const SINGLETON_RETRY_MS = 300_000;
+/**
+ * R15-2: how long a path the server deterministically refuses stays out of
+ * the push queue. Longer than the singleton cooldown because the cause is a
+ * server-side verdict (a path the vault's filter rejects, a body the pointer
+ * guard refuses) that only changes when the user does something — rename the
+ * file, fix the allowlist — not when a proxy limit relaxes.
+ */
+export const QUARANTINE_RETRY_MS = 900_000;
 
 function positiveInteger(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0

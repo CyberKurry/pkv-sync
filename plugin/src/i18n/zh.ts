@@ -117,6 +117,8 @@ export const zh = {
     "无法同步 {path}：序列化请求为 {bytes} 字节，超过服务端 {limit} 字节的内联上限。",
   pushProxyTooLarge:
     "无法同步 {path}：单文件请求（{bytes} 字节）仍被服务端或代理判定为过大。",
+  pushPathRejected:
+    "无法同步 {path}：服务端拒绝了该路径（{reason}）。在你重命名或修改它之前，它只会保留在本机。",
   pushRetryLater: "服务端暂时拒绝本次推送，将在 {seconds} 秒后重试。",
   pushSplitBudgetExceeded:
     "已发生 {count} 次请求超限，推送已停止。请检查服务端或代理限制。",

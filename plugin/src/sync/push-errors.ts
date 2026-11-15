@@ -9,6 +9,7 @@ export type PushFailure =
 export type PushLabels = Pick<
   Strings,
   | "pushInlineTooLarge"
+  | "pushPathRejected"
   | "pushProxyTooLarge"
   | "pushRetryLater"
   | "pushSplitBudgetExceeded"

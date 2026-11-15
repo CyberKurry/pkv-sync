@@ -117,6 +117,8 @@ export const zhHant = {
     "無法同步 {path}：序列化請求為 {bytes} 位元組，超過伺服端 {limit} 位元組的內嵌上限。",
   pushProxyTooLarge:
     "無法同步 {path}：單一檔案請求（{bytes} 位元組）仍被伺服端或代理判定為過大。",
+  pushPathRejected:
+    "無法同步 {path}：伺服端拒絕了該路徑（{reason}）。在你重新命名或修改它之前，它只會保留在本機。",
   pushRetryLater: "伺服端暫時拒絕本次推送，將於 {seconds} 秒後重試。",
   pushSplitBudgetExceeded:
     "已發生 {count} 次請求超限，推送已停止。請檢查伺服端或代理限制。",

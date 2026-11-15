@@ -120,6 +120,8 @@ export const en = {
     "Cannot sync {path}: the serialized request is {bytes} bytes, above the server's {limit}-byte inline limit.",
   pushProxyTooLarge:
     "Cannot sync {path}: even its single-file request ({bytes} bytes) was rejected as too large by the server or proxy.",
+  pushPathRejected:
+    "Cannot sync {path}: the server rejected it ({reason}). It stays on this device only until you rename or edit it.",
   pushRetryLater: "The server temporarily rejected this push. Retry in {seconds}s.",
   pushSplitBudgetExceeded:
     "Push stopped after {count} oversized-request failures. Check the server or proxy limit.",

@@ -423,6 +423,163 @@ describe("PushBatcher Retry-After", () => {
   });
 });
 
+describe("PushBatcher deterministic 4xx isolation (R15-2)", () => {
+  // Server rejects these for the SAME bytes every single time: they are
+  // properties of the path/content, not of the request size. Re-sending
+  // them can never succeed, and before this fix ONLY 413 was isolated —
+  // every other status was rethrown, which propagated out of
+  // pushPendingWithHeadMismatchRetry (it retries 409 only), was caught by
+  // syncInner, set the status to error and rethrew BEFORE step ③, so the
+  // pull never ran either. The vault became permanently unpushable and
+  // unpullable with no in-app way out.
+  const DETERMINISTIC_4XX = [
+    "invalid_path",
+    "invalid_text",
+    "path_excluded",
+    "wrong_file_kind"
+  ];
+
+  function coded(status: number, code: string): ApiError {
+    return new ApiError(status, code, `${status} ${code}`, undefined);
+  }
+
+  it("quarantines a poison file and pushes the rest of the batch", async () => {
+    const b = batcher(() => 1_000_000);
+    const poison: PushItem = {
+      change: { kind: "text", path: "bad%2525252541.md", content: "x" },
+      fingerprint: "poison"
+    };
+    const healthy: PushItem = {
+      change: { kind: "text", path: "good.md", content: "y" },
+      fingerprint: "healthy"
+    };
+    const accepted: string[][] = [];
+    const send = vi.fn(async (items: readonly PushItem[]) => {
+      if (items.some((item) => item.change.path === poison.change.path)) {
+        throw coded(400, "invalid_path");
+      }
+      return RESPONSE;
+    });
+    await b.beginRun(LEGACY_PUSH_LIMITS, () => undefined).send(
+      [poison, healthy],
+      {
+        deviceName: "d",
+        send,
+        onAccepted: async (items) => {
+          accepted.push(items.map((item) => item.change.path));
+        }
+      }
+    );
+    // The healthy file reached the server and was recorded…
+    expect(accepted).toEqual([["good.md"]]);
+    // …and the poison one never wedged the run.
+    expect(send.mock.calls.every((call) => call[0].length >= 1)).toBe(true);
+  });
+
+  it.each(DETERMINISTIC_4XX)("isolates a %s rejection", async (code) => {
+    const b = batcher(() => 1_000_000);
+    const poison: PushItem = {
+      change: { kind: "text", path: "poison.md", content: "x" },
+      fingerprint: "poison"
+    };
+    const healthy: PushItem = {
+      change: { kind: "text", path: "good.md", content: "y" },
+      fingerprint: "healthy"
+    };
+    const accepted: string[] = [];
+    await b.beginRun(LEGACY_PUSH_LIMITS, () => undefined).send(
+      [poison, healthy],
+      {
+        deviceName: "d",
+        send: async (items) =>
+          items.some((item) => item.change.path === "poison.md")
+            ? Promise.reject(coded(400, code))
+            : RESPONSE,
+        onAccepted: async (items) => {
+          accepted.push(...items.map((item) => item.change.path));
+        }
+      }
+    );
+    expect(accepted).toEqual(["good.md"]);
+  });
+
+  it("does not resend a quarantined file on the next run", async () => {
+    const b = batcher(() => 1_000_000);
+    const poison: PushItem = {
+      change: { kind: "text", path: "poison.md", content: "x" },
+      fingerprint: "poison"
+    };
+    const callbacks = {
+      deviceName: "d",
+      send: async () => Promise.reject(coded(400, "invalid_text")),
+      onAccepted: async () => undefined
+    };
+    await b.beginRun(LEGACY_PUSH_LIMITS, () => undefined).send([poison], callbacks);
+    // Next pass: the same file is still pending locally, but re-sending it
+    // would produce the same 400 forever.
+    const send = vi.fn(async () => RESPONSE);
+    await b.beginRun(LEGACY_PUSH_LIMITS, () => undefined).send([poison], {
+      deviceName: "d",
+      send,
+      onAccepted: async () => undefined
+    });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("still rethrows a non-deterministic 4xx (auth, rate limit, unknown)", async () => {
+    // A 401/403/429 or an unrecognised code says nothing about the FILE —
+    // swallowing it would hide a revoked token or a retryable throttle and
+    // record the batch as applied.
+    for (const [status, code] of [
+      [401, "unauthorized"],
+      [403, "forbidden"],
+      [429, "rate_limited"],
+      [400, "some_future_code"]
+    ] as const) {
+      const b = batcher(() => 1_000_000);
+      const items = textItems(2, 10);
+      const error = await failure(
+        b.beginRun(LEGACY_PUSH_LIMITS, () => undefined).send(items, {
+          deviceName: "d",
+          send: async () => Promise.reject(coded(status, code)),
+          onAccepted: async () => undefined
+        })
+      );
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as unknown as ApiError).code).toBe(code);
+    }
+  });
+
+  it("reports the quarantined file so the user knows it stayed local", async () => {
+    // Silence would be its own bug: the file is invisible to the server
+    // forever, so the user must be told which path and why.
+    const b = batcher(() => 1_000_000);
+    const quarantined: Array<{ path: string; code: string }> = [];
+    const poison: PushItem = {
+      change: { kind: "text", path: "poison.md", content: "x" },
+      fingerprint: "poison"
+    };
+    const healthy: PushItem = {
+      change: { kind: "text", path: "good.md", content: "y" },
+      fingerprint: "healthy"
+    };
+    await b
+      .beginRun(LEGACY_PUSH_LIMITS, () => undefined)
+      .send([poison, healthy], {
+        deviceName: "d",
+        send: async (items) =>
+          items.some((item) => item.change.path === "poison.md")
+            ? Promise.reject(coded(400, "invalid_text"))
+            : RESPONSE,
+        onAccepted: async () => undefined,
+        onQuarantined: (path, code) => {
+          quarantined.push({ path, code });
+        }
+      });
+    expect(quarantined).toEqual([{ path: "poison.md", code: "invalid_text" }]);
+  });
+});
+
 describe("PushBatchError messages", () => {
   const labels = en;
   const zhLabels = zh;
