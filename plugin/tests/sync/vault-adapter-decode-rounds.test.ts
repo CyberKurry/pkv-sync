@@ -124,7 +124,7 @@ describe("R16-H2 malformed tails must not stop the fold", () => {
   function serverFixedPoint(encoded: string): string {
     let current = encoded;
     for (let round = 0; round < 8; round++) {
-      const next = current.replace(/%([0-9a-fA-F]{2})/g, (match, hex) => {
+      const next = current.replace(/%([0-9a-fA-F]{2})/g, (match) => {
         try {
           return decodeURIComponent(match);
         } catch {
@@ -160,7 +160,7 @@ describe("R16-H2 malformed tails must not stop the fold", () => {
 
   it.each(cases)(
     "agrees with the server about %s",
-    (literal, serverName, mustRefuse) => {
+    (literal, _serverName, mustRefuse) => {
       // Whenever the server's stored name differs from the local key, two
       // local files can map onto one server path with no conflict sidecar,
       // so the plugin must refuse. When it is the identity, refusing would

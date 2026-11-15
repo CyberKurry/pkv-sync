@@ -70,33 +70,59 @@ function deterministicCode(error: unknown): string | null {
   return DETERMINISTIC_4XX_CODES.has(error.code) ? error.code : null;
 }
 
-function takePrefix<T extends PushItem>(
-  items: readonly T[],
-  offset: number,
-  deviceName: string,
-  target: number,
-  limits: PushLimits,
-  weight: (item: T) => number,
-  error: (failure: PushFailure) => Error
-): T[] {
+/**
+ * Pack one request's worth of items starting at `offset`.
+ *
+ * The rules are all here, once: the empty-body seed, the `+1` separator
+ * between items, the target-byte stop, `limits.max_changes`, and a single
+ * item that cannot fit at all (`hard_limit`). R15-2 inlined a copy of this
+ * inside `sendPacked` while leaving the original as dead code, so the two
+ * could drift; R16-10 asked for one or the other, and the skip-aware version
+ * is the one that has to exist.
+ *
+ * `skip` withholds items (quarantined paths) without consuming them: the
+ * caller advances to the returned `end`, which is the exclusive end of the
+ * window this call examined — items before it were either packed or
+ * deliberately skipped, so nothing is retried and nothing is jumped over.
+ */
+function packChunk<T extends PushItem>(options: {
+  items: readonly T[];
+  offset: number;
+  deviceName: string;
+  target: number;
+  limits: PushLimits;
+  weight: (item: T) => number;
+  error: (failure: PushFailure) => Error;
+  skip?: (item: T) => boolean;
+}): { chunk: T[]; end: number; bytes: number } {
+  const { items, offset, deviceName, target, limits, weight, error, skip } = options;
   const chunk: T[] = [];
   let bytes = pushBodyBytes([], deviceName);
-  for (let i = offset; i < items.length && chunk.length < limits.max_changes; i++) {
-    const next = bytes + weight(items[i]) + (chunk.length ? 1 : 0);
-    if (chunk.length && (next > target || next > limits.max_json_bytes)) break;
-    if (next > limits.max_json_bytes) {
+  let next = offset;
+  while (next < items.length && chunk.length < limits.max_changes) {
+    const item = items[next];
+    if (skip?.(item)) {
+      next += 1;
+      continue;
+    }
+    const candidate = bytes + weight(item) + (chunk.length ? 1 : 0);
+    if (chunk.length && (candidate > target || candidate > limits.max_json_bytes)) {
+      break;
+    }
+    if (candidate > limits.max_json_bytes) {
       throw error({
         kind: "hard_limit",
-        path: items[i].change.path,
-        bytes: next,
+        path: item.change.path,
+        bytes: candidate,
         limit: limits.max_json_bytes
       });
     }
-    chunk.push(items[i]);
-    bytes = next;
+    chunk.push(item);
+    bytes = candidate;
+    next += 1;
     if (bytes > target) break;
   }
-  return chunk;
+  return { chunk, end: next, bytes };
 }
 
 function splitAtByteMiddle<T extends PushItem>(
@@ -209,40 +235,22 @@ export class PushBatcher {
               this.deferredUntil = 0;
               this.quarantined.clear();
             }
-            // R15-2: build the chunk straight into `remaining`, skipping
-            // every path the server has already refused for these exact
-            // bytes. Doing it here (not at each call site) is the point:
-            // `rejected` is consulted here for the same reason, so no send
-            // path can forget the rule.
-            const chunk: T[] = [];
-            let bytes = emptyBytes;
-            let next = offset;
-            while (next < remaining.length && chunk.length < limits.max_changes) {
-              const item = remaining[next];
-              if (this.isQuarantined(item)) {
-                next += 1;
-                continue;
-              }
-              const candidate = bytes + weight(item) + (chunk.length ? 1 : 0);
-              if (
-                chunk.length &&
-                (candidate > this.target || candidate > limits.max_json_bytes)
-              ) {
-                break;
-              }
-              if (candidate > limits.max_json_bytes) {
-                throw this.makeError({
-                  kind: "hard_limit",
-                  path: item.change.path,
-                  bytes: candidate,
-                  limit: limits.max_json_bytes
-                });
-              }
-              chunk.push(item);
-              bytes = candidate;
-              next += 1;
-              if (bytes > this.target) break;
-            }
+            // R15-2: skip every path the server has already refused for
+            // these exact bytes. R16-10: the packing rules live in
+            // `packChunk`, once — this loop used to carry a second copy of
+            // them while the original sat unused.
+            const packed = packChunk({
+              items: remaining,
+              offset,
+              deviceName: callbacks.deviceName,
+              target: this.target,
+              limits,
+              weight,
+              error: this.makeError,
+              skip: (item) => this.isQuarantined(item)
+            });
+            const { chunk, bytes } = packed;
+            const next = packed.end;
             if (chunk.length === 0) {
               // Nothing sendable left in this window (everything from
               // `offset` on is quarantined).

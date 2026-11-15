@@ -2118,12 +2118,15 @@ describe("pull re-checks local state before touching the disk (R15-5)", () => {
     const vault = new FakeVault([
       { path: "a.md", hash: "clean-hash", size: 4, kind: "text", content: "old" }
     ]);
-    // A gate the pull itself blocks on, after the scan snapshot is taken.
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
+    // Deterministic ordering: the scan resolves a promise the test awaits,
+    // so the "user edit" provably lands after the snapshot and before the
+    // trash. An `await Promise.resolve()` chain only hoped the scheduler ran
+    // in the right order (R16-13).
+    let scanned!: () => void;
+    const scanHappened = new Promise<void>((resolve) => {
+      scanned = resolve;
     });
-    let gateUsed = false;
+    let scannedOnce = false;
     const api = {
       state: vi.fn().mockResolvedValue({ current_head: "c1", changed_since: true }),
       pull: vi.fn().mockResolvedValue({
@@ -2153,24 +2156,27 @@ describe("pull re-checks local state before touching the disk (R15-5)", () => {
       setStatus: vi.fn()
     });
 
+    const originalScan = vault.scan.bind(vault);
+    vault.scan = async (...args: Parameters<typeof originalScan>) => {
+      const files = await originalScan(...args);
+      if (!scannedOnce) {
+        scannedOnce = true;
+        scanned();
+      }
+      return files;
+    };
+
     const run = engine.syncNow();
-    // Give the engine a turn to take its snapshot, then simulate the user
-    // editing a.md (which the remote has deleted) before the trash.
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    if (!gateUsed) {
-      gateUsed = true;
-      // The user's edit lands on disk; the index still says clean.
-      vault.files = vault.files.filter((file) => file.path !== "a.md").concat({
-        path: "a.md",
-        hash: await sha256Text("edited after the snapshot"),
-        size: 26,
-        kind: "text",
-        content: "edited after the snapshot"
-      });
-      release();
-    }
+    // The snapshot is now provably done.
+    await scanHappened;
+    // The user's edit lands on disk; the index still says clean.
+    vault.files = vault.files.filter((file) => file.path !== "a.md").concat({
+      path: "a.md",
+      hash: await sha256Text("edited after the snapshot"),
+      size: 26,
+      kind: "text",
+      content: "edited after the snapshot"
+    });
     await run;
 
     // The edit must survive: the file is trashed only when it is still the

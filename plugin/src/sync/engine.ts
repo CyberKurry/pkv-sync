@@ -170,10 +170,10 @@ export class SyncEngine {
    * clicked while a pass is in flight coalesced onto that pass, which was
    * already past the consumption point, so the armed flag outlived the pass
    * it was meant for and was lifted by some later, unrelated one — a
-   * whole-vault deletion the user never confirmed for that moment. The
-   * epoch below is what makes the two distinguishable: a pass records the
-   * epoch it started under, and a confirmation records the epoch it was
-   * armed in.
+   * whole-vault deletion the user never confirmed for that moment. What
+   * makes the two distinguishable is `emptyScanConfirmCoalesced` right
+   * below: a click that lands on an in-flight pass records itself there,
+   * and `syncNow`'s completion hook runs the pass it actually asked for.
    */
   private emptyScanOverride = false;
   /**
@@ -406,11 +406,11 @@ export class SyncEngine {
               switch (change.kind) {
                 case "text_inline":
                   if (!this.shouldApplyPulledPath(change.path, pathAccepted)) break;
-                  await this.applyInlineText(change.path, change.content, ev.commit);
+                  await this.applyInlineText(change.path, change.content);
                   break;
                 case "delete":
                   if (!this.shouldApplyPulledPath(change.path, pathAccepted)) break;
-                  await this.applyDelete(change.path, ev.commit);
+                  await this.applyDelete(change.path);
                   break;
                 case "text_ref":
                 case "blob":
@@ -1240,7 +1240,7 @@ export class SyncEngine {
     return recheck.hash === expectedHash;
   }
 
-  private async applyInlineText(path: string, content: string, commit: string): Promise<void> {
+  private async applyInlineText(path: string, content: string): Promise<void> {
     // Dirty check + write must look at one consistent index snapshot.
     // updateIndex serialises through the underlying data store so two
     // concurrent inline-event handlers cannot observe stale state or
@@ -1316,7 +1316,7 @@ export class SyncEngine {
     this.opts.setStatus("error", message);
   }
 
-  private async applyDelete(path: string, commit: string): Promise<void> {
+  private async applyDelete(path: string): Promise<void> {
     this.throwIfAborted();
     await this.opts.index.updateIndex(async (index) => {
       const indexed = index.files[path];
