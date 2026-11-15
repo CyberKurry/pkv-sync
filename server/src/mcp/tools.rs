@@ -1465,7 +1465,12 @@ pub async fn link_graph(
             .await?
     };
     tree.sort_by(|left, right| left.path.cmp(&right.path));
-    let resolution_tree = if prefix.is_empty() {
+    // R16-1: the full walk exists to widen the RESOLUTION universe, which
+    // only a `kind` filter needs (without one the nodes themselves are the
+    // universe). Fetching it unconditionally made the common
+    // prefix-without-kind call pay for two tree walks and discard one —
+    // exactly the cost `8a95e20` removed.
+    let resolution_tree = if prefix.is_empty() || input.kind.is_none() {
         None
     } else {
         let mut full = git.list_tree(&input.vault_id, input.at.as_deref()).await?;
@@ -5751,6 +5756,41 @@ mod tests {
         assert!(out.orphans.contains(&"w/a.md".to_string()));
         assert!(!out.orphans.contains(&"w/b.md".to_string()));
         assert!(!out.orphans.contains(&"s/raw.md".to_string()));
+    }
+
+    #[test]
+    fn link_graph_fetches_the_resolution_tree_only_when_it_is_needed() {
+        // R16-1: the full-tree walk exists solely to widen the resolution
+        // universe, and only a `kind` filter reads it. Taking it whenever a
+        // prefix was set made the common prefix-without-kind call pay twice
+        // and discard half — cancelling the whole point of the pruned walk
+        // that `8a95e20` introduced.
+        //
+        // Asserted structurally because the Git2 store's `list_tree_under`
+        // opens its own pruned collector rather than delegating, so a call
+        // count is not observable from here.
+        const source: &str = include_str!("tools.rs");
+        let fn_start = source
+            .find("pub async fn link_graph(")
+            .expect("link_graph exists");
+        let fn_end = source[fn_start..]
+            .find("// ---- backlinks (MEL-14)")
+            .map(|idx| fn_start + idx)
+            .expect("backlinks section follows link_graph");
+        let implementation = &source[fn_start..fn_end];
+
+        let guard = implementation
+            .find("let resolution_tree = if")
+            .expect("the resolution tree is selected in one place");
+        let condition = &implementation[guard..guard + 120];
+        assert!(
+            condition.contains("input.kind.is_none()"),
+            "the resolution tree must not be fetched when no kind filter needs it"
+        );
+        assert!(
+            condition.contains("prefix.is_empty()"),
+            "an empty prefix already walks the whole tree; do not walk it twice"
+        );
     }
 
     #[tokio::test]
