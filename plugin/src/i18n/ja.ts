@@ -119,6 +119,8 @@ export const ja = {
     "{path} を同期できません: シリアライズされたリクエストは {bytes} バイトで、サーバーのインライン上限 {limit} バイトを超えています。",
   pushProxyTooLarge:
     "{path} を同期できません: 単一ファイルのリクエスト（{bytes} バイト）もサーバーまたはプロキシによって大きすぎると判定されました。",
+  pushPathsRefusedSummary:
+    "{count} 個のファイルを同期できず、この端末にのみ残ります。",
   pushPathRejected:
     "{path} を同期できません: サーバーがこのパスを拒否しました（{reason}）。名前を変更するか編集するまで、この端末にのみ残ります。",
   pushRetryLater: "サーバーがこのプッシュを一時的に拒否しました。{seconds} 秒後に再試行します。",

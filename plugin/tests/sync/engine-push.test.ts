@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { notices } from "../mocks/obsidian";
 import { ApiError } from "../../src/api/client";
 import { SyncEngine, type IndexPersistence } from "../../src/sync/engine";
 import { sha256Text } from "../../src/sync/hash";
@@ -1652,5 +1653,121 @@ describe("SyncEngine push", () => {
       { kind: "text", path: "a.md", content: "new" }
     ], "d");
     expect(idx.saved?.lastSyncedCommit).toBe("c2");
+  });
+});
+
+describe("a quarantined file is reported, not silently dropped (R16-H1)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("window", globalThis);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function engineFor(vault: FakeVault, api: unknown) {
+    const idx = new FakeIndex({ lastSyncedCommit: null, files: {} });
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as never,
+      api: api as never,
+      index: idx,
+      setStatus: vi.fn()
+    });
+    return { engine, idx };
+  }
+
+  it("notifies once with the path, at the engine level", async () => {
+    // R15-2 landed the withholding mechanism but not the reporting half, so
+    // the file vanished from the vault with a GREEN status, an advanced
+    // lastSyncSuccessAt and no notice anywhere — worse than the wedged
+    // state it replaced, which at least showed red. The callback is
+    // optional, which is why neither the type checker nor the dead-export
+    // guard could see that the only production caller never passed it; the
+    // batcher-level test passed the callback itself, so it could not see it
+    // either. This one runs at the layer that has to wire it.
+    const poison = {
+      path: "poison.md",
+      hash: "hp",
+      size: 1,
+      kind: "text" as const,
+      content: "x"
+    };
+    const vault = new FakeVault([poison]);
+    const api = {
+      state: vi.fn().mockResolvedValue({ current_head: null, changed_since: false }),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi
+        .fn()
+        .mockRejectedValue(new ApiError(400, "invalid_path", "invalid_path", undefined)),
+      downloadBlob: vi.fn()
+    };
+    const { engine } = engineFor(vault, api);
+    const noticesBefore = notices.length;
+
+    await engine.syncNow();
+
+    const reported = notices.slice(noticesBefore).filter((text) =>
+      text.includes("poison.md")
+    );
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toContain("invalid_path");
+  });
+
+  it("still reports the healthy file as synced", async () => {
+    const poison = {
+      path: "poison.md",
+      hash: "hp",
+      size: 1,
+      kind: "text" as const,
+      content: "x"
+    };
+    const healthy = {
+      path: "good.md",
+      hash: "hg",
+      size: 1,
+      kind: "text" as const,
+      content: "y"
+    };
+    const vault = new FakeVault([poison, healthy]);
+    const api = {
+      state: vi.fn().mockResolvedValue({ current_head: null, changed_since: false }),
+      pull: vi.fn().mockResolvedValue({
+        from: null,
+        to: null,
+        added: [],
+        modified: [],
+        deleted: []
+      }),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(async (_v: string, _m: string | null, changes: Array<{ path: string }>) => {
+        if (changes.some((change) => change.path === "poison.md")) {
+          throw new ApiError(400, "wrong_file_kind", "wrong_file_kind", undefined);
+        }
+        return { new_commit: "c1", files_changed: changes.length };
+      }),
+      downloadBlob: vi.fn()
+    };
+    const { engine, idx } = engineFor(vault, api);
+    const noticesBefore = notices.length;
+
+    await engine.syncNow();
+
+    expect(idx.saved?.files["good.md"]).toBeDefined();
+    expect(idx.saved?.files["poison.md"]).toBeUndefined();
+    expect(
+      notices.slice(noticesBefore).filter((text) => text.includes("poison.md"))
+    ).toHaveLength(1);
   });
 });
