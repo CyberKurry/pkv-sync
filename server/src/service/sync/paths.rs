@@ -130,6 +130,32 @@ pub(super) fn reject_filtered_push_path(
     }
 }
 
+/// R14-M4 / R15-3: refuse a text body whose ENTIRETY parses as a blob
+/// pointer.
+///
+/// `decode_file` applies the pointer heuristic to EVERY read, so a note
+/// stored verbatim in that shape reads back as a `BlobPointer` on every
+/// device while no blob was ever uploaded — every other device's pull
+/// 404s on the download and wedges at this commit until the source
+/// rewrites the file. The judgment reuses `into_file_for_path`, the same
+/// producer `decode_file` uses on the read side.
+///
+/// ONE producer, called by BOTH text write paths (the fast path in
+/// `push.rs` and the three text branches in `merge_apply.rs`). The guard
+/// used to live inline in the fast path only, and the auto-merge path
+/// kept committing the exact shape it exists to refuse.
+pub(super) fn reject_pointer_shaped_text(path: &str, content: &str) -> Result<(), ApiError> {
+    if let Some(pointer) = crate::storage::git::parse_blob_pointer(content.as_bytes()) {
+        if pointer.into_file_for_path(path).is_some() {
+            return Err(ApiError::bad_request(
+                "invalid_text",
+                "content parses as a PKV Sync blob pointer; storing it verbatim would read back as an unsatisfiable blob reference on every other device",
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn generated_push_path_is_valid(path: &str) -> bool {
     if path.is_empty() || path.starts_with('/') || path.as_bytes().contains(&0) || path.len() > 512
     {

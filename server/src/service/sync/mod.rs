@@ -1113,6 +1113,83 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn auto_merge_path_also_refuses_pointer_shaped_text() {
+        // R15-3: the R14-M4 guard lives only on the fast path (push.rs
+        // Text branch). The auto-merge path writes FileChange::upsert_text
+        // for a mergeable Text change, so the exact same pointer-shaped
+        // body was still committed whenever the caller's base was stale —
+        // and decode_file applies the pointer heuristic to EVERY read, so
+        // every other device's pull 404s on a blob that was never
+        // uploaded and wedges at that commit. The guard must live in one
+        // shared helper both branches call.
+        let (state, user, vid, _tmp) = setup().await;
+        let base = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("base".into()),
+                changes: vec![PushChange::Text {
+                    path: "keep.md".into(),
+                    content: "base\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        // Advance the head from another device so the pointer push below
+        // is stale and takes the auto-merge path.
+        push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("device-b".into()),
+                changes: vec![PushChange::Text {
+                    path: "other.md".into(),
+                    content: "remote\n".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let pointer = serde_json::json!({
+            "pkvsync_pointer": 1,
+            "blob": "a".repeat(64),
+            "size": 4,
+            "mime": null
+        })
+        .to_string();
+        let err = push(
+            &state,
+            &user,
+            &vid,
+            Some(&base.new_commit),
+            None,
+            PushReq {
+                device_name: Some("stale laptop".into()),
+                changes: vec![PushChange::Text {
+                    path: "doc.md".into(),
+                    content: pointer,
+                }],
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            err.code, "invalid_text",
+            "auto-merge path accepted pointer-shaped text"
+        );
+    }
+
+    #[tokio::test]
     async fn binary_text_auto_merge_rejects_instead_of_writing_sidecar() {
         let (state, user, vid, _tmp) = setup().await;
         let base = push(

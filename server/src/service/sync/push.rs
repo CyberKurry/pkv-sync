@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, HashSet};
 use super::events::{text_event_with_budget, SseInlineBudget};
 use super::limits::MAX_PUSH_CHANGES;
 use super::merge_apply::try_auto_merge_push;
-use super::paths::{reject_filtered_push_path, sync_path_filter};
+use super::paths::{reject_filtered_push_path, reject_pointer_shaped_text, sync_path_filter};
 use super::reconcile::ReconcileReport;
 use super::{
     blob_store, AutoMergePushInput, CasConflict, CommitPushInput, PreparedPush, PushApplyOutcome,
@@ -365,23 +365,11 @@ async fn push_with_request_metadata_internal(
                 // list only decides which paths the CLIENT offers as text,
                 // and stale lists must not wedge the whole batch on 400.
                 //
-                // R14-M4: one shape still must refuse: a document whose
-                // ENTIRE body parses as a blob pointer would be stored
-                // verbatim and read back as a BlobPointer (decode_file
-                // applies the magic/path heuristic to every read), yet no
-                // blob was uploaded — every OTHER device's pull would then
-                // 404 on the blob download and wedge at this commit. The
-                // judgment reuses into_file_for_path, the same producer
-                // decode_file uses on the read side.
-                let content_bytes = content.as_bytes();
-                if let Some(pointer) = crate::storage::git::parse_blob_pointer(content_bytes) {
-                    if pointer.into_file_for_path(&p).is_some() {
-                        return Err(ApiError::bad_request(
-                            "invalid_text",
-                            "content parses as a PKV Sync blob pointer; storing it verbatim would read back as an unsatisfiable blob reference on every other device",
-                        ));
-                    }
-                }
+                // R14-M4 / R15-3: one shape still must refuse — a body that
+                // parses as a blob pointer in its entirety. The shared
+                // helper carries the rationale; both text write paths call
+                // it (this fast path and merge_apply's text branches).
+                reject_pointer_shaped_text(&p, &content)?;
                 event_changes.push(text_event_with_budget(&p, &content, &mut inline_budget));
                 git_changes.push(FileChange::upsert_text(p, content.into_bytes()));
             }

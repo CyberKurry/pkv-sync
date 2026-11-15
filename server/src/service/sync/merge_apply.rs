@@ -9,6 +9,7 @@ use crate::storage::path;
 use super::events::{text_event_with_budget, SseInlineBudget};
 use super::paths::{
     ensure_generated_push_path, generated_push_path_is_valid, reject_filtered_push_path,
+    reject_pointer_shaped_text,
 };
 use super::push::commit_prepared_push;
 use super::push::{record_push_metadata, PushMetadataInput};
@@ -53,6 +54,17 @@ pub(super) async fn try_auto_merge_push(
                     ));
                 }
                 // S6: no extension gate on text pushes (see push.rs).
+                //
+                // R15-3: BUT the pointer-shaped-body refusal is not
+                // optional, and it belongs HERE at the branch entry — not
+                // on one of the four outcomes below. Every outcome writes
+                // `FileChange::upsert_text` from this content or a merge
+                // of it: the both-missing adopt, the clean three-way
+                // merge, the merge-marker sidecar, and the one-sided
+                // sidecar. Validating per-outcome would leave the join
+                // points uncovered exactly the way the fast path's inline
+                // copy left this whole path uncovered.
+                reject_pointer_shaped_text(&normalized, &content)?;
 
                 let base_text =
                     read_merge_text(&git, input.vault_id, &normalized, input.base_commit).await?;
