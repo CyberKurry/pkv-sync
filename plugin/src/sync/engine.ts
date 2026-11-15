@@ -175,6 +175,15 @@ export class SyncEngine {
    */
   private emptyScanOverride = false;
   /**
+   * R15-7: a confirmation clicked WHILE a pass is in flight cannot be
+   * honoured by that pass — it is long past the consumption point — so
+   * something has to run a pass that starts after it. `emptyScanConfirmCoalesced`
+   * records that the click landed on an in-flight pass; `syncNow`'s
+   * completion hook sees it and runs one more pass, which is the pass the
+   * user's click actually asked for.
+   */
+  private emptyScanConfirmCoalesced = false;
+  /**
    * The override value lifted for the pass currently in flight: every
    * scanPendingFrom classification inside one pass — including the 409
    * head-mismatch retry's trailing reclassification — shares it, so a
@@ -216,6 +225,11 @@ export class SyncEngine {
   /** Arm the D3 escape hatch (spec §3.4) for the next sync pass. */
   allowEmptyScanDeletesOnce(): void {
     this.emptyScanOverride = true;
+    // R15-7: if a pass is already in flight, it has passed the consumption
+    // point and cannot honour this click. Note it so the completion hook
+    // schedules the pass the click actually asked for; otherwise the flag
+    // would survive into whatever unrelated pass ran next.
+    if (this.activeSync) this.emptyScanConfirmCoalesced = true;
   }
 
   /**
@@ -224,6 +238,15 @@ export class SyncEngine {
    */
   heldDeletionCount(): number {
     return this.lastHeldDeletionCount;
+  }
+
+  /**
+   * R15-7: whether a "confirm empty-vault deletions" click is still waiting
+   * for a pass to actually start. Observable so the completion hook's
+   * follow-up pass can be asserted instead of inferred from timing.
+   */
+  emptyScanConfirmPending(): boolean {
+    return this.emptyScanOverride || this.emptyScanConfirmCoalesced;
   }
 
   private get aborted(): boolean {
@@ -260,14 +283,38 @@ export class SyncEngine {
     const completion = run.then(
       () => {
         if (this.activeSync === completion) this.activeSync = null;
+        this.runDeferredEmptyScanConfirm();
       },
       (error) => {
         if (this.activeSync === completion) this.activeSync = null;
+        this.runDeferredEmptyScanConfirm();
         throw error;
       }
     );
     this.activeSync = completion;
     return completion;
+  }
+
+  /**
+   * R15-7: honour a "confirm empty-vault deletions" click that arrived while
+   * a pass was in flight.
+   *
+   * The click could not be consumed by the running pass (it had already
+   * lifted the override), so it is still armed. The pass the user asked for
+   * has to start now — otherwise the flag survives into whatever unrelated
+   * pass happens to run next, which is a whole-vault deletion nobody
+   * confirmed for that moment. Deliberately fire-and-forget: the click's own
+   * caller (`void plugin.syncNowManual()`) has already returned, and the
+   * completion of this pass must not be delayed by the next one.
+   */
+  private runDeferredEmptyScanConfirm(): void {
+    if (!this.emptyScanConfirmCoalesced) return;
+    this.emptyScanConfirmCoalesced = false;
+    // An aborted/replaced generation owns neither the vault nor the status
+    // element any more; the replacement engine's own sync covers it.
+    if (this.aborted) return;
+    if (!this.emptyScanOverride) return;
+    void this.syncNow().catch(() => undefined);
   }
 
   /**

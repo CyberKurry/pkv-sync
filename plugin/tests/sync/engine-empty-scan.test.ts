@@ -259,3 +259,93 @@ describe("SyncEngine empty-scan breaker review fixes", () => {
     expect(setStatus).toHaveBeenLastCalledWith("connected");
   });
 });
+
+describe("SyncEngine empty-scan confirmation is scoped to one pass (R15-7)", () => {
+  beforeEach(() => {
+    vi.mocked(subscribeVaultEvents).mockReset();
+    vi.stubGlobal("window", globalThis);
+  });
+
+  it("a confirmation armed during an in-flight pass does not leak into a later one", async () => {
+    // The confirmation is consumed at the TOP of syncInner. If the user
+    // clicks "Confirm empty-vault deletions" while a pass is already in
+    // flight, syncNow coalesces onto that pass — which passed the
+    // consumption point long ago — so the armed flag survives the pass it
+    // was meant for and is lifted by the NEXT one, however much later.
+    // The user then gets a whole-vault deletion they never confirmed for
+    // that moment, which is precisely what the breaker exists to prevent.
+    let releasePull: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releasePull = resolve;
+    });
+    const { engine, push, setScanEmpty } = makeEngine({
+      scanEmpty: true,
+      index: makeIndex(3),
+      // The in-flight pass parks here, well past the override consumption.
+      pullImpl: async () => {
+        await gate;
+        return { from: "c1", to: "c1", added: [], modified: [], deleted: [] };
+      }
+    });
+
+    // Pass A starts and reaches its pull.
+    const passA = engine.syncNow();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The user confirms while A is in flight; syncNow coalesces onto A.
+    engine.allowEmptyScanDeletesOnce();
+    void engine.syncNow();
+    releasePull?.();
+    await passA;
+
+    // The click must be honoured by a pass that STARTS after it. That pass
+    // is scheduled by the completion hook, so it is already the engine's
+    // active pass by the time `passA` resolves — awaiting it directly is
+    // the deterministic way to observe it, and with the defect there is no
+    // such pass to await (activeSync is null and nothing is pushed).
+    // The completion hook schedules the pass the click asked for. `passA`
+    // resolves before that pass finishes (it is deliberately fire-and-forget
+    // so a completed pass is not delayed), so wait for its observable
+    // effect instead of guessing at a tick count.
+    await vi.waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(engine.emptyScanConfirmPending()).toBe(false));
+
+    const deleteBatches = () =>
+      push.mock.calls.filter((call) =>
+        (call[2] as { kind: string }[]).every((change) => change.kind === "delete")
+      );
+    expect(deleteBatches()).toHaveLength(1);
+    expect(engine.heldDeletionCount()).toBe(0);
+
+    // The confirmation is spent. A later pass holds again, so the flag
+    // never survives into an unrelated pass.
+    setScanEmpty(true);
+    await engine.syncNow();
+    expect(deleteBatches()).toHaveLength(1);
+    expect(engine.heldDeletionCount()).toBe(3);
+  });
+
+  it("does not let the confirmation survive past the pass that consumed it", async () => {
+    // The narrowest form of the guard: arm, run the pass that lifts it,
+    // then run another pass without confirming. No delete may happen in
+    // the second one.
+    const { engine, push } = makeEngine({ scanEmpty: true, index: makeIndex(3) });
+    engine.allowEmptyScanDeletesOnce();
+    await engine.syncNow();
+    expect(push).toHaveBeenCalledTimes(1);
+    await engine.syncNow();
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(engine.heldDeletionCount()).toBe(3);
+  });
+
+  it("still applies a confirmation that arrives when no pass is in flight", async () => {
+    // The fix must not break the feature it protects.
+    const { engine, push } = makeEngine({ scanEmpty: true, index: makeIndex(2) });
+    engine.allowEmptyScanDeletesOnce();
+    await engine.syncNow();
+    const changes = push.mock.calls[0][2] as { kind: string }[];
+    expect(changes).toHaveLength(2);
+    expect(changes.every((change) => change.kind === "delete")).toBe(true);
+  });
+});
