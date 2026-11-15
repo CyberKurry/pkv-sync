@@ -1151,8 +1151,13 @@ mod integration_tests {
             .await
             .unwrap();
 
-        let report = reconcile_vault_metadata_unlocked(&state, &vid).await.unwrap();
-        assert!(report.file_count > 0, "the reconcile must have seen the tree");
+        let report = reconcile_vault_metadata_unlocked(&state, &vid)
+            .await
+            .unwrap();
+        assert!(
+            report.file_count > 0,
+            "the reconcile must have seen the tree"
+        );
 
         let after: Option<i64> = sqlx::query_scalar("SELECT last_sync_at FROM vaults WHERE id = ?")
             .bind(&vid)
