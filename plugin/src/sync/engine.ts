@@ -390,13 +390,24 @@ export class SyncEngine {
           }
           if (!(await this.reconcileEventPosition(ev))) return;
           let needFallbackPull = false;
+          // R15-6: the local exclusion rules are a promise about THIS
+          // device's disk, so every surface that writes the disk must
+          // honour them — not only the pull. The SSE loop called the apply
+          // helpers directly, so a vault whose local excludes are narrower
+          // than the server's (`.obsidian/plugins/**` kept out of sync on
+          // purpose) had those files trashed by a remote delete: a local
+          // exclusion silently overridden by the realtime stream. One rule,
+          // one predicate: the pull's shouldApplyPulledPath.
+          const pathAccepted = this.currentPathMatcher();
           for (const change of ev.changes) {
             try {
               switch (change.kind) {
                 case "text_inline":
+                  if (!this.shouldApplyPulledPath(change.path, pathAccepted)) break;
                   await this.applyInlineText(change.path, change.content, ev.commit);
                   break;
                 case "delete":
+                  if (!this.shouldApplyPulledPath(change.path, pathAccepted)) break;
                   await this.applyDelete(change.path, ev.commit);
                   break;
                 case "text_ref":

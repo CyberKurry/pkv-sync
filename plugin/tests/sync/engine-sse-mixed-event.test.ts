@@ -266,3 +266,151 @@ describe("SSE mixed events must not strand sibling changes (R14-H1)", () => {
     expect(pull.mock.calls.map((call) => call[1])).toContain("c0");
   });
 });
+
+describe("SSE apply honours the local exclusion rules (R15-6)", () => {
+  beforeEach(() => {
+    vi.mocked(subscribeVaultEvents).mockReset();
+    vi.stubGlobal("window", globalThis);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function engineFor(opts: {
+    files: LocalFileSnapshot[];
+    index: LocalIndex;
+    extraExcludeGlobs: string[];
+  }) {
+    const vault = new FakeVault(opts.files);
+    const index = new FakeIndex(opts.index);
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceId: "dev-self",
+      deviceName: "d",
+      serverUrl: "http://test",
+      deploymentKey: "k",
+      token: "t",
+      textExtensions: new Set(["md"]),
+      extraExcludeGlobs: opts.extraExcludeGlobs,
+      vault: vault as unknown as SyncEngineOptions["vault"],
+      api: {
+        state: vi.fn(async () => ({ current_head: "c1", changed_since: true })),
+        pull: vi.fn(async (): Promise<PullResponse> => ({
+          from: "c1",
+          to: "c1",
+          added: [],
+          modified: [],
+          deleted: []
+        })),
+        push: vi.fn(),
+        uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+        uploadBlob: vi.fn(),
+        downloadBlob: vi.fn(),
+        downloadTextFile: vi.fn()
+      } as unknown as SyncEngineOptions["api"],
+      index,
+      setStatus: vi.fn()
+    });
+    engine.startEventSubscription();
+    return { engine, vault, index, options: vi.mocked(subscribeVaultEvents).mock.calls[0][0] as SubscribeOptions };
+  }
+
+  it("does not trash a locally excluded path on a remote delete", async () => {
+    // The pull path filters remote changes through shouldSyncPath and the
+    // path matcher; the SSE loop called applyInlineText / applyDelete
+    // directly. A vault whose local excludes are NARROWER than the
+    // server's (e.g. `.obsidian/plugins/**` kept out of sync on purpose)
+    // therefore had those files trashed by a remote delete — a local
+    // exclusion silently overridden by the realtime stream.
+    const { vault, options } = engineFor({
+      files: [
+        {
+          path: ".obsidian/plugins/x/data.json",
+          hash: "h1",
+          size: 2,
+          kind: "text",
+          content: "{}"
+        }
+      ],
+      index: {
+        lastSyncedCommit: "c0",
+        files: {
+          ".obsidian/plugins/x/data.json": {
+            lastSyncedHash: "h1",
+            lastSyncedAt: 1,
+            kind: "text",
+            size: 2
+          }
+        }
+      },
+      extraExcludeGlobs: [".obsidian/plugins/**"]
+    });
+
+    void options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [{ kind: "delete", path: ".obsidian/plugins/x/data.json" }]
+    });
+
+    // Wait for the handler to finish, then assert. A negative assertion
+    // under waitFor would pass instantly, before the handler ran at all —
+    // which is exactly the false green this test had on its first run.
+    await vi.waitFor(() => expect(options).toBeDefined());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(vault.deletions).not.toContain(".obsidian/plugins/x/data.json");
+    expect(vault.exists(".obsidian/plugins/x/data.json")).toBe(true);
+  });
+
+  it("does not write a locally excluded path on a remote inline update", async () => {
+    const { vault, options } = engineFor({
+      files: [
+        {
+          path: ".obsidian/plugins/x/data.json",
+          hash: "h1",
+          size: 2,
+          kind: "text",
+          content: "{}"
+        }
+      ],
+      // (the local file exists and is indexed clean, so without a path
+      // filter the remote body would overwrite it)
+      index: {
+        lastSyncedCommit: "c0",
+        files: {
+          ".obsidian/plugins/x/data.json": {
+            lastSyncedHash: "h1",
+            lastSyncedAt: 1,
+            kind: "text",
+            size: 2
+          }
+        }
+      },
+      extraExcludeGlobs: [".obsidian/plugins/**"]
+    });
+
+    void options.onEvent({
+      kind: "commit",
+      commit: "c1",
+      parent: "c0",
+      source_device_id: "other",
+      at: 1_700_000_000,
+      changes: [
+        {
+          kind: "text_inline",
+          path: ".obsidian/plugins/x/data.json",
+          content: "{\"remote\":true}"
+        }
+      ]
+    });
+
+    await vi.waitFor(() => expect(options).toBeDefined());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(vault.writes.size).toBe(0);
+    expect(vault.exists(".obsidian/plugins/x/data.json")).toBe(true);
+  });
+});
