@@ -103,6 +103,59 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Server: the blob-pointer body guard now covers the **auto-merge** write
+  path, not just the fast path. The two paths are two producers of one
+  contract, and only one of them refused a text body that parses as a
+  pointer in its entirety — so a stale-base push committed exactly the
+  shape the guard exists to refuse, and every other device's pull then
+  404'd on a blob that was never uploaded and wedged at that commit.
+  The judgment is now one shared helper both paths call.
+- Plugin: a path whose percent-decode never settles is refused. The
+  plugin and the server disagreed at the decode round budget: the server
+  runs four rounds plus a final check (still mutating → `invalid_path`),
+  while the plugin ran four rounds and then *accepted*. That let a
+  four-round chain slip past the sibling-overwrite refusal and a
+  five-plus-round chain be classified as syncable and pushed into a
+  deterministic 400. Both sides now pin the round-by-round boundary in
+  matching depth tables.
+- Plugin: a file the server refuses deterministically (`invalid_path`,
+  `invalid_text`, `path_excluded`, `wrong_file_kind`) no longer wedges the
+  whole vault. Only 413 was isolated before, so such a file failed the
+  pass before the pull step ran — leaving the vault neither pushable nor
+  pullable, with no in-app way out. The file is now withheld by
+  fingerprint and reported once, the rest of the batch still lands, and a
+  manual retry clears the withholding.
+- MCP: `expected_hashes` no longer works as a content oracle for hidden
+  paths. It was the one path-taking tool that skipped the shared
+  visibility producer, so it echoed the real sha256 of `.obsidian/*`-class
+  files, used `actual=null` as an existence test and `actual=binary-pointer`
+  as a type test — and dry-run reached it without consuming write quota.
+  Hidden and absent paths now answer identically. Guard values must also
+  be a 64-character sha256, so the literal `"null"` can no longer assert
+  that a file does not exist.
+- MCP: `link_graph` resolves link targets outside its `path_prefix`.
+  `path_prefix` selects which files become nodes; it must not select where
+  their links resolve. With a `kind` filter the two were the same
+  expression, so a wiki page under the prefix citing a source page
+  outside it was reported as a **broken link** — a false statement the
+  calling agent is expected to act on, and the repair it implies destroys
+  a correct link. The public docs already promised the fixed behaviour.
+- Plugin: a pull re-reads each file immediately before writing or trashing
+  it. The dirty verdict came from a scan snapshot taken before that file's
+  download, hash or whole batch of round trips, so an edit landing in
+  between was silently overwritten — or **trashed**, taking the user's
+  only copy with it. All four disk-writing paths now share one re-read,
+  which captures anything newer in a conflict sidecar instead.
+- Plugin: a "Confirm empty-vault deletions" click that lands while a sync
+  pass is already running is now honoured by a pass that starts *after*
+  it. It used to survive into whatever pass ran next, which meant a
+  whole-vault deletion nobody had confirmed for that moment — exactly what
+  the breaker exists to prevent.
+- Server: the scheduled metadata reconcile no longer stamps
+  `last_sync_at`. It runs every six hours for every vault, so the admin
+  dashboard's "synced today" count and the Active badge read as true for
+  vaults no client had touched in a year. Reconcile repairs metadata; it
+  is not a sync.
 - Plugin empty-vault confirm: the accept button is now single-shot like
   the connect confirm modal's — it disables itself on the first click,
   so a double click cannot re-fire the confirmation. Arming was already
