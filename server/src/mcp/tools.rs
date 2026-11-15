@@ -598,12 +598,13 @@ async fn verify_expected_hashes(
     let filter = sync::vault_path_filter(state, vault_id)
         .await
         .map_err(api_error_to_anyhow)?;
-    if expected.keys().next().is_some() {
-        // Ownership first, exactly like ensure_path_visible_for_sync_api: a
-        // stranger's vault id must never answer from that vault's
+    if let Some(path) = expected.keys().min() {
+        // Ownership first, exactly like ensure_path_visible_for_sync_api:
+        // a stranger's vault id must never answer from that vault's
         // configuration. The write tools' own preflight has already run for
         // the real call; this keeps the guard's answer non-distinguishing
-        // even when the guard is reached first (dry-run).
+        // even when it is reached first (dry-run).
+        let _ = path;
         crate::service::vault::ensure_user_vault(state, &user.user_id, vault_id)
             .await
             .map_err(api_error_to_anyhow)?;
@@ -616,14 +617,14 @@ async fn verify_expected_hashes(
     for path in paths {
         let want = &expected[path];
         // R15-17: the guard value must be a sha256. Without this a caller
-        // could send the literal "null" (the missing-file answer) and have
-        // "the file must not exist" silently satisfied.
+        // could send the literal "null" (the missing-file answer) or a
+        // malformed digest and read the mismatch as an assertion.
         anyhow::ensure!(
             crate::storage::blob::is_sha256_hex(want),
             "invalid_path: expected_hashes value for '{path}' must be a 64-character sha256 hex digest"
         );
-        // Hidden and absent answer the SAME thing. Answering "the real
-        // hash" or "binary" for a path the caller may not read is what made
+        // Hidden and absent answer the SAME thing. Answering "binary" or
+        // "the real hash" for a path the caller may not read is what made
         // this an oracle; `null` is the shape `read_file`'s `not_found`
         // corresponds to here.
         let visible = mcp_path_visible(&filter, &normalize_mcp_path(path.clone())?);
@@ -1449,6 +1450,14 @@ pub async fn link_graph(
     // 2c (spec §5.2c): with a `path_prefix`, walk only that subtree (the
     // same pruned walk `search` uses) instead of post-filtering a full
     // vault walk — a narrow wiki layer no longer pays for the whole tree.
+    //
+    // R15-4: the pruned walk selects NODES. It must not select the
+    // RESOLUTION UNIVERSE. When these were the same walk, a wiki page under
+    // the prefix that cites a source page outside it was reported as a
+    // BROKEN LINK — a false statement the calling agent is expected to act
+    // on, and the fix it implies (rewrite or drop the link) destroys a
+    // correct link. Resolution therefore always walks the whole visible
+    // text tree; only the node iterator honours the prefix.
     let mut tree = if prefix.is_empty() {
         git.list_tree(&input.vault_id, input.at.as_deref()).await?
     } else {
@@ -1456,6 +1465,13 @@ pub async fn link_graph(
             .await?
     };
     tree.sort_by(|left, right| left.path.cmp(&right.path));
+    let resolution_tree = if prefix.is_empty() {
+        None
+    } else {
+        let mut full = git.list_tree(&input.vault_id, input.at.as_deref()).await?;
+        full.sort_by(|left, right| left.path.cmp(&right.path));
+        Some(full)
+    };
 
     let limit = input
         .limit
@@ -1470,12 +1486,16 @@ pub async fn link_graph(
     // broken link (a false statement the agent may then "fix").
     let resolution_paths: Vec<String> = match &input.kind {
         None => Vec::new(),
-        Some(_) => tree
+        // R15-4: the whole visible text tree, never the prefix-pruned walk.
+        // `path_under_prefix` stays on the NODE iterators below; it must
+        // not appear here.
+        Some(_) => resolution_tree
+            .as_deref()
+            .unwrap_or(&tree)
             .iter()
             .filter(|entry| {
                 !entry.is_blob_pointer
                     && classifier.is_text_path(&entry.path)
-                    && path_under_prefix(&entry.path, &prefix)
                     && !crate::service::exclude::is_hidden_path(&entry.path)
                     && sync::path_visible_on_read(&filter, &entry.path)
             })
@@ -5731,6 +5751,77 @@ mod tests {
         assert!(out.orphans.contains(&"w/a.md".to_string()));
         assert!(!out.orphans.contains(&"w/b.md".to_string()));
         assert!(!out.orphans.contains(&"s/raw.md".to_string()));
+    }
+
+    #[tokio::test]
+    async fn link_graph_prefix_does_not_shrink_the_resolution_universe() {
+        // R15-4: `path_prefix` selects which FILES become nodes; it must not
+        // narrow where their links RESOLVE. The two filters were the same
+        // expression, so with a `kind` filter the resolution universe became
+        // `resolution_paths` — already pruned to the prefix — and every
+        // cross-layer link from inside the prefix was reported as broken.
+        //
+        // That is a false statement the agent is expected to act on: it says
+        // "this target does not exist" and the fix it implies (rewrite or
+        // delete the link) is destructive. public-docs/mcp-howto.md promises
+        // the opposite in so many words.
+        //
+        // The pre-existing kind test above uses path_prefix: None, so it
+        // could not reach this shape.
+        let (state, user_id, vault_id, _tmp) = state_user_vault().await;
+        seed_text_files(
+            &state,
+            &vault_id,
+            &[
+                (
+                    "w/a.md",
+                    "---\nkind: wiki\n---\n[[w/b]] [[s/raw]] [[w/ghost]]",
+                ),
+                ("w/b.md", "---\nkind: wiki\n---\nalone"),
+                ("s/raw.md", "---\nkind: source\n---\nraw material"),
+            ],
+        )
+        .await;
+
+        let out = link_graph(
+            &state,
+            &user_id,
+            LinkGraphInput {
+                vault_id,
+                at: None,
+                path_prefix: Some("w".into()),
+                limit: None,
+                kind: Some("wiki".into()),
+            },
+        )
+        .await
+        .unwrap();
+
+        // Nodes are still restricted to the prefix + kind…
+        let paths: Vec<&str> = out.nodes.iter().map(|node| node.path.as_str()).collect();
+        assert_eq!(paths, vec!["w/a.md", "w/b.md"]);
+
+        // …but `s/raw` lives outside the prefix and DOES exist, so the link
+        // to it resolves. Only the genuinely missing target stays broken.
+        assert!(
+            !out.broken.iter().any(|b| b.raw_link == "s/raw"),
+            "a cross-layer link must not be called broken under a path_prefix: {:?}",
+            out.broken
+        );
+        assert!(
+            out.broken
+                .iter()
+                .any(|b| b.raw_link == "w/ghost" && b.reason == BrokenReason::Missing),
+            "genuinely missing target must stay broken: {:?}",
+            out.broken
+        );
+        // The resolved cross-layer target still counts as an outlink.
+        let a = out.nodes.iter().find(|node| node.path == "w/a.md").unwrap();
+        assert!(
+            a.outlinks.iter().any(|target| target == "s/raw.md"),
+            "the cross-layer link must resolve to its real target: {:?}",
+            a.outlinks
+        );
     }
 
     #[tokio::test]
