@@ -106,6 +106,8 @@ export const ja = {
   migrateProgressSummary:
     "{processed}/{total} ファイル - バッチ {batch}/{batches} - blob {blobs}/{totalBlobs}",
   migrateCompleteSummary: "{count} ファイルを移行 - {skipped} 件をスキップ",
+  migrateCompleteRefused:
+    "{count} 個のファイルを移行できず、新しい Vault に含まれていません: {paths}",
   migrateFailed: "移行に失敗しました",
   migrateCompleteNotice: "{count} ファイルを「{name}」に移行しました",
   viewSyncStatusCommand: "同期ステータスの詳細を表示",

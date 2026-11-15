@@ -621,3 +621,47 @@ describe("migrateToPkv", () => {
     });
   });
 });
+
+describe("migration reports files the server refused (R16-2)", () => {
+  function options(api: FakeMigrationApi, vault: FakeVault): MigrationOptions {
+    return {
+      api,
+      vault,
+      vaultName: "Migrated",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      batchSize: 10,
+      assertActive: () => undefined,
+      onProgress: () => undefined
+    } as unknown as MigrationOptions;
+  }
+
+  it("counts a refused path separately instead of claiming it migrated", async () => {
+    // R15-2 made a deterministic 4xx stop failing the batch, so migration
+    // now finishes and reports "Migrated N files" while the new vault is
+    // silently missing some of them — the worst place to be quiet, because
+    // the whole point of the flow is moving a complete notebook over.
+    const vault = new FakeVault();
+    vault.addFile("keep.md", 4, "keep");
+    vault.addFile("poison.md", 6, "poison");
+    const api = new FakeMigrationApi();
+    // The server refuses poison.md deterministically.
+    api.push = async (vaultId, ifMatch, changes, deviceName) => {
+      api.pushes.push({ vaultId, ifMatch, changes, deviceName });
+      if (changes.some((change) => change.path === "poison.md")) {
+        const { ApiError } = await import("../../src/api/client");
+        throw new ApiError(400, "invalid_path", "invalid_path", undefined);
+      }
+      return { new_commit: "c1", files_changed: changes.length };
+    };
+
+    const result = await migrateToPkv(options(api, vault));
+
+    expect(result.pushedFiles).toBe(1);
+    expect(result.refused).toEqual([{ path: "poison.md", code: "invalid_path" }]);
+    // The refused path must NOT be in the migrated index: the new vault
+    // does not have it, and claiming otherwise would hide the gap.
+    expect(result.index.files["poison.md"]).toBeUndefined();
+    expect(result.index.files["keep.md"]).toBeDefined();
+  });
+});

@@ -12,6 +12,7 @@ function migrationResult(): MigrationResult {
     vaultName: "Migrated vault",
     scannedFiles: 2,
     pushedFiles: 2,
+    refused: [],
     skippedCount: 1,
     totalBytes: 1536,
     batches: 1,

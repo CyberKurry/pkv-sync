@@ -104,6 +104,8 @@ export const zh = {
   migrateProgressSummary:
     "{processed}/{total} 个文件 - 批次 {batch}/{batches} - 二进制 {blobs}/{totalBlobs}",
   migrateCompleteSummary: "已迁移 {count} 个文件 - 已跳过 {skipped} 个",
+  migrateCompleteRefused:
+    "{count} 个文件未能迁移，未写入新笔记库：{paths}",
   migrateFailed: "迁移失败",
   migrateCompleteNotice: "已将 {count} 个文件迁移到 {name}",
   viewSyncStatusCommand: "查看同步状态详情",

@@ -114,6 +114,8 @@ export const ko = {
   migrateProgressSummary:
     "{processed}/{total}개 파일 - 배치 {batch}/{batches} - blob {blobs}/{totalBlobs}",
   migrateCompleteSummary: "{count}개 파일 마이그레이션됨 - {skipped}개 건너뜀",
+  migrateCompleteRefused:
+    "{count}개 파일을 마이그레이션하지 못해 새 vault에 포함되지 않았습니다: {paths}",
   migrateFailed: "마이그레이션 실패",
   migrateCompleteNotice: "{count}개 파일을 「{name}」(으)로 마이그레이션했습니다",
   viewSyncStatusCommand: "동기화 상태 상세 보기",

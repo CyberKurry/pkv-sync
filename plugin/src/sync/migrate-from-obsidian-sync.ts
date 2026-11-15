@@ -94,11 +94,25 @@ export interface MigrationOptions {
   pushLabels?: PushLabels;
 }
 
+/** A path the server refused deterministically during migration. */
+export interface RefusedMigrationPath {
+  path: string;
+  code: string;
+}
+
 export interface MigrationResult {
   vaultId: string;
   vaultName: string;
   scannedFiles: number;
   pushedFiles: number;
+  /**
+   * R16-2: paths the server refused. They are NOT in the new vault and NOT
+   * in the returned index, so the completion summary has to say so — a
+   * migration that reports "N files" while quietly dropping some is the
+   * worst place to be quiet, because moving a complete notebook over is
+   * the whole point of the flow.
+   */
+  refused: RefusedMigrationPath[];
   skippedCount: number;
   totalBytes: number;
   batches: number;
@@ -203,6 +217,7 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
   const indexMetadata: LocalFileSnapshot[] = [];
   let uploadedBlobs = 0;
   let pushedFiles = 0;
+  const refused: RefusedMigrationPath[] = [];
 
   for (let offset = 0; offset < scan.files.length; offset += batchSize) {
     const batchIndex = Math.floor(offset / batchSize) + 1;
@@ -275,6 +290,12 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
             pushedFiles,
             currentBatch: batchIndex
           });
+        },
+        // R16-2: the batcher withholds a deterministically refused file and
+        // carries on, which is right for steady-state sync but wrong to do
+        // silently in a one-shot migration. Collect them for the summary.
+        onQuarantined: (path, code) => {
+          refused.push({ path, code });
         }
       });
     } catch (error) {
@@ -295,6 +316,7 @@ export async function migrateToPkv(options: MigrationOptions): Promise<Migration
     vaultName: created.name,
     scannedFiles: scan.files.length,
     pushedFiles,
+    refused,
     skippedCount: scan.skippedCount,
     totalBytes: scan.totalBytes,
     batches: totalBatches,

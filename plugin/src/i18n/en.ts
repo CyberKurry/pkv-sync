@@ -107,6 +107,8 @@ export const en = {
   migrateProgressSummary:
     "{processed}/{total} files - batch {batch}/{batches} - blobs {blobs}/{totalBlobs}",
   migrateCompleteSummary: "{count} files migrated - {skipped} skipped",
+  migrateCompleteRefused:
+    "{count} file(s) could not be migrated and were left out of the new vault: {paths}",
   migrateFailed: "Migration failed",
   migrateCompleteNotice: "Migrated {count} files to {name}",
   viewSyncStatusCommand: "View sync status details",

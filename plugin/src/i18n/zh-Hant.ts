@@ -104,6 +104,8 @@ export const zhHant = {
   migrateProgressSummary:
     "{processed}/{total} 個檔案 - 批次 {batch}/{batches} - 二進位 {blobs}/{totalBlobs}",
   migrateCompleteSummary: "已遷移 {count} 個檔案 - 已略過 {skipped} 個",
+  migrateCompleteRefused:
+    "{count} 個檔案未能遷移，未寫入新筆記庫：{paths}",
   migrateFailed: "遷移失敗",
   migrateCompleteNotice: "已將 {count} 個檔案遷移到「{name}」",
   viewSyncStatusCommand: "檢視同步狀態詳情",

@@ -178,6 +178,17 @@ export class MigrateModal extends Modal {
         skipped: result.skippedCount
       })
     );
+    // R16-2: a refused path is absent from the new vault, so the summary
+    // must name it. Silence here reads as "everything arrived".
+    if (result.refused.length > 0) {
+      const refused = this.contentEl.createDiv({ cls: "pkvsync-migrate-refused" });
+      refused.setText(
+        format(this.labels.migrateCompleteRefused, {
+          count: result.refused.length,
+          paths: result.refused.map((entry) => `${entry.path} (${entry.code})`).join(", ")
+        })
+      );
+    }
   }
 
   private renderFailure(error: unknown): void {
