@@ -12,12 +12,14 @@ Self-hosted, Git-backed synchronization for Obsidian.
 
 ## Current release
 
-PKV Sync 1.9.0 fixes mixed realtime events so notes and attachments from the
-same push all arrive, supports case-only renames through normal sync, and keeps
-confirmed deletions from being uploaded again. Filenames that would alias after
-server decoding or fail portable path rules stay local. The server adds admin
-Markdown preview with a source tab and live upgrade progress. Upgrade the server
-and plugin together to use the complete release.
+PKV Sync 1.10.0 adds a one-click connect link with a QR code and an explicit
+confirmation that names the host, so a link from any web page cannot connect
+silently. A scan that lists zero files against a populated index now holds the
+deletions instead of wiping every device, and a file the server refuses by name
+is reported and withheld rather than wedging every sync. MCP search handles
+large vaults with a resumable cursor, and both search and link_graph prune
+their tree walks to the requested prefix. Upgrade the server and plugin
+together to use the complete release.
 
 ## What it is
 

@@ -7,24 +7,26 @@ The name is **PKV Sync**: **PKV** is the initialism of **Personal Knowledge Vaul
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.9.0.
+Document version: v1.10.0.
 
 English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## Status
 
-PKV Sync 1.9.0 adds a readable Markdown preview to the admin vault browser,
-with a source tab, collapsed document properties, and improved file-list and
-document layouts. The preview filters active HTML and shows images as explicit
-links. The dashboard also displays live upgrade stages and resumes progress
-tracking across a server restart.
+PKV Sync 1.10.0 adds a one-click connect flow. The admin settings page
+shows an `obsidian://pkv-connect` link with a QR code, and the plugin opens an
+explicit confirmation naming the host before it saves anything, so a link from
+any web page cannot connect silently. The plugin also gains two safety
+mechanisms: a scan that lists zero files against a populated index holds the
+deletions instead of broadcasting a whole-vault wipe, and a file the server
+refuses by name is reported and withheld instead of wedging every sync.
 
-This release fixes mixed realtime events losing non-inline siblings, restores
-case-only renames through normal sync, and keeps a resolved deletion from being
-re-uploaded. The plugin filters filenames that would collide after server
-decoding or fail portable path rules. MCP moves now maintain a moved note's own
-links from its final directory, and Docker updater discovery supports custom
-container names. See the release history for the complete fixes.
+MCP `search` no longer fails on large vaults: the 5000-file cap reports
+`tree_capped` with a `next_after` cursor, and both `search` and `link_graph`
+prune their tree walks to the requested prefix. Server-side, tree listings read
+blob headers instead of contents, the blob-pointer guard now covers the
+auto-merge path too, and MCP write tools refuse hidden paths like every other
+tool. See the release history for the complete list.
 
 ## Features
 

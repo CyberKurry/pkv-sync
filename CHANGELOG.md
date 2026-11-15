@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-15
+
 ### Added
 
 - Plugin: `obsidian://pkv-connect?s=<server>&k=<deployment key>` deep

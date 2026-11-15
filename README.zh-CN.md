@@ -7,15 +7,15 @@ PKV Sync 是一个自托管的、Git 原生的 Obsidian 笔记库同步服务端
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.9.0。
+文档版本：v1.10.0。
 
 [English](./README.md) · 简体中文 · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## 状态
 
-PKV Sync 1.9.0 为管理后台文件浏览器加入 Markdown 预览，可切换源码、折叠文档属性，并改善文件列表与正文排版。预览会过滤可执行 HTML，图片显示为可主动打开的链接。仪表盘还会实时显示升级阶段，并在服务端重启后继续跟踪进度。
+PKV Sync 1.10.0 新增一键连接流程。管理后台设置页会显示 `obsidian://pkv-connect` 链接及其二维码，插件在写入任何内容前会弹出确认窗口并指明目标主机，因此来自任意网页的链接都无法静默连接。插件还引入两项保护：当扫描结果为 0 个文件而索引仍有条目时，删除会被保留而不是广播整库清空；被服务端按名称拒绝的文件会被报告并保留在本地，而不是卡死每一次同步。
 
-本版修复混合实时事件遗漏非内联文件的问题，恢复正常同步中的仅大小写重命名，并防止已确认删除的文件再次上传。插件会过滤经服务端解码后可能重名或不满足跨平台路径规则的文件名。MCP 搬移会按笔记的最终目录维护其自身链接，Docker 升级器也支持自定义容器名。完整修复记录见发布历史。
+MCP `search` 不再因笔记库过大而失败：5000 文件上限改为以 `tree_capped` 加 `next_after` 游标报告，`search` 与 `link_graph` 的目录树遍历都会剪枝到请求的前缀。服务端方面，目录树列举改为读取 blob 头而非内容，blob 指针防护现在同样覆盖自动合并路径，MCP 写入工具也和其他工具一样拒绝隐藏路径。完整清单见发布历史。
 
 ## 功能
 
