@@ -1789,6 +1789,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn excluded_paths_are_hidden_from_commit_detail() {
+        // R16-4 / R15-9: file_history, diff and read_file all run the
+        // visibility producer; commit_detail was the one history surface
+        // that returned `tree_diff` unfiltered. After an admin adds
+        // `scratch/**` to the excludes, any client holding this vault's
+        // token could still read `scratch/<name>`, its change type, whether
+        // it is binary and its old path from the commit detail — names leak
+        // even though contents do not, which makes the exclusion promise
+        // false.
+        let (app, state, raw) = setup_with_state().await;
+        let id = create_vault(app.clone(), &raw, "main").await;
+        state
+            .runtime_cfg_repo
+            .set_extra_exclude_globs(vec!["scratch/**".into()], None)
+            .await
+            .unwrap();
+        let cfg = state.runtime_cfg_repo.load().await.unwrap();
+        state.runtime_cfg.replace(cfg).await;
+        let commit = state
+            .git_store()
+            .commit_changes(
+                &id,
+                None,
+                &[
+                    FileChange::upsert_text("scratch/secret.md", b"secret".to_vec()),
+                    FileChange::upsert_text("public.md", b"public".to_vec()),
+                ],
+                "seed an excluded and a visible file",
+            )
+            .await
+            .unwrap();
+
+        let detail = app
+            .oneshot(auth_request(
+                "GET",
+                format!("/api/vaults/{id}/commits/{commit}"),
+                &raw,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(detail.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(detail.into_body(), 65536)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let paths: Vec<&str> = body["changes"]
+            .as_array()
+            .expect("changes array")
+            .iter()
+            .filter_map(|change| change["path"].as_str())
+            .collect();
+        assert!(
+            !paths.iter().any(|path| path.starts_with("scratch/")),
+            "an excluded path leaked through commit detail: {paths:?}"
+        );
+        // The commit itself is still returned, with its visible change.
+        assert_eq!(paths, vec!["public.md"]);
+    }
+
+    #[tokio::test]
     async fn history_endpoint_records_view_activity() {
         let (app, state, raw) = setup_with_state().await;
         let id = create_vault(app.clone(), &raw, "main").await;

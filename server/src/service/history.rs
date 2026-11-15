@@ -32,6 +32,19 @@ pub struct CommitDetail {
     pub changes: Vec<CommitChange>,
 }
 
+/// Whether a commit's change line may be shown: both ends of it (the path
+/// and, for a rename, the old path) must pass the vault's sync filter.
+///
+/// R16-4: a rename out of an excluded directory would otherwise leak the
+/// excluded NAME as `old_path` even when the new path is visible.
+fn visible_change(filter: &crate::service::exclude::SyncPathFilter, change: &CommitChange) -> bool {
+    crate::service::sync::path_visible_on_read(filter, &change.path)
+        && change
+            .old_path
+            .as_deref()
+            .is_none_or(|old| crate::service::sync::path_visible_on_read(filter, old))
+}
+
 pub async fn commits(
     state: &AppState,
     user_id: &str,
@@ -93,6 +106,22 @@ pub async fn commit_detail(
         .tree_diff(&vault_id, summary.parent.as_deref(), &summary.commit)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
+    // R16-4 / R15-9: every sibling history surface runs the visibility
+    // producer (`file_history`, `diff`, `read_file` all go through
+    // ensure_path_visible_for_sync_api); this one returned `tree_diff`
+    // verbatim. After an admin excludes `scratch/**`, the path NAMES, their
+    // change type, their binary flag and their old paths were still readable
+    // from the commit detail by anyone holding the vault token — contents
+    // stayed hidden but the exclusion promise did not hold.
+    //
+    // The commit itself is still returned (its message, author and visible
+    // changes), matching the pull's rule that a filter narrows the change
+    // LIST rather than hiding the revision.
+    let path_filter = crate::service::sync::vault_path_filter(state, &vault_id).await?;
+    let changes: Vec<CommitChange> = changes
+        .into_iter()
+        .filter(|change| visible_change(&path_filter, change))
+        .collect();
     Ok(CommitDetail {
         commit: summary.commit,
         parent: summary.parent,
