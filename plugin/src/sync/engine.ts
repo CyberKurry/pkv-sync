@@ -109,6 +109,8 @@ export interface SyncEngineOptions {
     | "conflictNotice"
     | "conflictCopyFailed"
     | "sseAuthFailed"
+    | "pushPathRejected"
+    | "pushPathsRefusedSummary"
     | "emptyScanHeld"
   >;
   onSyncSuccess?(): void | Promise<void>;
@@ -563,7 +565,7 @@ export class SyncEngine {
         () => this.throwIfAborted(),
         this.consumeOversizedProbe()
       );
-      await this.pushPendingWithHeadMismatchRetry(scan, run);
+      const refused = await this.pushPendingWithHeadMismatchRetry(scan, run);
       this.throwIfAborted();
 
       // ③ pull backflow: merged content arrives as a normal pull
@@ -574,6 +576,19 @@ export class SyncEngine {
         // A held pass is not a successful sync: keep the warning visible
         // and do not refresh "last synced" (spec §3.4).
         this.opts.setStatus("error", (this.opts.labels ?? strings()).emptyScanHeld);
+      } else if (refused.size > 0) {
+        // R16-H1: the pass moved everything it could, but some files were
+        // refused and remain on this device only. Claiming a clean sync
+        // here would advance lastSyncSuccessAt and paint the status bar
+        // green over a vault that is quietly incomplete; the per-path
+        // Notice already named them, so this keeps the summary honest
+        // without repeating the list.
+        this.opts.setStatus(
+          "error",
+          format((this.opts.labels ?? strings()).pushPathsRefusedSummary, {
+            count: refused.size
+          })
+        );
       } else {
         this.opts.setStatus("connected");
         await this.opts.onSyncSuccess?.();
@@ -637,9 +652,15 @@ export class SyncEngine {
   private async pushPending(
     scan: PendingScan | null | undefined,
     run: PushRun
-  ): Promise<void> {
+  ): Promise<Map<string, string>> {
+    // R16-H1: paths the server refused this pass. They stay on this device
+    // and are absent from the index, so the pass cannot claim a clean sync.
+    const refused = new Map<string, string>();
+    // R15-2: one Notice per quarantined path per pass — a path that stays
+    // pending is re-scanned every pass, and re-quarantining it is expected.
+    const reported = new Set<string>();
     const { pending, deleted, index } = scan ?? await this.scanPending();
-    if (pending.length === 0 && deleted.length === 0) return;
+    if (pending.length === 0 && deleted.length === 0) return refused;
 
     type PendingPushItem =
       | { kind: "file"; file: LocalFileSnapshot }
@@ -711,9 +732,23 @@ export class SyncEngine {
             item.source === "delete" ? [item.deletedPath] : []
           );
           ifMatch = await this.applyPushedBatch(response, files, paths, ifMatch);
+        },
+        // R16-H1: the withholding mechanism shipped without its reporting
+        // half, so a refused file vanished from the vault under a GREEN
+        // status, with lastSyncSuccessAt advanced and no notice anywhere —
+        // worse than the wedged state it replaced, which at least showed
+        // red. The callback is optional, which is why neither the type
+        // checker nor the dead-export guard could see that this call site
+        // never passed it.
+        onQuarantined: (path, code) => {
+          refused.set(path, code);
+          if (reported.has(path)) return;
+          reported.add(path);
+          this.reportPathRefused(path, code);
         }
       });
     }
+    return refused;
   }
 
   private async applyPushedBatch(
@@ -792,9 +827,15 @@ export class SyncEngine {
   private async pushPendingWithHeadMismatchRetry(
     scan: PendingScan | null,
     run: PushRun
-  ): Promise<void> {
+  ): Promise<Map<string, string>> {
+    // R16-H1: a 409 retry reclassifies and re-pushes, so the refusals from
+    // the first attempt must survive into the answer the pass reports on.
+    const refused = new Map<string, string>();
+    const merge = (next: Map<string, string>) => {
+      for (const [path, code] of next) refused.set(path, code);
+    };
     try {
-      await this.pushPending(scan, run);
+      merge(await this.pushPending(scan, run));
     } catch (error) {
       if (
         error instanceof ApiError &&
@@ -802,11 +843,12 @@ export class SyncEngine {
         error.code === "head_mismatch"
       ) {
         const retryScan = await this.pullIfChanged();
-        await this.pushPending(retryScan, run);
-        return;
+        merge(await this.pushPending(retryScan, run));
+        return refused;
       }
       throw error;
     }
+    return refused;
   }
 
   private async applyPull(pull: PullResponse): Promise<PendingScan | null> {
@@ -1102,6 +1144,26 @@ export class SyncEngine {
     );
   }
 
+  /**
+   * R16-H1: tell the user, once per path per pass, that the server refused
+   * this file and it is therefore staying on this device only.
+   *
+   * A refused path is a property of the path or its content, so no amount
+   * of retrying changes it: the file is invisible to every other device
+   * until the user renames or edits it. Withholding it silently was worse
+   * than the wedged state R15-2 replaced, because the wedged state showed
+   * red while this one showed green.
+   */
+  private reportPathRefused(path: string, code: string): void {
+    const message = format((this.opts.labels ?? strings()).pushPathRejected, {
+      path,
+      reason: code
+    });
+    debugLog("[pkv-sync] the server refused this path; it stays local:", path, code);
+    new Notice(message);
+    this.opts.setStatus("error", message);
+  }
+
   private reportSidecarFailure(path: string, error: unknown): void {
     const message = format(
       (this.opts.labels ?? strings()).conflictCopyFailed,
@@ -1134,7 +1196,28 @@ export class SyncEngine {
     path: string,
     expectedHash: string | undefined
   ): Promise<boolean> {
-    if (expectedHash === undefined) return true;
+    if (expectedHash === undefined) {
+      // R16-H3: "the scan saw no local file" is NOT "there is no local
+      // file". The scan happens once, at the top of applyPull, and this
+      // call can be dozens of network round trips later — long enough for
+      // the user to create the very path the pull is about to add. The
+      // inline path has always guarded this shape ("presence mismatch
+      // means unknown local state"); returning true here let the remote
+      // body overwrite a file that had never been pushed anywhere.
+      //
+      // R16-7: the mirror case — the file existed at scan time and is gone
+      // now — reaches the same place through a throw from `snapshot`. Both
+      // are "the disk is not what the snapshot said", so both are answered
+      // here, once.
+      if (!this.opts.vault.exists(path)) return true;
+      const appeared = await this.opts.vault.snapshot(path, this.opts.textExtensions);
+      await this.writeConflict(path, appeared);
+      return false;
+    }
+    // R16-7: a path deleted after the scan throws out of `snapshot`, which
+    // failed the whole pass and pinned the head until the next one. A
+    // vanished file is simply a disk that moved; treat it as such.
+    if (!this.opts.vault.exists(path)) return false;
     const recheck = await this.opts.vault.snapshot(path, this.opts.textExtensions);
     if (recheck.hash === expectedHash) return true;
     await this.writeConflict(path, recheck);
@@ -1151,6 +1234,8 @@ export class SyncEngine {
    * from appearing.
    */
   private async stillMatchesOnDisk(path: string, expectedHash: string): Promise<boolean> {
+    // R16-7: a file that vanished under us did not "still match".
+    if (!this.opts.vault.exists(path)) return false;
     const recheck = await this.opts.vault.snapshot(path, this.opts.textExtensions);
     return recheck.hash === expectedHash;
   }
