@@ -1053,8 +1053,6 @@ pub(crate) async fn reconcile_vault_metadata_unlocked(
         None => (Vec::new(), Vec::new()),
     };
     let (size_bytes, file_count) = tree_stats(&tree);
-    let now = chrono::Utc::now().timestamp();
-
     // Blob retention follows git object retention: ancestors of every live
     // commit stay reachable for `git gc`, and per-file history / rollback
     // restore must keep working for them. Keep blob_refs rows whose commit
@@ -1085,11 +1083,18 @@ pub(crate) async fn reconcile_vault_metadata_unlocked(
     if let Some(head) = head.as_deref() {
         insert_blob_refs_in_tx(&mut tx, vault_id, head, &blob_hashes).await?;
     }
-    let last_sync_at = head.as_ref().map(|_| now);
-    sqlx::query("UPDATE vaults SET size_bytes = ?, file_count = ?, last_sync_at = ? WHERE id = ?")
+    // R15-9b: `last_sync_at` is deliberately NOT written here. It is the
+    // only signal the admin dashboard ("synced today") and the Active badge
+    // have for "is this deployment still in use", and reconcile runs on
+    // every cleanup tick for EVERY vault — stamping `now` whenever a head
+    // existed made every vault look freshly synced, including one no client
+    // had touched in a year. Reconcile repairs metadata (sizes, counts,
+    // blob refs); recording it as a sync is a false claim to the operator.
+    // The legitimate writer is record_push_metadata, in the same
+    // transaction as the push it describes.
+    sqlx::query("UPDATE vaults SET size_bytes = ?, file_count = ? WHERE id = ?")
         .bind(size_bytes)
         .bind(file_count)
-        .bind(last_sync_at)
         .bind(vault_id)
         .execute(&mut *tx)
         .await

@@ -1113,6 +1113,60 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn metadata_reconcile_does_not_fake_a_recent_sync() {
+        // R15-9b: the scheduled cleanup called this every six hours for
+        // every vault, and it stamped `last_sync_at = now` whenever a head
+        // existed. The admin dashboard's "synced today" count and the
+        // Active badge on the vaults list read exactly that column — they
+        // are the only signal an operator has for "is this deployment still
+        // in use", and after one tick they all read true, including a vault
+        // no client has touched in a year.
+        //
+        // Reconcile repairs METADATA (sizes, counts, blob refs). It is not a
+        // sync and must not be recorded as one.
+        let (state, user, vid, _tmp) = setup().await;
+        push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: Some("base".into()),
+                changes: vec![PushChange::Text {
+                    path: "a.md".into(),
+                    content: "hello".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        // Age the vault: no client has synced it for thirty days.
+        let thirty_days_ago = chrono::Utc::now().timestamp() - 30 * 24 * 60 * 60;
+        sqlx::query("UPDATE vaults SET last_sync_at = ? WHERE id = ?")
+            .bind(thirty_days_ago)
+            .bind(&vid)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let report = reconcile_vault_metadata_unlocked(&state, &vid).await.unwrap();
+        assert!(report.file_count > 0, "the reconcile must have seen the tree");
+
+        let after: Option<i64> = sqlx::query_scalar("SELECT last_sync_at FROM vaults WHERE id = ?")
+            .bind(&vid)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            after,
+            Some(thirty_days_ago),
+            "a metadata reconcile must not claim a sync happened"
+        );
+    }
+
+    #[tokio::test]
     async fn auto_merge_path_also_refuses_pointer_shaped_text() {
         // R15-3: the R14-M4 guard lives only on the fast path (push.rs
         // Text branch). The auto-merge path writes FileChange::upsert_text
