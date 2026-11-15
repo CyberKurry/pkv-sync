@@ -126,6 +126,28 @@ Version 1.2.1 reduced redundant plugin work during sync: pull and push phases
 reuse the same scan when possible, and changed-file snapshots are processed
 with bounded parallelism.
 
+### Empty-vault protection
+
+A scan that lists zero files while the sync index still holds entries is held
+rather than pushed. Cold-start caches, revoked storage permissions, and
+unmounted drives all look like "the vault is empty", and broadcasting that as a
+whole-vault deletion would erase every other device. The pass ends in an error
+status that names the condition. If the vault really was emptied on purpose,
+run **Confirm empty-vault deletions** from the command palette: the modal
+reports how many index entries the last scan held and, once confirmed, pushes
+the deletions exactly once. The confirmation covers the whole sync pass, so an
+automatic retry inside that pass does not re-hold it.
+
+### Prune emptied folders
+
+When a pulled deletion removes the last file under a path, the emptied parent
+folders are trashed as well, stopping at the first non-empty folder. Emptiness
+is read from the real filesystem, so a folder that still holds dot-entries
+such as `.nomedia` is kept, and root-level dot folders and the configuration
+folder are never pruned. The first prune shows one notice naming the folder;
+later prunes stay quiet. Turn it off with **Prune folders emptied by remote
+deletions** in the plugin settings.
+
 ## Selective `.obsidian` Sync
 
 PKV Sync can sync selected Obsidian configuration files through a per-vault
@@ -335,6 +357,7 @@ prevents the old migration from displaying completion.
 - View sync status details
 - Check for PKV Sync plugin updates
 - Import current vault to PKV Sync (one-shot migration from Obsidian Sync)
+- Confirm empty-vault deletions
 - List conflict files
 - Delete conflict files
 - Resolve conflict files
