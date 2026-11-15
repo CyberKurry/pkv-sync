@@ -146,6 +146,42 @@ and this project adheres to semantic versioning starting at v1.0.0.
   between was silently overwritten — or **trashed**, taking the user's
   only copy with it. All four disk-writing paths now share one re-read,
   which captures anything newer in a conflict sidecar instead.
+- Plugin: the realtime (SSE) apply path now honours the local exclusion
+  rules. It called the apply helpers directly, so a vault whose local
+  excludes are narrower than the server's — keeping `.obsidian/plugins/**`
+  out of sync on purpose — had those files trashed by a remote delete: a
+  local exclusion silently overridden by the realtime stream. Pushes, pulls
+  and events now share one predicate. (Entry added retroactively: the fix
+  shipped in `9368fc1` before this changelog commit landed.)
+- Plugin: a path the server refuses deterministically is now **reported**,
+  not just withheld. The withholding mechanism shipped in the previous
+  release without its reporting half, so a refused file disappeared from
+  the vault under a green status with `lastSyncSuccessAt` advanced and no
+  notice anywhere — worse than the wedged state it replaced. The user now
+  gets one notice per path, and a pass carrying a refused file no longer
+  claims a clean sync.
+- Plugin: percent escapes with a malformed tail are folded the way the
+  server folds them. `decodeURIComponent` is all-or-nothing, so a single
+  malformed triplet made the plugin stop half-decoded and accept a name
+  the server stores differently (`a%25zz.md` → `a%zz.md`), reopening the
+  silent-overwrite shape the decode rules exist to close.
+- Plugin: a file created (or deleted) after the pull's scan snapshot is no
+  longer overwritten or lost. The recheck short-circuited when the scan
+  had seen nothing, so a remote **add** could overwrite a brand-new local
+  file that had never been pushed anywhere.
+- Plugin: the migration flow lists files it could not carry over. A
+  deterministically refused path made the migration finish and report
+  "Migrated N files" while the new vault was silently missing it.
+- MCP: `write_file`, `delete_file` and `write_files` now refuse hidden
+  paths like every other tool, so an agent can no longer overwrite
+  `.obsidian/app.json` and then be unable to read back what it wrote.
+- API: commit details no longer list excluded paths. An admin who added
+  `scratch/**` to the excludes could still read `scratch/<name>`, its
+  change type and its old path from `/commits/:commit` — the names leaked
+  even though the contents did not.
+- MCP: `link_graph` fetches the full resolution tree only when a `kind`
+  filter needs it, so the common `path_prefix`-without-`kind` call no
+  longer pays for two tree walks.
 - Plugin: a "Confirm empty-vault deletions" click that lands while a sync
   pass is already running is now honoured by a pass that starts *after*
   it. It used to survive into whatever pass ran next, which meant a
