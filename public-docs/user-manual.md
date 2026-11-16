@@ -43,6 +43,13 @@ When an update is available, **Update now** downloads `main.js`,
 the plugin files, and prompts you to reload Obsidian. The command palette also
 includes **PKV Sync: Check for PKV Sync plugin updates**.
 
+If an update is interrupted mid-write, the next plugin launch restores the
+previous state automatically: a staged copy that passes its SHA-256 check is
+promoted first, and otherwise the backup of the previous version is restored.
+In the rare case where `main.js` itself is truncated so badly that the plugin
+cannot load at all, the in-app recovery cannot run — reinstall the plugin
+manually in that case.
+
 ## Connect to a Server
 
 The server share URL usually looks like this:

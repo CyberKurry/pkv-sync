@@ -74,4 +74,53 @@ describe("plugin update recovery", () => {
     expect(adapter.writes).toEqual([]);
     expect(adapter.removed).toEqual([]);
   });
+
+  it("restores main.js from .bak when the staged copy is broken and the target fails verification (R17-M1)", async () => {
+    // The kill can land anywhere in write temp → sha → backup → target →
+    // verify. A target truncated mid-write never runs the verify branch,
+    // and the old recovery only consulted .new + .sha256: with a broken
+    // staged copy it left the truncated main.js in place — the plugin
+    // could not load, so the recovery code inside it never ran again.
+    // The .bak the write sequence maintains holds the previous GOOD
+    // content; it is the only intact artifact left.
+    const adapter = new MemoryAdapter();
+    adapter.files.set(pathFor(".main.js.new"), "tampered");
+    adapter.files.set(pathFor(".main.js.sha256"), "0".repeat(64));
+    adapter.files.set(pathFor("main.js"), "truncated main");
+    adapter.files.set(pathFor(".main.js.bak"), "old good main");
+
+    await recoverPendingUpdate(opts(adapter));
+
+    expect(adapter.files.get(pathFor("main.js"))).toBe("old good main");
+  });
+
+  it("restores main.js from .bak when the target is missing (R17-M1)", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.files.set(pathFor(".main.js.new"), "tampered");
+    adapter.files.set(pathFor(".main.js.sha256"), "0".repeat(64));
+    adapter.files.set(pathFor(".main.js.bak"), "old good main");
+
+    await recoverPendingUpdate(opts(adapter));
+
+    expect(adapter.files.get(pathFor("main.js"))).toBe("old good main");
+  });
+
+  it("recovers manifest.json and styles.css before main.js (R17-M1)", async () => {
+    // main.js is the entry point: if recovery dies partway, the assets it
+    // depends on must already be consistent, so main.js is restored last.
+    const adapter = new MemoryAdapter();
+    for (const name of ["main.js", "manifest.json", "styles.css"]) {
+      adapter.files.set(pathFor(`.${name}.new`), `tampered ${name}`);
+      adapter.files.set(pathFor(`.${name}.sha256`), "0".repeat(64));
+      adapter.files.set(pathFor(name), `truncated ${name}`);
+      adapter.files.set(pathFor(`.${name}.bak`), `good ${name}`);
+    }
+
+    await recoverPendingUpdate(opts(adapter));
+
+    const restoredOrder = adapter.writes
+      .filter((write) => !write.path.includes("/."))
+      .map((write) => write.path.slice(pathFor("").length));
+    expect(restoredOrder).toEqual(["manifest.json", "styles.css", "main.js"]);
+  });
 });

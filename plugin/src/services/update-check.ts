@@ -385,7 +385,10 @@ export class UpdateCheckService {
 export async function recoverPendingUpdate(
   options: RecoverPendingUpdateOptions
 ): Promise<void> {
-  for (const fileName of ["main.js", "manifest.json", "styles.css"]) {
+  // R17-M1: main.js LAST. The other files are the assets a recovered
+  // main.js reads; if recovery dies partway (power loss mid-write), the
+  // entry point must not be restored ahead of the assets it depends on.
+  for (const fileName of ["manifest.json", "styles.css", "main.js"]) {
     await recoverPendingFile(options, fileName);
   }
 }
@@ -499,18 +502,49 @@ async function recoverPendingFile(
   const target = resolvePluginAssetPathInDirectory(dir, fileName);
   const temp = resolvePluginAssetPathInDirectory(dir, `.${fileName}.new`);
   const expected = resolvePluginAssetPathInDirectory(dir, `.${fileName}.sha256`);
+  const backup = resolvePluginAssetPathInDirectory(dir, `.${fileName}.bak`);
 
-  let staged: string;
-  let expectedSha256: string;
+  let staged: string | null = null;
+  let expectedSha256: string | null = null;
   try {
     staged = await options.adapter.read(temp);
     expectedSha256 = (await options.adapter.read(expected)).trim().toLowerCase();
   } catch {
+    // Nothing staged for this file: no update was in flight, so do not
+    // touch anything — even the cleanup removals are state changes the
+    // "no pending update" contract forbids.
     return;
   }
 
   if ((await sha256Text(staged)) === expectedSha256) {
+    // The staged update is intact: promote it over whatever state the
+    // target is in (old, truncated mid-write, or missing).
     await options.adapter.write(target, staged);
+  } else {
+    // R17-M1: the staged copy is broken. The write sequence maintains
+    // .bak with the previous GOOD content; a target that is missing or
+    // does not verify against the pending sha is a corrupted write, and
+    // the backup is the only intact artifact left. The recovery code
+    // lives in the plugin, so a main.js left broken here could never
+    // have run it.
+    let needRestore: boolean;
+    try {
+      const targetSha = await sha256Text(await options.adapter.read(target));
+      needRestore = targetSha !== expectedSha256;
+    } catch {
+      needRestore = true;
+    }
+    if (needRestore) {
+      try {
+        const backupText = await options.adapter.read(backup);
+        await options.adapter.write(target, backupText);
+      } catch {
+        // No backup either. Residual window (documented): a target
+        // truncated mid-write with a broken staged copy and no intact
+        // backup can only be fixed by reinstalling the plugin — the
+        // in-app recovery cannot run inside a main.js that cannot load.
+      }
+    }
   }
   await options.adapter.remove(temp).catch(() => undefined);
   await options.adapter.remove(expected).catch(() => undefined);
