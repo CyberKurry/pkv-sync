@@ -9,6 +9,33 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- Plugin: a file edited during a pull's download window (the widest
+  window in the engine) was answered with a sidecar of its own new
+  content and a silent skip, while the head advanced past the remote edit
+  that was never applied. The next pass then pushed the window edit with
+  `if-match == head`, and the server fast path overwrote the other
+  device's committed edit with no conflict UI; the delete twin silently
+  resurrected a remotely deleted file the same way (R18-1). The batch
+  text/blob/delete branches now refuse the pass like the inline paths do:
+  the head stays pinned and the next pass runs the normal conflict flow
+  (remote on disk, local in the sidecar). The SSE inline delete follows
+  the same contract (fallback pull instead of an advancing head).
+- Server: disabling a user only flipped `users.is_active`; their device
+  tokens stayed active and admin sessions were left to the live
+  `is_active` checks. The disable action now shares the password-reset
+  bundle — every device token is revoked and the user's admin sessions
+  are deleted — so any token-only reader (the MCP token cache, future
+  endpoints) cannot miss the deactivation (R18-2). Re-enabling requires a
+  fresh login; the admin manual documents it in all five languages.
+- Server: the merge read path answered every git failure as 400
+  `bad_commit`, which the plugin's per-file whitelist then quarantined
+  for 15 minutes — a transient storage fault (locked repo, I/O hiccup,
+  corruption) masqueraded as a file property (R18-3). Read errors now
+  classify like writes: locked → 409 `head_mismatch` (retryable),
+  missing commit/invalid path → 400 `bad_commit`, everything else → 5xx.
+
+### Fixed
+
 - Plugin/server: `move_file`'s default link rewrite percent-encoded paths
   byte-wise, turning every non-ASCII path (`新.md`, `café.md`, Japanese
   titles, emoji) into mojibake in all inbound Markdown links, permanently
