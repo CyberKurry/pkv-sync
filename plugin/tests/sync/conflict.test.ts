@@ -84,6 +84,19 @@ describe("parseConflictPath (single grammar, R13-1)", () => {
     ).toBe("remote");
   });
 
+  it("does not let a device literally named 'remote' claim the remote role (R17-M3)", () => {
+    // "remote" is the reserved segment writeRemoteConflict uses to mark
+    // sidecars holding REMOTE content. safeDeviceName used to pass the
+    // literal through, so a user device named "remote" produced local
+    // sidecars the resolver judged as remote: acceptLocal trashed the
+    // remote copy on disk and acceptRemote republished the local draft
+    // vault-wide. The sanitizer now maps the reserved literal to "device".
+    const cpath = conflictPath("note.md", "remote", d);
+    expect(sidecarRoleFor(cpath)).toBe("local");
+    expect(isConflictPath(cpath)).toBe(true);
+    expect(originalPathFor(cpath)).toBe("note.md");
+  });
+
   it("rejects non-sidecar names", () => {
     expect(isConflictPath("note.md")).toBe(false);
     expect(isConflictPath("report.conflict-2024.md")).toBe(false);

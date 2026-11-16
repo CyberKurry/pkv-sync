@@ -671,12 +671,20 @@ fn safe_conflict_device_name(name: &str) -> String {
             last_dash = false;
         }
     }
-    let trimmed = out.trim_matches('-');
+    let mut trimmed = out.trim_matches('-');
     if trimmed.is_empty() {
-        "device".to_string()
-    } else {
-        trimmed.to_string()
+        trimmed = "device";
     }
+    // R17-M3: "remote" is the reserved segment the plugin's
+    // writeRemoteConflict uses to mark sidecars holding REMOTE content;
+    // the plugin's sidecarRoleFor reads it as the role marker. A device
+    // literally named "remote" would have its LOCAL sidecars judged as
+    // remote. Map it to the same fallback the empty case uses; keep the
+    // plugin's safeDeviceName in lockstep.
+    if trimmed == "remote" {
+        return "device".to_string();
+    }
+    trimmed.to_string()
 }
 
 #[cfg(test)]
@@ -691,6 +699,22 @@ mod tests {
         assert_ne!(first, second);
         assert!(first.starts_with("notes/daily.conflict-"));
         assert!(first.ends_with(".md"));
+    }
+
+    #[test]
+    fn safe_conflict_device_name_reserves_the_literal_remote() {
+        // R17-M3: "remote" is the reserved segment the plugin's
+        // writeRemoteConflict uses to mark sidecars holding REMOTE content.
+        // A user device literally named "remote" produced local sidecars
+        // the plugin's resolver judged as remote — acceptLocal trashed the
+        // remote copy on disk and acceptRemote republished the local draft
+        // vault-wide. The sanitizer maps the reserved literal to "device".
+        assert_eq!(safe_conflict_device_name("remote"), "device");
+        assert_eq!(safe_conflict_device_name("  remote "), "device");
+        // Any other usable name passes through unchanged.
+        assert_eq!(safe_conflict_device_name("Laptop"), "Laptop");
+        assert_eq!(safe_conflict_device_name("laptop-2"), "laptop-2");
+        assert_eq!(safe_conflict_device_name(""), "device");
     }
 
     #[test]

@@ -85,8 +85,10 @@ export function originalPathFor(conflictPath: string): string | null {
  *   content; the disk keeps the remote. Sidecar role "local".
  * - engine.writeRemoteConflict (local deletion vs remote modification):
  *   the REMOTE content; the disk has nothing. Sidecar role "remote".
- *   The literal device name "remote" cannot collide with a real device
- *   suffix (safeDeviceName maps an empty/unusable name to "device").
+ *   The literal device name "remote" is the reserved role marker: both
+ *   sanitizers (safeDeviceName here, safe_conflict_device_name on the
+ *   server) map a user device named "remote" to "device" so a real
+ *   device can never produce a sidecar this function misreads (R17-M3).
  * - server merge (write_text_conflict_sidecar / conflicted three-way
  *   merge): the pushed LOCAL content; the canonical path keeps the
  *   remote. Sidecar role "local".

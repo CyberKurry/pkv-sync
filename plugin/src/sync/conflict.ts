@@ -1,11 +1,18 @@
 function safeDeviceName(name: string): string {
-  return (
+  const safe =
     name
       .trim()
       .replace(/[^A-Za-z0-9_-]+/g, "-")
       .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "") || "device"
-  );
+      .replace(/^-|-$/g, "") || "device";
+  // R17-M3: "remote" is the reserved device segment writeRemoteConflict
+  // uses to mark sidecars holding REMOTE content; sidecarRoleFor reads it
+  // as the role marker. A user device literally named "remote" would have
+  // every local sidecar judged as remote content — acceptLocal trashed
+  // the remote copy on disk and acceptRemote republished the local draft
+  // vault-wide. The server sanitizer (safe_conflict_device_name) applies
+  // the same reservation; keep the two in lockstep.
+  return safe === "remote" ? "device" : safe;
 }
 
 function pad(n: number): string {
