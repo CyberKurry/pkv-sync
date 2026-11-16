@@ -354,6 +354,26 @@ pub(super) async fn try_auto_merge_push(
                         conflict_path: None,
                     });
                     clean_merges += 1;
+                } else if matches!(
+                    head_file.as_ref(),
+                    Some(StoredFile::BlobPointer { hash, .. }) if *hash == blob_hash
+                ) {
+                    // R17-H5: head already holds exactly the blob this stale
+                    // push carries. A lost push response makes the plugin
+                    // retry with a fresh idempotency key, so the retry is a
+                    // new stale push, not a replay — and two devices can
+                    // both-add identical attachments. The text twin answers
+                    // "remote bytes == pushed bytes" with Clean
+                    // (merge_apply.rs (Missing, Text) guard above); doing
+                    // otherwise here minted a permanent .conflict-* sidecar
+                    // per retry on every device. No git change is needed:
+                    // head is the answer.
+                    merge_outcomes.push(MergeOutcomeEntry {
+                        path: normalized,
+                        outcome: MergeOutcomeKind::Clean,
+                        conflict_path: None,
+                    });
+                    clean_merges += 1;
                 } else {
                     // Remote modified this path → keep remote at original path;
                     // write local blob to a conflict sidecar path.

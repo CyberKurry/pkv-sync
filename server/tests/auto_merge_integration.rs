@@ -1049,6 +1049,123 @@ async fn merge_blob_upsert_untouched_by_remote_outcome_clean() {
 }
 
 #[tokio::test]
+async fn merge_blob_upsert_with_head_already_holding_same_blob_is_clean() {
+    // R17-H5: a lost push response makes the plugin retry with a fresh
+    // idempotency key (crypto.randomUUID per attempt), so a retry is a new
+    // stale push, not an idempotent replay. If the first attempt actually
+    // committed, head already holds exactly the blob the retry carries —
+    // the text twin answers that equality with Clean; the blob branch used
+    // to skip the comparison and mint a permanent .conflict-* sidecar per
+    // retry. Same shape as two devices both-adding identical attachments.
+    let (state, user, vault_id, _tmp) = setup().await;
+    let base = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        None,
+        None,
+        sync::PushReq {
+            device_name: Some("base".into()),
+            changes: vec![sync::PushChange::Text {
+                path: "note.md".into(),
+                content: "keep".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let blob_data = bytes::Bytes::from_static(b"image data here");
+    let blob_size = blob_data.len() as u64;
+    let blob_hash = sha256_hex(&blob_data);
+    sync::upload_blob(
+        &state,
+        &user.user_id,
+        &vault_id,
+        &blob_hash,
+        blob_data.clone(),
+    )
+    .await
+    .unwrap();
+
+    // The first attempt commits (head moves) but the response never
+    // reaches the client.
+    let _first = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-a".into()),
+            changes: vec![sync::PushChange::Blob {
+                path: "photo.png".into(),
+                blob_hash: blob_hash.clone(),
+                size: blob_size,
+                mime: Some("image/png".into()),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    // Retry against the same stale If-Match: the pushed blob already IS
+    // head's blob.
+    let retry = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-a".into()),
+            changes: vec![sync::PushChange::Blob {
+                path: "photo.png".into(),
+                blob_hash: blob_hash.clone(),
+                size: blob_size,
+                mime: Some("image/png".into()),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let outcomes = retry
+        .merge_outcomes
+        .expect("merge_outcomes should be present for a stale push");
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].path, "photo.png");
+    assert_eq!(outcomes[0].outcome, sync::MergeOutcomeKind::Clean);
+    assert!(outcomes[0].conflict_path.is_none());
+
+    // No conflict sidecar anywhere in the tree, and photo.png keeps the
+    // original blob pointer.
+    let git = pkv_sync_server::storage::git::Git2VaultStore::new(state.default_vault_root());
+    let tree = git
+        .list_tree(&vault_id, Some(&retry.new_commit))
+        .await
+        .unwrap();
+    assert!(
+        !tree.iter().any(|e| e.path.contains(".conflict-")),
+        "expected no conflict sidecar files, found: {:?}",
+        tree.iter()
+            .filter(|e| e.path.contains(".conflict-"))
+            .collect::<Vec<_>>()
+    );
+    match git
+        .read_file(&vault_id, "photo.png", None)
+        .await
+        .unwrap()
+        .expect("photo.png should exist")
+    {
+        pkv_sync_server::storage::git::StoredFile::BlobPointer { hash, .. } => {
+            assert_eq!(hash, blob_hash);
+        }
+        other => panic!("expected blob pointer, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn merge_blob_upsert_conflict_remote_modified_same_path() {
     // S6 renamed the semantics: a blob pointer may no longer replace a
     // configured text path (that flip silently dropped inline/merge/diff
