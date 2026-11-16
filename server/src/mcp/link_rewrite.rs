@@ -177,15 +177,24 @@ pub(crate) fn relative_path(containing: &str, target: &str) -> anyhow::Result<St
 
 /// Percent-encode the characters Markdown destinations require: space
 /// and the usual reserved set. Slashes stay literal.
+///
+/// R17-H1: iterate `chars()`, not `bytes()`. Each UTF-8 byte pushed `as
+/// char` re-encoded every non-ASCII path as Latin-1 mojibake. Non-ASCII
+/// code points are legal in destinations and pass through unchanged —
+/// the same contract the YAML host (`yaml::encode_scalar_path`) already
+/// honors; these two encoders are the only path producers (R17-L6), so a
+/// change to one must be mirrored in the other or made here.
 pub(crate) fn percent_encode_path(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
-    for byte in path.bytes() {
-        match byte {
-            b' ' => out.push_str("%20"),
-            b'(' | b')' | b'<' | b'>' | b'\"' | b'#' | b'%' | b'^' | b'\\' => {
-                out.push_str(&format!("%{byte:02X}"));
+    for ch in path.chars() {
+        match ch {
+            ' ' => out.push_str("%20"),
+            '(' | ')' | '<' | '>' | '"' | '#' | '%' | '^' | '\\' => {
+                // Every matched character is ASCII, so the scalar value is
+                // the byte value.
+                out.push_str(&format!("%{:02X}", ch as u32));
             }
-            _ => out.push(byte as char),
+            _ => out.push(ch),
         }
     }
     out
@@ -503,5 +512,24 @@ mod tests {
             relative_path("docs/guide.md", "docs/a.md").unwrap(),
             "./a.md"
         );
+    }
+
+    #[test]
+    fn percent_encode_path_keeps_non_ascii_byte_identical() {
+        // R17-H1: iterating bytes and pushing each one `as char` re-encoded
+        // every multi-byte UTF-8 sequence as Latin-1 code points, so any
+        // non-ASCII path was rewritten into mojibake by move_file's default
+        // link rewrite. Non-ASCII is legal in Markdown destinations and must
+        // survive byte-identical; only the reserved ASCII set is escaped.
+        for path in [
+            "./新.md",
+            "./café.md",
+            "./日本語/メモ.md",
+            "./emoji-😀.md",
+            "docs/中文/笔记.md",
+        ] {
+            assert_eq!(percent_encode_path(path), path, "non-ASCII must round-trip");
+        }
+        assert_eq!(percent_encode_path("a b/c#d.md"), "a%20b/c%23d.md");
     }
 }
