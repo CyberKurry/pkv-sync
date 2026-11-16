@@ -141,6 +141,10 @@ Use this path when you want Caddy to request and renew HTTPS certificates.
 4. Start the stack:
 
    ```bash
+   # The server runs as uid 65532. Docker would create ./data as
+   # root:root and the first start would fail to create the database
+   # (code: 14 unable to open database file).
+   mkdir -p data && sudo chown 65532:65532 data
    docker compose up -d
    docker compose logs -f pkv-sync
    ```

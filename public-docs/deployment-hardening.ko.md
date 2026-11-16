@@ -132,6 +132,9 @@ Caddy가 HTTPS 인증서를 요청하고 갱신하게 하려면 이 경로를 �
 4. 스택을 시작합니다.
 
    ```bash
+   # 서버는 uid 65532로 실행됩니다. 디렉터리를 미리 만들지 않으면 Docker가
+   # ./data를 root:root로 생성해 첫 실행 시 데이터베이스를 만들지 못합니다(code: 14).
+   mkdir -p data && sudo chown 65532:65532 data
    docker compose up -d
    docker compose logs -f pkv-sync
    ```

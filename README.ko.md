@@ -75,6 +75,9 @@ MCP `search`는 더 이상 큰 Vault에서 실패하지 않습니다. 5000 파�
 4. 스택을 띄웁니다:
 
    ```bash
+   # 서버는 uid 65532로 실행됩니다. 디렉터리를 미리 만들지 않으면 Docker가
+   # ./data를 root:root로 생성해 첫 실행 시 데이터베이스를 만들지 못합니다.
+   mkdir -p data && sudo chown 65532:65532 data
    docker compose up -d
    ```
 

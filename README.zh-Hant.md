@@ -75,6 +75,9 @@ MCP `search` 不再因筆記庫過大而失敗：5000 檔案上限改以 `tree_c
 4. 啟動整套服務：
 
    ```bash
+   # 伺服器以 uid 65532 執行。若不預先建立目錄，Docker 會以 root:root
+   # 建立 ./data，首次啟動將無法建立資料庫。
+   mkdir -p data && sudo chown 65532:65532 data
    docker compose up -d
    ```
 

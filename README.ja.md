@@ -75,6 +75,10 @@ MCP `search` は大きな Vault でも失敗しなくなりました。5000 フ�
 4. スタックを起動します:
 
    ```bash
+   # サーバーは uid 65532 で動作します。ディレクトリを事前に作成しないと、
+   # Docker が ./data を root:root で作成し、初回起動時にデータベースを
+   # 作成できず失敗します。
+   mkdir -p data && sudo chown 65532:65532 data
    docker compose up -d
    ```
 

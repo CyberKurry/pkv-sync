@@ -130,6 +130,9 @@ ports:
 4. 啟動：
 
    ```bash
+   # 伺服器以 uid 65532 執行。若不預先建立目錄，Docker 會以 root:root
+   # 建立 ./data，首次啟動將無法建立資料庫（code: 14）。
+   mkdir -p data && sudo chown 65532:65532 data
    docker compose up -d
    docker compose logs -f pkv-sync
    ```

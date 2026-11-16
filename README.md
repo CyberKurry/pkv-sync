@@ -108,6 +108,9 @@ internet (port 80 is needed for ACME HTTP-01 validation).
 4. Bring the stack up:
 
    ```bash
+   # The server runs as uid 65532. Docker would create ./data as
+   # root:root and the first start would fail to create the database.
+   mkdir -p data && sudo chown 65532:65532 data
    docker compose up -d
    ```
 

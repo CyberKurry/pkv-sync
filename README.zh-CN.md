@@ -75,6 +75,9 @@ MCP `search` 不再因笔记库过大而失败：5000 文件上限改为以 `tre
 4. 启动整套服务：
 
    ```bash
+   # 服务器以 uid 65532 运行。若不预建目录，Docker 会以 root:root
+   # 创建 ./data，首次启动将无法创建数据库。
+   mkdir -p data && sudo chown 65532:65532 data
    docker compose up -d
    ```
 
