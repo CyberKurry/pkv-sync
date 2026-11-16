@@ -959,7 +959,19 @@ export class SyncEngine {
             deleteRejected.push(file.path);
             continue;
           }
-          if (verdict !== "proceed") continue;
+          if (verdict === "captured") {
+            // R18-1: the user edited the file in the download/hash window.
+            // The sidecar written by mayStillChangeDisk holds the new
+            // local content; skipping the file still advanced the head
+            // past the never-applied remote edit, and the next pass
+            // pushed that edit with if-match == head — the fast path
+            // overwrote the other device's committed edit with no
+            // conflict UI. Refuse the pass like the inline paths do: the
+            // head stays pinned, and the next pass sees a scan-time-dirty
+            // file and runs the normal conflict flow (remote on disk,
+            // local in the sidecar).
+            throw new InlineApplyDirtyError(file.path);
+          }
           // The download/hash awaits above can straddle an abort (M-10
           // per-file granularity): re-check so a replaced generation
           // never writes into the vault it no longer owns.
@@ -1004,7 +1016,12 @@ export class SyncEngine {
             deleteRejected.push(file.path);
             continue;
           }
-          if (verdict !== "proceed") continue;
+          if (verdict === "captured") {
+            // R18-1: same ending as the text branch — the window edit is
+            // safe in the sidecar, but the head must not advance past the
+            // unapplied remote blob.
+            throw new InlineApplyDirtyError(file.path);
+          }
           // Same as the text branch: the download/hash awaits can
           // straddle an abort, so re-check before the vault write.
           this.throwIfAborted();
@@ -1048,7 +1065,15 @@ export class SyncEngine {
           deleteRejected.push(path);
           continue;
         }
-        if (verdict !== "proceed") continue;
+        if (verdict === "captured") {
+          // R18-1: the file changed after the scan, so the delete verdict
+          // came from a stale snapshot. Skipping still advanced the head
+          // and the next pass resubmitted the file with if-match == head,
+          // silently undoing the remote deletion. Refuse the pass: the
+          // next one sees the scan-time-dirty file and runs the normal
+          // conflict flow against the real base.
+          throw new InlineApplyDirtyError(path);
+        }
         // writeConflict above awaits; an abort landing in that window
         // must still stop the trash (M-10 per-file granularity).
         this.throwIfAborted();
@@ -1427,7 +1452,8 @@ export class SyncEngine {
         // whose conflict copy was just written) and the trash would be
         // DESTROYED by the trash while the sidecar holds only the pre-edit
         // bytes. A mismatch writes a fresh sidecar capturing the new
-        // content and skips the trash — the next pass reconciles.
+        // content and refuses the inline apply — the event loop answers an
+        // InlineApplyDirtyError with a full pull, which reconciles.
         const verdict = await this.mayStillChangeDisk(path, hashAtCheck);
         if (verdict === "vanished") {
           // R17-H4: the user deleted the file after the presence check.
@@ -1437,8 +1463,14 @@ export class SyncEngine {
           // exists.
           return markFilesDeleted(index, [path]);
         }
-        if (verdict !== "proceed") {
-          return index;
+        if (verdict === "captured") {
+          // R18-1: returning quietly advanced the head (the SSE loop's
+          // advanceIndexHead) past a delete that was never applied; the
+          // next pass then resubmitted the window edit with
+          // if-match == head, silently resurrecting the remotely deleted
+          // file. Refuse like the dirty check above so the loop falls
+          // back to a full pull instead.
+          throw new InlineApplyDirtyError(path);
         }
       }
       // The snapshot await above can straddle an abort (M-10 per-file

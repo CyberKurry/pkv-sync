@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { SyncEngine, type SyncEngineOptions } from "../../src/sync/engine";
+import {
+  InlineApplyDirtyError,
+  SyncEngine,
+  type SyncEngineOptions
+} from "../../src/sync/engine";
 import type { LocalIndex } from "../../src/sync/types";
 
 /**
@@ -48,7 +52,14 @@ describe("R12-3 applyDelete TOCTOU recheck", () => {
     const applyDelete = (
       engine as unknown as { applyDelete: (p: string, c: string) => Promise<void> }
     ).applyDelete.bind(engine);
-    await applyDelete("a.md", "commit-1");
+    // R18-1: the captured verdict now refuses the inline apply instead of
+    // returning quietly — returning let the SSE loop advance the head past
+    // a delete that was never applied, and the next pass resubmitted the
+    // window edit with if-match == head (silent resurrection). The event
+    // loop answers InlineApplyDirtyError with a full pull.
+    await expect(applyDelete("a.md", "commit-1")).rejects.toThrow(
+      InlineApplyDirtyError
+    );
 
     expect(calls).toBe(2); // snapshot + recheck
     expect(trash).not.toHaveBeenCalled(); // the edit stopped the trash

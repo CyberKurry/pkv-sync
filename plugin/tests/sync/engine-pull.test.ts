@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeVaultEvents, type SubscribeOptions } from "../../src/api/events-client";
 import {
+  InlineApplyDirtyError,
   SyncEngine,
   type IndexPersistence,
   type SyncEngineOptions
@@ -385,6 +386,168 @@ describe("SyncEngine pull", () => {
     ).toBe(false);
     // The local draft is untouched on disk.
     expect(vault.readText("fresh.md")).resolves.toBe(localDraft);
+  });
+
+  it("refuses the pass when a file is edited during the pull window (R18-1)", async () => {
+    // R18-1: R17-H4 routed "vanished" to the delete-rejected ending but
+    // left the third face of the same coin — "captured" — on the old
+    // skip path. A file edited while its remote edit was downloading got
+    // a sidecar holding its own new content (which is already on disk),
+    // the head advanced past the never-applied remote edit, and the next
+    // pass pushed the window edit with if-match == head: the fast path
+    // overwrote the other device's committed edit with no conflict UI.
+    // The batch branches now refuse the pass like the inline paths do:
+    // head stays pinned, and the next pass sees a scan-time-dirty file
+    // and runs the normal conflict flow (remote on disk, local in the
+    // sidecar).
+    const h0 = await sha256Text("original");
+    const windowEdit = "user edits in the pull window";
+    const windowEditHash = await sha256Text(windowEdit);
+    const remoteEdit = "remote edit";
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": { lastSyncedHash: h0, lastSyncedAt: 1, kind: "text", size: 8 }
+      }
+    });
+    const vault = new FakeVault([
+      { path: "a.md", hash: h0, size: 8, kind: "text", content: "original" }
+    ]);
+    const pulls: Array<Record<string, unknown>> = [
+      {
+        from: "c0",
+        to: "c1",
+        added: [],
+        modified: [
+          {
+            path: "a.md",
+            file_type: "text",
+            size: remoteEdit.length,
+            content_inline: null
+          }
+        ],
+        deleted: []
+      },
+      { from: "c2", to: "c2", added: [], modified: [], deleted: [] }
+    ];
+    const api = {
+      state: vi.fn().mockResolvedValue({ current_head: "c1", changed_since: true }),
+      pull: vi.fn().mockImplementation(() => Promise.resolve(pulls.shift())),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({ new_commit: "c2", files_changed: 1 }),
+      downloadBlob: vi.fn(),
+      // The user edits the file while its remote edit is downloading.
+      downloadTextFile: vi.fn().mockImplementation(async () => {
+        vault.files = vault.files.map((file) =>
+          file.path === "a.md"
+            ? {
+                ...file,
+                content: windowEdit,
+                hash: windowEditHash,
+                size: windowEdit.length
+              }
+            : file
+        );
+        return remoteEdit;
+      })
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await expect(engine.syncNow()).rejects.toThrow();
+
+    // The head never advanced past the unapplied remote edit.
+    expect(idx.idx.lastSyncedCommit).toBe("c0");
+    // The window edit stays on disk untouched.
+    expect(await vault.readText("a.md")).toBe(windowEdit);
+    // The remote edit was never overwritten on disk.
+    expect(vault.writes.get("a.md")).toBeUndefined();
+
+    // Second pass: push-first sees the scan-time-dirty file and pushes it
+    // against its REAL base (c0), not against the commit that carries the
+    // remote edit. A fast-path overwrite would carry if-match c1.
+    await engine.syncNow();
+    expect(api.push).toHaveBeenCalledTimes(1);
+    expect(api.push.mock.calls[0][1]).toBe("c0");
+  });
+
+  it("refuses the pass when a deleted file is edited during the pull window (R18-1)", async () => {
+    // R18-1, delete twin: the pull says "deleted", the user edits the
+    // file after applyPull's scan. The old skip advanced the head and the
+    // next pass resubmitted the file with if-match == head — silently
+    // undoing the remote deletion. Refusing the pass keeps the edit on
+    // the normal conflict flow against the real base.
+    const h0 = await sha256Text("original");
+    const recreated = "edited in the pull window";
+    class EditingVault extends FakeVault {
+      async snapshot(
+        path: string,
+        textExtensions?: Set<string>
+      ): Promise<LocalFileSnapshot> {
+        if (path === "a.md") {
+          // The user edits the file between the applyPull scan and the
+          // per-file recheck.
+          this.files = this.files.map((file) =>
+            file.path === "a.md"
+              ? {
+                  ...file,
+                  content: recreated,
+                  hash: "edited-hash",
+                  size: recreated.length
+                }
+              : file
+          );
+        }
+        return super.snapshot(path, textExtensions);
+      }
+    }
+    const idx = new FakeIndex({
+      lastSyncedCommit: "c0",
+      files: {
+        "a.md": { lastSyncedHash: h0, lastSyncedAt: 1, kind: "text", size: 8 }
+      }
+    });
+    const vault = new EditingVault([
+      { path: "a.md", hash: h0, size: 8, kind: "text", content: "original" }
+    ]);
+    const pulls: Array<Record<string, unknown>> = [
+      { from: "c0", to: "c1", added: [], modified: [], deleted: ["a.md"] },
+      { from: "c2", to: "c2", added: [], modified: [], deleted: [] }
+    ];
+    const api = {
+      state: vi.fn().mockResolvedValue({ current_head: "c1", changed_since: true }),
+      pull: vi.fn().mockImplementation(() => Promise.resolve(pulls.shift())),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn().mockResolvedValue({ new_commit: "c2", files_changed: 1 }),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as any,
+      api: api as any,
+      index: idx,
+      setStatus: vi.fn()
+    });
+
+    await expect(engine.syncNow()).rejects.toThrow();
+    expect(idx.idx.lastSyncedCommit).toBe("c0");
+    expect(await vault.readText("a.md")).toBe(recreated);
+
+    await engine.syncNow();
+    expect(api.push).toHaveBeenCalledTimes(1);
+    expect(api.push.mock.calls[0][1]).toBe("c0");
   });
 
   it("preserves concurrent index updates before saving a completed pull", async () => {
@@ -2346,10 +2509,15 @@ describe("pull re-checks local state before touching the disk (R15-5)", () => {
       kind: "text",
       content: "edited after the snapshot"
     });
-    await run;
+    // R18-1: the captured verdict now refuses the pass (head pinned)
+    // instead of skipping the trash under an advancing head — skipping
+    // let the next pass resubmit the edit with if-match == head and
+    // silently undo the remote deletion. The edit still survives, and
+    // more strongly: nothing is written at all.
+    await expect(run).rejects.toThrow(InlineApplyDirtyError);
 
     // The edit must survive: the file is trashed only when it is still the
-    // content the snapshot saw. A rejected trash leaves a conflict copy.
+    // content the snapshot saw. A rejected pass leaves the file alone.
     expect(vault.deletions).not.toContain("a.md");
     expect(vault.exists("a.md")).toBe(true);
   });
