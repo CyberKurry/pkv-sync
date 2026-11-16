@@ -115,7 +115,10 @@ binary or container image automatically.
 - Do not disable every remaining administrator account.
 
 Resetting a password from the Admin WebUI revokes that user's existing device
-tokens. The user must log in again.
+tokens. The user must log in again. Disabling an account from the Admin WebUI
+does the same: it revokes every device token and deletes the user's admin
+sessions in addition to flipping the active flag, so re-enabling the account
+requires a fresh login on every device.
 
 CLI fallback:
 

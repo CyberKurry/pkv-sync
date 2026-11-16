@@ -1898,6 +1898,71 @@ async fn self_disable_returns_admin_html_error() {
     assert!(!body.contains("\"code\":\"self_disable\""));
 }
 
+#[tokio::test]
+async fn disabling_a_user_revokes_their_tokens_and_sessions() {
+    // R18-2: set_active(false) only wrote users.is_active. The live checks
+    // (admin session extractor, bearer path, SSE recheck) all re-read
+    // is_active today, so there is no bypass — but the token rows stayed
+    // "active", and any future reader that trusts only the token (the MCP
+    // token cache is keyed by token/epoch, not by user state) would miss
+    // the deactivation. Password reset already demonstrates the right
+    // shape: revoke_all_for_user + delete_sessions_for_user.
+    let (app, state, _dir) = app_with_state().await;
+    let session_cookie = login_cookie(&app).await;
+    let _admin_id = first_admin_user_id(&app, &session_cookie).await;
+    let user = state
+        .users
+        .create(NewUser {
+            username: "alice".into(),
+            password_hash: password::hash("passw0rd!!").unwrap(),
+            is_admin: false,
+        })
+        .await
+        .unwrap();
+    for (raw, device) in [("raw-1", "laptop"), ("raw-2", "phone")] {
+        state
+            .tokens
+            .create(NewToken {
+                user_id: &user.id,
+                token_hash: &token::hash(raw),
+                device_id: &format!("device-{device}"),
+                device_name: device,
+            })
+            .await
+            .unwrap();
+    }
+
+    let mut req = request(
+        Method::POST,
+        &format!("/admin/users/{}/active", user.id),
+        Body::from("active=false"),
+    );
+    req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/x-www-form-urlencoded".parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert(header::COOKIE, session_cookie.parse().unwrap());
+    set_form_origin(&mut req);
+    let resp = app.oneshot(req).await.unwrap();
+    assert!(
+        resp.status().is_redirection(),
+        "disabling another user should redirect, got {}",
+        resp.status()
+    );
+
+    let tokens = state.tokens.list_for_user(&user.id).await.unwrap();
+    assert_eq!(tokens.len(), 2);
+    for token_row in &tokens {
+        assert!(
+            token_row.revoked_at.is_some(),
+            "token {} ({}) survived deactivation",
+            token_row.id,
+            token_row.device_name
+        );
+    }
+}
+
 // ----------------------------------------------------------------------
 // [admin].allow_insecure_admin escape hatch (H-5)
 // ----------------------------------------------------------------------

@@ -1139,6 +1139,21 @@ struct PasswordForm {
     password: String,
 }
 
+/// R18-2: every deactivating action shares one side-effect bundle. The
+/// live checks (admin session extractor, bearer path, SSE recheck) re-read
+/// users.is_active, but token rows and admin sessions are separate state:
+/// a reader that trusts only the token (the MCP token cache is keyed by
+/// token/epoch) would miss the deactivation. Revoking is idempotent and
+/// cheap, so both the password reset and the disable switch run it.
+async fn deactivate_user_effects(state: &AppState, user_id: &str) -> Result<(), ApiError> {
+    state
+        .tokens
+        .revoke_all_for_user(user_id, chrono::Utc::now().timestamp(), None)
+        .await?;
+    session::delete_sessions_for_user(state, user_id).await?;
+    Ok(())
+}
+
 async fn reset_password_form(
     State(state): State<AppState>,
     _session: AdminSession,
@@ -1147,11 +1162,7 @@ async fn reset_password_form(
 ) -> Result<Redirect, ApiError> {
     let password_hash = hash_admin_password(&form.password).await?;
     state.users.update_password(&id, &password_hash).await?;
-    state
-        .tokens
-        .revoke_all_for_user(&id, chrono::Utc::now().timestamp(), None)
-        .await?;
-    session::delete_sessions_for_user(&state, &id).await?;
+    deactivate_user_effects(&state, &id).await?;
     Ok(Redirect::to(&format!("/admin/users/{id}")))
 }
 
@@ -1180,6 +1191,13 @@ async fn set_active_form(
         .await;
     }
     state.users.set_active(&id, form.active).await?;
+    if !form.active {
+        // R18-2: disabling a user must also revoke their tokens and admin
+        // sessions, not just flip the flag — same bundle as a password
+        // reset. The live checks cover today's readers; this keeps the
+        // state itself consistent for any future token-only reader.
+        deactivate_user_effects(&state, &id).await?;
+    }
     Ok(Redirect::to(&format!("/admin/users/{id}")).into_response())
 }
 
