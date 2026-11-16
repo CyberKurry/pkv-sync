@@ -217,6 +217,22 @@ pub(crate) fn blob_store(state: &AppState) -> LocalFsBlobStore {
     state.blob_store()
 }
 
+/// R17-L1: blob-store failures are infrastructure unless the client's hash
+/// is malformed. An I/O failure (network mount hiccup, permission flip,
+/// corrupted sharding directory) maps to 500 — retryable and "not your
+/// fault". Reporting it as 400 `invalid_hash` made the client treat a
+/// deterministic per-file rejection out of a transient storage fault (and
+/// with the R17-H2 whitelist, quarantine the file for it). A malformed
+/// hash keeps its genuine 400.
+pub(crate) fn blob_store_error(err: crate::storage::blob::BlobError) -> ApiError {
+    match err {
+        crate::storage::blob::BlobError::InvalidHash => {
+            ApiError::bad_request("invalid_hash", "invalid hash")
+        }
+        other => ApiError::internal(other.to_string()),
+    }
+}
+
 /// Compile-time assertion that the `service::sync` public surface survives
 /// refactors. The X2 plan depends on every path below; if a future change
 /// removes or renames one of them, this module fails to compile.

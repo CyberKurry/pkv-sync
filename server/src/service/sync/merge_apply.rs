@@ -290,7 +290,7 @@ pub(super) async fn try_auto_merge_push(
                 let actual_size = match store
                     .size_bytes(&blob_hash)
                     .await
-                    .map_err(|e| ApiError::bad_request("invalid_hash", e.to_string()))?
+                    .map_err(crate::service::sync::blob_store_error)?
                 {
                     Some(s) => s,
                     None => {

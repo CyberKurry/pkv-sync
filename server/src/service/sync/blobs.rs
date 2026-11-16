@@ -5,7 +5,7 @@ use crate::service::AppState;
 use crate::storage::blob::BlobStore;
 use bytes::Bytes;
 
-use super::{blob_store, UploadCheckResp};
+use super::{blob_store, blob_store_error, UploadCheckResp};
 
 const MAX_UPLOAD_CHECK_HASHES: usize = 10_000;
 
@@ -141,10 +141,7 @@ pub async fn download_blob(
         return Err(ApiError::not_found("blob not found"));
     }
     let store = blob_store(state);
-    store
-        .get(hash)
-        .await
-        .map_err(|e| ApiError::bad_request("invalid_hash", e.to_string()))
+    store.get(hash).await.map_err(blob_store_error)
 }
 
 #[cfg(test)]
@@ -305,6 +302,58 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(err.code, "file_too_large");
+    }
+
+    #[tokio::test]
+    async fn download_blob_maps_storage_io_failure_to_5xx() {
+        // R17-L1: a blob-store I/O failure is infrastructure, not a client
+        // mistake. Reporting it as 400 invalid_hash told the client "your
+        // hash is wrong, retrying the same bytes will never succeed" — and
+        // with the R17-H2 whitelist the plugin would quarantine the file
+        // for it. Only a malformed hash is a genuine 400.
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let data = Bytes::from_static(b"payload");
+        let hash = LocalFsBlobStore::sha256(&data);
+        let store = LocalFsBlobStore::new(state.default_blob_root());
+        store.put_verified(&hash, data).await.unwrap();
+        state
+            .blob_refs
+            .add_refs(&vid, "commit-1", std::slice::from_ref(&hash))
+            .await
+            .unwrap();
+
+        // Corrupt the store: the sharded path becomes a symlink, which
+        // get() refuses with an I/O-class error.
+        let path = state
+            .default_blob_root()
+            .join(&hash[0..2])
+            .join(&hash[2..4])
+            .join(&hash);
+        std::fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink("/etc/hostname", &path).unwrap();
+
+        let err = download_blob(&state, &user.user_id, &vid, &hash)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn blob_store_error_maps_only_validation_to_400() {
+        use crate::storage::blob::BlobError;
+        let io = blob_store_error(BlobError::Io(std::io::Error::other("nfs hiccup")));
+        assert_eq!(io.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        let mismatch = blob_store_error(BlobError::HashMismatch {
+            expected: "a".repeat(64),
+            actual: "b".repeat(64),
+        });
+        assert_eq!(
+            mismatch.status,
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        let invalid = blob_store_error(BlobError::InvalidHash);
+        assert_eq!(invalid.status, axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(invalid.code, "invalid_hash");
     }
 
     #[tokio::test]

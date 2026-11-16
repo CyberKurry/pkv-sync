@@ -17,9 +17,9 @@ use super::merge_apply::try_auto_merge_push;
 use super::paths::{reject_filtered_push_path, reject_pointer_shaped_text, sync_path_filter};
 use super::reconcile::ReconcileReport;
 use super::{
-    blob_store, AutoMergePushInput, CasConflict, CommitPushInput, PreparedPush, PushApplyOutcome,
-    PushChange, PushInternalInput, PushReq, PushResp, PushStatsDelta, RequestMetadata,
-    StalePushMode,
+    blob_store, blob_store_error, AutoMergePushInput, CasConflict, CommitPushInput, PreparedPush,
+    PushApplyOutcome, PushChange, PushInternalInput, PushReq, PushResp, PushStatsDelta,
+    RequestMetadata, StalePushMode,
 };
 
 const IDEMPOTENCY_ROUTE_PUSH: &str = "push";
@@ -428,7 +428,7 @@ async fn push_with_request_metadata_internal(
                 let actual_size = match blob_store
                     .size_bytes(&blob_hash)
                     .await
-                    .map_err(|e| ApiError::bad_request("invalid_hash", e.to_string()))?
+                    .map_err(blob_store_error)?
                 {
                     Some(size) => size,
                     None => {
