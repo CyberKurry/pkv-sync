@@ -200,6 +200,52 @@ async fn rollback_success_moves_head_publishes_event_and_records_activity() {
 }
 
 #[tokio::test]
+async fn rollback_succeeds_when_the_activity_trail_fails() {
+    // R17-M5: the ref has already moved when the activity insert runs. A
+    // bookkeeping failure answered 500 for an operation that DID happen —
+    // and the admin's retry was answered rolled_back: false. Worse, the
+    // `?` skipped the SSE publish, so live subscribers never learned the
+    // head moved until the next state/pull. The rollback body is the
+    // success: bookkeeping failures degrade to logs, the event publishes
+    // unconditionally.
+    let ctx = setup().await;
+    let first = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, None, "v1").await;
+    let second = push_text(&ctx.state, &ctx.owner, &ctx.vault_id, Some(&first), "v2").await;
+    let mut rx = ctx.state.events.subscribe(&ctx.vault_id);
+
+    // Break the activity trail.
+    sqlx::query("DROP TABLE sync_activity")
+        .execute(&ctx.state.pool)
+        .await
+        .unwrap();
+
+    let result = rollback_to_commit(&ctx.state, &ctx.owner, &ctx.vault_id, &first)
+        .await
+        .unwrap();
+
+    assert!(result.rolled_back);
+    assert_eq!(result.to_commit, first);
+    let git = Git2VaultStore::new(ctx.state.default_vault_root());
+    assert_eq!(
+        git.head(&ctx.vault_id).await.unwrap().as_deref(),
+        Some(first.as_str())
+    );
+    // Live subscribers still learn the head moved.
+    let event = rx.try_recv().unwrap();
+    assert_eq!(event.commit, first);
+    match event.kind {
+        EventKind::Rollback {
+            from_commit,
+            to_commit,
+        } => {
+            assert_eq!(from_commit, second);
+            assert_eq!(to_commit, first);
+        }
+        other => panic!("expected rollback event, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn rollback_refreshes_vault_stats_and_current_blob_refs() {
     let ctx = setup().await;
     let old_data = bytes::Bytes::from_static(b"old");

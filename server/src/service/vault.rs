@@ -126,14 +126,34 @@ pub async fn rollback_to_commit_as(
     .await
     .map_err(rollback_git_error)?;
 
-    crate::service::sync::reconcile_vault_metadata_unlocked(state, vault_id)
-        .await
-        .map_err(|_| RollbackError::Internal("failed to refresh rollback metadata".into()))?;
+    // R17-M5: the head has already moved when these two bookkeeping steps
+    // run — this function's success is the rollback itself. A failure here
+    // used to answer 500 for an operation that DID happen (and the admin's
+    // retry was answered rolled_back: false), and the activity `?` skipped
+    // the SSE publish, so live subscribers never learned the head moved.
+    // The rollback body is the success: reconcile failures degrade to logs
+    // (metadata follows from the git state and the next reconcile
+    // self-heals), the activity trail degrades to logs, and the event
+    // publishes unconditionally.
+    if let Err(err) = crate::service::sync::reconcile_vault_metadata_unlocked(state, vault_id).await
+    {
+        tracing::error!(
+            vault_id = %vault_id,
+            error = ?err,
+            "rollback committed but metadata reconcile failed"
+        );
+    }
 
     let from = from_commit
         .clone()
         .ok_or_else(|| RollbackError::Internal("missing source head".into()))?;
-    record_rollback_activity(state, actor, vault_id, &from, target_commit).await?;
+    if let Err(err) = record_rollback_activity(state, actor, vault_id, &from, target_commit).await {
+        tracing::error!(
+            vault_id = %vault_id,
+            error = ?err,
+            "rollback committed but the activity trail failed"
+        );
+    }
     state.events.publish(
         vault_id,
         VaultEvent {
