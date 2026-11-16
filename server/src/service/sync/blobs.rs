@@ -322,15 +322,16 @@ mod tests {
             .await
             .unwrap();
 
-        // Corrupt the store: the sharded path becomes a symlink, which
-        // get() refuses with an I/O-class error.
+        // Corrupt the store: the sharded path becomes a directory, which
+        // get() cannot read — an I/O-class error on every platform (EISDIR
+        // on Unix). A symlink was tried first but is unix-only.
         let path = state
             .default_blob_root()
             .join(&hash[0..2])
             .join(&hash[2..4])
             .join(&hash);
         std::fs::remove_file(&path).unwrap();
-        std::os::unix::fs::symlink("/etc/hostname", &path).unwrap();
+        std::fs::create_dir(&path).unwrap();
 
         let err = download_blob(&state, &user.user_id, &vid, &hash)
             .await
