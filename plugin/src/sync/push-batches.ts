@@ -407,8 +407,8 @@ export class PushBatcher {
 
   /**
    * The active quarantine code for this item's exact content, or null when
-   * the path is not withheld. Split out of `isQuarantined` so the skip
-   * path can report WHICH code withheld the file (R17-H3).
+   * the path is not withheld. The skip path uses the code to report WHICH
+   * code withheld the file (R17-H3).
    */
   private quarantineCode(item: PushItem): string | null {
     const entry = this.quarantined.get(item.change.path);
@@ -421,9 +421,5 @@ export class PushBatcher {
     // file has a new fingerprint and is worth a retry immediately.
     if (entry.fingerprint !== item.fingerprint) return null;
     return entry.code;
-  }
-
-  private isQuarantined(item: PushItem): boolean {
-    return this.quarantineCode(item) !== null;
   }
 }
