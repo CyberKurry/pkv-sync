@@ -128,6 +128,8 @@ export const ja = {
   pushRetryLater: "サーバーがこのプッシュを一時的に拒否しました。{seconds} 秒後に再試行します。",
   pushSplitBudgetExceeded:
     "リクエスト超過が {count} 回発生したため、プッシュを停止しました。サーバーまたはプロキシの制限を確認してください。",
+  pullVaultTooLarge:
+    "同期を停止しました：この vault のファイル数が 1 回の pull レスポンスの上限を超えています。サーバー管理者による vault の分割が必要です。",
   inlineApplyFailed:
     "{path} のリアルタイム更新を適用できませんでした: {reason}。完全同期にフォールバックします。",
   conflictNotice: "PKV Sync の競合: {path}",

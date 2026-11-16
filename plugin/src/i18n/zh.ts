@@ -125,6 +125,8 @@ export const zh = {
   pushRetryLater: "服务端暂时拒绝本次推送，将在 {seconds} 秒后重试。",
   pushSplitBudgetExceeded:
     "已发生 {count} 次请求超限，推送已停止。请检查服务端或代理限制。",
+  pullVaultTooLarge:
+    "同步已停止：该笔记库的文件数量超出单次拉取响应的承载上限，需要服务器管理员将其拆分为更小的笔记库。",
   inlineApplyFailed: "无法应用 {path} 的实时更新：{reason}。将回退到完整同步。",
   conflictNotice: "PKV Sync 冲突：{path}",
   conflictCopyFailed: "无法为 {path} 写入冲突副本：{reason}",

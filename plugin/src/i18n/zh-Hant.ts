@@ -125,6 +125,8 @@ export const zhHant = {
   pushRetryLater: "伺服端暫時拒絕本次推送，將於 {seconds} 秒後重試。",
   pushSplitBudgetExceeded:
     "已發生 {count} 次請求超限，推送已停止。請檢查伺服端或代理限制。",
+  pullVaultTooLarge:
+    "同步已停止：該筆記庫的檔案數量超出單次拉取回應的承載上限，需要伺服器管理員將其拆分為更小的筆記庫。",
   inlineApplyFailed: "無法套用 {path} 的即時更新：{reason}。將回退到完整同步。",
   conflictNotice: "PKV Sync 衝突：{path}",
   conflictCopyFailed: "無法為 {path} 寫入衝突副本：{reason}",

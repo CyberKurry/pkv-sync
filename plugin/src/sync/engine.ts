@@ -88,6 +88,23 @@ export class SyncAbortedError extends Error {
   }
 }
 
+/**
+ * R17-M7 (short term): a pull whose visible tree exceeds the response
+ * budget 413s the whole request, and there is no pagination yet — every
+ * pass fails with the same code, so the raw server message ("vault has
+ * too many files for one pull response; limit is 50000") would leave the
+ * user with an opaque, permanently red bar. The status names the remedial
+ * action instead: the vault needs to be split. Unknown codes keep the raw
+ * message; the localized catalog cannot guess at server errors it has
+ * never seen.
+ */
+function syncStatusText(error: unknown, labels: Pick<Strings, "pullVaultTooLarge">): string {
+  if (error instanceof ApiError && error.code === "pull_too_large") {
+    return labels.pullVaultTooLarge;
+  }
+  return errorToMessage(error);
+}
+
 export interface SyncEngineOptions {
   vaultId: string;
   deviceName: string;
@@ -114,6 +131,7 @@ export interface SyncEngineOptions {
     | "pushPathRejected"
     | "pushPathsRefusedSummary"
     | "emptyScanHeld"
+    | "pullVaultTooLarge"
   >;
   onSyncSuccess?(): void | Promise<void>;
   vaultSettingsReader?: (vaultId: string) => Promise<VaultSettings>;
@@ -606,7 +624,7 @@ export class SyncEngine {
       } else {
         this.opts.setStatus(
           "error",
-          errorToMessage(error)
+          syncStatusText(error, this.opts.labels ?? strings())
         );
       }
       throw error;

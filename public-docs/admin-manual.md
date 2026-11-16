@@ -167,6 +167,15 @@ look wrong after an interrupted operation. Reconciliation reads blob pointer has
 from the tree entries and batches blob-reference repair, so it no longer has to
 re-open every pointer file individually.
 
+When a vault grows beyond 50,000 visible files, the sync protocol refuses the
+whole pull with `pull_too_large` and that vault can no longer sync. The limit
+is part of the response budget (a compile-time constant, not a runtime
+setting), and there is no pagination yet — every retry fails the same way.
+Clients surface a localized message pointing at the remedial action. The fix
+is structural: split the vault into several smaller vaults, or exclude bulky
+subtrees through the per-vault sync allowlist, and re-point the affected
+devices.
+
 ### Per-Vault Sync Settings
 
 From **Vaults**, open **Settings** on a vault card to edit the per-vault

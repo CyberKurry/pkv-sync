@@ -136,6 +136,8 @@ export const ko = {
   pushRetryLater: "서버가 이 푸시를 일시적으로 거부했습니다. {seconds}초 후에 다시 시도합니다.",
   pushSplitBudgetExceeded:
     "요청 초과가 {count}회 발생하여 푸시를 중지했습니다. 서버 또는 프록시 한도를 확인하세요.",
+  pullVaultTooLarge:
+    "동기화가 중지되었습니다: 이 vault의 파일 수가 한 번의 pull 응답 한도를 초과합니다. 서버 관리자가 vault를 더 작은 vault로 분할해야 합니다.",
   inlineApplyFailed:
     "{path}의 실시간 업데이트를 적용하지 못했습니다: {reason}. 전체 동기화로 전환합니다.",
   conflictNotice: "PKV Sync 충돌: {path}",

@@ -126,6 +126,8 @@ Blob 파일은 콘텐츠 주소 지정 방식이며, 가비지 컬렉션이 유�
 
 중단된 작업 후 파일 수, 크기 또는 blob 참조가 잘못 보이면 vault 메타데이터 reconciliation을 사용하세요. Reconciliation은 tree entry에서 blob pointer hash를 직접 읽고 blob 참조 복구를 batch 처리하므로 pointer 파일을 하나씩 다시 열 필요가 없습니다.
 
+vault의 가시 파일 수가 50,000을 넘으면 동기화 프로토콜이 pull 전체를 `pull_too_large`로 거부하며 해당 vault는 더 이상 동기화할 수 없습니다. 이 한도는 응답 예산의 일부(컴파일 타임 상수이며 런타임 설정이 아님)이고, 아직 페이지네이션이 없어서 재시도는 매번 같은 방식으로 실패합니다. 클라이언트는 대응 방법을 가리키는 현지화된 메시지를 표시합니다. 해결은 구조적 조치입니다. vault를 더 작은 여러 vault로 분할하거나, vault별 동기화 allowlist로 방대한 하위 트리를 제외한 뒤 영향을 받는 기기에 vault를 다시 선택하게 하세요.
+
 ### Vault별 동기화 설정
 
 **Vaults**에서 vault 카드의 **Settings**를 열어 vault별 `extra_sync_globs` allowlist를 편집합니다. 이 설정은 선택된 `.obsidian` 설정 파일을 포함한 숨김 경로 중 동기화 가능한 항목을 제어합니다.

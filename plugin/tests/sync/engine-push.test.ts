@@ -1851,3 +1851,60 @@ describe("a quarantined file is reported, not silently dropped (R16-H1)", () => 
     expect(api.push.mock.calls.length).toBe(pushesAfterFirstPass);
   });
 });
+
+describe("a pull_too_large rejection is named, not left raw (R17-M7)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("window", globalThis);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("maps the pull budget 413 to the localized split-vault guidance", async () => {
+    // A vault beyond the per-response tree limit 413s every pull with the
+    // same code; there is no pagination yet, so every pass fails the same
+    // way. The raw server message ("vault has too many files for one pull
+    // response; limit is 50000") tells the user nothing actionable — the
+    // status bar names the remedial action instead.
+    const idx = new FakeIndex({ lastSyncedCommit: "c0", files: {} });
+    const vault = new FakeVault([]);
+    const api = {
+      state: vi.fn().mockResolvedValue({ current_head: "c1", changed_since: true }),
+      pull: vi
+        .fn()
+        .mockRejectedValue(
+          new ApiError(
+            413,
+            "pull_too_large",
+            "vault has too many files for one pull response; limit is 50000",
+            undefined
+          )
+        ),
+      uploadCheck: vi.fn().mockResolvedValue({ missing: [] }),
+      uploadBlob: vi.fn(),
+      push: vi.fn(),
+      downloadBlob: vi.fn(),
+      downloadTextFile: vi.fn()
+    };
+    const setStatus = vi.fn();
+    const engine = new SyncEngine({
+      vaultId: "v",
+      deviceName: "d",
+      textExtensions: new Set(["md"]),
+      vault: vault as never,
+      api: api as never,
+      index: idx,
+      setStatus
+    });
+
+    await expect(engine.syncNow()).rejects.toThrow();
+
+    const errorCalls = setStatus.mock.calls.filter(
+      (call) => call[0] === "error"
+    );
+    expect(errorCalls.length).toBeGreaterThan(0);
+    expect(errorCalls.at(-1)?.[1]).toContain("split");
+    expect(errorCalls.at(-1)?.[1]).not.toContain("limit is 50000");
+  });
+});

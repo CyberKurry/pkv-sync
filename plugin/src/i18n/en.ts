@@ -129,6 +129,8 @@ export const en = {
   pushRetryLater: "The server temporarily rejected this push. Retry in {seconds}s.",
   pushSplitBudgetExceeded:
     "Push stopped after {count} oversized-request failures. Check the server or proxy limit.",
+  pullVaultTooLarge:
+    "Sync stopped: this vault has more files than one pull response can carry. The server administrator needs to split it into smaller vaults.",
   inlineApplyFailed:
     "Failed to apply realtime update for {path}: {reason}. Falling back to full sync.",
   conflictNotice: "PKV Sync conflict: {path}",
