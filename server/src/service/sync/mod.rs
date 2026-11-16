@@ -233,6 +233,34 @@ pub(crate) fn blob_store_error(err: crate::storage::blob::BlobError) -> ApiError
     }
 }
 
+/// R18-3: the read half of the GitStoreError → HTTP mapping. The merge read
+/// path used to answer every failure as 400 `bad_commit`; together with the
+/// plugin's per-file whitelist (R17-H2) that turned a transient storage
+/// fault into a 15-minute quarantine of the file. Classification mirrors
+/// the write path (`git_write_error`): a locked repository is retryable
+/// (409), a missing commit or invalid path is the client's to fix (400),
+/// and everything else — I/O, corruption, panics — is a 5xx.
+pub(crate) fn git_read_error(err: crate::storage::git::GitStoreError) -> ApiError {
+    use crate::storage::git::GitStoreError;
+    match err {
+        GitStoreError::Git(ref e) if e.code() == git2::ErrorCode::Locked => {
+            ApiError::conflict("head_mismatch", "concurrent write in progress")
+        }
+        GitStoreError::Git(ref e)
+            if matches!(
+                e.code(),
+                git2::ErrorCode::NotFound | git2::ErrorCode::InvalidSpec
+            ) =>
+        {
+            ApiError::bad_request("bad_commit", err.to_string())
+        }
+        GitStoreError::NotFound | GitStoreError::InvalidPath(_) => {
+            ApiError::bad_request("bad_commit", err.to_string())
+        }
+        other => ApiError::internal(other.to_string()),
+    }
+}
+
 /// Compile-time assertion that the `service::sync` public surface survives
 /// refactors. The X2 plan depends on every path below; if a future change
 /// removes or renames one of them, this module fails to compile.
@@ -280,6 +308,66 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(v.changes[0], PushChange::Blob { .. }));
+    }
+
+    #[test]
+    fn git_read_error_classifies_transient_failures_away_from_bad_commit() {
+        // R18-3: the merge read path used to map every GitStoreError to
+        // 400 bad_commit, which the plugin's per-file whitelist (R17-H2)
+        // then quarantined for 15 minutes — an infrastructure hiccup
+        // masqueraded as a file property. Classification: a locked repo
+        // is the write path's 409 (retryable), a missing commit/path
+        // stays the client's 400, everything else (I/O, corruption,
+        // panics) is a 5xx.
+        use crate::storage::git::GitStoreError;
+
+        let locked = git_read_error(GitStoreError::Git(git2::Error::new(
+            git2::ErrorCode::Locked,
+            git2::ErrorClass::None,
+            "repository locked",
+        )));
+        assert_eq!(locked.status, axum::http::StatusCode::CONFLICT);
+        assert_eq!(locked.code, "head_mismatch");
+
+        let io = git_read_error(GitStoreError::Io(std::io::Error::other("nfs hiccup")));
+        assert_eq!(io.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+
+        let panic = git_read_error(GitStoreError::Panic);
+        assert_eq!(panic.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+
+        let invalid_vault = git_read_error(GitStoreError::InvalidVaultId);
+        assert_eq!(
+            invalid_vault.status,
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        let other_git = git_read_error(GitStoreError::Git(git2::Error::new(
+            git2::ErrorCode::GenericError,
+            git2::ErrorClass::Odb,
+            "odb read failed",
+        )));
+        assert_eq!(
+            other_git.status,
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        let missing = git_read_error(GitStoreError::NotFound);
+        assert_eq!(missing.status, axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(missing.code, "bad_commit");
+
+        let invalid_path = git_read_error(GitStoreError::InvalidPath("x".into()));
+        assert_eq!(invalid_path.status, axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(invalid_path.code, "bad_commit");
+
+        // Git(NotFound) is the stale-commit case the client can fix by
+        // re-pulling; it keeps the per-file 400.
+        let git_not_found = git_read_error(GitStoreError::Git(git2::Error::new(
+            git2::ErrorCode::NotFound,
+            git2::ErrorClass::Object,
+            "object not found",
+        )));
+        assert_eq!(git_not_found.status, axum::http::StatusCode::BAD_REQUEST);
+        assert_eq!(git_not_found.code, "bad_commit");
     }
 
     pub(super) async fn state_user_vault(

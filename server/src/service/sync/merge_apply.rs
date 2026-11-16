@@ -14,8 +14,8 @@ use super::paths::{
 use super::push::commit_prepared_push;
 use super::push::{record_push_metadata, PushMetadataInput};
 use super::{
-    AutoMergePushInput, CommitPushInput, MergeOutcomeEntry, MergeOutcomeKind, PreparedPush,
-    PushChange, PushReq, PushResp,
+    git_read_error, AutoMergePushInput, CommitPushInput, MergeOutcomeEntry, MergeOutcomeKind,
+    PreparedPush, PushChange, PushReq, PushResp,
 };
 
 pub(super) async fn try_auto_merge_push(
@@ -171,11 +171,11 @@ pub(super) async fn try_auto_merge_push(
                 let base_file = git
                     .read_file(input.vault_id, &normalized, Some(input.base_commit))
                     .await
-                    .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?;
+                    .map_err(git_read_error)?;
                 let head_file = git
                     .read_file(input.vault_id, &normalized, Some(input.current_head))
                     .await
-                    .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?;
+                    .map_err(git_read_error)?;
 
                 match (base_file.as_ref(), head_file.as_ref()) {
                     // Both absent or same content at base and head → delete is clean.
@@ -313,11 +313,11 @@ pub(super) async fn try_auto_merge_push(
                 let base_file = git
                     .read_file(input.vault_id, &normalized, Some(input.base_commit))
                     .await
-                    .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?;
+                    .map_err(git_read_error)?;
                 let head_file = git
                     .read_file(input.vault_id, &normalized, Some(input.current_head))
                     .await
-                    .map_err(|e| ApiError::bad_request("bad_commit", e.to_string()))?;
+                    .map_err(git_read_error)?;
 
                 let head_changed = match (base_file.as_ref(), head_file.as_ref()) {
                     // Both absent at this path → remote didn't change it.
@@ -559,10 +559,10 @@ async fn read_merge_text(
         Err(GitStoreError::Git(ref e)) if e.code() == git2::ErrorCode::NotFound => {
             return Ok(MergeTextRead::Unmergeable)
         }
-        Err(err @ GitStoreError::Git(_)) => {
-            return Err(ApiError::internal(format!("merge git read: {err}")))
-        }
-        Err(err) => return Err(ApiError::bad_request("bad_commit", err.to_string())),
+        // R18-3: shared classification — a locked repo is a retryable
+        // 409, I/O and corruption are 5xx, only stale commits/paths keep
+        // the per-file 400.
+        Err(err) => return Err(git_read_error(err)),
     };
     match file {
         Some(StoredFile::Text { bytes }) => Ok(MergeTextRead::Text(bytes)),
@@ -699,6 +699,25 @@ mod tests {
         assert_ne!(first, second);
         assert!(first.starts_with("notes/daily.conflict-"));
         assert!(first.ends_with(".md"));
+    }
+
+    #[test]
+    fn merge_read_errors_go_through_the_shared_classifier() {
+        // R18-3: the delete and blob branches used to map every
+        // GitStoreError from read_file to 400 bad_commit. That put a
+        // transient storage failure into the plugin's per-file
+        // quarantine (15 minutes, R17-H2). Both branches (and the text
+        // merge reader) must classify through git_read_error.
+        let source = include_str!("merge_apply.rs");
+        let implementation = &source[..source.find("mod tests").expect("tests module exists")];
+        assert!(!implementation.contains("\"bad_commit\""));
+        let read_sites = implementation.matches(".read_file(").count();
+        assert_eq!(read_sites, 5, "one text merge + two delete + two blob");
+        assert_eq!(
+            implementation.matches(".map_err(git_read_error)").count(),
+            4
+        );
+        assert!(implementation.contains("git_read_error(err)"));
     }
 
     #[test]
