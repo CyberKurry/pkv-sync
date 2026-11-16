@@ -65,6 +65,8 @@ export interface IndexPersistence {
  * sync index recorded last. Signals the caller to fall back to a full pull
  * (which generates a .conflict-* file) instead of overwriting user edits.
  */
+type DiskVerdict = "proceed" | "captured" | "vanished";
+
 export class InlineApplyDirtyError extends Error {
   constructor(public readonly path: string) {
     super(`local copy of ${path} has unsynced changes; refusing inline apply`);
@@ -920,7 +922,26 @@ export class SyncEngine {
           // taken before this file's download/hash. Re-read it: an edit
           // landing in that gap must be captured in a sidecar, not lost
           // under the remote write.
-          if (!(await this.mayStillChangeDisk(file.path, local?.hash))) continue;
+          const verdict = await this.mayStillChangeDisk(file.path, local?.hash);
+          if (verdict === "vanished") {
+            // R17-H4: the user deleted the file while its remote edit was
+            // in flight. The scan-time deletion verdict above is the
+            // ending this shape must reach: the remote content keeps a
+            // sidecar and the index entry drops with the head advance, so
+            // no later pass pushes a delete over the committed edit.
+            try {
+              await this.writeRemoteConflict(file, pull.to, content);
+            } catch (error) {
+              // W3: a sidecar the filesystem refuses must not wedge the
+              // vault here — the remote content remains in the server
+              // history and the deletion stays recorded either way.
+              if (error instanceof SyncAbortedError) throw error;
+              this.reportSidecarFailure(file.path, error);
+            }
+            deleteRejected.push(file.path);
+            continue;
+          }
+          if (verdict !== "proceed") continue;
           // The download/hash awaits above can straddle an abort (M-10
           // per-file granularity): re-check so a replaced generation
           // never writes into the vault it no longer owns.
@@ -952,7 +973,20 @@ export class SyncEngine {
           }
           // R15-5: same re-read as the text branch — the blob download is
           // the longest window of all.
-          if (!(await this.mayStillChangeDisk(file.path, local?.hash))) continue;
+          const verdict = await this.mayStillChangeDisk(file.path, local?.hash);
+          if (verdict === "vanished") {
+            // R17-H4: same ending as the text branch — the remote blob
+            // keeps a sidecar and the index entry drops with the head.
+            try {
+              await this.writeRemoteConflict(file, pull.to, undefined, bytes);
+            } catch (error) {
+              if (error instanceof SyncAbortedError) throw error;
+              this.reportSidecarFailure(file.path, error);
+            }
+            deleteRejected.push(file.path);
+            continue;
+          }
+          if (verdict !== "proceed") continue;
           // Same as the text branch: the download/hash awaits can
           // straddle an abort, so re-check before the vault write.
           this.throwIfAborted();
@@ -970,6 +1004,17 @@ export class SyncEngine {
       for (const path of pull.deleted) {
         this.throwIfAborted();
         if (!shouldSyncPath(path) || !pathAccepted(path)) continue;
+        // R17-H4: a file that vanished between the scan and this check was
+        // deleted by the user in flight. The remote deletion agrees, so
+        // record the agreed verdict — index entry dropped with the head
+        // advance — instead of skipping silently (which left the entry
+        // alive under an advanced head and made the next pass re-push a
+        // delete). Skips the dirty check deliberately: there is no local
+        // content left to capture.
+        if (!(await this.opts.vault.exists(path))) {
+          deleteRejected.push(path);
+          continue;
+        }
         const local = currentByPath.get(path);
         const indexed = index.files[path];
         if (isLocalDirty(local, indexed?.lastSyncedHash)) {
@@ -978,7 +1023,14 @@ export class SyncEngine {
         // R15-5: the delete decision above is the most destructive one in
         // the engine — trash destroys the bytes. Re-read the file: an edit
         // landing after the snapshot is captured in a sidecar instead.
-        if (!(await this.mayStillChangeDisk(path, local?.hash))) continue;
+        const verdict = await this.mayStillChangeDisk(path, local?.hash);
+        if (verdict === "vanished") {
+          // The exists() check above covers the window; a vanish landing
+          // after it still records the same agreed verdict.
+          deleteRejected.push(path);
+          continue;
+        }
+        if (verdict !== "proceed") continue;
         // writeConflict above awaits; an abort landing in that window
         // must still stop the trash (M-10 per-file granularity).
         this.throwIfAborted();
@@ -1111,7 +1163,12 @@ export class SyncEngine {
     );
   }
 
-  private async writeRemoteConflict(file: PullFile, atCommit: string): Promise<void> {
+  private async writeRemoteConflict(
+    file: PullFile,
+    atCommit: string,
+    knownText?: string,
+    knownBytes?: ArrayBuffer
+  ): Promise<void> {
     this.throwIfAborted();
     const key = `${file.path}\u0000remote\u0000${atCommit}`;
     if (this.sidecarAlreadyWritten(key)) return;
@@ -1123,6 +1180,7 @@ export class SyncEngine {
     const cpath = conflictPath(file.path, "remote");
     if (file.file_type === "text") {
       const content =
+        knownText ??
         file.content_inline ??
         (await this.opts.api.downloadTextFile(
           this.opts.vaultId,
@@ -1132,10 +1190,9 @@ export class SyncEngine {
       await this.opts.vault.writeText(cpath, content);
     } else {
       if (!file.blob_hash) throw new Error(`Missing blob hash for ${file.path}`);
-      const bytes = await this.opts.api.downloadBlob(
-        this.opts.vaultId,
-        file.blob_hash
-      );
+      const bytes =
+        knownBytes ??
+        (await this.opts.api.downloadBlob(this.opts.vaultId, file.blob_hash));
       await this.opts.vault.writeBinary(cpath, bytes);
     }
     this.writtenConflictSidecars.set(key, cpath);
@@ -1185,17 +1242,21 @@ export class SyncEngine {
    * the batch pull loop never did, and it has the widest window in the
    * codebase because one pull can span dozens of round trips.
    *
-   * Returns true when the caller may proceed with the write or trash. Returns
-   * false when the disk moved: the NEW content is captured in a conflict
-   * sidecar, so the caller must leave the file alone and let the next pass
-   * reconcile. `expectedHash` is the hash the caller's snapshot saw;
-   * `undefined` means nothing was recorded about this path, so nothing can be
-   * proven stale and the caller proceeds on its own rules.
+   * Returns `"proceed"` when the caller may write or trash. Returns
+   * `"captured"` when the disk moved but its NEW content is safe in a
+   * conflict sidecar, so the caller must leave the file alone and let the
+   * next pass reconcile. Returns `"vanished"` when the file the snapshot
+   * saw was deleted during the pull (R17-H4) — the caller routes that to
+   * the delete-rejected ending, never to a silent skip. Throws
+   * `InlineApplyDirtyError` when nothing was recorded about the path
+   * (`expectedHash === undefined`) yet a file exists now: presence
+   * mismatch means unknown local state, and guessing here used to advance
+   * the head past content that was never applied.
    */
   private async mayStillChangeDisk(
     path: string,
     expectedHash: string | undefined
-  ): Promise<boolean> {
+  ): Promise<DiskVerdict> {
     if (expectedHash === undefined) {
       // R16-H3: "the scan saw no local file" is NOT "there is no local
       // file". The scan happens once, at the top of applyPull, and this
@@ -1205,25 +1266,28 @@ export class SyncEngine {
       // means unknown local state"); returning true here let the remote
       // body overwrite a file that had never been pushed anywhere.
       //
-      // R16-7: the mirror case — the file existed at scan time and is gone
-      // now — reaches the same place through a throw from `snapshot`. Both
-      // are "the disk is not what the snapshot said", so both are answered
-      // here, once.
-      if (!this.opts.vault.exists(path)) return true;
-      const appeared = await this.opts.vault.snapshot(path, this.opts.textExtensions);
-      await this.writeConflict(path, appeared);
-      return false;
+      // R17-H4: answering the appeared-file with a sidecar of its own
+      // content plus a silent skip still advanced the head, and the next
+      // pass then pushed that content over the remote edit with
+      // if-match == head (fast path, no conflict UI). Refuse the pass
+      // instead — the next one classifies the path through the normal
+      // both-added flow.
+      if (!this.opts.vault.exists(path)) return "proceed";
+      throw new InlineApplyDirtyError(path);
     }
-    // R16-7: a path deleted after the scan throws out of `snapshot`, which
-    // failed the whole pass and pinned the head until the next one. A
-    // vanished file is simply a disk that moved; treat it as such.
-    if (!this.opts.vault.exists(path)) return false;
+    // R17-H4: a path deleted after the scan is not "a disk that moved" —
+    // it is a local deletion racing a remote edit, and skipping it silently
+    // let the head advance past never-applied content while the next pass
+    // re-pushed the deletion as a clean delete over the committed edit.
+    // Report it: the callers route "vanished" to the delete-rejected
+    // ending, which keeps the remote content in a sidecar and drops the
+    // index entry under the same head advance.
+    if (!this.opts.vault.exists(path)) return "vanished";
     const recheck = await this.opts.vault.snapshot(path, this.opts.textExtensions);
-    if (recheck.hash === expectedHash) return true;
+    if (recheck.hash === expectedHash) return "proceed";
     await this.writeConflict(path, recheck);
-    return false;
+    return "captured";
   }
-
   /**
    * The throwing half of [`mayStillChangeDisk`]. A caller that already has
    * the file's current hash (the inline paths read it as part of their own
@@ -1346,7 +1410,16 @@ export class SyncEngine {
         // DESTROYED by the trash while the sidecar holds only the pre-edit
         // bytes. A mismatch writes a fresh sidecar capturing the new
         // content and skips the trash — the next pass reconciles.
-        if (!(await this.mayStillChangeDisk(path, hashAtCheck))) {
+        const verdict = await this.mayStillChangeDisk(path, hashAtCheck);
+        if (verdict === "vanished") {
+          // R17-H4: the user deleted the file after the presence check.
+          // The remote delete agrees — record it by dropping the index
+          // entry (the SSE loop holds the head; the fallback pull covers
+          // the siblings) instead of trashing a path that no longer
+          // exists.
+          return markFilesDeleted(index, [path]);
+        }
+        if (verdict !== "proceed") {
           return index;
         }
       }
