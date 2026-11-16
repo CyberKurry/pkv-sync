@@ -578,6 +578,27 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
             error = %err.message,
             "push committed to git but metadata transaction failed; attempting repair"
         );
+        // R17-M6: restore download authorization FIRST and unconditionally.
+        // Pull reads the git tree directly while download_blob authorizes
+        // through blob_refs only, so every puller between the commit and
+        // the repair reads a BlobPointer it cannot download and pins its
+        // head until the repair lands. The protection is one idempotent
+        // INSERT OR IGNORE; the reconcile re-derives the whole tree and can
+        // take much longer or fail entirely. Running it only as the
+        // reconcile-failure fallback left the window wide open whenever the
+        // reconcile succeeded slowly.
+        #[cfg(test)]
+        push_order_probe::record(vault_id, "protect");
+        if let Err(protect_err) =
+            protect_committed_blob_refs(state, vault_id, &new_commit, &prepared.blob_hashes).await
+        {
+            tracing::error!(
+                vault_id = %vault_id,
+                commit = %new_commit,
+                error = %protect_err.message,
+                "failed to preserve blob references after metadata transaction failure"
+            );
+        }
         if let Err(repair_err) = reconcile_vault_metadata_unlocked(state, vault_id).await {
             tracing::error!(
                 vault_id = %vault_id,
@@ -585,17 +606,6 @@ pub(super) async fn commit_prepared_push(input: CommitPushInput<'_>) -> Result<P
                 error = %repair_err.message,
                 "metadata repair failed after committed push"
             );
-            if let Err(protect_err) =
-                protect_committed_blob_refs(state, vault_id, &new_commit, &prepared.blob_hashes)
-                    .await
-            {
-                tracing::error!(
-                    vault_id = %vault_id,
-                    commit = %new_commit,
-                    error = %protect_err.message,
-                    "failed to preserve blob references after metadata repair failure"
-                );
-            }
         }
         // Always attempt standalone idempotency write after a failed metadata
         // tx so retries don't create duplicate commits.
@@ -1664,6 +1674,122 @@ mod tests {
              events.publish broadcasts the Commit event; the old \
              publish-first order made download_blob 404 for subscribers"
         );
+    }
+
+    /// R17-M6: a metadata-tx failure leaves the committed tree readable by
+    /// pull (pull reads git directly) while download_blob authorizes through
+    /// blob_refs only. The old failure branch ran the full-tree reconcile
+    /// FIRST and only ran the cheap blob_refs writer when the reconcile also
+    /// failed — every puller inside that window read a BlobPointer it could
+    /// not download and pinned its head until the reconcile finished. The
+    /// protection must run unconditionally, before the reconcile.
+    #[tokio::test]
+    async fn metadata_failure_protects_blob_refs_unconditionally() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let data = Bytes::from_static(b"hello");
+        let hash = LocalFsBlobStore::sha256(&data);
+        upload_blob(&state, &user.user_id, &vid, &hash, data.clone())
+            .await
+            .unwrap();
+
+        // Break exactly one metadata-table leg: the activity insert fails,
+        // the metadata tx rolls back (blob_refs row with it), while the
+        // reconcile can still succeed. Pre-fix this path never ran the
+        // standalone blob_refs writer — it waited for the whole-tree
+        // reconcile instead.
+        sqlx::query("DROP TABLE sync_activity")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        let resp = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: None,
+                changes: vec![PushChange::Blob {
+                    path: "img.png".into(),
+                    blob_hash: hash.clone(),
+                    size: 5,
+                    mime: None,
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        // The push still answers 200 — the commit happened.
+        assert_eq!(resp.files_changed, 1);
+        // The blob_refs row is back immediately: download authorization is
+        // restored without waiting for the reconcile.
+        let (rows,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM blob_refs WHERE vault_id = ? AND commit_hash = ?")
+                .bind(&vid)
+                .bind(&resp.new_commit)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(rows, 1, "the committed blob must stay downloadable");
+        assert!(
+            push_order_probe::recorded_order(&vid).contains(&"protect"),
+            "the failure branch must run the blob_refs protection \
+             unconditionally, not only as a reconcile-failure fallback"
+        );
+    }
+
+    /// R17-M6 companion: when the reconcile ALSO fails, the standalone
+    /// protection is the only thing that keeps the committed blob
+    /// downloadable — the puller must not be wedged until the next cleanup.
+    #[tokio::test]
+    async fn metadata_failure_restores_blob_refs_even_when_reconcile_fails() {
+        let (state, user, vid, _tmp) = state_user_vault().await;
+        let data = Bytes::from_static(b"hello");
+        let hash = LocalFsBlobStore::sha256(&data);
+        upload_blob(&state, &user.user_id, &vid, &hash, data.clone())
+            .await
+            .unwrap();
+
+        // The metadata tx and the reconcile both update vaults; aborting it
+        // kills both, leaving the standalone blob_refs writer as the only
+        // recovery path.
+        sqlx::query(
+            "CREATE TRIGGER fail_vaults_update BEFORE UPDATE ON vaults BEGIN \
+             SELECT RAISE(ABORT, 'trigger'); END",
+        )
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        let resp = push(
+            &state,
+            &user,
+            &vid,
+            None,
+            None,
+            PushReq {
+                device_name: None,
+                changes: vec![PushChange::Blob {
+                    path: "img.png".into(),
+                    blob_hash: hash.clone(),
+                    size: 5,
+                    mime: None,
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+        let (rows,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM blob_refs WHERE vault_id = ? AND commit_hash = ?")
+                .bind(&vid)
+                .bind(&resp.new_commit)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(rows, 1, "the committed blob must stay downloadable");
     }
 
     #[tokio::test]
