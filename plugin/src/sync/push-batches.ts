@@ -239,6 +239,7 @@ export class PushBatcher {
             // these exact bytes. R16-10: the packing rules live in
             // `packChunk`, once — this loop used to carry a second copy of
             // them while the original sat unused.
+            const withheld: Array<{ path: string; code: string }> = [];
             const packed = packChunk({
               items: remaining,
               offset,
@@ -247,10 +248,25 @@ export class PushBatcher {
               limits,
               weight,
               error: this.makeError,
-              skip: (item) => this.isQuarantined(item)
+              skip: (item) => {
+                const code = this.quarantineCode(item);
+                if (code === null) return false;
+                withheld.push({ path: item.change.path, code });
+                return true;
+              }
             });
             const { chunk, bytes } = packed;
             const next = packed.end;
+            // R17-H3: a withheld path produces no send and no rejection in
+            // THIS pass, so from the second pass on the caller's per-pass
+            // refusal map came back empty and the vault painted itself
+            // green while the file stayed missing from the server. The
+            // refusal is a state, not an event: report every withheld path
+            // on every pass that ends without syncing it. Duplicate
+            // notices are the caller's concern (one per path per pass).
+            for (const item of withheld) {
+              callbacks.onQuarantined?.(item.path, item.code);
+            }
             if (chunk.length === 0) {
               // Nothing sendable left in this window (everything from
               // `offset` on is quarantined).
@@ -364,15 +380,25 @@ export class PushBatcher {
     };
   }
 
-  private isQuarantined(item: PushItem): boolean {
+  /**
+   * The active quarantine code for this item's exact content, or null when
+   * the path is not withheld. Split out of `isQuarantined` so the skip
+   * path can report WHICH code withheld the file (R17-H3).
+   */
+  private quarantineCode(item: PushItem): string | null {
     const entry = this.quarantined.get(item.change.path);
-    if (!entry) return false;
+    if (!entry) return null;
     if (entry.until <= this.now()) {
       this.quarantined.delete(item.change.path);
-      return false;
+      return null;
     }
     // The cooldown only covers the CONTENT the server refused. An edited
     // file has a new fingerprint and is worth a retry immediately.
-    return entry.fingerprint === item.fingerprint;
+    if (entry.fingerprint !== item.fingerprint) return null;
+    return entry.code;
+  }
+
+  private isQuarantined(item: PushItem): boolean {
+    return this.quarantineCode(item) !== null;
   }
 }
