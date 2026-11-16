@@ -161,7 +161,11 @@ describe("migration completion commit", () => {
 
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toBe(h.plugin.text().migrateScopeChanged);
-    expect(h.savedSettings().selectedVaultId).toBe("vault-old");
+    // R17-M4: the mid-flight connection switch now clears the derived
+    // vault selection instead of leaving the previous connection's
+    // "vault-old" behind. The migration itself still wrote nothing: the
+    // target "vault-new" must not appear either way.
+    expect(h.savedSettings().selectedVaultId).toBe("");
     expect(h.savedIndex(targetScopeKey(h.oldSettings(), "vault-new"))).toEqual(
       emptyIndex
     );

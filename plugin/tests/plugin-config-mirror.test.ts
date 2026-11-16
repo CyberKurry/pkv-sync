@@ -43,6 +43,45 @@ const identityB: ConnectionIdentity = {
   username: "b"
 };
 
+describe("a changed connection clears its derived vault state (R17-M4)", () => {
+  it("logout/login to another account must not inherit the vault selection", async () => {
+    const h = createConfigHarness();
+    // The state a previous connection fetched: a selected vault and a
+    // fresh last-sync stamp.
+    h.plugin.settings.selectedVaultId = "vault-a";
+    h.plugin.settings.selectedVaultName = "A vault";
+    h.plugin.settings.lastSyncSuccessAt = 1_700_000_000;
+
+    await h.changeConnection(identityB);
+
+    // All three are derived state (the comment in setConnectionPatch
+    // already said so for push limits); leaving them behind made the
+    // first sync after an account switch hammer the PREVIOUS account's
+    // vault id with the new token — a 404/403 loop — and the settings
+    // page display the old vault name and old sync time.
+    expect(h.plugin.settings.selectedVaultId).toBe("");
+    expect(h.plugin.settings.selectedVaultName).toBe("");
+    expect(h.plugin.settings.lastSyncSuccessAt).toBeNull();
+    const saved = h.savedSettings();
+    expect(saved.selectedVaultId).toBe("");
+    expect(saved.selectedVaultName).toBe("");
+    expect(saved.lastSyncSuccessAt).toBeNull();
+  });
+
+  it("an unchanged connection keeps the vault selection", async () => {
+    const h = createConfigHarness();
+    h.plugin.settings.selectedVaultId = "vault-a";
+    h.plugin.settings.selectedVaultName = "A vault";
+    h.plugin.settings.lastSyncSuccessAt = 1_700_000_000;
+
+    await h.changeConnection({ ...identityA });
+
+    expect(h.plugin.settings.selectedVaultId).toBe("vault-a");
+    expect(h.plugin.settings.selectedVaultName).toBe("A vault");
+    expect(h.plugin.settings.lastSyncSuccessAt).toBe(1_700_000_000);
+  });
+});
+
 const configA: ServerConfigResponse = {
   server_name: "A",
   version: "1.7.1",

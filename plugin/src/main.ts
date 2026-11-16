@@ -369,6 +369,16 @@ export default class PKVSyncPlugin extends Plugin {
         // Derived state belongs to the connection it was fetched for.
         this.serverPushLimits = LEGACY_PUSH_LIMITS;
         this.serverCapabilities = null;
+        // R17-M4: the vault selection and the last-sync stamp are derived
+        // from the connection too. Leaving them behind made the first sync
+        // after an account switch hammer the PREVIOUS account's vault id
+        // with the new token (404/403 loop) while the settings page
+        // displayed the old vault name and old sync time. The index does
+        // not leak across accounts (syncScopeKey carries userId||username);
+        // this is the connection-facing half of the same rule.
+        this.settings.selectedVaultId = "";
+        this.settings.selectedVaultName = "";
+        this.settings.lastSyncSuccessAt = null;
         this.invalidateSyncEngine();
       }
       await this.persistSettingsLocked();
