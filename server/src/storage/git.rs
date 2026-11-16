@@ -312,6 +312,10 @@ impl Git2VaultStore {
             let Ok(entry) = tree.get_path(Path::new(&path)) else {
                 return Ok(None);
             };
+            // R17-M8: same as read_file — a directory is not a file.
+            if entry.kind() == Some(ObjectType::Tree) {
+                return Ok(None);
+            }
             // Pre-copy gate: entry size when the ODB agrees, else blob size.
             let blob = repo.find_blob(entry.id())?;
             let actual = u64::try_from(blob.size()).unwrap_or(u64::MAX);
@@ -360,6 +364,11 @@ impl Git2VaultStore {
                     out.push(None);
                     continue;
                 };
+                // R17-M8: same as read_file — a directory is not a file.
+                if entry.kind() == Some(ObjectType::Tree) {
+                    out.push(None);
+                    continue;
+                }
                 let blob = repo.find_blob(entry.id())?;
                 let bytes = blob.content().to_vec();
                 out.push(Some(decode_file(path, bytes)));
@@ -1411,6 +1420,14 @@ impl GitVaultStore for Git2VaultStore {
             let Ok(entry) = tree.get_path(Path::new(&path)) else {
                 return Ok(None);
             };
+            // R17-M8: a directory is not a file. find_blob on a tree oid
+            // errored, which the auto-merge path surfaced as 400
+            // bad_commit for a plain directory delete while the fast path
+            // silently no-opped the same change. Reading a directory as
+            // absent unifies both ends.
+            if entry.kind() == Some(ObjectType::Tree) {
+                return Ok(None);
+            }
             let blob = repo.find_blob(entry.id())?;
             let bytes = blob.content().to_vec();
             Ok(Some(decode_file(&path, bytes)))
@@ -1972,6 +1989,46 @@ mod tests {
             .await
             .unwrap();
         assert!(store.read_file("v1", "a.md", None).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn read_file_answers_none_for_a_directory_entry() {
+        // R17-M8: find_blob on a tree oid errored, so the auto-merge path
+        // surfaced a plain directory delete as 400 bad_commit while the
+        // fast path silently no-opped the same change — the semantics of a
+        // delete depended on whether another device had pushed first. A
+        // directory is not a file: all three readers answer absent.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Git2VaultStore::new(dir.path().to_path_buf());
+        let head = store
+            .commit_changes(
+                "v1",
+                None,
+                &[FileChange::upsert_text(
+                    "notes/todo.md",
+                    b"buy milk".to_vec(),
+                )],
+                "base",
+            )
+            .await
+            .unwrap();
+
+        assert!(store
+            .read_file("v1", "notes", Some(&head))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .read_file_bounded("v1", "notes", &head, 1024)
+            .await
+            .unwrap()
+            .is_none());
+        let batch = store
+            .read_files("v1", Some(&head), &["notes", "notes/todo.md"])
+            .await
+            .unwrap();
+        assert!(batch[0].is_none());
+        assert!(batch[1].is_some());
     }
 
     #[tokio::test]

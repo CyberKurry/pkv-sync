@@ -463,10 +463,28 @@ async fn push_with_request_metadata_internal(
                 });
             }
             PushChange::Delete { path } => {
-                delete_changes += 1;
                 let p = path::normalize(&path)
                     .map_err(|e| ApiError::bad_request("invalid_path", e.to_string()))?;
                 reject_filtered_push_path(&path_filter, &p)?;
+                // R17-M8: a delete of a path that is not a file at head —
+                // absent, or a directory — is a no-op (the git layer's
+                // EditOp::Delete silently skips non-blob entries). The fast
+                // path used to count it in files_changed and broadcast a
+                // phantom Delete event, while the auto-merge path answered
+                // the same change 400 bad_commit. if_match == head here, so
+                // one read decides exactly what the commit would do.
+                let is_file_at_head = match head.as_deref() {
+                    None => false,
+                    Some(at) => git
+                        .read_file(vault_id, &p, Some(at))
+                        .await
+                        .map_err(|e| ApiError::internal(e.to_string()))?
+                        .is_some(),
+                };
+                if !is_file_at_head {
+                    continue;
+                }
+                delete_changes += 1;
                 event_changes.push(EventChange::Delete { path: p.clone() });
                 git_changes.push(FileChange::Delete { path: p });
             }

@@ -1166,6 +1166,166 @@ async fn merge_blob_upsert_with_head_already_holding_same_blob_is_clean() {
 }
 
 #[tokio::test]
+async fn merge_delete_of_a_directory_path_is_a_clean_noop() {
+    // R17-M8: deleting a directory path took the auto-merge path whenever
+    // another device had pushed in between, and read_file's find_blob on
+    // the tree oid surfaced 400 bad_commit — a code the plugin then
+    // quarantined the batch for (R17-H2). The fast path no-ops the same
+    // change silently. Both ends now agree: a directory is not a file, so
+    // the delete is a Clean no-op with no git change.
+    let (state, user, vault_id, _tmp) = setup().await;
+    let base = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        None,
+        None,
+        sync::PushReq {
+            device_name: Some("base".into()),
+            changes: vec![
+                sync::PushChange::Text {
+                    path: "note.md".into(),
+                    content: "keep".into(),
+                },
+                sync::PushChange::Text {
+                    path: "docs/readme.md".into(),
+                    content: "docs".into(),
+                },
+            ],
+        },
+    )
+    .await
+    .unwrap();
+
+    let _device_b = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-b".into()),
+            changes: vec![sync::PushChange::Text {
+                path: "note.md".into(),
+                content: "changed by B".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let merged = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-a".into()),
+            changes: vec![sync::PushChange::Delete {
+                path: "docs".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(merged.files_changed, 0);
+    let outcomes = merged
+        .merge_outcomes
+        .expect("merge_outcomes should be present for a stale push");
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].path, "docs");
+    assert_eq!(outcomes[0].outcome, sync::MergeOutcomeKind::Clean);
+    // The directory survives untouched.
+    assert_eq!(read_text(&state, &vault_id, "docs/readme.md").await, "docs");
+}
+
+#[tokio::test]
+async fn fast_path_delete_of_a_directory_path_is_a_silent_noop() {
+    // R17-M8 (fast-path half): a delete of a path that is not a file at
+    // head produced a 200 with files_changed counting it and a Delete
+    // event broadcast — a phantom change every subscriber reacted to.
+    // The same request against a file remains counted and broadcast.
+    let (state, user, vault_id, _tmp) = setup().await;
+    let base = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        None,
+        None,
+        sync::PushReq {
+            device_name: Some("base".into()),
+            changes: vec![
+                sync::PushChange::Text {
+                    path: "note.md".into(),
+                    content: "keep".into(),
+                },
+                sync::PushChange::Text {
+                    path: "docs/readme.md".into(),
+                    content: "docs".into(),
+                },
+            ],
+        },
+    )
+    .await
+    .unwrap();
+    let mut rx = state.events.subscribe(&vault_id);
+
+    let noop = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-a".into()),
+            changes: vec![sync::PushChange::Delete {
+                path: "docs".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(noop.files_changed, 0);
+    // The push still broadcasts a Commit envelope (it minted an empty
+    // commit), but the phantom Delete change must be gone from it.
+    let event = rx.try_recv().unwrap();
+    assert!(
+        event.changes.is_empty(),
+        "a no-op delete must not broadcast a phantom Delete change, got: {:?}",
+        event.changes
+    );
+    // The directory survives.
+    assert_eq!(read_text(&state, &vault_id, "docs/readme.md").await, "docs");
+
+    // Deleting a real file still counts and broadcasts.
+    let real = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-a".into()),
+            changes: vec![sync::PushChange::Delete {
+                path: "note.md".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(real.files_changed, 1);
+    let event = rx.try_recv().unwrap();
+    assert!(matches!(
+        event.changes.first(),
+        Some(pkv_sync_server::service::events::EventChange::Delete { path })
+            if path == "note.md"
+    ));
+}
+
+#[tokio::test]
 async fn merge_blob_upsert_conflict_remote_modified_same_path() {
     // S6 renamed the semantics: a blob pointer may no longer replace a
     // configured text path (that flip silently dropped inline/merge/diff
