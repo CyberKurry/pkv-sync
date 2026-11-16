@@ -7,6 +7,84 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Plugin/server: `move_file`'s default link rewrite percent-encoded paths
+  byte-wise, turning every non-ASCII path (`新.md`, `café.md`, Japanese
+  titles, emoji) into mojibake in all inbound Markdown links, permanently
+  breaking them inside a push that reported success (R17-H1). The encoder
+  now iterates characters; non-ASCII passes through untouched and only the
+  reserved ASCII set is escaped.
+- Plugin/server: a file deleted while its remote edit was in flight
+  (pull spans many round trips) was skipped silently, the head advanced
+  past never-applied content, and the next pass pushed a delete over the
+  other device's committed edit with no conflict copy anywhere (R17-H4).
+  The vanish is now routed to the scan-time deletion verdict: the remote
+  content keeps a `.conflict-*` sidecar, the index entry drops, and no
+  delete is re-pushed. A path appearing between the scan and the check now
+  refuses the pass (head pinned) instead of letting the next pass overwrite
+  the remote edit via the fast path.
+- Plugin: quarantined files were reported only on the pass that received
+  the rejection; from the second pass on the status bar returned to green
+  and "last synced" advanced while the file stayed missing from the vault
+  (R17-H3). The refusal is now reported on every pass that ends without
+  syncing the file.
+- Plugin/server: one per-file 400 (`file_too_large`, `path_conflict`,
+  `missing_blob`, `blob_size_mismatch`, `bad_commit`) wedged every other
+  pending change behind a permanently red status, because those codes were
+  treated as request/session errors instead of content properties
+  (R17-H2). They now join the closed per-file contract that drives
+  bisect-and-quarantine; the taxonomy is documented on both sides.
+- Server: a stale blob push (lost response retried with a fresh
+  idempotency key, or two devices both-adding the same attachment) minted
+  a permanent `.conflict-*` sidecar per attempt on every device, because
+  the blob auto-merge never compared head's blob with the pushed blob
+  (R17-H5). Head already holding exactly the blob now answers Clean.
+- Server: rollback answered 500 when post-move metadata reconcile or the
+  activity insert failed — the rollback itself had already happened, a
+  retry was told `rolled_back: false`, and live subscribers missed the
+  head move (R17-M5). Bookkeeping failures degrade to error logs and the
+  Rollback event publishes unconditionally.
+- Server: after a push's metadata transaction failed, download
+  authorization (blob_refs) was only restored after a full-tree reconcile
+  — and only if the reconcile succeeded — leaving pullers reading blob
+  pointers that 404'd until then (R17-M6). The cheap idempotent
+  blob_refs protection now runs first, unconditionally.
+- Server: deleting a directory path behaved differently depending on
+  whether another device had pushed first — the fast path counted it and
+  broadcast a phantom Delete event, the auto-merge path answered 400
+  `bad_commit` (R17-M8). All git readers now answer a directory as
+  absent and the fast path skips the no-op entirely.
+- Server: blob-store I/O failures (network mount hiccup) were reported as
+  400 `invalid_hash` — deterministic, retry-never-succeeds — and would
+  quarantine the file under the new per-file whitelist (R17-L1). Only a
+  malformed hash stays 400; I/O failures are 5xx.
+- Plugin: a device literally named `remote` produced local sidecars the
+  resolver judged as remote content, so "keep local" trashed the remote
+  copy on disk and "accept remote" republished the local draft vault-wide
+  (R17-M3). Both sanitizers now reserve the literal `remote` for the role
+  marker and map the device name to `device`.
+- Plugin: logging out or switching accounts kept the previous account's
+  vault selection and last-sync stamp, so the first sync hammered the old
+  vault id with the new token (404/403 loop) while the UI showed the old
+  vault name (R17-M4). Connection changes now clear that derived state.
+- Plugin: an interrupted self-update could brick the plugin — the recovery
+  layer never read the `.bak` it maintained and promoted `main.js` first,
+  so a truncated `main.js` with a broken staged copy could never be
+  repaired by the plugin it lives in (R17-M1). Recovery now restores from
+  the backup and restores `main.js` last; the residual window (broken
+  staged copy and no intact backup) is documented.
+- Plugin/docs: a pull beyond the 50,000-entry response budget 413s with no
+  pagination, leaving an opaque red status; the client now names the
+  remedial action ("split the vault") in all five languages and the admin
+  manual documents the constant limit and the structural fix (R17-M7,
+  short term; pagination is a separate feature).
+- Docs: the Docker quickstarts (README and hardening guide, all five
+  languages) now create the bind-mount `data` directory and chown it to
+  uid 65532 before `docker compose up` — Docker used to create it
+  root:root and every fresh install failed to create the database
+  (R17-M2).
+
 ## [1.10.0] - 2026-11-15
 
 ### Added
