@@ -49,6 +49,25 @@ impl ApiError {
         }
     }
 
+    // Per-file deterministic 400 contract (R17-H2). The five codes below
+    // are verdicts about ONE change's content, produced while merging it:
+    //
+    // - `file_too_large`  — service/sync/push.rs, merge_apply.rs
+    // - `path_conflict`   — service/sync/push.rs (storage/git.rs S5 guard)
+    // - `missing_blob`    — service/sync/push.rs, merge_apply.rs
+    // - `blob_size_mismatch` — merge_apply.rs
+    // - `bad_commit`      — merge_apply.rs (base/head tree read at the path)
+    //
+    // Retrying the same bytes re-produces each of them, so the plugin
+    // (plugin/src/sync/push-batches.ts `DETERMINISTIC_4XX_CODES`) isolates
+    // the offending file and pushes the rest of the batch instead of
+    // wedging the whole vault. Keep the two lists in lockstep: a new
+    // per-file 400 code must be added here, at the producers, and in the
+    // plugin's set in the same change. Anything else a 400 carries
+    // (`invalid_path`, `invalid_text`, `path_excluded`,
+    // `wrong_file_kind`) is classified by the path itself and is already
+    // in the plugin's list.
+
     pub fn conflict(code: &str, msg: impl Into<String>) -> Self {
         Self {
             status: StatusCode::CONFLICT,

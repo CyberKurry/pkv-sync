@@ -436,7 +436,15 @@ describe("PushBatcher deterministic 4xx isolation (R15-2)", () => {
     "invalid_path",
     "invalid_text",
     "path_excluded",
-    "wrong_file_kind"
+    "wrong_file_kind",
+    // R17-H2: the five per-file verdicts the server attaches to a single
+    // change's content. Retrying the same bytes re-produces each one, so
+    // they belong in the closed list with the four above.
+    "file_too_large",
+    "path_conflict",
+    "missing_blob",
+    "blob_size_mismatch",
+    "bad_commit"
   ];
 
   function coded(status: number, code: string): ApiError {
