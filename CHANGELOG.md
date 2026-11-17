@@ -34,8 +34,6 @@ and this project adheres to semantic versioning starting at v1.0.0.
   classify like writes: locked → 409 `head_mismatch` (retryable),
   missing commit/invalid path → 400 `bad_commit`, everything else → 5xx.
 
-### Fixed
-
 - Plugin/server: `move_file`'s default link rewrite percent-encoded paths
   byte-wise, turning every non-ASCII path (`新.md`, `café.md`, Japanese
   titles, emoji) into mojibake in all inbound Markdown links, permanently

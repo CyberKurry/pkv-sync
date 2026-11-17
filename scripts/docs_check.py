@@ -227,6 +227,56 @@ def check_links(failures: list[str]) -> None:
                 )
 
 
+def check_changelog_structure(failures: list[str]) -> None:
+    """CHANGELOG hygiene: unique release headings, unique subsection names
+    per release, and no empty sections.
+
+    A fix batch appends under an existing `### Fixed`; inserting a fresh
+    heading instead silently produced two `### Fixed` blocks under
+    `[Unreleased]` (found 2026-11-18). The release step in AGENTS.md
+    requires validating the file by hand; this is the machine half.
+    """
+    path = ROOT / "CHANGELOG.md"
+    if not path.exists():
+        failures.append("CHANGELOG.md: missing")
+        return
+
+    sections: list[dict[str, object]] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("## "):
+            sections.append({"name": line[3:].strip(), "content": 0, "subs": []})
+        elif line.startswith("### ") and sections:
+            sections[-1]["subs"].append({"name": line[4:].strip(), "content": 0})
+        elif line and sections:
+            subs = sections[-1]["subs"]
+            target = subs[-1] if subs else sections[-1]
+            target["content"] = int(target["content"]) + 1
+
+    names = [str(section["name"]) for section in sections]
+    for name in sorted({name for name in names if names.count(name) > 1}):
+        failures.append(f"CHANGELOG.md: duplicate release heading '## {name}'")
+
+    for section in sections:
+        section_name = section["name"]
+        subs = section["subs"]
+        if not subs and int(section["content"]) == 0:
+            failures.append(f"CHANGELOG.md: empty section '## {section_name}'")
+        sub_names = [str(sub["name"]) for sub in subs]
+        for name in sorted(
+            {name for name in sub_names if sub_names.count(name) > 1}
+        ):
+            failures.append(
+                f"CHANGELOG.md: duplicate heading '### {name}' under '## {section_name}'"
+            )
+        for sub in subs:
+            if int(sub["content"]) == 0:
+                failures.append(
+                    f"CHANGELOG.md: empty section '### {sub['name']}' "
+                    f"under '## {section_name}'"
+                )
+
+
 def main() -> int:
     version = workspace_version()
     failures: list[str] = []
@@ -237,6 +287,7 @@ def main() -> int:
     check_versions(failures, version)
     check_server_json(failures, version)
     check_links(failures)
+    check_changelog_structure(failures)
 
     if failures:
         print("Public doc check failed:", file=sys.stderr)
