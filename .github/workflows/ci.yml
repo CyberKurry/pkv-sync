@@ -124,7 +124,7 @@ jobs:
 
       - name: Audit plugin dependencies
         working-directory: plugin
-        run: npm audit --audit-level=moderate
+        run: node scripts/audit-gate.mjs
 
   docker:
     name: Docker build

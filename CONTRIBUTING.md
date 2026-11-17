@@ -45,6 +45,21 @@ attaches the skip to the tagged commit, so `git tag` would skip the Release
 workflow too — no binaries, no plugin zip, no Docker image. The hook warns when
 the staged change looks like that commit.
 
+### Dependency audit
+
+CI runs `node scripts/audit-gate.mjs` in `plugin/`, which wraps
+`npm audit --audit-level=moderate` and fails on every moderate-or-higher
+advisory except the ones listed in that file. Fixing an advisory means a
+minimal targeted bump from inside `plugin/` (`npm install --save-dev pkg@x.y.z`,
+then rebuild and re-run the gate).
+
+An entry in `EXCEPTIONS` is a last resort for an advisory **with no published
+patched version**, and it must carry three things: proof the affected chain is
+dev-only, the reason, and a removal trigger (the version that fixes it). The
+gate warns when an excepted advisory disappears, so the entry gets removed
+instead of fossilizing. Dev-only means the package never reaches `main.js`:
+the plugin has zero runtime dependencies and ships an esbuild bundle.
+
 ## Commits
 
 Use clear conventional-style commit messages, for example:
