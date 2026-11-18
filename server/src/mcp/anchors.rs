@@ -39,7 +39,6 @@ pub(crate) fn locate_heading(
 
     let mut search_from = 0usize;
     let mut matched_level = 0usize;
-    let mut deepest = 0usize;
 
     for (depth, segment) in chain.iter().enumerate() {
         let target = fold_heading(segment);
@@ -67,7 +66,6 @@ pub(crate) fn locate_heading(
         }
         match found {
             Some((level, line_start, line_end)) => {
-                deepest = depth + 1;
                 matched_level = level;
                 search_from = line_end;
                 if depth + 1 == chain.len() {
@@ -85,9 +83,13 @@ pub(crate) fn locate_heading(
                 }
             }
             None => {
-                let _ = deepest;
+                // R19-2: report the segment that FAILED (1-based), not the
+                // deepest one that matched — a first-segment miss printed
+                // "segment 0" (no such segment) and a second-segment miss
+                // pointed the agent at the first.
                 anyhow::bail!(
-                    "anchor_not_found: heading chain segment {deepest} ('{}') matched no real heading",
+                    "anchor_not_found: heading chain segment {} ('{}') matched no real heading",
+                    depth + 1,
                     segment
                 );
             }
@@ -437,6 +439,30 @@ mod tests {
         let scan = scan_document(source, 100);
         let err = locate_heading(source, &["Ghost".to_owned()], &scan).unwrap_err();
         assert!(err.to_string().starts_with("anchor_not_found:"));
+    }
+
+    #[test]
+    fn mel_heading_missing_segment_reports_its_own_position() {
+        // R19-2: the failure message reported `deepest` — the position of
+        // the last segment that DID match. A chain failing at its first
+        // segment said "segment 0" (0 is not a legal 1-based number) and a
+        // chain failing at segment 2 said "segment 1", pointing the agent
+        // at the wrong heading to fix.
+        let source = "# A\ntext\n## B\nbody\n";
+        let scan = scan_document(source, 100);
+
+        let first = locate_heading(source, &["Ghost".to_owned()], &scan).unwrap_err();
+        assert!(
+            first.to_string().contains("segment 1 ('Ghost')"),
+            "first-segment failure should report segment 1, got: {first}"
+        );
+
+        let second =
+            locate_heading(source, &["A".to_owned(), "Ghost".to_owned()], &scan).unwrap_err();
+        assert!(
+            second.to_string().contains("segment 2 ('Ghost')"),
+            "second-segment failure should report segment 2, got: {second}"
+        );
     }
 
     #[test]
