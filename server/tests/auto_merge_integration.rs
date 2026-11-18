@@ -1655,3 +1655,91 @@ async fn auto_merge_disabled_never_produces_merge_outcomes() {
     assert_eq!(err.status, axum::http::StatusCode::CONFLICT);
     assert_eq!(err.code, "head_mismatch");
 }
+
+#[tokio::test]
+async fn merge_read_of_a_corrupted_object_is_a_5xx_not_a_file_verdict() {
+    // R19-3: R18-3's guarantee — a transient storage failure is not a
+    // per-file verdict — was pinned only by a source scan. This drives the
+    // real path: the base blob's zlib checksum is flipped, so libgit2
+    // reports Git(Odb, "incorrect data check"), and the stale Delete's
+    // auto-merge read must answer 5xx. Pre-R18-3 the delete branch mapped
+    // every read error to 400 bad_commit, which the plugin's per-file
+    // whitelist would quarantine for 15 minutes.
+    let (state, user, vault_id, _tmp) = setup().await;
+    let base = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        None,
+        None,
+        sync::PushReq {
+            device_name: Some("base".into()),
+            changes: vec![sync::PushChange::Text {
+                path: "note.md".into(),
+                content: "v1".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+    let git = Git2VaultStore::new(state.default_vault_root());
+    let tree = git
+        .list_tree(&vault_id, Some(&base.new_commit))
+        .await
+        .unwrap();
+    let entry = tree.iter().find(|e| e.path == "note.md").unwrap();
+    let object = state
+        .default_vault_root()
+        .join(&vault_id)
+        .join("objects")
+        .join(&entry.git_oid[0..2])
+        .join(&entry.git_oid[2..]);
+    let mut bytes = std::fs::read(&object).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xff;
+    std::fs::write(&object, &bytes).unwrap();
+
+    // Move the head past the base so the next push takes the auto-merge
+    // path (the fast path never reads the base tree).
+    let _device_b = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-b".into()),
+            changes: vec![sync::PushChange::Text {
+                path: "note.md".into(),
+                content: "v2".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap();
+
+    let err = sync::push(
+        &state,
+        &user,
+        &vault_id,
+        Some(&base.new_commit),
+        None,
+        sync::PushReq {
+            device_name: Some("device-a".into()),
+            changes: vec![sync::PushChange::Delete {
+                path: "note.md".into(),
+            }],
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(
+        err.status,
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        "storage corruption must be a 5xx, got {} {}",
+        err.status,
+        err.code
+    );
+    assert_ne!(err.code, "bad_commit");
+}
