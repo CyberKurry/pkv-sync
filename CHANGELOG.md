@@ -9,6 +9,20 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ### Fixed
 
+- MCP: `edit_file`'s `anchor_not_found` error for a heading chain reported
+  the position of the last segment that matched instead of the one that
+  failed — a miss on the first segment said "segment 0" (not a legal
+  position) and a miss on the second pointed at the first, so an agent
+  retrying from the message edited the wrong heading (R19-2). The message
+  now names the segment that failed.
+- CI/release: the release workflow's plugin job still ran bare
+  `npm audit --audit-level=moderate` while CI had switched to the
+  documented audit gate. The picomatch advisory (no patched release
+  exists) would have failed the step on every release, and the docker and
+  release jobs depend on that job — no image, no assets (R19-1). Both
+  workflows now run `node scripts/audit-gate.mjs`, pinned by a test that
+  fails if they drift apart again.
+
 - Plugin: a file edited during a pull's download window (the widest
   window in the engine) was answered with a sidecar of its own new
   content and a silent skip, while the head advanced past the remote edit
