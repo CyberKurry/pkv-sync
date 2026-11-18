@@ -176,7 +176,7 @@ jobs:
 
       - name: Audit plugin dependencies
         working-directory: plugin
-        run: npm audit --audit-level=moderate
+        run: node scripts/audit-gate.mjs
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

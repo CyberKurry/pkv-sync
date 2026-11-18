@@ -54,6 +54,31 @@ fn compose_service<'a>(compose: &'a str, service: &str) -> &'a str {
     &compose[start..end]
 }
 
+/// R19-1: CI and release are two consumers of the same plugin audit gate.
+/// The release workflow used to run bare `npm audit --audit-level=moderate`,
+/// which fails on the documented no-patch-exists exception (picomatch, dev
+/// only) and would red every release — the plugin job is a `needs` of the
+/// docker and release jobs, so a red audit means no artifacts at all.
+#[test]
+fn ci_and_release_run_the_same_plugin_audit_gate() {
+    for (name, workflow) in [
+        ("ci.yml", include_str!("../../.github/workflows/ci.yml")),
+        (
+            "release.yml",
+            include_str!("../../.github/workflows/release.yml"),
+        ),
+    ] {
+        assert!(
+            workflow.contains("node scripts/audit-gate.mjs"),
+            "{name}: the audit step must call scripts/audit-gate.mjs"
+        );
+        assert!(
+            !workflow.contains("npm audit --audit-level=moderate"),
+            "{name}: bare npm audit bypasses the documented exception"
+        );
+    }
+}
+
 #[test]
 fn traefik_compose_uses_socket_proxy_instead_of_direct_docker_socket() {
     let compose = include_str!("../../deploy/traefik/docker-compose.traefik.yml");
