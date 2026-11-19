@@ -54,7 +54,22 @@ jobs:
         run: cargo clippy -p pkv-sync-server -- -D warnings
 
       - name: Test
-        run: cargo test -p pkv-sync-server
+        shell: bash
+        # Job logs need admin access (the public logs API answers 403), so a
+        # bare `cargo test` makes a red leg undiagnosable from the outside.
+        # --no-fail-fast runs every binary, and each failing test name is
+        # re-emitted as an annotation, which IS readable through the public
+        # checks API.
+        run: |
+          set -o pipefail
+          cargo test -p pkv-sync-server --no-fail-fast 2>&1 | tee test-output.log
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            sed -n '/^failures:$/,/^test result/p' test-output.log \
+              | grep -E '^    [A-Za-z0-9_:<>]+$' \
+              | sed 's/^ */::error::failing test: /' || true
+          fi
+          exit "$status"
 
       - name: Install cargo-tarpaulin
         if: matrix.os == 'ubuntu-latest'
