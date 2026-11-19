@@ -1698,11 +1698,26 @@ async fn merge_read_of_a_corrupted_object_is_a_5xx_not_a_file_verdict() {
     let last = bytes.len() - 1;
     bytes[last] ^= 0xff;
     // Git writes loose objects read-only (0444). Root overwrites them
-    // anyway; a normal user — CI's runner — gets EACCES, so clear the bit
-    // first (also clears the read-only attribute on Windows).
-    let mut permissions = std::fs::metadata(&object).unwrap().permissions();
-    permissions.set_readonly(false);
-    std::fs::set_permissions(&object, permissions).unwrap();
+    // anyway; a normal user — CI's runner — gets EACCES, so clear the
+    // read-only state first. Unix adds only the owner-write bit (clippy:
+    // `set_readonly(false)` would make the object world-writable);
+    // Windows clears the read-only attribute.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&object).unwrap().permissions();
+        permissions.set_mode(permissions.mode() | 0o200);
+        std::fs::set_permissions(&object, permissions).unwrap();
+    }
+    #[cfg(not(unix))]
+    {
+        #[allow(clippy::permissions_set_readonly_false)]
+        {
+            let mut permissions = std::fs::metadata(&object).unwrap().permissions();
+            permissions.set_readonly(false);
+            std::fs::set_permissions(&object, permissions).unwrap();
+        }
+    }
     std::fs::write(&object, &bytes).unwrap();
 
     // Move the head past the base so the next push takes the auto-merge
