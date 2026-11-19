@@ -261,7 +261,7 @@ have happened"; that audit trail is intentional.
 ## Registry
 
 This repository ships the server's [MCP Registry](https://registry.modelcontextprotocol.io)
-metadata (`mcp/server.json`) as `io.github.cyberkurry/pkv-sync`: it points at
+metadata (`mcp/server.json`) as `io.github.CyberKurry/pkv-sync`: it points at
 the published container image and configures the session with `PKV_TOKEN` and
 `PKV_VAULT_ID`. Self-hosted servers can also be wired up by hand with the
 commands above.

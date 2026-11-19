@@ -171,7 +171,7 @@ def check_server_json(failures: list[str], version: str) -> None:
             f"mcp/server.json: version {data.get('version')} != workspace {version}"
         )
     name = str(data.get("name", ""))
-    if not name.startswith("io.github.cyberkurry/"):
+    if not name.startswith("io.github.CyberKurry/"):
         failures.append(
             f"mcp/server.json: name {name!r} is not in the publisher's namespace"
         )

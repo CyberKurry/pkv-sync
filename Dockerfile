@@ -23,7 +23,7 @@ FROM debian:bookworm-slim
 # the `name` in mcp/server.json before it will accept the OCI package
 # (docs/reference/.../package-types). Keep the two in step — docs_check
 # asserts they agree.
-LABEL io.modelcontextprotocol.server.name="io.github.cyberkurry/pkv-sync"
+LABEL io.modelcontextprotocol.server.name="io.github.CyberKurry/pkv-sync"
 # git is required by the Git smart HTTP endpoints (git-upload-pack) and
 # gc/reflog pruning; the server disables both when `git` is missing from PATH.
 RUN apt-get update \

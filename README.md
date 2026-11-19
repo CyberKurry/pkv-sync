@@ -52,7 +52,7 @@ together to use the complete release.
 - **AI-readable vaults.** MCP exposes read/write tools over stdio or the
   embedded `/mcp` route on `pkvsyncd serve` (default on), and a ready-to-use
   [MCP Registry entry](./mcp/server.json) ships with every release
-  (`io.github.cyberkurry/pkv-sync`).
+  (`io.github.CyberKurry/pkv-sync`).
 - **Built for LLM-maintained wikis.** Beyond reading and writing, an agent can
   search by frontmatter, page through results exactly, lint a layer's links,
   find the pages whose sources went stale, and write behind a dry run plus

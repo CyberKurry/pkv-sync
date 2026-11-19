@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.cyberkurry/pkv-sync",
+  "name": "io.github.CyberKurry/pkv-sync",
   "description": "Self-hosted, Git-native Obsidian vault sync with a built-in MCP server, search, and wiki lint.",
   "title": "PKV Sync",
   "websiteUrl": "https://github.com/CyberKurry/pkv-sync/blob/main/public-docs/mcp-howto.md",
