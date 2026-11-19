@@ -421,8 +421,17 @@ async fn wait_for_file(path: &std::path::Path) {
     }
 }
 
+/// The pause-seam switch (`PKVSYNC_ENABLE_TEST_SEAMS`) is process-global and
+/// shared by both pause tests, and `std::env` is process-global too. Without
+/// serialization one test's guard drop removed the switch while the other's
+/// request was paused, so its marker never appeared (observed as an
+/// intermittent timeout on a loaded runner, 2026-11-20). The two pauses are
+/// milliseconds long; running them one at a time costs nothing.
+static SEAM_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test]
 async fn reconnect_with_last_event_id_does_not_miss_commit_landing_during_replay() {
+    let _seam_serial = SEAM_LOCK.lock().await;
     let (ts, state, raw, vid, first_commit) = start_test_server().await;
     let auth = {
         let user = state.users.find_by_username("u").await.unwrap().unwrap();
@@ -520,6 +529,7 @@ async fn reconnect_with_last_event_id_does_not_miss_commit_landing_during_replay
 
 #[tokio::test]
 async fn reconnect_with_last_event_id_dedupes_commit_seen_by_replay_and_live_stream() {
+    let _seam_serial = SEAM_LOCK.lock().await;
     let (ts, state, raw, vid, first_commit) = start_test_server().await;
     let auth = {
         let user = state.users.find_by_username("u").await.unwrap().unwrap();
