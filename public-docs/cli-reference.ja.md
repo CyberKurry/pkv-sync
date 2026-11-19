@@ -2,7 +2,7 @@
 
 [English](./cli-reference.md) | [简体中文](./cli-reference.zh-CN.md) | [繁體中文](./cli-reference.zh-Hant.md) | 日本語 | [한국어](./cli-reference.ko.md)
 
-ドキュメントバージョン: v1.10.0。
+ドキュメントバージョン: v1.10.1。
 
 `pkvsyncd` は PKV Sync のサーバーデーモンバイナリです。HTTP/WebSocket の同期 API、管理 UI、MCP サーバー、および少数の運用サブコマンドをホストします。
 
@@ -313,5 +313,5 @@ pkvsyncd upgrade --dry-run
 pkvsyncd upgrade --yes
 
 # 特定のリリースをダウンロード
-pkvsyncd upgrade --yes --version 1.10.0
+pkvsyncd upgrade --yes --version 1.10.1
 ```

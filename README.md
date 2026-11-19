@@ -7,26 +7,28 @@ The name is **PKV Sync**: **PKV** is the initialism of **Personal Knowledge Vaul
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.10.0.
+Document version: v1.10.1.
 
 English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## Status
 
-PKV Sync 1.10.0 adds a one-click connect flow. The admin settings page
-shows an `obsidian://pkv-connect` link with a QR code, and the plugin opens an
-explicit confirmation naming the host before it saves anything, so a link from
-any web page cannot connect silently. The plugin also gains two safety
-mechanisms: a scan that lists zero files against a populated index holds the
-deletions instead of broadcasting a whole-vault wipe, and a file the server
-refuses by name is reported and withheld instead of wedging every sync.
+PKV Sync 1.10.1 is a correctness release. An edit made while a pull is
+downloading a file now becomes a visible conflict instead of being silently
+pushed over the other device's committed version, and a file the server
+refuses by name is reported on every pass instead of turning the status bar
+green on the next one. One per-file rejection — an oversized file, a path
+collision, a missing attachment — no longer wedges the rest of the vault, and
+a retried or duplicate attachment push no longer mints a conflict copy when
+the server already holds the identical blob.
 
-MCP `search` no longer fails on large vaults: the 5000-file cap reports
-`tree_capped` with a `next_after` cursor, and both `search` and `link_graph`
-prune their tree walks to the requested prefix. Server-side, tree listings read
-blob headers instead of contents, the blob-pointer guard now covers the
-auto-merge path too, and MCP write tools refuse hidden paths like every other
-tool. See the release history for the complete list.
+Moving or renaming a note with a non-ASCII name (Chinese, Japanese, emoji)
+keeps Markdown links intact instead of rewriting them into mojibake.
+Interrupted self-updates restore the previous plugin build, the Docker
+quickstart creates its data directory with the right owner, disabling a user
+revokes that user's device tokens and sessions, and MCP anchor errors name
+the heading segment that actually failed. Upgrade the server and plugin
+together to use the complete release.
 
 ## Features
 

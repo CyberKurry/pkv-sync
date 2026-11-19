@@ -12,14 +12,16 @@ Self-hosted, Git-backed synchronization for Obsidian.
 
 ## Current release
 
-PKV Sync 1.10.0 adds a one-click connect link with a QR code and an explicit
-confirmation that names the host, so a link from any web page cannot connect
-silently. A scan that lists zero files against a populated index now holds the
-deletions instead of wiping every device, and a file the server refuses by name
-is reported and withheld rather than wedging every sync. MCP search handles
-large vaults with a resumable cursor, and both search and link_graph prune
-their tree walks to the requested prefix. Upgrade the server and plugin
-together to use the complete release.
+PKV Sync 1.10.1 is a correctness release. An edit made while a pull is
+downloading a file becomes a visible conflict instead of overwriting the other
+device's committed version, and a file the server refuses by name is reported
+on every pass instead of showing a green status. One per-file rejection no
+longer wedges the rest of the vault, and duplicate or retried attachment
+pushes no longer mint conflict copies when the server already holds the same
+blob. Moving a note with a non-ASCII name keeps Markdown links intact, an
+interrupted self-update restores the previous build, and disabling a user
+revokes their device tokens. Upgrade the server and plugin together to use
+the complete release.
 
 ## What it is
 

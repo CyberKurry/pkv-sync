@@ -7,6 +7,8 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-11-19
+
 ### Fixed
 
 - MCP: `edit_file`'s `anchor_not_found` error for a heading chain reported

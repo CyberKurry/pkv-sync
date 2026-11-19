@@ -7,15 +7,15 @@ PKV Sync는 Obsidian Vault를 자체 호스팅으로 동기화하는 Git 네이�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-문서 버전: v1.10.0.
+문서 버전: v1.10.1.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · 한국어
 
 ## 릴리스 상태
 
-PKV Sync 1.10.0은 원클릭 연결 흐름을 추가합니다. 관리자 설정 페이지에 `obsidian://pkv-connect` 링크와 QR 코드가 표시되고, 플러그인은 무엇이든 쓰기 전에 대상 호스트를 명시한 확인 대화 상자를 열기 때문에 어떤 웹 페이지의 링크도 조용히 연결할 수 없습니다. 플러그인에는 두 가지 보호 장치도 추가되었습니다. 인덱스에 항목이 남아 있는데 스캔 결과가 0개 파일이면 삭제를 보류하여 Vault 전체 삭제를 브로드캐스트하지 않고, 서버가 이름으로 거부한 파일은 보고한 뒤 로컬에 보류하여 동기화 전체를 막지 않습니다.
+PKV Sync 1.10.1은 정확성 릴리스입니다. pull이 어떤 파일을 다운로드하는 동안 발생한 편집은 다른 기기의 커밋된 버전을 조용히 덮어쓰는 대신 눈에 보이는 충돌이 됩니다. 서버가 이름으로 거부한 파일은 다음 패스에서 상태 표시줄을 녹색으로 되돌리는 대신 매번 보고됩니다. 파일 단위 거부(크기 초과, 경로 충돌, 누락된 첨부) 하나가 Vault 전체를 막지 않으며, 서버가 이미 동일한 blob을 보유한 경우 재시도되거나 중복된 첨부 push가 충돌 사본을 만들지 않습니다.
 
-MCP `search`는 더 이상 큰 Vault에서 실패하지 않습니다. 5000 파일 상한은 `tree_capped`와 `next_after` 커서로 보고되며, `search`와 `link_graph`의 트리 순회는 요청된 접두사로 가지치기됩니다. 서버 측에서는 트리 열거가 내용 대신 blob 헤더를 읽고, blob 포인터 가드가 자동 병합 경로까지 포괄하며, MCP 쓰기 도구도 다른 도구와 마찬가지로 숨겨진 경로를 거부합니다. 전체 목록은 릴리스 기록을 참고하십시오.
+비 ASCII 이름(중국어, 일본어, emoji)의 노트를 이동하거나 이름을 바꿔도 Markdown 링크가 깨지지 않고 깨진 문자로 다시 쓰이지 않습니다. 중단된 자체 업데이트는 이전 플러그인 빌드를 복원하고, Docker 빠른 시작은 올바른 소유자로 데이터 디렉터리를 만들며, 사용자 비활성화는 해당 사용자의 장치 token과 세션을 철회하고, MCP 앵커 오류는 실제로 실패한 제목 계층을 알려 줍니다. 서버와 플러그인을 함께 업그레이드하세요.
 
 ## 기능
 

@@ -7,15 +7,15 @@ PKV Sync 是一套自架、Git 原生的 Obsidian 筆記庫同步伺服器。
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文件版本：v1.10.0。
+文件版本：v1.10.1。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · 繁體中文 · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## 狀態
 
-PKV Sync 1.10.0 新增一鍵連線流程。管理後台設定頁會顯示 `obsidian://pkv-connect` 連結及其 QR 碼，外掛在寫入任何內容前會彈出確認視窗並指明目標主機，因此來自任意網頁的連結都無法靜默連線。外掛還導入兩項保護：當掃描結果為 0 個檔案而索引仍有項目時，刪除會被保留而不是廣播整庫清空；被伺服器按名稱拒絕的檔案會被回報並保留在本機，而不是卡住每一次同步。
+PKV Sync 1.10.1 是一個正確性修復版本。在拉取下載某個檔案期間產生的本機編輯，現在會形成可見的衝突，而不是被靜默推上去覆蓋另一台裝置已提交的版本；被伺服器按名稱拒絕的檔案會在每一趟同步中持續回報，而不是下一趟就把狀態列變綠。單一逐檔案拒絕——超大檔案、路徑衝突、缺少附件——不再卡住整個筆記庫，重試或重複推送同一附件時，若伺服器已持有相同 blob，也不會再產生衝突副本。
 
-MCP `search` 不再因筆記庫過大而失敗：5000 檔案上限改以 `tree_capped` 加 `next_after` 游標回報，`search` 與 `link_graph` 的目錄樹走訪都會剪枝到請求的前綴。伺服器方面，目錄樹列舉改為讀取 blob 標頭而非內容，blob 指標防護現在同樣涵蓋自動合併路徑，MCP 寫入工具也和其他工具一樣拒絕隱藏路徑。完整清單請見發行歷史。
+移動或重新命名非 ASCII 名稱（中文、日文、emoji）的筆記時，Markdown 連結會保持完整，不再被改寫成亂碼。中斷的自更新會還原上一版外掛，Docker 快速開始會以正確的擁有者建立資料目錄，停用使用者會撤銷該使用者的裝置 token 與工作階段，MCP 錨點錯誤會指明真正失敗的標題層。請同時升級伺服器與外掛以使用完整版本。
 
 ## 功能
 
