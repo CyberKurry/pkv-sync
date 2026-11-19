@@ -19,17 +19,12 @@ import { fileURLToPath } from "node:url";
  * GHSA id → why it is tolerated and when the entry must disappear.
  * Removing an entry is the default; adding one needs the same rigour as a
  * code change: dev-only proof, no patched release, and a removal trigger.
+ *
+ * Currently empty: the picomatch entry (GHSA-fc5q-39xc-vjpf) became stale
+ * when the advisory was withdrawn upstream — `npm audit` exits 0 with the
+ * same 4.0.7 in the tree — and the gate said so, so it was deleted.
  */
-const EXCEPTIONS = new Map([
-  [
-    "GHSA-fc5q-39xc-vjpf",
-    {
-      package: "picomatch",
-      reason: "ReDoS; dev-only vitest/vite chain; no patched release exists",
-      removeWhen: "picomatch publishes a version above 4.0.7",
-    },
-  ],
-]);
+const EXCEPTIONS = new Map();
 
 const GATED = new Set(["moderate", "high", "critical"]);
 const pluginDir = fileURLToPath(new URL("..", import.meta.url));
