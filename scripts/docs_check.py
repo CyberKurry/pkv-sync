@@ -260,7 +260,15 @@ def check_changelog_structure(failures: list[str]) -> None:
     for section in sections:
         section_name = section["name"]
         subs = section["subs"]
-        if not subs and int(section["content"]) == 0:
+        # An empty `[Unreleased]` is the normal state directly after a
+        # release insertion (`## [Unreleased]` followed by the new release
+        # heading); the emptiness rule exists for release sections that lost
+        # their entries.
+        if (
+            not subs
+            and int(section["content"]) == 0
+            and not section_name.startswith("[Unreleased]")
+        ):
             failures.append(f"CHANGELOG.md: empty section '## {section_name}'")
         sub_names = [str(sub["name"]) for sub in subs]
         for name in sorted(
