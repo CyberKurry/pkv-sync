@@ -7,6 +7,16 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-11-20
+
+### Fixed
+
+- MCP Registry: `mcp/server.json` and the image's ownership annotation now
+  use the GitHub namespace's canonical case (`io.github.CyberKurry/pkv-sync`),
+  which is the namespace the registry grants and the exact string its OCI
+  ownership check compares. The lowercase form could never publish: both
+  the device-flow and PAT logins grant the mixed-case namespace.
+
 ## [1.10.1] - 2026-11-19
 
 ### Fixed

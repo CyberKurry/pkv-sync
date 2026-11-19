@@ -7,15 +7,13 @@ PKV Sync 是一个自托管的、Git 原生的 Obsidian 笔记库同步服务端
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-文档版本：v1.10.1。
+文档版本：v1.10.2。
 
 [English](./README.md) · 简体中文 · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## 状态
 
-PKV Sync 1.10.1 是一个正确性修复版本。在拉取下载某个文件期间产生的本地编辑，现在会形成可见的冲突，而不是被静默推上去覆盖另一台设备已提交的版本；被服务端按名称拒绝的文件会在每一趟同步中持续上报，而不是下一趟就把状态条变绿。单个逐文件拒绝——超大文件、路径冲突、缺失附件——不再卡住整个笔记库，重试或重复推送同一附件时，若服务端已持有相同 blob，也不会再生成冲突副本。
-
-移动或重命名非 ASCII 名称（中文、日文、emoji）的笔记时，Markdown 链接会保持完整，不再被改写成乱码。中断的自更新会恢复上一版插件，Docker 快速开始会以正确的属主创建数据目录，停用用户会撤销该用户的设备 token 与会话，MCP 锚点错误会指明真正失败的标题层。请同时升级服务端和插件以使用完整版本。
+PKV Sync 1.10.2 以 GitHub 命名空间的规范大小写（`io.github.CyberKurry/pkv-sync`）提供 MCP Registry 元数据，这正是注册表 OCI 归属校验所比对的名称。产品内容与 1.10.1 相同：在拉取下载某个文件期间产生的本地编辑会形成可见冲突，而不是覆盖另一台设备已提交的版本；被服务端拒绝的文件会在每一趟同步中持续上报，而不是把状态条变绿，单个逐文件拒绝也不再卡住整个笔记库；移动非 ASCII 名称的笔记时 Markdown 链接保持完整；中断的自更新会恢复上一版插件构建。请同时升级服务端和插件。
 
 ## 功能
 

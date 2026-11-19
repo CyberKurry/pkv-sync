@@ -7,28 +7,22 @@ The name is **PKV Sync**: **PKV** is the initialism of **Personal Knowledge Vaul
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-Document version: v1.10.1.
+Document version: v1.10.2.
 
 English · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## Status
 
-PKV Sync 1.10.1 is a correctness release. An edit made while a pull is
-downloading a file now becomes a visible conflict instead of being silently
-pushed over the other device's committed version, and a file the server
-refuses by name is reported on every pass instead of turning the status bar
-green on the next one. One per-file rejection — an oversized file, a path
-collision, a missing attachment — no longer wedges the rest of the vault, and
-a retried or duplicate attachment push no longer mints a conflict copy when
-the server already holds the identical blob.
-
-Moving or renaming a note with a non-ASCII name (Chinese, Japanese, emoji)
-keeps Markdown links intact instead of rewriting them into mojibake.
-Interrupted self-updates restore the previous plugin build, the Docker
-quickstart creates its data directory with the right owner, disabling a user
-revokes that user's device tokens and sessions, and MCP anchor errors name
-the heading segment that actually failed. Upgrade the server and plugin
-together to use the complete release.
+PKV Sync 1.10.2 ships its MCP Registry metadata under the canonical
+GitHub namespace case (`io.github.CyberKurry/pkv-sync`), which is the name
+the registry's OCI ownership check compares against. The product content
+matches 1.10.1: an edit made while a pull is downloading a file becomes a
+visible conflict instead of being pushed over the other device's committed
+version; a file the server refuses is reported on every pass instead of
+turning the status bar green, and one per-file rejection no longer wedges
+the rest of the vault; moving a note with a non-ASCII name keeps its
+Markdown links intact; and an interrupted self-update restores the previous
+plugin build. Upgrade the server and plugin together.
 
 ## Features
 

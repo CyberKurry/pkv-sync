@@ -12,16 +12,14 @@ Self-hosted, Git-backed synchronization for Obsidian.
 
 ## Current release
 
-PKV Sync 1.10.1 is a correctness release. An edit made while a pull is
-downloading a file becomes a visible conflict instead of overwriting the other
-device's committed version, and a file the server refuses by name is reported
-on every pass instead of showing a green status. One per-file rejection no
-longer wedges the rest of the vault, and duplicate or retried attachment
-pushes no longer mint conflict copies when the server already holds the same
-blob. Moving a note with a non-ASCII name keeps Markdown links intact, an
-interrupted self-update restores the previous build, and disabling a user
-revokes their device tokens. Upgrade the server and plugin together to use
-the complete release.
+PKV Sync 1.10.2 ships its MCP Registry metadata under the canonical
+GitHub namespace case (`io.github.CyberKurry/pkv-sync`). The product content
+matches 1.10.1: an edit made while a pull downloads a file becomes a visible
+conflict instead of overwriting the other device's committed version, a
+refused file is reported on every pass instead of showing a green status,
+one per-file rejection no longer wedges the vault, moving a note with a
+non-ASCII name keeps its Markdown links, and an interrupted self-update
+restores the previous build. Upgrade the server and plugin together.
 
 ## What it is
 

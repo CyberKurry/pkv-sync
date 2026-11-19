@@ -7,15 +7,13 @@ PKV Sync는 Obsidian Vault를 자체 호스팅으로 동기화하는 Git 네이�
 [![CI](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberkurry/pkv-sync/actions/workflows/ci.yml)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](./LICENSE)
 
-문서 버전: v1.10.1.
+문서 버전: v1.10.2.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-Hant.md) · [日本語](./README.ja.md) · 한국어
 
 ## 릴리스 상태
 
-PKV Sync 1.10.1은 정확성 릴리스입니다. pull이 어떤 파일을 다운로드하는 동안 발생한 편집은 다른 기기의 커밋된 버전을 조용히 덮어쓰는 대신 눈에 보이는 충돌이 됩니다. 서버가 이름으로 거부한 파일은 다음 패스에서 상태 표시줄을 녹색으로 되돌리는 대신 매번 보고됩니다. 파일 단위 거부(크기 초과, 경로 충돌, 누락된 첨부) 하나가 Vault 전체를 막지 않으며, 서버가 이미 동일한 blob을 보유한 경우 재시도되거나 중복된 첨부 push가 충돌 사본을 만들지 않습니다.
-
-비 ASCII 이름(중국어, 일본어, emoji)의 노트를 이동하거나 이름을 바꿔도 Markdown 링크가 깨지지 않고 깨진 문자로 다시 쓰이지 않습니다. 중단된 자체 업데이트는 이전 플러그인 빌드를 복원하고, Docker 빠른 시작은 올바른 소유자로 데이터 디렉터리를 만들며, 사용자 비활성화는 해당 사용자의 장치 token과 세션을 철회하고, MCP 앵커 오류는 실제로 실패한 제목 계층을 알려 줍니다. 서버와 플러그인을 함께 업그레이드하세요.
+PKV Sync 1.10.2는 MCP Registry 메타데이터를 GitHub 네임스페이스의 정규 대소문자(`io.github.CyberKurry/pkv-sync`)로 제공합니다. 이는 레지스트리의 OCI 소유권 검사가 비교하는 이름입니다. 제품 내용은 1.10.1과 같습니다. pull이 파일을 다운로드하는 동안의 편집은 다른 기기의 커밋된 버전을 덮어쓰는 대신 눈에 보이는 충돌이 되고, 서버가 거부한 파일은 상태 표시줄을 녹색으로 되돌리는 대신 매번 보고되며, 파일 단위 거부 하나가 Vault 전체를 막지 않습니다. 비 ASCII 이름의 노트를 이동해도 Markdown 링크가 유지되고, 중단된 자체 업데이트는 이전 플러그인 빌드를 복원합니다. 서버와 플러그인을 함께 업그레이드하세요.
 
 ## 기능
 
