@@ -16,7 +16,9 @@ desktop.ini
 
 # Agent guidance is machine-local, like docs/: never published.
 AGENTS.md
+CLAUDE.md
 docs/
+.agents/
 
 target/
 **/*.rs.bk
