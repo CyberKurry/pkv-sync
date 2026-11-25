@@ -794,6 +794,8 @@ async fn admin_can_browse_vault_files_history_and_diff_read_only() {
     let history_resp = app.clone().oneshot(history_req).await.unwrap();
     assert_eq!(history_resp.status(), StatusCode::OK);
     let history_body = read_body(history_resp).await;
+    assert!(history_body.contains("<h1>History</h1>"));
+    assert!(history_body.contains("<h2>note.md</h2>"));
     assert!(history_body.contains(&c2[..7]));
     assert!(history_body.contains("View at this commit"));
     assert!(history_body.contains("Diff with previous"));
@@ -813,6 +815,18 @@ async fn admin_can_browse_vault_files_history_and_diff_read_only() {
     let diff_resp = app.oneshot(diff_req).await.unwrap();
     assert_eq!(diff_resp.status(), StatusCode::OK);
     let diff_body = read_body(diff_resp).await;
+    assert!(diff_body.contains("<h1>Diff</h1>"));
+    let (_, revision_details) = diff_body
+        .split_once("<details class=\"revision-range\">")
+        .unwrap();
+    let (summary, revision_details) = revision_details.split_once("</summary>").unwrap();
+    assert!(summary.contains(&format!("<code>{}</code>", &c1[..7])));
+    assert!(summary.contains(&format!("<code>{}</code>", &c2[..7])));
+    assert!(!summary.contains(&c1));
+    assert!(!summary.contains(&c2));
+    let (hashes, _) = revision_details.split_once("</details>").unwrap();
+    assert!(hashes.contains(&format!("<code>{c1}</code>")));
+    assert!(hashes.contains(&format!("<code>{c2}</code>")));
     assert!(diff_body.contains("diff-split"));
     assert!(diff_body.contains("diff-right-cell diff-add"));
     assert!(diff_body.contains(">world<"));

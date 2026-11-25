@@ -1685,11 +1685,12 @@ async fn vault_diff_page(
     )
     .await?;
     let rows = diff_rows(&diff.patch);
+    let t = admin_text(&headers, &cookies);
     let from_label = diff
         .from
         .as_deref()
         .map(short_commit)
-        .unwrap_or_else(|| "base".into());
+        .unwrap_or_else(|| t.diff_empty_base.into());
     let to = diff.to.unwrap_or(query.to);
     let to_label = short_commit(&to);
     record_admin_view(
@@ -1703,7 +1704,7 @@ async fn vault_diff_page(
     )
     .await?;
     Ok(render_html(VaultDiffTemplate {
-        t: admin_text(&headers, &cookies),
+        t,
         vault: vault_view,
         path: diff.path,
         from: diff.from,

@@ -208,7 +208,9 @@ text files stay in source view. Relative vault-file links retain the selected
 historical revision unless the link specifies another revision.
 
 The history page lists commits for that file and links to the file at each
-commit and the corresponding diff. The diff page renders unified diff lines with
+commit and the corresponding diff. Its header shows the vault and owner.
+The diff header shows short commit IDs. Expand **Commit range** to select and
+copy the full IDs. The diff page renders unified diff lines with
 add/delete/hunk coloring. Binary files show metadata and do not render binary
 diff content. Paths rejected by the active sync filter are hidden from file
 preview, commit-list, history, and diff surfaces.

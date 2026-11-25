@@ -7,6 +7,12 @@ and this project adheres to semantic versioning starting at v1.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Admin file history and diff headers now show the full path once, with
+  labeled vault and owner details on history and an expandable commit
+  range on diffs. Long paths wrap within the card on narrow screens.
+
 ## [1.10.2] - 2026-11-20
 
 ### Fixed

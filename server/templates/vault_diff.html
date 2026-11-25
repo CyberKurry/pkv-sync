@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}{{ path }} {{ t.diff }} - {{ t.admin_title }}{% endblock %}
 {% block nav_vaults %}is-active{% endblock %}
-{% block page_title %}{{ path }} {{ t.diff }}{% endblock %}
+{% block page_title %}{{ t.diff }}{% endblock %}
 {% block header_actions %}
 <a class="secondary action-button" href="/admin/vaults/{{ vault.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg> {{ t.files }}</a>
 {% endblock %}
@@ -12,7 +12,21 @@
       <span class="metric-label">{{ t.path }}</span>
       <h2>{{ path }}</h2>
     </div>
-    <span class="resource-meta">{% if let Some(from) = from %}{{ from }}..{% endif %}{{ to }}</span>
+    <details class="revision-range">
+      <summary>
+        <span class="metric-label">{{ t.diff_commits }}</span>
+        <span class="revision-range-short">
+          {% if from.is_some() %}<code>{{ from_label }}</code>{% else %}<span>{{ from_label }}</span>{% endif %}
+          <svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#arrow-right"></use></svg>
+          <code>{{ to_label }}</code>
+          <svg class="admin-icon revision-range-chevron" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#chevron-down"></use></svg>
+        </span>
+      </summary>
+      <div class="revision-range-full">
+        {% if let Some(from) = from %}<code>{{ from }}</code>{% else %}<span>{{ from_label }}</span>{% endif %}
+        <code>{{ to }}</code>
+      </div>
+    </details>
   </div>
   {% if truncated %}
   <p class="warning">{{ t.large_diff_truncated }}</p>

@@ -1,15 +1,27 @@
 {% extends "layout.html" %}
 {% block title %}{{ path }} {{ t.history }} - {{ t.admin_title }}{% endblock %}
 {% block nav_vaults %}is-active{% endblock %}
-{% block page_title %}{{ path }} {{ t.history }}{% endblock %}
+{% block page_title %}{{ t.history }}{% endblock %}
 {% block header_actions %}
 <a class="secondary action-button" href="/admin/vaults/{{ vault.id }}/files"><svg class="admin-icon" aria-hidden="true"><use href="/admin/static/lucide-icons.svg#folder-open"></use></svg> {{ t.files }}</a>
 {% endblock %}
 {% block content %}
 <section class="panel history-panel">
-  <div class="panel-header">
-    <h2>{{ path }}</h2>
-    <span class="muted-text">{{ vault.name }} · {{ vault.owner_username }}</span>
+  <div class="panel-header resource-panel-head">
+    <div>
+      <span class="metric-label">{{ t.path }}</span>
+      <h2>{{ path }}</h2>
+    </div>
+    <dl class="history-context">
+      <div>
+        <dt class="metric-label">{{ t.vault }}</dt>
+        <dd>{{ vault.name }}</dd>
+      </div>
+      <div>
+        <dt class="metric-label">{{ t.owner }}</dt>
+        <dd>{{ vault.owner_username }}</dd>
+      </div>
+    </dl>
   </div>
   {% if entries.is_empty() %}
   <p class="empty-state">{{ t.no_file_history }}</p>
